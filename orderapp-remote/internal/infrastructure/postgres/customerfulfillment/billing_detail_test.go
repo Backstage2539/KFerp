@@ -110,3 +110,36 @@ func TestBillingDetailUsesOnlyFreightSourceWaybill(t *testing.T) {
 		t.Fatalf("unexpected detail: %+v", detail)
 	}
 }
+
+func TestBillingDefaultSealMatchesPreviewAndRespectsSavedEmptyLayout(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerFulfillmentTestDB(t)
+	repo := NewRepository(pool, schema)
+	var customerID, billID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.customers(name) VALUES('默认公章测试') RETURNING id`, schema)).Scan(&customerID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.customer_settlement_batches(customer_id,settlement_no,status,total_amount,created_by) VALUES($1,'BILL-DEFAULT-SEAL','confirmed',10,'test') RETURNING id`, schema), customerID).Scan(&billID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`CREATE TABLE %s.sales_order_settings(id bigint primary key,seal_asset_id bigint); INSERT INTO %s.sales_order_settings VALUES(1,9)`, schema, schema)); err != nil {
+		t.Fatal(err)
+	}
+	initial, err := repo.GetBillingPDFSettings(ctx, customerID, billID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if initial.SealAssetID != 9 || len(initial.Placements) != 1 || initial.Placements[0].PageNumber != 1 {
+		t.Fatalf("default=%+v", initial)
+	}
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_settlement_bill_pdf_settings(customer_id,settlement_id,seal_asset_id,placements) VALUES($1,$2,9,'[]'::jsonb)`, schema), customerID, billID); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := repo.GetBillingPDFSettings(ctx, customerID, billID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Placements) != 0 {
+		t.Fatalf("saved empty changed: %+v", saved)
+	}
+}

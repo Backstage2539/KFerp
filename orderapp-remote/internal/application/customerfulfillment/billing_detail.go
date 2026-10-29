@@ -5,6 +5,15 @@ import (
 	"strings"
 )
 
+// Use the same A4 landscape default as the interactive stamp preview only
+// until a bill has its own saved settings, including an explicitly empty set.
+func ApplyBillingSealDefault(settings BillingPDFSettings, hasSaved bool) BillingPDFSettings {
+	if !hasSaved && settings.SealAssetID > 0 && len(settings.Placements) == 0 {
+		settings.Placements = []BillingPDFPlacement{{PageNumber: 1, X: 673.89, Y: 107.15, Width: 120, Height: 120, Kind: "seal", Resizable: true, LockAspectRatio: true, MinWidth: 36, MinHeight: 36}}
+	}
+	return settings
+}
+
 // BillingLineDetail explains one existing receivable; it never creates another charge.
 type BillingLineDetail struct {
 	OrderID           int64              `json:"order_id,omitempty"`

@@ -921,10 +921,6 @@ async function openIssuedBill(batchID) {
 
 function onBillPDFLoaded(pages) {
   billPDFPages.value = pages || []
-  if (!billPDFSettings.value.seal_asset_id || billPDFSettings.value.placements?.length || !billPDFPages.value.length) return
-  const page = billPDFPages.value[0]
-  const placement = defaultContractStampPlacement({ pageNumber: page.pageNumber, pageWidth: page.pageWidth, pageHeight: page.pageHeight })
-  billPDFSettings.value = { ...billPDFSettings.value, placements: [{ ...placement, kind: 'seal', resizable: true, lock_aspect_ratio: true, min_width: 36, min_height: 36 }] }
 }
 
 function hasBillingSealPage(pageNumber) {
@@ -951,7 +947,11 @@ function updateBillPDFPlacement(placement) {
 
 async function onBillingSealChanged() {
   billPDFSettings.value = { ...billPDFSettings.value, placements: [] }
-  if (billPDFSettings.value.seal_asset_id && billPDFPages.value.length) onBillPDFLoaded(billPDFPages.value)
+  if (billPDFSettings.value.seal_asset_id && billPDFPages.value.length) {
+    const page = billPDFPages.value[0]
+    const placement = defaultContractStampPlacement({ pageNumber: page.pageNumber, pageWidth: page.pageWidth, pageHeight: page.pageHeight })
+    billPDFSettings.value = { ...billPDFSettings.value, placements: [{ ...placement, kind: 'seal', resizable: true, lock_aspect_ratio: true, min_width: 36, min_height: 36 }] }
+  }
   await saveBillingPDFSettings()
 }
 

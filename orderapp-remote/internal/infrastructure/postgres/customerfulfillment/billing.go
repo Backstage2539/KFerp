@@ -631,7 +631,7 @@ func (r *Repository) GetBillingPDFSettings(ctx context.Context, customerID, sett
 	if out.Placements == nil {
 		out.Placements = []app.BillingPDFPlacement{}
 	}
-	return out, nil
+	return app.ApplyBillingSealDefault(out, hasSavedSettings), nil
 }
 
 func (r *Repository) SaveBillingPDFSettings(ctx context.Context, settings app.BillingPDFSettings, actor string) (app.BillingPDFSettings, error) {
