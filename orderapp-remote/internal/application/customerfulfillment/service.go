@@ -557,20 +557,21 @@ type SettlementResult struct {
 }
 
 type SettlementLineSummary struct {
-	ID                  int64  `json:"id,omitempty"`
-	ChargeType          string `json:"charge_type"`
-	SourceType          string `json:"source_type"`
-	SourceID            int64  `json:"source_id"`
-	SourceNo            string `json:"source_no,omitempty"`
-	Description         string `json:"description,omitempty"`
-	OccurredAt          string `json:"occurred_at"`
-	ReceivableCents     int64  `json:"receivable_cents"`
-	AmountCents         int64  `json:"amount_cents"`
-	ReceivedCents       int64  `json:"received_cents"`
-	IssuedReceivedCents int64  `json:"issued_received_cents,omitempty"`
-	DueCents            int64  `json:"due_cents"`
-	ConfirmationStatus  string `json:"confirmation_status"`
-	SettlementStatus    string `json:"settlement_status"`
+	Detail              *BillingLineDetail `json:"detail,omitempty"`
+	ID                  int64              `json:"id,omitempty"`
+	ChargeType          string             `json:"charge_type"`
+	SourceType          string             `json:"source_type"`
+	SourceID            int64              `json:"source_id"`
+	SourceNo            string             `json:"source_no,omitempty"`
+	Description         string             `json:"description,omitempty"`
+	OccurredAt          string             `json:"occurred_at"`
+	ReceivableCents     int64              `json:"receivable_cents"`
+	AmountCents         int64              `json:"amount_cents"`
+	ReceivedCents       int64              `json:"received_cents"`
+	IssuedReceivedCents int64              `json:"issued_received_cents,omitempty"`
+	DueCents            int64              `json:"due_cents"`
+	ConfirmationStatus  string             `json:"confirmation_status"`
+	SettlementStatus    string             `json:"settlement_status"`
 }
 
 type SettlementChargeTotals struct {

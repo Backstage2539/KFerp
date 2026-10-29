@@ -204,6 +204,48 @@ CREATE TABLE %[1]s.order_freight_snapshots(order_id BIGINT,snapshot_json JSONB);
 	if err = repo.UpdateOrderStatus(ctx, cmd); err != nil {
 		t.Fatal(err)
 	}
+	// Shipping-only updates do not repair or erase legacy payment data and do
+	// not require a historic receipt to meet current payment policy.
+	_, err = pool.Exec(ctx, fmt.Sprintf(`DROP TRIGGER reject_shipping_touch ON %[1]s.orders; ALTER TABLE %[1]s.orders ADD COLUMN delivery_mode TEXT; UPDATE %[1]s.orders SET confirmation_required=false,pay_status_id=4,payment_method='历史方式',payment_goods_amount=0,payment_shipping_amount=0,payment_voucher_asset_id=0,ship_status_id=1,ship_method='pickup',delivery_mode='shipment' WHERE id=42; UPDATE %[1]s.sales_order_documents SET is_latest=true WHERE order_id=42`, schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = pool.Exec(ctx, fmt.Sprintf(`CREATE FUNCTION %[1]s.reject_payment_touch() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RAISE EXCEPTION 'shipping update touched payment'; END$$;CREATE TRIGGER reject_payment_touch BEFORE UPDATE OF pay_status_id,payment_method ON %[1]s.orders FOR EACH ROW EXECUTE FUNCTION %[1]s.reject_payment_touch()`, schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := false
+	shipOnly := salesapp.UpdateOrderStatusCommand{OrderID: 42, ShipStatusID: 2, PaymentUnchanged: true, ExpectedEditRevision: revision(), Actor: "test", Source: "erp-batch-order-status", Changed: &changed}
+	if err = repo.UpdateOrderStatus(ctx, shipOnly); err != nil || !changed {
+		t.Fatalf("shipping-only: changed=%v err=%v", changed, err)
+	}
+	var gotPay int64
+	var gotMethod string
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT pay_status_id,payment_method FROM %s.orders WHERE id=42`, schema)).Scan(&gotPay, &gotMethod); err != nil || gotPay != 4 || gotMethod != "历史方式" {
+		t.Fatalf("payment data altered: %d %q %v", gotPay, gotMethod, err)
+	}
+	var sourceCount, activeDocs int
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.audit_logs WHERE entity_id=42 AND field='ship_status_id' AND meta->>'source'='erp-batch-order-status'`, schema)).Scan(&sourceCount); err != nil || sourceCount != 1 {
+		t.Fatalf("audit source %d: %v", sourceCount, err)
+	}
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.sales_order_documents WHERE order_id=42 AND is_latest`, schema)).Scan(&activeDocs); err != nil || activeDocs != 0 {
+		t.Fatalf("documents %d: %v", activeDocs, err)
+	}
+	if err = repo.UpdateOrderStatus(ctx, shipOnly); err == nil {
+		t.Fatal("stale batch revision must conflict")
+	}
+	shipOnly.ExpectedEditRevision = revision()
+	changed = true
+	if err = repo.UpdateOrderStatus(ctx, shipOnly); err != nil || changed {
+		t.Fatalf("unchanged retry: %v %v", changed, err)
+	}
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET delivery_mode='customer_stock',ship_status_id=1 WHERE id=42`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	shipOnly.ExpectedEditRevision = revision()
+	if err = repo.UpdateOrderStatus(ctx, shipOnly); err == nil {
+		t.Fatal("customer stock shipping must be immutable")
+	}
 	if !strings.Contains(beforeItems, "frozen") {
 		t.Fatal("fixture lost frozen content")
 	}

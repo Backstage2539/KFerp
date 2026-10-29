@@ -252,6 +252,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-746-BILL-ORDER-DETAIL-SHARE", title: "已出账账单补充订单费用明细并下载分享图片", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-10-29-bill-order-detail-share.md"},
+		{table: "req_dev", code: "DEV-PR746-01", title: "账单来源明细与出账快照", status: "done", assignee: "Codex", evidence: "billing detail source and snapshot tests"},
+		{table: "req_dev", code: "DEV-PR746-02", title: "账单页面和 Excel、PDF、PNG 输出", status: "done", assignee: "Codex", evidence: "billing export and rendering tests"},
+		{table: "req_dev", code: "DEV-PR746-03", title: "手册、验收与开发环境交付", status: "in_progress", assignee: "Codex", evidence: "docs/acceptance/2026-10-29-bill-order-detail-share.md"},
 		{table: "req_product", code: "PR-FULFILLMENT-BILL-PAYMENT", title: "履约出账账单收款、撤销及订单和库存状态联动", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-10-29-fulfillment-bill-payment.md"},
 		{table: "req_dev", code: "DEV-FULFILLMENT-BILL-PAYMENT-01", title: "账单收款与安全撤销、订单收款联动和审计", status: "done", assignee: "Codex", evidence: "billing_payment_test.go; real PostgreSQL mixed billing, concurrency, reversal and HTTP tests"},
 		{table: "req_dev", code: "DEV-FULFILLMENT-BILL-PAYMENT-02", title: "履约页面账单收款操作及库存关联订单状态", status: "done", assignee: "Codex", evidence: "customer-billing.test.js; fulfillment-inventory-orders-dom.test.js; PostgreSQL inventory sources"},

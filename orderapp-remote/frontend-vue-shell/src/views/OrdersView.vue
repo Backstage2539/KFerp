@@ -106,6 +106,7 @@
       <details v-if="returnReport.length"><summary>本次回传明细（{{returnReport.length}}）</summary><p v-for="r in returnReport" :key="r.row_no">第 {{r.row_no}} 行 · {{r.tracking_no||'无单号'}} · {{r.status==='applied'?'已回填':r.status==='pending'?'待选择':r.status==='unmatched'?'未匹配':'已跳过'}} · 揽件时间：{{r.pickup_time||'未记录'}} · 结算重量：{{r.settlement_weight_kg ? `${r.settlement_weight_kg} kg` : '未记录'}} {{r.error}}</p></details>
       <div v-if="shippingError" class="notice error">{{ shippingError }}</div>
       <div class="bulk-order-bar">
+        <button class="secondary" type="button" @click="openBatchStatus" :disabled="!selectedOrderIDs.length">批量修改状态（{{ selectedOrderIDs.length }}）</button>
         <span>批量失效已选 {{ selectedVoidableOrderIDs.length }} 个</span>
         <button class="danger-action" type="button" @click="voidSelectedOrders" :disabled="bulkVoiding || !selectedVoidableOrderIDs.length">
           {{ bulkVoiding ? '失效中' : '批量失效' }}
@@ -161,7 +162,7 @@
                   type="checkbox"
                   :checked="selectedOrderIDs.includes(Number(row.id))"
                   :disabled="row.is_void"
-                  :title="row.is_void ? '已失效订单不能选择' : '选择后可批量失效、发货或组合单据'"
+                  :title="row.is_void ? '已失效订单不能选择' : '选择后可批量修改状态、失效、发货或组合单据'"
                   @change="toggleOrderSelection(row, $event.target.checked)"
                 />
               </td>
@@ -428,6 +429,8 @@
       </aside>
     </div>
 
+    <OrderBatchStatusDialog v-if="batchStatusOpen" :selected-rows="batchStatusRows" :pay-statuses="payStatuses" :ship-statuses="shipStatuses" @close="batchStatusOpen = false" @updated="load(true)" />
+
     <div v-if="salesOrderDrawerOpen" class="sales-order-drawer-mask" @click.self="closeSalesOrderDrawer">
       <aside class="sales-order-drawer" aria-label="销售单">
         <SalesOrderView :order-id="activeSalesOrderID" embedded @close="closeSalesOrderDrawer" />
@@ -462,6 +465,7 @@
 
 <script setup>
 import ShippingReturnPicker from '../components/ShippingReturnPicker.vue'
+import OrderBatchStatusDialog from '../components/OrderBatchStatusDialog.vue'
 import OrderDetailsCopyButton from '../components/OrderDetailsCopyButton.vue'
 import OrderItemWeights from '../components/OrderItemWeights.vue'
 import { conversionSnapshot, conversionDescription } from '../lib/spec-conversion.js'
@@ -519,6 +523,8 @@ const page = ref(1)
 const hasPrev = ref(false)
 const hasNext = ref(false)
 const selectedOrderIDs = ref([])
+const batchStatusOpen = ref(false)
+const batchStatusRows = ref([])
 const shippingLoading = ref(false)
 const shippingExcelUrl = ref('')
 const shippingMessage = ref('')
@@ -569,6 +575,10 @@ const filters = reactive({
 const selectedRows = computed(() => selectedOrderIDs.value
   .map((id) => rows.value.find((row) => Number(row.id) === Number(id)))
   .filter(Boolean))
+function openBatchStatus() {
+  batchStatusRows.value = selectedRows.value.map(row => ({ ...row }))
+  batchStatusOpen.value = batchStatusRows.value.length > 0
+}
 const pageSelectionState = computed(() => orderListSelectionState(rows.value, selectedOrderIDs.value))
 const selectedVoidableOrderIDs = computed(() => selectedRows.value
   .filter(ordinaryOrderVoidable)

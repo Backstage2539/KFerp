@@ -60,6 +60,7 @@ type SharedProcessingService interface {
 }
 
 type Dependencies struct {
+	AssetDir            string
 	CustomerFulfillment Service
 	Customers           CustomerDirectory
 	MessageCenter       MessagePublisher
@@ -72,7 +73,7 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	registerEmployeeDirectShipAPI(e, deps.CustomerFulfillment)
 	registerEmployeeDirectShipCancelAPI(e, deps.CustomerFulfillment)
 	registerPortalDirectShipAPI(e, deps)
-	api := api{svc: deps.CustomerFulfillment, customers: deps.Customers, messages: deps.MessageCenter, sales: deps.Sales, sharedProcessing: deps.SharedProcessing}
+	api := api{svc: deps.CustomerFulfillment, customers: deps.Customers, messages: deps.MessageCenter, sales: deps.Sales, sharedProcessing: deps.SharedProcessing, assetDir: deps.AssetDir}
 	e.GET("/api/customer-fulfillment/customers", api.listCustomers)
 	e.GET("/api/customer-fulfillment/:customer_id/overview", api.overview)
 	e.GET("/api/customer-fulfillment/:customer_id/options", api.options)

@@ -19,6 +19,9 @@ type UpdateOrderStatusCommand struct {
 	PaymentShippingAmount *float64
 	PaymentVoucherAssetID *int64
 	Actor                 string
+	Source                string
+	PaymentUnchanged      bool
+	Changed               *bool
 }
 
 type OrderStatusRepository interface {
@@ -37,4 +40,19 @@ func (s *Service) UpdateOrderStatus(ctx context.Context, cmd UpdateOrderStatusCo
 		return fmt.Errorf("order status update unavailable")
 	}
 	return repo.UpdateOrderStatus(ctx, cmd)
+}
+
+// OrderStatusEditData loads the existing order without the unrelated catalog and
+// customer option lists normally included in the full order editor.
+func (s *Service) OrderStatusEditData(ctx context.Context, id int64) (*OrderEditData, error) {
+	if id <= 0 {
+		return nil, fmt.Errorf("invalid order id")
+	}
+	repo, ok := s.repo.(interface {
+		OrderStatusEditData(context.Context, int64) (*OrderEditData, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("order status read unavailable")
+	}
+	return repo.OrderStatusEditData(ctx, id)
 }
