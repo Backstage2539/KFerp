@@ -60,6 +60,10 @@ export function fetchCustomerBill(customerId, batchId, customerPortal = false) {
   return apiGet(`${root(customerId, customerPortal)}/bills/${Number(batchId)}`)
 }
 
+export function updateCustomerBillPayment(customerId, batchId, action, expectedDueAmountCents, idempotencyKey, expectedPaymentRevision, paymentMethod = '') {
+  return apiSend(`${root(customerId)}/bills/${Number(batchId)}/payment`, { body: { action, expected_due_amount_cents: expectedDueAmountCents, idempotency_key: idempotencyKey, expected_payment_revision: expectedPaymentRevision, ...(paymentMethod ? { payment_method: paymentMethod } : {}) } })
+}
+
 export function fetchCustomerBillPDFSettings(customerId, batchId) {
   return apiGet(`${root(customerId)}/bills/${Number(batchId)}/pdf-settings`)
 }
