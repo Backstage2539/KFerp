@@ -69,7 +69,7 @@ const defaultMiniappTimelineShare = () => ({
 function backToBeans(){uni.reLaunch({url:'/pages/bean-list-center/bean-list-center'})}
 function chooseCustomer(){uni.navigateTo({url:'/pages/customer-select/customer-select?return_to='+encodeURIComponent(destination())})}
 function login() {
-  uni.navigateTo({ url: loginRouteFor(destination())+(needsCustomerLogin.value?'&mode=password':'') })
+  uni.navigateTo({ url: loginRouteFor(destination()) })
 }
 async function load() {
   const request = ++sequence
@@ -105,7 +105,9 @@ async function load() {
   } catch (e) {
     if (request !== sequence) return
     if(e instanceof MiniRequestError && e.statusCode===401 && e.code==='mini_registration_required') {
-      registration.openRequired(entry.value)
+      needsLogin.value = true
+      needsCustomerLogin.value = false
+      error.value = '请先登录客户账号后查看'
       return
     }
     error.value = e instanceof Error ? e.message : '暂时无法加载页面'

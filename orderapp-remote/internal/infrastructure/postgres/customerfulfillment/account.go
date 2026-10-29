@@ -49,6 +49,9 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 	if q.OrderID > 0 {
 		add("o.id=$%d", q.OrderID)
 	}
+	if len(q.OrderIDs) > 0 {
+		add("o.id=ANY($%d)", q.OrderIDs)
+	}
 	if q.DateFrom != "" {
 		add("o.order_date >= $%d::date", q.DateFrom)
 	}
@@ -144,6 +147,10 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 	if err != nil {
 		return d, err
 	}
+	selectedOrderIDs := map[int64]bool{}
+	for _, id := range q.OrderIDs {
+		selectedOrderIDs[id] = true
+	}
 	allFees := []app.AccountFee{}
 	seenFeeSources := map[string]bool{}
 	for fees.Next() {
@@ -152,6 +159,9 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 		if err = fees.Scan(&f.ID, &f.SourceType, &f.SourceID, &f.OrderID, &f.OrderNo, &f.FeeType, &f.FeeName, &f.AmountCents, &f.Currency, &f.OccurredAt, &f.SettlementID, &f.SettlementNo, &f.SettlementStatus, &paid, &f.ShipmentID, &f.TrackingNo); err != nil {
 			fees.Close()
 			return d, err
+		}
+		if len(selectedOrderIDs) > 0 && !selectedOrderIDs[f.OrderID] {
+			continue
 		}
 		f.PaymentStatus = "unpaid"
 		if f.SettlementStatus == "paid" || (paid != "" && f.SettlementStatus != "reversed") {

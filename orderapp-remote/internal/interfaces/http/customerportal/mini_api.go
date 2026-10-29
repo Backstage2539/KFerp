@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	customerfulfillmentapp "orderapp/internal/application/customerfulfillment"
 	customerportalapp "orderapp/internal/application/customerportal"
 	messagecenterapp "orderapp/internal/application/messagecenter"
 	pdfinfra "orderapp/internal/infrastructure/pdf"
@@ -95,6 +96,10 @@ type beanListPNGCacheService interface {
 }
 
 func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanListPDFRenderer BeanListPDFRenderer, salesDocs SalesDocuments, closeLegacyFulfillmentWrites ...bool) {
+	registerMiniAPIWithFees(e, svc, messages, beanListPDFRenderer, salesDocs, nil, closeLegacyFulfillmentWrites...)
+}
+
+func registerMiniAPIWithFees(e *echo.Echo, svc Service, messages MessagePublisher, beanListPDFRenderer BeanListPDFRenderer, salesDocs SalesDocuments, fulfillment MiniCustomerFulfillment, closeLegacyFulfillmentWrites ...bool) {
 	legacyFulfillmentWritesClosed := len(closeLegacyFulfillmentWrites) > 0 && closeLegacyFulfillmentWrites[0]
 	e.POST("/api/mini/login", func(c echo.Context) error {
 		if svc == nil {
@@ -231,6 +236,37 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 		})
 		if err != nil {
 			return miniBusinessError(c, err)
+		}
+		if fulfillment != nil && len(result.Orders) > 0 {
+			ids := make([]int64, 0, len(result.Orders))
+			for _, order := range result.Orders {
+				ids = append(ids, order.ID)
+			}
+			account, accountErr := fulfillment.CustomerAccount(c.Request().Context(), customerfulfillmentapp.AccountQuery{CustomerID: result.CurrentCustomerID, OrderIDs: ids, View: "order_fees"})
+			if accountErr != nil {
+				return miniCustomerFulfillmentError(c, accountErr)
+			}
+			summaries := map[int64]*customerportalapp.CustomerOrderFeeSummary{}
+			for _, group := range account.OrderFeeGroups {
+				if group.Order.ID <= 0 {
+					continue
+				}
+				summary := &customerportalapp.CustomerOrderFeeSummary{PayableCents: group.PayableCents, PaidCents: group.PaidCents, UnpaidCents: group.DueCents}
+				for _, line := range group.FeeLines {
+					switch line.Category {
+					case "product":
+						summary.GoodsCents += line.AmountCents
+					case "shipping":
+						summary.ShippingCents += line.AmountCents
+					case "direct_ship_service":
+						summary.ServiceCents += line.AmountCents
+					}
+				}
+				summaries[group.Order.ID] = summary
+			}
+			for i := range result.Orders {
+				result.Orders[i].FeeSummary = summaries[result.Orders[i].ID]
+			}
 		}
 		return c.JSON(http.StatusOK, result)
 	})
@@ -949,6 +985,9 @@ func publishMiniOrderCreated(c echo.Context, messages MessagePublisher, result c
 }
 
 func miniLoginError(c echo.Context, err error) error {
+	if errors.Is(err, customerportalapp.ErrCustomerBindingNotFound) {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "客户账号尚未绑定，请联系管理员"})
+	}
 	if errors.Is(err, customerportalapp.ErrMiniInvalidLogin) {
 		return c.JSON(401, map[string]string{"error": "手机号验证失败，请重新授权"})
 	}

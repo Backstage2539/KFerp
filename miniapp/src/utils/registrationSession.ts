@@ -25,12 +25,12 @@ export async function restoreRegistrationSession(session: ReturnType<typeof useS
       if (session.autoRestoreBlocked || session.token !== expectedToken) return
       const result = await loginWithCode(code)
       if (session.autoRestoreBlocked || session.token !== expectedToken) return
-      if (result.registration_complete) {
+      if (result.registration_complete || (result.bindings || []).some(binding => binding.status === 'approved')) {
         session.setToken(result.token)
         session.applyContext(result)
       }
     } catch (cause) {
-      if (!session.autoRestoreBlocked && session.token === expectedToken) throw cause
+      if (!session.autoRestoreBlocked && session.token === expectedToken && session.registrationKnown) throw cause
     }
   })()
   try { await restoring } finally { restoring = null }

@@ -340,6 +340,8 @@ export type ProductSummary = {
 }
 
 export type CustomerOrderSummary = {
+  fee_summary?: import('../utils/customerOrderFees').CustomerFeeSummary
+
   fulfillment_progress?: FulfillmentProgress
 
  freight?:FreightSnapshot

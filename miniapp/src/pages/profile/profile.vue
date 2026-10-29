@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import RegistrationProfile from "../../components/RegistrationProfile.vue"
 import {restoreRegistrationSession} from "../../utils/registrationSession"
 import {loginRouteFor} from "../../utils/loginReturn"
 import { computed, ref } from 'vue'
@@ -89,8 +88,9 @@ const serviceDescriptions = computed(() => {
 })
 
 function clearAndLogin() {
+  const mode = isEmployee.value ? 'password' : undefined
   session.logout()
-  uni.reLaunch({ url: loginRouteFor('/pages/profile/profile', 'password') })
+  uni.reLaunch({ url: loginRouteFor('/pages/profile/profile', mode) })
 }
 
 function redirectExpiredShareSettingsSession(error: unknown): boolean {
@@ -356,7 +356,6 @@ onShow(() => { void refreshMiniappShareMenu() })
     <view class="pull-up-brand-footer-anchor">
       <PullUpBrandFooter :with-fixed-tabbar="!isEmployee" :revealed="pullUpBrandRevealed" />
     </view>
-    <RegistrationProfile v-if="!isEmployee" />
     <MainTabBar v-if="!isEmployee" current="mine" />
   </view>
 </template>

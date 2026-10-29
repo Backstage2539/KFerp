@@ -2,16 +2,16 @@
 import {freightLabel} from '../utils/freight'
 import type {FreightSnapshot} from '../api/customerPortal'
 import { computed } from 'vue'
-import { paymentSummary } from '../utils/prepayment'
-const props = defineProps<{ order: { freight?:FreightSnapshot; pay_status?: string; prepayment_amount?: string; grand_total?: string; paid_amount?: string; unpaid_amount?: string } }>()
-const amounts = computed(() => paymentSummary(props.order.pay_status || '', Number(props.order.prepayment_amount || 0), Number(props.order.grand_total || 0)))
+import { customerOrderAmounts, type CustomerFeeSummary } from '../utils/customerOrderFees'
+const props = defineProps<{ order: { fee_summary?:CustomerFeeSummary; freight?:FreightSnapshot; pay_status?: string; prepayment_amount?: string; grand_total?: string; paid_amount?: string; unpaid_amount?: string } }>()
+const amounts = computed(() => customerOrderAmounts(props.order))
 const deposit = computed(() => Number(props.order.prepayment_amount || 0) > 0)
 </script>
 <template>
   <view class="payment-summary">
- <text v-if="Number(order.freight?.service_due_cents||0)>0" class="unpaid">代发服务费待支付 ¥{{(Number(order.freight?.service_due_cents||0)/100).toFixed(2)}}</text>
+ <text v-if="!order.fee_summary && Number(order.freight?.service_due_cents||0)>0" class="unpaid">代发服务费待支付 ¥{{(Number(order.freight?.service_due_cents||0)/100).toFixed(2)}}</text>
  <text v-if="order.freight" class="freight">{{freightLabel(order.freight)}}</text>
-    <text v-if="order.pay_status === '无需收款'" class="paid">无需收款</text>
+    <text v-if="!order.fee_summary && order.pay_status === '无需收款'" class="paid">无需收款</text>
     <text v-if="Number(amounts.paid) > 0" class="paid">{{ deposit && Number(amounts.unpaid) > 0 ? '已支付预付款' : '已支付' }} ¥{{ amounts.paid }}</text>
     <text v-if="Number(amounts.unpaid) > 0" class="unpaid">{{ deposit ? '未支付尾款' : '未支付' }} ¥{{ amounts.unpaid }}</text>
   </view>

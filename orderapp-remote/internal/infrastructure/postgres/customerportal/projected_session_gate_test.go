@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	customerportalapp "orderapp/internal/application/customerportal"
@@ -657,5 +658,25 @@ func execProjectedSessionSQL(t *testing.T, f *projectedMiniSessionFixture, query
 	t.Helper()
 	if _, err := f.pool.Exec(f.ctx, fmt.Sprintf(query, f.schema), args...); err != nil {
 		t.Fatalf("exec projected session SQL: %v", err)
+	}
+}
+
+func TestPhoneVerifiedLoginWithoutNicknameRejectsReplayAndChangedPhone(t *testing.T) {
+	f := newProjectedSessionFixture(t, "13960000006")
+	cmd := customerportalapp.CreatePhoneVerifiedLoginSessionCommand{OpenID: "openid-no-nickname", Phone: f.login, CredentialHash: strings.Repeat("a", 64)}
+	first, err := f.repo.CreatePhoneVerifiedLoginSession(f.ctx, cmd)
+	if err != nil || first.Token == "" || first.CurrentCustomerID != f.customerID {
+		t.Fatalf("login=%+v err=%v", first, err)
+	}
+	var auditCount int
+	if err := f.pool.QueryRow(f.ctx, fmt.Sprintf(`SELECT count(*) FROM %s.audit_logs WHERE entity_type='mini_user' AND entity_id=$1 AND action='phone_login'`, f.schema), first.MiniUserID).Scan(&auditCount); err != nil || auditCount != 1 {
+		t.Fatalf("audit count=%d err=%v", auditCount, err)
+	}
+	if _, err = f.repo.CreatePhoneVerifiedLoginSession(f.ctx, cmd); !errors.Is(err, customerportalapp.ErrPhoneCredentialUsed) {
+		t.Fatalf("replay err=%v", err)
+	}
+	execProjectedSessionSQL(t, f, `UPDATE %s.company_employees SET phone='13960000099' WHERE id=$1`, f.employeeID)
+	if _, err = f.repo.CurrentContextByToken(f.ctx, first.Token); !errors.Is(err, customerportalapp.ErrMiniSessionNotFound) {
+		t.Fatalf("changed phone still active: %v", err)
 	}
 }

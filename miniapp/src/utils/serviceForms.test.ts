@@ -38,9 +38,6 @@ describe('service form factories', () => {
       keyword: '',
       date_from: '',
       date_to: '',
-      process_status: '',
-      pay_status: '',
-      ship_status: '',
     })
   })
 

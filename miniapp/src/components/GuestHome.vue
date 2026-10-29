@@ -7,7 +7,7 @@ const selected = computed(() => guestServiceGuides.find(service => service.id ==
 const kilograms = ref('10')
 const grams = ref('227')
 const estimate = computed(() => packagingEstimate(Number(kilograms.value), Number(grams.value)))
-function openLogin() { uni.navigateTo({ url: loginRouteFor('', 'password') }) }
+function openLogin() { uni.navigateTo({ url: loginRouteFor('') }) }
 </script>
 <template>
   <view class="guest-home">

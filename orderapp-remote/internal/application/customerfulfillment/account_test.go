@@ -1,6 +1,9 @@
 package customerfulfillment
 
-import "testing"
+import (
+	freightdomain "orderapp/internal/domain/freight"
+	"testing"
+)
 
 func TestUnpaidSourcesKeepPartialAndIndependentFeesWithoutRepeatingSources(t *testing.T) {
 	orders := []AccountOrder{{ID: 1, OrderNo: "SO-1", TotalCents: 10000, PaidCents: 4000, InPeriod: true}, {ID: 2, OrderNo: "SO-2", TotalCents: 5000, PaidCents: 5000, InPeriod: true}}
@@ -121,5 +124,23 @@ func TestAccountPaginationClampsLargePage(t *testing.T) {
 	d.Paginate(int(^uint(0)>>1), 20)
 	if d.Page != 1 || len(d.Rows) != 1 {
 		t.Fatalf("bad page: %+v", d)
+	}
+}
+
+func TestOrderFeeGroupsExcludePendingDropshipEstimate(t *testing.T) {
+	o := AccountOrder{ID: 7, OrderNo: "DS-7", TotalCents: 1000, ShippingCents: 1000, InPeriod: true, Freight: &freightdomain.OrderView{Snapshot: freightdomain.Snapshot{Policy: freightdomain.Policy{Scene: "stock"}, Status: "pending_actual"}, BillingStatus: "pending_actual"}}
+	fees := []AccountFee{{ID: 3, OrderID: 7, SourceType: "order", SourceID: 7, FeeType: "shipping", AmountCents: 1000, IncludedInOrder: true}, {ID: 4, OrderID: 7, SourceType: "order", SourceID: 7, FeeType: "direct_ship_service", AmountCents: 300}}
+	groups, summary := BuildOrderFeeGroups([]AccountOrder{o}, fees)
+	if len(groups) != 1 || groups[0].PayableCents != 300 || summary.ShippingCents != 0 || summary.DirectShipServiceCents != 300 {
+		t.Fatalf("estimate included: %+v %+v", groups, summary)
+	}
+}
+
+func TestOrderFeeGroupsExcludeStaleEstimateAfterActualFreight(t *testing.T) {
+	o := AccountOrder{ID: 7, OrderNo: "DS-7", TotalCents: 1000, ShippingCents: 1000, InPeriod: true, Freight: &freightdomain.OrderView{Snapshot: freightdomain.Snapshot{Policy: freightdomain.Policy{Scene: "stock"}}, BillingStatus: "billed"}}
+	fees := []AccountFee{{ID: 3, OrderID: 7, SourceType: "order", SourceID: 7, FeeType: "shipping", AmountCents: 1000, IncludedInOrder: true}, {ID: 4, OrderID: 7, SourceType: "freight_actual", SourceID: 9, FeeType: "shipping", AmountCents: 1110}}
+	groups, summary := BuildOrderFeeGroups([]AccountOrder{o}, fees)
+	if len(groups) != 1 || groups[0].PayableCents != 1110 || summary.ShippingCents != 1110 {
+		t.Fatalf("stale estimate counted: %+v %+v", groups, summary)
 	}
 }
