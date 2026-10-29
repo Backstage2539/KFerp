@@ -65,7 +65,7 @@ func (a api) issuedBill(c echo.Context) error {
 	}
 	rawID := c.Param("bill_id")
 	format := ""
-	for _, ext := range []string{".xlsx", ".pdf"} {
+	for _, ext := range []string{".xlsx", ".pdf", ".png"} {
 		if strings.HasSuffix(rawID, ext) {
 			format = strings.TrimPrefix(ext, ".")
 			rawID = strings.TrimSuffix(rawID, ext)
@@ -90,8 +90,31 @@ func (a api) issuedBill(c echo.Context) error {
 		content, err = excelinfra.RenderCustomerBill(bill)
 		mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 	case "pdf":
-		content, err = pdfinfra.RenderCustomerBill(bill)
+		if c.QueryParam("unstamped") == "1" {
+			content, err = pdfinfra.RenderCustomerBill(bill)
+		} else {
+			settings, settingsErr := a.svc.GetBillingPDFSettings(c.Request().Context(), customerID, billID)
+			if settingsErr != nil {
+				return customerFulfillmentError(c, http.StatusInternalServerError, settingsErr)
+			}
+			seal, sealErr := a.readBillingSeal(c.Request().Context(), settings.SealAssetID)
+			if sealErr != nil {
+				return customerFulfillmentError(c, http.StatusInternalServerError, sealErr)
+			}
+			content, err = pdfinfra.RenderCustomerBillStamped(bill, settings, seal)
+		}
 		mime = "application/pdf"
+	case "png":
+		settings, settingsErr := a.svc.GetBillingPDFSettings(c.Request().Context(), customerID, billID)
+		if settingsErr != nil {
+			return customerFulfillmentError(c, http.StatusInternalServerError, settingsErr)
+		}
+		seal, sealErr := a.readBillingSeal(c.Request().Context(), settings.SealAssetID)
+		if sealErr != nil {
+			return customerFulfillmentError(c, http.StatusInternalServerError, sealErr)
+		}
+		content, err = pdfinfra.RenderCustomerBillPNG(c.Request().Context(), bill, settings, seal)
+		mime = "image/png"
 	default:
 		return customerFulfillmentError(c, http.StatusBadRequest, fmt.Errorf("unsupported bill format"))
 	}

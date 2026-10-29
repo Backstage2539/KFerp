@@ -248,11 +248,38 @@ func (r *Repository) getIssuedBill(ctx context.Context, query billingReader, cus
 	if err != nil {
 		return out, err
 	}
+	if err = r.hydrateBillingLineDetails(ctx, query, customerID, lines); err != nil {
+		return out, err
+	}
+	sort.SliceStable(lines, func(i, j int) bool {
+		left, right := int64(0), int64(0)
+		if lines[i].Detail != nil {
+			left = lines[i].Detail.OrderID
+		}
+		if lines[j].Detail != nil {
+			right = lines[j].Detail.OrderID
+		}
+		if left == right {
+			return false
+		}
+		if left == 0 {
+			return false
+		}
+		if right == 0 {
+			return true
+		}
+		return left < right
+	})
 	out.CustomerID = customerID
 	out.BatchID = batchID
 	out.TotalAmountCents = total
 	out.Lines = lines
 	out.FeeItems = len(lines)
+	if relationExists(ctx, query, r.schema+".customer_settlement_payments") {
+		if err := query.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FILTER (WHERE reversed_at IS NULL)>0,COUNT(*)*2-COUNT(*) FILTER (WHERE reversed_at IS NULL) FROM %s.customer_settlement_payments WHERE customer_id=$1 AND settlement_batch_id=$2`, r.schema), customerID, batchID).Scan(&out.PaymentReversible, &out.PaymentRevision); err != nil {
+			return out, err
+		}
+	}
 	out.DueAmountCents = total
 	for i := range out.Lines {
 		line := &out.Lines[i]
@@ -470,7 +497,15 @@ func (r *Repository) IssueBilling(ctx context.Context, cmd app.IssueBillingComma
 				return app.BillingBill{}, err
 			}
 		}
-		if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_settlement_lines(customer_id,settlement_batch_id,charge_type,source_type,source_id,source_no,description,occurred_at,receivable_cents,amount_cents,received_cents,due_cents,confirmation_status,settlement_status) VALUES($1,$2,$3,$4,$5,$6,$7,$8::date,$9,$10,$11,$12,$13,'confirmed')`, r.schema), cmd.CustomerID, batchID, line.ChargeType, line.SourceType, line.SourceID, line.SourceNo, line.Description, line.OccurredAt, line.ReceivableCents, line.AmountCents, line.ReceivedCents, line.DueCents, line.ConfirmationStatus); err != nil {
+		detail, detailErr := r.billingLineDetail(ctx, tx, cmd.CustomerID, line, "出账快照")
+		if detailErr != nil {
+			return app.BillingBill{}, detailErr
+		}
+		snapshot, detailErr := json.Marshal(detail)
+		if detailErr != nil {
+			return app.BillingBill{}, detailErr
+		}
+		if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_settlement_lines(customer_id,settlement_batch_id,charge_type,source_type,source_id,source_no,description,occurred_at,receivable_cents,amount_cents,received_cents,due_cents,confirmation_status,settlement_status,detail_snapshot) VALUES($1,$2,$3,$4,$5,$6,$7,$8::date,$9,$10,$11,$12,$13,'confirmed',$14::jsonb)`, r.schema), cmd.CustomerID, batchID, line.ChargeType, line.SourceType, line.SourceID, line.SourceNo, line.Description, line.OccurredAt, line.ReceivableCents, line.AmountCents, line.ReceivedCents, line.DueCents, line.ConfirmationStatus, snapshot); err != nil {
 			return app.BillingBill{}, err
 		}
 		if line.SourceType == "customer_fee_item" {
@@ -596,7 +631,7 @@ func (r *Repository) GetBillingPDFSettings(ctx context.Context, customerID, sett
 	if out.Placements == nil {
 		out.Placements = []app.BillingPDFPlacement{}
 	}
-	return out, nil
+	return app.ApplyBillingSealDefault(out, hasSavedSettings), nil
 }
 
 func (r *Repository) SaveBillingPDFSettings(ctx context.Context, settings app.BillingPDFSettings, actor string) (app.BillingPDFSettings, error) {

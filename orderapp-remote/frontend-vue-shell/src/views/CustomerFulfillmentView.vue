@@ -204,7 +204,7 @@
         <div v-if="billingView === 'bills'" class="table-scroll">
           <table class="billing-table"><thead><tr><th>账单号</th><th>出账日期</th><th>费用期间</th><th>出账金额</th><th>已收</th><th>未收</th><th>状态</th><th>操作</th></tr></thead>
             <tbody><tr v-for="bill in issuedBills" :key="bill.batch_id" @dblclick="openIssuedBill(bill.batch_id)">
-              <td>{{ bill.settlement_no }}</td><td>{{ bill.issued_at || '—' }}</td><td>{{ bill.period_from }} 至 {{ bill.period_to }}</td><td>{{ moneyFromCents(bill.total_amount_cents) }}</td><td>{{ moneyFromCents(bill.current_received_cents) }}</td><td>{{ moneyFromCents(bill.current_due_amount_cents) }}</td><td>{{ bill.current_due_amount_cents > 0 ? '未收清' : '已收清' }}</td><td><button class="link-button" type="button" @click="openIssuedBill(bill.batch_id)">费用明细</button></td>
+              <td>{{ bill.settlement_no }}</td><td>{{ bill.issued_at || '—' }}</td><td>{{ bill.period_from }} 至 {{ bill.period_to }}</td><td>{{ moneyFromCents(bill.total_amount_cents) }}</td><td>{{ moneyFromCents(bill.current_received_cents) }}</td><td>{{ moneyFromCents(bill.current_due_amount_cents) }}</td><td>{{ bill.current_due_amount_cents > 0 ? '未收清' : '已收清' }}</td><td><button class="link-button" type="button" @click="openIssuedBill(bill.batch_id)">费用明细</button><button v-if="canInternal('stock.write') && billPaymentAction(bill)" class="link-button" type="button" :disabled="billPaymentLoading || billPaymentNeedsRefresh" @click="requestBillPayment(bill)">{{ billPaymentAction(bill) === 'pay' ? '标记已收清' : '撤销收款' }}</button></td>
             </tr><tr v-if="!billingLoading && !issuedBills.length"><td colspan="8" class="muted">暂无已出账账单</td></tr></tbody>
           </table>
         </div>
@@ -367,15 +367,29 @@
       <aside class="sales-order-drawer billing-bill-drawer" aria-label="已出账费用明细">
         <header class="panel-head"><div><h3>{{ activeBill.settlement_no }}</h3><p>{{ activeBill.period_from }} 至 {{ activeBill.period_to }} · {{ activeBill.customer_name }}</p></div><button class="secondary" type="button" @click="activeBill = null">关闭</button></header>
         <div class="billing-bill-summary"><span>出账 ¥{{ moneyFromCents(activeBill.total_amount_cents) }}</span><span>已收 ¥{{ moneyFromCents(activeBill.current_received_cents) }}</span><span>未收 ¥{{ moneyFromCents(activeBill.current_due_amount_cents) }}</span><span>{{ activeBill.issued_at }}</span></div>
-        <div class="head-actions"><button class="secondary" type="button" :disabled="billingExportLoading" @click="downloadBillFile('xlsx')">导出费用 Excel</button><button class="secondary" type="button" :disabled="billPdfLoading" @click="downloadStampedBillPDF">{{ billPdfLoading ? 'PDF生成中…' : '下载费用 PDF' }}</button></div>
+        <div class="head-actions"><button v-if="canInternal('stock.write') && billPaymentAction(activeBill)" class="primary" type="button" :disabled="billPaymentLoading || billPaymentNeedsRefresh" @click="requestBillPayment(activeBill)">{{ billPaymentLoading ? '处理中…' : billPaymentAction(activeBill) === 'pay' ? '标记已收清' : '撤销收款' }}</button><button class="secondary" type="button" :disabled="billingExportLoading" @click="downloadBillFile('xlsx')">导出费用 Excel</button><button class="secondary" type="button" :disabled="billPdfLoading" @click="downloadStampedBillPDF">{{ billPdfLoading ? '生成中…' : '下载费用 PDF' }}</button><button class="secondary" type="button" :disabled="billPdfLoading" @click="downloadBillImage">下载分享图片</button></div><p class="muted">商品、运费和服务费对应明细见下方；PDF 和图片使用已保存的公章设置。操作说明见客户履约手册。</p>
+        <p v-if="billPaymentError" class="error" role="alert">{{ billPaymentError }}</p>
+        <p v-if="billPaymentNotice" class="ok" role="status">{{ billPaymentNotice }}</p>
+        <p v-if="canInternal('stock.write') && activeBill.status === 'paid' && !activeBill.payment_reversible" class="muted">该账单没有可撤销的收款记录，请核对历史收款。</p>
         <div class="table-scroll"><table class="billing-table"><thead><tr><th>发生日期</th><th>费用类型</th><th>来源单号</th><th>费用名称</th><th>应收</th><th>出账</th><th>出账前已收</th><th>出账后已收</th><th>当前未收</th></tr></thead><tbody>
-          <tr v-for="line in activeBill.lines || []" :key="line.id || `${line.charge_type}-${line.source_type}-${line.source_id}`"><td>{{ line.occurred_at }}</td><td>{{ chargeTypeLabel(line.charge_type) }}</td><td><button v-if="line.source_type === 'order'" class="link-button" type="button" @click="openSalesOrderDrawer({ id: line.source_id })">{{ line.source_no }}</button><span v-else>{{ line.source_no || line.source_id }}</span></td><td>{{ line.description }}</td><td>{{ moneyFromCents(line.receivable_cents) }}</td><td>{{ moneyFromCents(line.amount_cents) }}</td><td>{{ moneyFromCents(line.issued_received_cents || 0) }}</td><td>{{ moneyFromCents(line.received_cents) }}</td><td>{{ moneyFromCents(line.due_cents) }}</td></tr>
+          <template v-for="line in activeBill.lines || []" :key="line.id || `${line.charge_type}-${line.source_type}-${line.source_id}`">
+            <tr><td>{{ line.occurred_at }}</td><td>{{ chargeTypeLabel(line.charge_type) }}</td><td><button v-if="line.detail?.order_id || line.source_type === 'order'" class="link-button" type="button" @click="openSalesOrderDrawer({ id: line.detail?.order_id || line.source_id })">{{ line.detail?.order_no || line.source_no }}</button><span v-else>{{ line.source_no || line.source_id }}</span></td><td>{{ line.description }}</td><td>{{ moneyFromCents(line.receivable_cents) }}</td><td>{{ moneyFromCents(line.amount_cents) }}</td><td>{{ moneyFromCents(line.issued_received_cents || 0) }}</td><td>{{ moneyFromCents(line.received_cents) }}</td><td>{{ moneyFromCents(line.due_cents) }}</td></tr>
+            <tr v-if="line.detail"><td colspan="9"><div class="billing-source-detail"><div>订单：{{ line.detail.order_no || '未记录' }} · {{ line.detail.information_source }}</div><div v-for="(item, index) in line.detail.items || []" :key="`item-${index}`">商品：{{ item.item_name || '未记录' }} · 规格：{{ item.spec || '未记录' }} · 数量：{{ item.qty || '未记录' }}{{ item.unit }} · 单价：{{ item.unit_price || '未记录' }} · 金额：{{ item.line_total || '未记录' }}</div><div v-if="['order_goods', 'product'].includes(line.charge_type)">订单优惠：¥{{ moneyFromCents(line.detail.discount_cents || 0) }}<span v-if="!line.detail.items?.length"> · 商品明细：未记录</span></div><div v-for="(shipment, index) in line.detail.shipments || []" :key="`shipment-${index}`">发货时间：{{ shipment.shipped_at || '未记录' }} · 运单号：{{ shipment.tracking_no || '未记录' }} · 寄件重量：{{ shipment.settlement_weight_kg ? `${shipment.settlement_weight_kg} kg` : '未记录' }}</div><div v-if="['shipping', 'direct_ship_service'].includes(line.charge_type) && !line.detail.shipments?.length">发货时间、运单号、寄件重量：未记录</div></div></td></tr>
+          </template>
         </tbody></table></div>
         <section v-if="canInternal('stock.write') && canInternal('settings.write')" class="bill-pdf-settings"><h4>PDF 公章</h4><div class="billing-filters"><label><span>系统公章</span><select v-model.number="billPDFSettings.seal_asset_id" @change="onBillingSealChanged"><option :value="0">不加盖公章</option><option v-for="seal in billSeals" :key="seal.id" :value="Number(seal.id)">{{ seal.filename || `公章 ${seal.id}` }}</option></select></label><button class="secondary" type="button" :disabled="billPdfLoading" @click="saveBillingPDFSettings">保存公章设置</button></div>
           <div v-if="billPDFSettings.seal_asset_id && billPDFPages.length" class="billing-seal-pages" aria-label="选择盖章页"><label v-for="page in billPDFPages" :key="page.pageNumber"><input type="checkbox" :checked="hasBillingSealPage(page.pageNumber)" @change="toggleBillingSealPage(page,$event.target.checked)" />第 {{ page.pageNumber }} 页</label></div>
-          <PDFStampPreview v-if="activeBill" :key="`bill-pdf-${activeBill.batch_id}`" :pdf-url="customerBillExportURL(normalizedCustomerId, activeBill.batch_id, 'pdf')" :placements="billPDFSettings.placements || []" :seal-url="selectedBillSeal?.url || ''" seal-label="公章" :editable="Boolean(selectedBillSeal)" @loaded="onBillPDFLoaded" @placement-change="updateBillPDFPlacement" @placement-commit="saveBillingPDFSettings" />
+          <PDFStampPreview v-if="activeBill" :key="`bill-pdf-${activeBill.batch_id}`" :pdf-url="`${customerBillExportURL(normalizedCustomerId, activeBill.batch_id, 'pdf')}?unstamped=1`" :placements="billPDFSettings.placements || []" :seal-url="selectedBillSeal?.url || ''" seal-label="公章" :editable="Boolean(selectedBillSeal)" @loaded="onBillPDFLoaded" @placement-change="updateBillPDFPlacement" @placement-commit="saveBillingPDFSettings" />
         </section>
       </aside>
+    </div>
+
+    <div v-if="billPaymentPrompt" class="bill-payment-mask" @click.self="billPaymentPrompt = null" @keydown.esc="billPaymentPrompt = null">
+      <form ref="billPaymentDialogElement" tabindex="-1" class="panel bill-payment-dialog" role="dialog" aria-modal="true" aria-label="确认账单收款" @submit.prevent="confirmBillPayment">
+        <h3>确认账单收款</h3><p>{{ billPaymentPrompt.settlement_no }} · 本次收款 ¥{{ moneyFromCents(billPaymentPrompt.current_due_amount_cents) }}</p>
+        <label><span>实际收款方式</span><select v-model="billPaymentMethod" required><option value="">请选择收款方式</option><option v-for="method in orderReceiptMethodOptions" :key="method" :value="method">{{ method }}</option></select></label>
+        <div class="head-actions"><button class="secondary" type="button" @click="billPaymentPrompt = null">取消</button><button class="primary" type="submit" :disabled="!billPaymentMethod || billPaymentLoading">确认收款</button></div>
+      </form>
     </div>
 
     <div v-if="salesOrderDrawerOpen" class="sales-order-drawer-mask" @click.self="closeSalesOrderDrawer">
@@ -400,10 +414,11 @@ import CustomerFulfillmentSettings from '../components/CustomerFulfillmentSettin
 import FulfillmentDefaultsEditor from '../components/FulfillmentDefaultsEditor.vue'
 import { useDialogFocus } from '../lib/dialog-focus.js'
 import { apiFetch, apiGet, appURL } from '../api/client'
+
 import { fulfillmentModuleTabs, fulfillmentBusinessLabel as businessLabel } from '../lib/fulfillment-operations.js'
 import { settlementChargeOptions as buildSettlementChargeOptions, settlementPeriodRange } from '../lib/customer-settlement.js'
-import { customerBillingRowClass, isCustomerOrderFullyPaid, pageSelectionState, togglePageSelection } from '../lib/customer-billing.js'
-import { createStampedContractPDF, defaultContractStampPlacement } from '../lib/contract-stamp.js'
+import { billPaymentAction, customerBillingRowClass, isCustomerOrderFullyPaid, pageSelectionState, togglePageSelection } from '../lib/customer-billing.js'
+import { defaultContractStampPlacement } from '../lib/contract-stamp.js'
 import PDFStampPreview from '../components/PDFStampPreview.vue'
 import {freightLabel} from '../lib/freight'
 import OrderDetailsCopyButton from '../components/OrderDetailsCopyButton.vue'
@@ -442,6 +457,7 @@ import {
   previewCustomerBill,
   previewCustomerBillExcel,
   saveCustomerBillPDFSettings,
+  updateCustomerBillPayment,
 } from '../api/customer-billing.js'
 import {
   activeCustomerFulfillmentCustomers,
@@ -452,7 +468,7 @@ import {
 } from '../lib/customer-fulfillment'
 import { isCustomerStockOrder, customerStockProgressLabel, orderProgressLabel } from '../lib/customer-stock-entry'
 import ProductionReturnLink from '../components/ProductionReturnLink.vue'
-import { toNumber } from '../lib/order-entry'
+import { orderReceiptMethodOptions, toNumber } from '../lib/order-entry'
 import { normalizePageSize } from '../lib/pagination'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 import { actorHasFullViewAccess } from '../lib/menu-permissions.js'
@@ -529,6 +545,11 @@ const billingDateOptions = [{ value: 'all', label: '全部日期' }, { value: 'p
 const billingFilter = reactive({ fee_type: '', date_from: '', date_to: '' })
 const selectedBillingSources = ref(new Map())
 const billingPreview = ref(null), billingPreviewLoading = ref(false), billingIssueLoading = ref(false), billingExportLoading = ref(false)
+const billPaymentLoading = ref(false), billPaymentError = ref(''), billPaymentNotice = ref('')
+const billPaymentNeedsRefresh = ref(false)
+const billPaymentPrompt = ref(null), billPaymentMethod = ref('')
+const billPaymentDialogElement = ref(null)
+useDialogFocus(computed(() => Boolean(billPaymentPrompt.value)), billPaymentDialogElement, () => { billPaymentPrompt.value = null })
 const activeBill = ref(null), billPDFSettings = ref({ seal_asset_id: 0, placements: [] }), billSeals = ref([]), billPDFPages = ref([]), billPdfLoading = ref(false)
 const billingIdempotencyKey = ref('')
 let billingLoadSequence = 0
@@ -639,7 +660,7 @@ function resetCustomerWorkspace() {
  processingProductValue.value='';processingRawBeanValue.value='';Object.assign(processingForm,{product_id:0,product_name:'',raw_bean_item_id:0,raw_bean_name:'',input_quantity_g:'',planned_output_units:'',expected_date:'',note:''});adjustmentItemValue.value='';Object.assign(adjustment,{item_type:'raw_bean',item_name:'',spec:'',quantity_g_delta:0,quantity_units_delta:0,note:''})
  activeTab.value='overview';activeAction.value='';orderQueue.value='';orderSearch.value='';settingsDrawerOpen.value=false;editingDefaults.value=false;dispatchMode.value=''
  billingView.value='unbilled';billingTotals.value={total_unpaid_cents:0,unbilled_cents:0,issued_cents:0};unbilledCharges.value=[];issuedBills.value=[];selectedBillingSources.value=new Map();billingPreview.value=null;activeBill.value=null;billingFilter.fee_type='';billingFilter.date_from='';billingFilter.date_to='';billingDateMode.value='all';billingPage.value=1;billPage.value=1
- billingIdempotencyKey.value='';billPDFSettings.value={seal_asset_id:0,placements:[]};billSeals.value=[];billPDFPages.value=[]
+ billingIdempotencyKey.value='';billPaymentError.value='';billPaymentNotice.value='';billPaymentNeedsRefresh.value=false;billPaymentPrompt.value=null;billPaymentMethod.value='';billPDFSettings.value={seal_asset_id:0,placements:[]};billSeals.value=[];billPDFPages.value=[]
 }
 async function loadAll() {
   const id=normalizedCustomerId.value, sequence=++customerLoadSequence
@@ -656,6 +677,17 @@ async function loadAll() {
     rememberOverviewCustomer(overviewData)
     if (['orders','dispatch'].includes(activeTab.value)) await loadFulfillmentOrders(fulfillmentOrdersPage.value)
     if (activeTab.value === 'fees' && (!props.customerAccountActor || workbenchSections.value.settlement)) await loadBillingWorkspace(billingView.value === 'unbilled' ? billingPage.value : billPage.value)
+    if (billPaymentNeedsRefresh.value && !error.value) {
+      if (activeTab.value !== 'fees' || billingView.value !== 'bills') issuedBills.value = []
+      const batchID = Number(activeBill.value?.batch_id || 0)
+      if (batchID) {
+        const bill = await fetchCustomerBill(id, batchID, props.customerAccountActor)
+        if (sequence!==customerLoadSequence || id!==normalizedCustomerId.value) return
+        if (Number(activeBill.value?.batch_id) === batchID) activeBill.value = bill
+      }
+      billPaymentNeedsRefresh.value = false
+      billPaymentError.value = ''
+    }
   } catch (err) { if(sequence===customerLoadSequence) error.value=err.message || '加载客户履约账户失败' }
   finally { if(sequence===customerLoadSequence) loading.value=false }
 }
@@ -803,10 +835,72 @@ async function confirmBillingIssue() {
   }
 }
 
+function requestBillPayment(bill) {
+  if (!canInternal('stock.write') || billPaymentLoading.value || billPaymentNeedsRefresh.value) return
+  const action = billPaymentAction(bill)
+  if (action === 'pay') {
+    billPaymentPrompt.value = { ...bill }
+    billPaymentMethod.value = ''
+  } else if (action === 'reverse' && window.confirm(`确认撤销账单 ${bill.settlement_no} 的本次收款？其他收款不会被撤销。`)) {
+    changeBillPayment(bill, action)
+  }
+}
+
+function confirmBillPayment() {
+  if (!billPaymentPrompt.value || !orderReceiptMethodOptions.includes(billPaymentMethod.value)) return
+  const bill = billPaymentPrompt.value
+  const method = billPaymentMethod.value
+  billPaymentPrompt.value = null
+  changeBillPayment(bill, 'pay', method)
+}
+
+async function changeBillPayment(bill, action, paymentMethod = '') {
+  const customerID = normalizedCustomerId.value
+  const batchID = Number(bill?.batch_id || 0)
+  if (!canInternal('stock.write') || !customerID || !batchID || billPaymentLoading.value || billPaymentNeedsRefresh.value || billPaymentAction(bill) !== action) return
+  if (action === 'pay' && !orderReceiptMethodOptions.includes(paymentMethod)) return
+  billPaymentLoading.value = true
+  billPaymentError.value = ''; billPaymentNotice.value = ''; error.value = ''; ok.value = ''
+  let saved = false
+  try {
+    const updated = await updateCustomerBillPayment(customerID, batchID, action, Number(bill.current_due_amount_cents || 0), createBillingIdempotencyKey(), Number(bill.payment_revision || 0), paymentMethod)
+    saved = true
+    if (customerID !== normalizedCustomerId.value) return
+    if (Number(activeBill.value?.batch_id) === batchID) activeBill.value = updated
+    issuedBills.value = issuedBills.value.map(row => Number(row.batch_id) === batchID ? updated : row)
+    // Overview includes the inventory and operations totals; the orders and
+    // dispatch tabs share the order query. Reload them after the transaction.
+    await loadAll()
+    if (customerID !== normalizedCustomerId.value) return
+    const overviewRefreshError = error.value
+    await loadFulfillmentOrders(fulfillmentOrdersPage.value)
+    if (customerID !== normalizedCustomerId.value) return
+    const refreshError = error.value || overviewRefreshError
+    if (refreshError) {
+      error.value = `收款已保存，但页面刷新失败：${refreshError}。请手动刷新。`
+      if (Number(activeBill.value?.batch_id) === batchID) billPaymentError.value = error.value
+    }
+    const notice = action === 'pay' ? `账单 ${bill.settlement_no} 已标记收清` : `账单 ${bill.settlement_no} 的收款已撤销`
+    ok.value = notice
+    if (Number(activeBill.value?.batch_id) === batchID) billPaymentNotice.value = notice
+  } catch (err) {
+    if (customerID !== normalizedCustomerId.value) return
+    billPaymentNeedsRefresh.value = true
+    const message = saved
+      ? `收款已保存，但页面刷新失败：${err.message || '请手动刷新'}`
+      : `未能确认收款操作：${err.message || '网络连接中断'}。请关闭明细并刷新，核对账单状态后再试。`
+    error.value = message
+    if (Number(activeBill.value?.batch_id) === batchID) billPaymentError.value = message
+  } finally {
+    billPaymentLoading.value = false
+  }
+}
+
 async function openIssuedBill(batchID) {
   const customerID = normalizedCustomerId.value
   if (!customerID || !Number(batchID)) return
   billPdfLoading.value = true
+  billPaymentError.value = ''; billPaymentNotice.value = ''
   error.value = ''
   try {
     const [bill, settings, sealData] = await Promise.all([
@@ -827,10 +921,6 @@ async function openIssuedBill(batchID) {
 
 function onBillPDFLoaded(pages) {
   billPDFPages.value = pages || []
-  if (!billPDFSettings.value.seal_asset_id || billPDFSettings.value.placements?.length || !billPDFPages.value.length) return
-  const page = billPDFPages.value[0]
-  const placement = defaultContractStampPlacement({ pageNumber: page.pageNumber, pageWidth: page.pageWidth, pageHeight: page.pageHeight })
-  billPDFSettings.value = { ...billPDFSettings.value, placements: [{ ...placement, kind: 'seal', resizable: true, lock_aspect_ratio: true, min_width: 36, min_height: 36 }] }
 }
 
 function hasBillingSealPage(pageNumber) {
@@ -857,7 +947,11 @@ function updateBillPDFPlacement(placement) {
 
 async function onBillingSealChanged() {
   billPDFSettings.value = { ...billPDFSettings.value, placements: [] }
-  if (billPDFSettings.value.seal_asset_id && billPDFPages.value.length) onBillPDFLoaded(billPDFPages.value)
+  if (billPDFSettings.value.seal_asset_id && billPDFPages.value.length) {
+    const page = billPDFPages.value[0]
+    const placement = defaultContractStampPlacement({ pageNumber: page.pageNumber, pageWidth: page.pageWidth, pageHeight: page.pageHeight })
+    billPDFSettings.value = { ...billPDFSettings.value, placements: [{ ...placement, kind: 'seal', resizable: true, lock_aspect_ratio: true, min_width: 36, min_height: 36 }] }
+  }
   await saveBillingPDFSettings()
 }
 
@@ -888,18 +982,23 @@ async function downloadStampedBillPDF() {
   if (!activeBill.value) return
   billPdfLoading.value = true
   try {
-    const pdfBlob = await downloadCustomerBill(normalizedCustomerId.value, activeBill.value.batch_id, 'pdf', props.customerAccountActor)
-    let output = pdfBlob
-    if (selectedBillSeal.value && billPDFSettings.value.placements?.length) {
-      const [pdfBytes, sealResponse] = await Promise.all([pdfBlob.arrayBuffer(), apiFetch(selectedBillSeal.value.url)])
-      if (!sealResponse.ok) throw new Error('公章图片下载失败')
-      const sealBytes = await sealResponse.arrayBuffer()
-      const stamped = await createStampedContractPDF({ pdfBytes, sealBytes, sealContentType: selectedBillSeal.value.content_type, placements: billPDFSettings.value.placements })
-      output = new Blob([stamped], { type: 'application/pdf' })
-    }
+    const output = await downloadCustomerBill(normalizedCustomerId.value, activeBill.value.batch_id, 'pdf', props.customerAccountActor)
     saveBillingBlob(output, `${activeBill.value.settlement_no}.pdf`)
   } catch (err) {
     error.value = err.message || '费用 PDF 导出失败'
+  } finally {
+    billPdfLoading.value = false
+  }
+}
+
+async function downloadBillImage() {
+  if (!activeBill.value) return
+  billPdfLoading.value = true
+  try {
+    const image = await downloadCustomerBill(normalizedCustomerId.value, activeBill.value.batch_id, 'png', props.customerAccountActor)
+    saveBillingBlob(image, `${activeBill.value.settlement_no}.png`)
+  } catch (err) {
+    error.value = err.message || '账单图片生成失败'
   } finally {
     billPdfLoading.value = false
   }
@@ -1234,6 +1333,7 @@ onConfirmationUnmount(() => stopConfirmationRefresh?.())
 </script>
 
 <style scoped>
+.billing-source-detail { display: grid; gap: 4px; padding: 7px 12px; color: #526174; background: #f6f9f7; line-height: 1.6; overflow-wrap: anywhere; }
 .customer-fulfillment {
   display: flex;
   flex-direction: column;
@@ -1828,4 +1928,5 @@ td {
 .fulfillment-orders-table{min-width:860px}.fulfillment-orders-table .amount-column{text-align:right;white-space:nowrap}.fulfillment-orders-table td{vertical-align:middle;padding-top:14px;padding-bottom:14px}.fulfillment-orders-table .receiver-cell{max-width:270px}.receiver-address{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:270px}.receiver-cell strong>span{font-weight:400;color:#718097;margin-left:6px}.order-status-label{display:inline-block;background:#f1f4f7;color:#526174;border-radius:4px;padding:4px 7px;font-size:11px;white-space:nowrap}.order-status-label.status-complete{color:#278456;background:#e8f6ed}.compact-order-actions{flex-wrap:nowrap;gap:12px}.cell-meta{margin-top:7px;font-size:11px;color:#718097}.fulfillment-orders-panel>.panel-head p{font-size:12px}.fulfillment-orders-panel>.panel-head h3{font-size:17px}.fulfillment-orders-panel{margin-top:10px}
  .billing-summary-grid{grid-template-columns:repeat(3,minmax(0,1fr));margin:0 0 18px}.billing-summary-grid>div{padding:16px 18px}.billing-summary-grid strong{margin:9px 0 0}.billing-workspace{display:grid;gap:14px;margin:0 0 18px}.billing-tabs,.billing-period-picker{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.billing-tabs{border-bottom:1px solid #e1e7ee;padding-bottom:10px}.billing-tabs button,.billing-period-picker button{background:transparent;border:0;color:#718097;border-radius:6px;padding:8px 12px;font-size:12px}.billing-tabs button.active,.billing-period-picker button.active{background:#e8f6ed;color:#278456;font-weight:600}.billing-filters{display:flex;align-items:end;gap:12px;flex-wrap:wrap}.billing-filters label{min-width:160px}.billing-filters label span{display:block;color:#718097;font-size:11px;margin-bottom:4px}.billing-table{min-width:920px;width:100%;border-collapse:collapse}.billing-table th{background:#f7f9fb;color:#718097;font-size:11px;font-weight:550;white-space:nowrap}.billing-table td,.billing-table th{border-bottom:1px solid #edf0f4;padding:10px 9px;text-align:left}.billing-table td{font-size:12px;vertical-align:middle}.billing-table input[type=checkbox]{width:auto}.billing-pagination{display:flex;justify-content:flex-end;align-items:center;gap:8px;color:#718097;font-size:12px}.billing-preview{border:1px solid #d8e4dc;border-radius:9px;background:#fbfefc;padding:16px;display:grid;gap:12px}.billing-preview>.panel-head{margin:0}.billing-preview h4,.bill-pdf-settings h4{margin:0;font-size:15px}.billing-category-totals{display:flex;gap:8px;flex-wrap:wrap}.billing-category-totals span{background:#eef6f0;color:#267a4e;border-radius:5px;padding:5px 8px;font-size:11px}.billing-seal-pages{display:flex;gap:10px;flex-wrap:wrap;color:#526174;font-size:12px}.billing-seal-pages label{display:inline-flex;align-items:center;gap:5px}.billing-seal-pages input{width:auto}.billing-bill-mask{z-index:1200}.billing-bill-drawer{width:min(1160px,98vw);max-width:1160px}.billing-bill-summary{display:flex;gap:16px;flex-wrap:wrap;padding:12px 0;color:#526174;font-size:12px}.billing-bill-summary span:first-child{font-weight:650;color:#142033}.billing-bill-drawer>.table-scroll{max-height:42vh;overflow:auto;margin:12px 0 18px}.bill-pdf-settings{border-top:1px solid #e1e7ee;padding-top:16px;display:grid;gap:12px}.order-row-unpaid{background:#fff1f0;color:#b42318}.order-row-unpaid td{border-color:#f7d4d1}.order-row-unpaid .cell-meta,.order-row-unpaid .receiver-cell strong>span{color:#b42318}.order-row-unpaid .order-status-label.status-unpaid{color:#b42318;background:#fee4e2}.order-row-complete{background:#e8f6ed;color:#278456}.order-row-complete td{border-color:#d8efdf}.order-status-label.status-unpaid{color:#b42318;background:#fee4e2}
 @media(max-width:800px){.billing-summary-grid{grid-template-columns:1fr}.billing-filters{align-items:stretch}.billing-bill-drawer{padding:16px}.billing-bill-summary{gap:9px}}
+.bill-payment-mask{position:fixed;inset:0;z-index:1300;display:flex;align-items:center;justify-content:center;background:#14203380;padding:16px}.bill-payment-dialog{width:min(420px,100%);background:#fff;box-sizing:border-box;display:grid;gap:14px}.bill-payment-dialog h3,.bill-payment-dialog p{margin:0}.bill-payment-dialog label{display:grid;gap:6px}.bill-payment-dialog .head-actions{justify-content:flex-end}
 </style>

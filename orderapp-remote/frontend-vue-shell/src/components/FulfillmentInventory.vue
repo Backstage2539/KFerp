@@ -26,6 +26,10 @@
         <header><div><p>客户库存明细</p><h3>{{ selected.item_name }}</h3><p>{{ selected.spec }} · {{ selected.unit }}</p></div><button @click="selected = null" aria-label="关闭库存明细"><IconX :size="20" /></button></header>
         <div class="inventory-detail-stats"><div><span>实物库存</span><strong>{{ quantities(selected).physical }}</strong></div><div><span>可立即发货</span><strong>{{ quantities(selected).shippable }}</strong></div><div><span>已购待入库</span><strong>{{ quantities(selected).pending }}</strong></div></div>
         <h4>仓库分布</h4><p v-for="warehouse in selected.warehouses" :key="warehouse.warehouse_code">{{ warehouse.warehouse_name || warehouse.warehouse_code }} · 可预订 {{ warehouse.available_qty }} · 已占用 {{ warehouse.occupied_qty }}</p>
+        <h4>关联留厂订单</h4>
+        <p>仅显示可追溯的留厂订单，其他库存来源可能不完整。累计入库不是当前库存余量。</p>
+        <table v-if="selected.order_sources?.length"><thead><tr><th>订单号</th><th>付款状态</th><th>待入库</th><th>累计入库</th></tr></thead><tbody><tr v-for="source in selected.order_sources" :key="source.order_id"><td>{{ source.order_no }}</td><td>{{ source.pay_status || '未设置' }}</td><td>{{ source.pending_inbound_qty }}</td><td>{{ source.received_qty }}</td></tr></tbody></table>
+        <p v-else>无可关联订单</p>
         <h4>已入库批次</h4><table><thead><tr><th>批次 / 入库时间</th><th>仓库</th><th>实存</th><th>可用</th><th>状态</th></tr></thead><tbody><tr v-for="batch in selected.batches" :key="`${batch.batch_id}-${batch.warehouse_code}`"><td>{{ batch.batch_no }}<small>{{ batch.inbound_at || '未记录入库时间' }}</small></td><td>{{ batch.warehouse_name || batch.warehouse_code }}</td><td>{{ batch.total_qty }}</td><td>{{ batch.available_qty }}</td><td>{{ label(batch.quality_status) }}</td></tr><tr v-if="!selected.batches?.length"><td colspan="5" class="inventory-empty">暂无已入库批次</td></tr></tbody></table>
       </aside>
     </div>
@@ -46,6 +50,12 @@ const types = [{key:'finished_product',label:'成品'},{key:'green_bean',label:'
 const filtered = computed(() => props.rows.filter(r => r.inventory_type === type.value && `${r.item_name} ${r.spec} ${r.item_code}`.toLowerCase().includes(query.value.trim().toLowerCase())))
 const pagedRows = computed(() => filtered.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value))
 watch([query, type, () => props.rows], () => { page.value = 1 })
+watch(() => props.rows, rows => {
+  if (!selected.value) return
+  const current = selected.value
+  selected.value = rows.find(row => row.inventory_type === current.inventory_type && row.item_id === current.item_id && row.bom_spec_id === current.bom_spec_id && row.spec_g === current.spec_g) || null
+})
+
 function changePage(value) { page.value = value.page; pageSize.value = value.pageSize }
 </script>
 <style scoped>

@@ -132,6 +132,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.customer_settlement_lines (
 	reversed_at TIMESTAMPTZ NULL,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE %[1]s.customer_settlement_lines ADD COLUMN IF NOT EXISTS detail_snapshot JSONB NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS customer_settlement_lines_active_source_uq
 	ON %[1]s.customer_settlement_lines(customer_id,charge_type,source_type,source_id)
 	WHERE reversed_at IS NULL;
@@ -149,6 +150,29 @@ CREATE TABLE IF NOT EXISTS %[1]s.customer_settlement_issue_keys (
 	batch_id BIGINT NOT NULL REFERENCES %[1]s.customer_settlement_batches(id),
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	PRIMARY KEY(customer_id,idempotency_key)
+);
+CREATE TABLE IF NOT EXISTS %[1]s.customer_settlement_payments (
+	id BIGSERIAL PRIMARY KEY,
+	customer_id BIGINT NOT NULL REFERENCES %[1]s.customers(id),
+	settlement_batch_id BIGINT NOT NULL REFERENCES %[1]s.customer_settlement_batches(id),
+	allocations JSONB NOT NULL DEFAULT '[]'::jsonb,
+	actor TEXT NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	reversed_at TIMESTAMPTZ,
+	reversed_by TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS customer_settlement_payments_active_uq ON %[1]s.customer_settlement_payments(settlement_batch_id) WHERE reversed_at IS NULL;
+CREATE TABLE IF NOT EXISTS %[1]s.customer_settlement_payment_keys (
+	customer_id BIGINT NOT NULL REFERENCES %[1]s.customers(id),
+	settlement_batch_id BIGINT NOT NULL REFERENCES %[1]s.customer_settlement_batches(id),
+	idempotency_key TEXT NOT NULL,
+	action TEXT NOT NULL,
+	expected_due_amount_cents BIGINT NOT NULL,
+	expected_payment_revision BIGINT NOT NULL,
+	result_payment_revision BIGINT NOT NULL,
+	payment_method TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY(customer_id,settlement_batch_id,idempotency_key)
 );
 ALTER TABLE %[1]s.customer_settlement_batches ADD COLUMN IF NOT EXISTS processing_billing_run_id BIGINT NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS %[1]s.customer_settlement_bill_pdf_settings (

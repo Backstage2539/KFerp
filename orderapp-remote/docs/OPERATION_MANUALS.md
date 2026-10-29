@@ -1,3 +1,5 @@
+履约账单收款、撤销及库存关联订单付款状态，参见[客户履约手册](OP_MANUAL_CUSTOMER_FULFILLMENT.md#履约账单收款与撤销)。
+
 PR-745：客户小程序订单费用、客户价格表和手机号登录，参见[客户履约手册](OP_MANUAL_CUSTOMER_FULFILLMENT.md)及[价格表中心手册](OP_MANUAL_BEAN_LIST_CENTER.md)。
 
 PR-744：客户和内部共用履约界面、留厂购货未付款及库存代发累计购买/入库，参见[客户履约手册](OP_MANUAL_CUSTOMER_FULFILLMENT.md)和[客户购货寄存与代发](OP_MANUAL_CUSTOMER_STOCK_DROPSHIP.md)。
@@ -113,3 +115,4 @@ flowchart TD
 - [寄件列表回传与实际运费确认](OP_MANUAL_SHIPPING_RETURN.md)：订单上传、模板配置、候选选择及运费收款处理。
 
 - 订单履约状态：ERP、客户/员工小程序统一显示生产与入库、库存是否可发货；寄件回传手册新增“入库后重新匹配”，仅更新候选。
+PR-746：已出账账单按订单查看费用明细、下载 Excel/PDF 和分享图片，见[客户履约手册](OP_MANUAL_CUSTOMER_FULFILLMENT.md)。

@@ -17,6 +17,7 @@ import (
 )
 
 type api struct {
+	assetDir         string
 	svc              Service
 	customers        CustomerDirectory
 	messages         MessagePublisher

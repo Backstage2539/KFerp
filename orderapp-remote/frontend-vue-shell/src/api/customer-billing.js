@@ -44,7 +44,8 @@ export async function previewCustomerBillExcel(customerId, payload, previewVersi
 }
 
 export async function downloadCustomerBill(customerId, batchId, format = 'xlsx', customerPortal = false) {
-  const response = await apiFetch(`${root(customerId, customerPortal)}/bills/${Number(batchId)}.${format === 'pdf' ? 'pdf' : 'xlsx'}`)
+	const extension = ['pdf', 'png', 'xlsx'].includes(format) ? format : 'xlsx'
+	const response = await apiFetch(`${root(customerId, customerPortal)}/bills/${Number(batchId)}.${extension}`)
   if (!response.ok) {
     const data = await response.json().catch(() => ({}))
     throw new Error(data.error || data.message || '账单下载失败')
@@ -58,6 +59,10 @@ export function issueCustomerBill(customerId, payload) {
 
 export function fetchCustomerBill(customerId, batchId, customerPortal = false) {
   return apiGet(`${root(customerId, customerPortal)}/bills/${Number(batchId)}`)
+}
+
+export function updateCustomerBillPayment(customerId, batchId, action, expectedDueAmountCents, idempotencyKey, expectedPaymentRevision, paymentMethod = '') {
+  return apiSend(`${root(customerId)}/bills/${Number(batchId)}/payment`, { body: { action, expected_due_amount_cents: expectedDueAmountCents, idempotency_key: idempotencyKey, expected_payment_revision: expectedPaymentRevision, ...(paymentMethod ? { payment_method: paymentMethod } : {}) } })
 }
 
 export function fetchCustomerBillPDFSettings(customerId, batchId) {
