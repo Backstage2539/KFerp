@@ -6389,7 +6389,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Notes: Van confirmed that only each order's unpaid balance enters the settlement receivable, with receivable/received/unpaid shown per order. Production orders and fee-source associations were reconciled read-only; existing draft batches were left unchanged. Production month-close, collection and WeChat release are excluded.
 ### PR-746-BILL-ORDER-DETAIL-SHARE
 - Branch: codex/bill-detail-share; base origin/develop.
-- Status: targeted implementation and tests complete; feature push, develop integration, development deployment and browser acceptance pending.
+- Status: merged latest develop into feature; local Go, PostgreSQL and 1652 frontend tests passed; isolated browser fixture checked; development deployment and real browser acceptance pending.
 - Scope: billed order goods, actual freight, service details and share image.
 - DEV: DEV-PR746-01 detail snapshots; DEV-PR746-02 page and exports; DEV-PR746-03 manuals, validation and development deployment.
 - Verifier: TDD helper, database snapshot and source association tests, API and UI checks, Excel/PDF/PNG consistency and stamp visual verification.
