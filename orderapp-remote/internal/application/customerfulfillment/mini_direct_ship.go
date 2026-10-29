@@ -385,6 +385,15 @@ type CustomerAssetInventoryBatch struct {
 	InboundAt       string  `json:"inbound_at,omitempty"`
 }
 
+// CustomerAssetOrderSource describes a traceable retained-stock order, not its current stock balance.
+type CustomerAssetOrderSource struct {
+	OrderID           int64  `json:"order_id"`
+	OrderNo           string `json:"order_no"`
+	PayStatus         string `json:"pay_status"`
+	PendingInboundQty int64  `json:"pending_inbound_qty"`
+	ReceivedQty       int64  `json:"received_qty"`
+}
+
 type CustomerAssetInventory struct {
 	PhysicalAvailableQty       float64                         `json:"physical_available_qty"`
 	PendingInboundQty          float64                         `json:"pending_inbound_qty"`
@@ -408,6 +417,7 @@ type CustomerAssetInventory struct {
 	CanCreateProcessingRequest bool                            `json:"can_create_processing_request,omitempty"`
 	Warehouses                 []CustomerAssetWarehouseBalance `json:"warehouses"`
 	Batches                    []CustomerAssetInventoryBatch   `json:"batches"`
+	OrderSources               []CustomerAssetOrderSource      `json:"order_sources"`
 }
 
 type CustomerAssetInventoryQuery struct {

@@ -12,6 +12,7 @@ func TestCustomerStockConfigurationAndEmployeeDirectShipPermissions(t *testing.T
 	cases := []struct{ method, path, permission string }{
 		{"GET", "/api/customer-fulfillment/74/billing/unbilled", "stock.read"},
 		{"POST", "/api/customer-fulfillment/74/settlements/issue", "stock.write"},
+		{"POST", "/api/customer-fulfillment/74/billing/bills/9/payment", "stock.write"},
 		{"POST", "/api/customer-fulfillment/74/custody-adjustments", "stock.write"},
 		{"GET", "/api/customer-fulfillment/74/settings", "customers.read"},
 		{"GET", "/api/customer-fulfillment/74/overview", "stock.read"},

@@ -42,3 +42,11 @@ function isSelectable(row) {
   const amount = row?.due_cents ?? row?.amount_cents
   return row?.confirmation_status !== 'pending_billing' && (amount === undefined || Number(amount) > 0)
 }
+
+// A recorded payment must be reversed before another can be made. A legacy
+// paid bill has no safe reversal record and must be reconciled separately.
+export function billPaymentAction(bill) {
+  if (bill?.payment_reversible) return 'reverse'
+  if (bill?.status === 'confirmed' && Number(bill?.current_due_amount_cents || 0) > 0) return 'pay'
+  return ''
+}

@@ -226,6 +226,17 @@ func (r *Repository) customerFinishedAssetInventory(ctx context.Context, custome
 			state.row.QualityStatus = batch.QualityStatus
 		}
 	}
+	// A stock row may mix many orders and untraceable stock. Add only the
+	// retained-order entitlements whose product, spec and warehouse are known.
+	orderSources, err := r.customerInventoryOrderSources(ctx, customerID, codes)
+	if err != nil {
+		return nil, err
+	}
+	for key, sources := range orderSources {
+		if state := byKey[key]; state != nil {
+			state.row.OrderSources = sources
+		}
+	}
 	productIDs := make([]int64, 0, len(states))
 	for _, state := range states {
 		productIDs = append(productIDs, state.row.ProductID)
