@@ -253,6 +253,11 @@ func (r *Repository) getIssuedBill(ctx context.Context, query billingReader, cus
 	out.TotalAmountCents = total
 	out.Lines = lines
 	out.FeeItems = len(lines)
+	if relationExists(ctx, query, r.schema+".customer_settlement_payments") {
+		if err := query.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FILTER (WHERE reversed_at IS NULL)>0,COUNT(*)*2-COUNT(*) FILTER (WHERE reversed_at IS NULL) FROM %s.customer_settlement_payments WHERE customer_id=$1 AND settlement_batch_id=$2`, r.schema), customerID, batchID).Scan(&out.PaymentReversible, &out.PaymentRevision); err != nil {
+			return out, err
+		}
+	}
 	out.DueAmountCents = total
 	for i := range out.Lines {
 		line := &out.Lines[i]
