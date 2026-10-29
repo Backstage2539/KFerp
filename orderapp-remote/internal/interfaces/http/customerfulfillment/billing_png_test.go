@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"testing"
 
 	"github.com/labstack/echo/v4"
@@ -11,6 +12,11 @@ import (
 )
 
 func TestIssuedBillingPNGDownload(t *testing.T) {
+	for _, name := range []string{"pdftoppm", "pdfinfo"} {
+		if _, err := exec.LookPath(name); err != nil {
+			t.Skipf("%s is installed in the release image", name)
+		}
+	}
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{CustomerFulfillment: &fakeCustomerFulfillmentService{}})
 	rec := httptest.NewRecorder()
