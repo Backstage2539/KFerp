@@ -44,7 +44,8 @@ export async function previewCustomerBillExcel(customerId, payload, previewVersi
 }
 
 export async function downloadCustomerBill(customerId, batchId, format = 'xlsx', customerPortal = false) {
-  const response = await apiFetch(`${root(customerId, customerPortal)}/bills/${Number(batchId)}.${format === 'pdf' ? 'pdf' : 'xlsx'}`)
+	const extension = ['pdf', 'png', 'xlsx'].includes(format) ? format : 'xlsx'
+	const response = await apiFetch(`${root(customerId, customerPortal)}/bills/${Number(batchId)}.${extension}`)
   if (!response.ok) {
     const data = await response.json().catch(() => ({}))
     throw new Error(data.error || data.message || '账单下载失败')

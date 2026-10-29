@@ -132,6 +132,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.customer_settlement_lines (
 	reversed_at TIMESTAMPTZ NULL,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE %[1]s.customer_settlement_lines ADD COLUMN IF NOT EXISTS detail_snapshot JSONB NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS customer_settlement_lines_active_source_uq
 	ON %[1]s.customer_settlement_lines(customer_id,charge_type,source_type,source_id)
 	WHERE reversed_at IS NULL;

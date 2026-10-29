@@ -1,4 +1,5 @@
 FROM docker.m.daocloud.io/library/golang:1.22-alpine AS build
+RUN apk add --no-cache poppler-utils
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN /usr/local/go/bin/go env -w GOPROXY=https://goproxy.cn,direct && /usr/local/go/bin/go mod download
@@ -15,6 +16,7 @@ RUN CGO_ENABLED=0 /usr/local/go/bin/go build -o /out/orderapp ./ && \
     CGO_ENABLED=0 /usr/local/go/bin/go build -o /out/product-creator-material-repair ./cmd/product-creator-material-repair
 
 FROM docker.m.daocloud.io/library/alpine:3.20
+RUN apk add --no-cache poppler-utils
 WORKDIR /app
 
 COPY --from=build /out/orderapp /app/orderapp

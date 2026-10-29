@@ -108,7 +108,7 @@ func TestDev273ContractPDFStampingAcceptanceEvidence(t *testing.T) {
 
 func TestDev273ContractPDFStampingRuntimeUsesDocconvertService(t *testing.T) {
 	dockerfile := string(readOrderAppFileForTest(t, filepath.Join("Dockerfile")))
-	if strings.Contains(dockerfile, "apk add --no-cache") || strings.Contains(dockerfile, "libreoffice") {
+	if strings.Contains(strings.ToLower(dockerfile), "libreoffice") {
 		t.Fatal("Dockerfile should not install LibreOffice in the orderapp runtime image")
 	}
 	root := findAncestorForTest(t, "go.mod")

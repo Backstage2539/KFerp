@@ -367,13 +367,16 @@
       <aside class="sales-order-drawer billing-bill-drawer" aria-label="已出账费用明细">
         <header class="panel-head"><div><h3>{{ activeBill.settlement_no }}</h3><p>{{ activeBill.period_from }} 至 {{ activeBill.period_to }} · {{ activeBill.customer_name }}</p></div><button class="secondary" type="button" @click="activeBill = null">关闭</button></header>
         <div class="billing-bill-summary"><span>出账 ¥{{ moneyFromCents(activeBill.total_amount_cents) }}</span><span>已收 ¥{{ moneyFromCents(activeBill.current_received_cents) }}</span><span>未收 ¥{{ moneyFromCents(activeBill.current_due_amount_cents) }}</span><span>{{ activeBill.issued_at }}</span></div>
-        <div class="head-actions"><button class="secondary" type="button" :disabled="billingExportLoading" @click="downloadBillFile('xlsx')">导出费用 Excel</button><button class="secondary" type="button" :disabled="billPdfLoading" @click="downloadStampedBillPDF">{{ billPdfLoading ? 'PDF生成中…' : '下载费用 PDF' }}</button></div>
+        <div class="head-actions"><button class="secondary" type="button" :disabled="billingExportLoading" @click="downloadBillFile('xlsx')">导出费用 Excel</button><button class="secondary" type="button" :disabled="billPdfLoading" @click="downloadStampedBillPDF">{{ billPdfLoading ? '生成中…' : '下载费用 PDF' }}</button><button class="secondary" type="button" :disabled="billPdfLoading" @click="downloadBillImage">下载分享图片</button></div><p class="muted">商品、运费和服务费对应明细见下方；PDF 和图片使用已保存的公章设置。操作说明见客户履约手册。</p>
         <div class="table-scroll"><table class="billing-table"><thead><tr><th>发生日期</th><th>费用类型</th><th>来源单号</th><th>费用名称</th><th>应收</th><th>出账</th><th>出账前已收</th><th>出账后已收</th><th>当前未收</th></tr></thead><tbody>
-          <tr v-for="line in activeBill.lines || []" :key="line.id || `${line.charge_type}-${line.source_type}-${line.source_id}`"><td>{{ line.occurred_at }}</td><td>{{ chargeTypeLabel(line.charge_type) }}</td><td><button v-if="line.source_type === 'order'" class="link-button" type="button" @click="openSalesOrderDrawer({ id: line.source_id })">{{ line.source_no }}</button><span v-else>{{ line.source_no || line.source_id }}</span></td><td>{{ line.description }}</td><td>{{ moneyFromCents(line.receivable_cents) }}</td><td>{{ moneyFromCents(line.amount_cents) }}</td><td>{{ moneyFromCents(line.issued_received_cents || 0) }}</td><td>{{ moneyFromCents(line.received_cents) }}</td><td>{{ moneyFromCents(line.due_cents) }}</td></tr>
+          <template v-for="line in activeBill.lines || []" :key="line.id || `${line.charge_type}-${line.source_type}-${line.source_id}`">
+            <tr><td>{{ line.occurred_at }}</td><td>{{ chargeTypeLabel(line.charge_type) }}</td><td><button v-if="line.detail?.order_id || line.source_type === 'order'" class="link-button" type="button" @click="openSalesOrderDrawer({ id: line.detail?.order_id || line.source_id })">{{ line.detail?.order_no || line.source_no }}</button><span v-else>{{ line.source_no || line.source_id }}</span></td><td>{{ line.description }}</td><td>{{ moneyFromCents(line.receivable_cents) }}</td><td>{{ moneyFromCents(line.amount_cents) }}</td><td>{{ moneyFromCents(line.issued_received_cents || 0) }}</td><td>{{ moneyFromCents(line.received_cents) }}</td><td>{{ moneyFromCents(line.due_cents) }}</td></tr>
+            <tr v-if="line.detail"><td colspan="9"><div class="billing-source-detail"><div>订单：{{ line.detail.order_no || '未记录' }} · {{ line.detail.information_source }}</div><div v-for="(item, index) in line.detail.items || []" :key="`item-${index}`">商品：{{ item.item_name || '未记录' }} · 规格：{{ item.spec || '未记录' }} · 数量：{{ item.qty || '未记录' }}{{ item.unit }} · 单价：{{ item.unit_price || '未记录' }} · 金额：{{ item.line_total || '未记录' }}</div><div v-if="['order_goods', 'product'].includes(line.charge_type)">订单优惠：¥{{ moneyFromCents(line.detail.discount_cents || 0) }}<span v-if="!line.detail.items?.length"> · 商品明细：未记录</span></div><div v-for="(shipment, index) in line.detail.shipments || []" :key="`shipment-${index}`">发货时间：{{ shipment.shipped_at || '未记录' }} · 运单号：{{ shipment.tracking_no || '未记录' }} · 寄件重量：{{ shipment.settlement_weight_kg ? `${shipment.settlement_weight_kg} kg` : '未记录' }}</div><div v-if="['shipping', 'direct_ship_service'].includes(line.charge_type) && !line.detail.shipments?.length">发货时间、运单号、寄件重量：未记录</div></div></td></tr>
+          </template>
         </tbody></table></div>
         <section v-if="canInternal('stock.write') && canInternal('settings.write')" class="bill-pdf-settings"><h4>PDF 公章</h4><div class="billing-filters"><label><span>系统公章</span><select v-model.number="billPDFSettings.seal_asset_id" @change="onBillingSealChanged"><option :value="0">不加盖公章</option><option v-for="seal in billSeals" :key="seal.id" :value="Number(seal.id)">{{ seal.filename || `公章 ${seal.id}` }}</option></select></label><button class="secondary" type="button" :disabled="billPdfLoading" @click="saveBillingPDFSettings">保存公章设置</button></div>
           <div v-if="billPDFSettings.seal_asset_id && billPDFPages.length" class="billing-seal-pages" aria-label="选择盖章页"><label v-for="page in billPDFPages" :key="page.pageNumber"><input type="checkbox" :checked="hasBillingSealPage(page.pageNumber)" @change="toggleBillingSealPage(page,$event.target.checked)" />第 {{ page.pageNumber }} 页</label></div>
-          <PDFStampPreview v-if="activeBill" :key="`bill-pdf-${activeBill.batch_id}`" :pdf-url="customerBillExportURL(normalizedCustomerId, activeBill.batch_id, 'pdf')" :placements="billPDFSettings.placements || []" :seal-url="selectedBillSeal?.url || ''" seal-label="公章" :editable="Boolean(selectedBillSeal)" @loaded="onBillPDFLoaded" @placement-change="updateBillPDFPlacement" @placement-commit="saveBillingPDFSettings" />
+          <PDFStampPreview v-if="activeBill" :key="`bill-pdf-${activeBill.batch_id}`" :pdf-url="`${customerBillExportURL(normalizedCustomerId, activeBill.batch_id, 'pdf')}?unstamped=1`" :placements="billPDFSettings.placements || []" :seal-url="selectedBillSeal?.url || ''" seal-label="公章" :editable="Boolean(selectedBillSeal)" @loaded="onBillPDFLoaded" @placement-change="updateBillPDFPlacement" @placement-commit="saveBillingPDFSettings" />
         </section>
       </aside>
     </div>
@@ -400,10 +403,11 @@ import CustomerFulfillmentSettings from '../components/CustomerFulfillmentSettin
 import FulfillmentDefaultsEditor from '../components/FulfillmentDefaultsEditor.vue'
 import { useDialogFocus } from '../lib/dialog-focus.js'
 import { apiFetch, apiGet, appURL } from '../api/client'
+
 import { fulfillmentModuleTabs, fulfillmentBusinessLabel as businessLabel } from '../lib/fulfillment-operations.js'
 import { settlementChargeOptions as buildSettlementChargeOptions, settlementPeriodRange } from '../lib/customer-settlement.js'
 import { customerBillingRowClass, isCustomerOrderFullyPaid, pageSelectionState, togglePageSelection } from '../lib/customer-billing.js'
-import { createStampedContractPDF, defaultContractStampPlacement } from '../lib/contract-stamp.js'
+import { defaultContractStampPlacement } from '../lib/contract-stamp.js'
 import PDFStampPreview from '../components/PDFStampPreview.vue'
 import {freightLabel} from '../lib/freight'
 import OrderDetailsCopyButton from '../components/OrderDetailsCopyButton.vue'
@@ -888,18 +892,23 @@ async function downloadStampedBillPDF() {
   if (!activeBill.value) return
   billPdfLoading.value = true
   try {
-    const pdfBlob = await downloadCustomerBill(normalizedCustomerId.value, activeBill.value.batch_id, 'pdf', props.customerAccountActor)
-    let output = pdfBlob
-    if (selectedBillSeal.value && billPDFSettings.value.placements?.length) {
-      const [pdfBytes, sealResponse] = await Promise.all([pdfBlob.arrayBuffer(), apiFetch(selectedBillSeal.value.url)])
-      if (!sealResponse.ok) throw new Error('公章图片下载失败')
-      const sealBytes = await sealResponse.arrayBuffer()
-      const stamped = await createStampedContractPDF({ pdfBytes, sealBytes, sealContentType: selectedBillSeal.value.content_type, placements: billPDFSettings.value.placements })
-      output = new Blob([stamped], { type: 'application/pdf' })
-    }
+    const output = await downloadCustomerBill(normalizedCustomerId.value, activeBill.value.batch_id, 'pdf', props.customerAccountActor)
     saveBillingBlob(output, `${activeBill.value.settlement_no}.pdf`)
   } catch (err) {
     error.value = err.message || '费用 PDF 导出失败'
+  } finally {
+    billPdfLoading.value = false
+  }
+}
+
+async function downloadBillImage() {
+  if (!activeBill.value) return
+  billPdfLoading.value = true
+  try {
+    const image = await downloadCustomerBill(normalizedCustomerId.value, activeBill.value.batch_id, 'png', props.customerAccountActor)
+    saveBillingBlob(image, `${activeBill.value.settlement_no}.png`)
+  } catch (err) {
+    error.value = err.message || '账单图片生成失败'
   } finally {
     billPdfLoading.value = false
   }
@@ -1234,6 +1243,7 @@ onConfirmationUnmount(() => stopConfirmationRefresh?.())
 </script>
 
 <style scoped>
+.billing-source-detail { display: grid; gap: 4px; padding: 7px 12px; color: #526174; background: #f6f9f7; line-height: 1.6; overflow-wrap: anywhere; }
 .customer-fulfillment {
   display: flex;
   flex-direction: column;
