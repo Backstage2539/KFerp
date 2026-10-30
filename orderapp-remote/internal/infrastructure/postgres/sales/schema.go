@@ -9,6 +9,9 @@ import (
 )
 
 func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	if err := ensureCombinedPaymentSchema(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureShippingReturnSchema(ctx, pool, schema); err != nil {
 		return err
 	}

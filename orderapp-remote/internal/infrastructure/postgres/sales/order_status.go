@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	salesapp "orderapp/internal/application/sales"
 	salesdomain "orderapp/internal/domain/sales"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
@@ -18,6 +19,27 @@ func (r Repository) UpdateOrderStatus(ctx context.Context, cmd salesapp.UpdateOr
 		return err
 	}
 	defer tx.Rollback(ctx)
+	changed := false
+	originalChanged := cmd.Changed
+	if originalChanged != nil {
+		cmd.Changed = &changed
+	}
+	if err = r.updateOrderStatusTx(ctx, tx, cmd); err != nil {
+		return err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	if originalChanged != nil {
+		*originalChanged = changed
+	}
+	return nil
+}
+
+// updateOrderStatusTx applies the same validation and auditing under the
+// caller's transaction, allowing a combined receipt to commit atomically.
+func (r Repository) updateOrderStatusTx(ctx context.Context, tx pgx.Tx, cmd salesapp.UpdateOrderStatusCommand) error {
+	var err error
 	var curPay, curShip, companyID, productID, voucherID int64
 	var curMethod, shipMethod, reason, confirmation, deliveryMode string
 	var prepayment, total, goods, receivedGoods, receivedShipping float64
@@ -25,7 +47,7 @@ func (r Repository) UpdateOrderStatus(ctx context.Context, cmd salesapp.UpdateOr
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(pay_status_id,0),COALESCE(ship_status_id,0),COALESCE(payment_method,''),
 		       COALESCE((to_jsonb(o)->>'prepayment_amount')::numeric,0)::float8,
-		       COALESCE(grand_total,0)::float8,COALESCE(total_amount,0)::float8,
+		       %s::float8,COALESCE(total_amount,0)::float8,
 		       COALESCE(payment_goods_amount,0)::float8,COALESCE(payment_shipping_amount,0)::float8,
 		       COALESCE(payment_voucher_asset_id,0),COALESCE(logistics_company_id,0),
 		       COALESCE(logistics_product_id,0),COALESCE(ship_method,''),COALESCE(is_void,false),
@@ -33,7 +55,7 @@ func (r Repository) UpdateOrderStatus(ctx context.Context, cmd salesapp.UpdateOr
 		       COALESCE(to_jsonb(o)->>'confirmation_status','accepted'),
 		       COALESCE(to_jsonb(o)->>'settlement_reason',''),
 		       COALESCE(to_jsonb(o)->>'delivery_mode','')
-		FROM %s.orders o WHERE id=$1 FOR UPDATE`, r.schema), cmd.OrderID).Scan(
+		FROM %s.orders o WHERE id=$1 FOR UPDATE`, orderReceivableSQL("o"), r.schema), cmd.OrderID).Scan(
 		&curPay, &curShip, &curMethod, &prepayment, &total, &goods, &receivedGoods,
 		&receivedShipping, &voucherID, &companyID, &productID, &shipMethod, &isVoid,
 		&managed, &confirmation, &reason, &deliveryMode,
@@ -201,9 +223,6 @@ func (r Repository) UpdateOrderStatus(ctx context.Context, cmd salesapp.UpdateOr
 		}
 	}
 	if err = invalidateConfirmedOrderDocumentsTx(ctx, tx, r.schema, cmd.OrderID); err != nil {
-		return err
-	}
-	if err = tx.Commit(ctx); err != nil {
 		return err
 	}
 	if cmd.Changed != nil {

@@ -140,7 +140,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 			COALESCE(to_char(o.total_amount, 'FM999999999.00'), '') AS total_amount,
 			COALESCE(to_char(o.shipping_amount, 'FM999999999.00'), '') AS shipping_amount,
 			COALESCE(to_char(o.discount_amount, 'FM999999999.00'), '') AS discount_amount,
-			COALESCE(to_char(o.grand_total, 'FM999999999.00'), '') AS grand_total,
+			COALESCE(to_char(%s, 'FM999999999.00'), '') AS grand_total,
 			COALESCE(o.express_fee, '') AS express_fee,
 			COALESCE(to_char(o.outsource_material_fee, 'FM999999999.00'), '') AS outsource_material_fee,
 			COALESCE(to_char(o.outsource_roast_fee, 'FM999999999.00'), '') AS outsource_roast_fee,
@@ -207,7 +207,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 		%s
 		ORDER BY o.document_date DESC NULLS LAST, o.id DESC
 		LIMIT $%d OFFSET $%d
-	`, orderTrackingSummaryExpr(schema, "o"), orderProcessStatusExpr(schema), schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, wsql, limitArg, offsetArg)
+	`, orderReceivableSQL("o"), orderTrackingSummaryExpr(schema, "o"), orderProcessStatusExpr(schema), schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, wsql, limitArg, offsetArg)
 
 	dbRows, err := pool.Query(ctx, orderconfirmation.CurrentRead(sql, schema), args...)
 	if err != nil {
@@ -317,14 +317,14 @@ func fetchOrdersSummary(ctx context.Context, pool *pgxpool.Pool, schema string, 
 	sql := fmt.Sprintf(`
 		SELECT count(*)::int AS orders,
 		       count(distinct o.customer_id)::int AS customers,
-		       COALESCE(to_char(COALESCE(SUM(o.grand_total),0), 'FM999999999999990.00'), '0.00') AS total_amount,
-		       COALESCE(to_char(COALESCE(SUM(CASE WHEN COALESCE(ps.name,'') ~ '(已付款|已收款|已支付)' THEN o.grand_total ELSE COALESCE((to_jsonb(o)->>'prepayment_amount')::numeric,0) END),0), 'FM999999999999990.00'), '0.00') AS paid_amount,
-		       COALESCE(to_char(COALESCE(SUM(CASE WHEN COALESCE(ps.name,'') ~ '(已付款|已收款|已支付)' THEN 0 ELSE GREATEST(0,o.grand_total-COALESCE((to_jsonb(o)->>'prepayment_amount')::numeric,0)) END),0), 'FM999999999999990.00'), '0.00') AS pending_settlement_amount
+		       COALESCE(to_char(COALESCE(SUM(%s),0), 'FM999999999999990.00'), '0.00') AS total_amount,
+		       COALESCE(to_char(COALESCE(SUM(CASE WHEN COALESCE(ps.name,'') ~ '(已付款|已收款|已支付)' THEN %s ELSE COALESCE((to_jsonb(o)->>'prepayment_amount')::numeric,0) END),0), 'FM999999999999990.00'), '0.00') AS paid_amount,
+		       COALESCE(to_char(COALESCE(SUM(CASE WHEN COALESCE(ps.name,'') ~ '(已付款|已收款|已支付)' THEN 0 ELSE GREATEST(0,%s-COALESCE((to_jsonb(o)->>'prepayment_amount')::numeric,0)) END),0), 'FM999999999999990.00'), '0.00') AS pending_settlement_amount
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id = o.customer_id
 		LEFT JOIN %s.pay_statuses ps ON ps.id=o.pay_status_id
 		%s
-	`, schema, schema, schema, wsql)
+	`, orderReceivableSQL("o"), orderReceivableSQL("o"), orderReceivableSQL("o"), schema, schema, schema, wsql)
 
 	var s salesapp.OrdersSummary
 	if err := pool.QueryRow(ctx, sql, args...).Scan(&s.Orders, &s.Customers, &s.TotalAmount, &s.PaidAmount, &s.PendingSettlementAmount); err != nil {
