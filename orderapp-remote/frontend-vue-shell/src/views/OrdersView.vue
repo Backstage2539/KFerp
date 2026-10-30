@@ -348,6 +348,7 @@
               <OrderPaymentSummary :order="activeOrderDetail" />
             </div>
           </section>
+          <OrderCombinedPaymentRecords v-if="canViewCombinedPayments" :key="Number(activeOrderDetail.id)" :order-id="Number(activeOrderDetail.id)" />
           <section v-if="activeOrderDetail.items?.length" class="drawer-section">
             <h4>商品明细</h4>
             <p class="quote-source-summary" v-if="activeOrderDetail.fulfillment_mode === 'stock'">商品来源：原购货库存/权益</p>
@@ -474,6 +475,7 @@ import { orderConfirmationLabel, visibleOrderRefresh } from '../lib/order-confir
 import { onBeforeUnmount as onConfirmationUnmount, onMounted as onConfirmationMount } from 'vue'
 
 import OrderPaymentSummary from '../components/OrderPaymentSummary.vue'
+import OrderCombinedPaymentRecords from '../components/OrderCombinedPaymentRecords.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
@@ -502,6 +504,14 @@ const props = defineProps({
   workspaceMode: { type: String, default: '' },
   customerContextId: { type: [Number, String], default: 0 },
   customerContextLabel: { type: String, default: '' },
+  customerAccountActor: { type: Boolean, default: false },
+  actor: { type: Object, default: null },
+})
+
+const canViewCombinedPayments = computed(() => {
+  const actor = props.actor
+  if (!actor || props.customerAccountActor || actor.account_type === 'channel_customer') return false
+  return Boolean(actor.basic_auth_admin || actor.permissions?.includes('*') || actor.permissions?.includes('orders.read'))
 })
 
 const inlineDetail = reactive({})

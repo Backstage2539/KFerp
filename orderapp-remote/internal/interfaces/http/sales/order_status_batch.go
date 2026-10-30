@@ -2,12 +2,15 @@ package sales
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
 	salesapp "orderapp/internal/application/sales"
+	salesdomain "orderapp/internal/domain/sales"
 	"orderapp/internal/interfaces/http/support"
 )
 
@@ -21,6 +24,17 @@ func (h orderAPIHandler) batchStatusAuthorized(c echo.Context) bool {
 type batchStatusPreviewRow struct {
 	OrderID                int64  `json:"order_id"`
 	OrderNo                string `json:"order_no,omitempty"`
+	CustomerID             int64  `json:"customer_id"`
+	GrandTotal             string `json:"grand_total"`
+	ShippingAmount         string `json:"shipping_amount"`
+	PaidAmount             string `json:"paid_amount"`
+	UnpaidAmount           string `json:"unpaid_amount"`
+	TotalCents             int64  `json:"total_cents"`
+	PaidCents              int64  `json:"paid_cents"`
+	DueCents               int64  `json:"due_cents"`
+	Notes                  string `json:"notes"`
+	PayStatusName          string `json:"pay_status_name"`
+	FullyPaid              bool   `json:"fully_paid"`
 	EditRevision           string `json:"edit_revision,omitempty"`
 	PayStatusID            int64  `json:"pay_status_id"`
 	ShipStatusID           int64  `json:"ship_status_id"`
@@ -38,6 +52,37 @@ type batchStatusPreviewRow struct {
 	ConfirmationRequired   bool   `json:"confirmation_required"`
 	ConfirmationStatus     string `json:"confirmation_status"`
 	Error                  string `json:"error,omitempty"`
+}
+
+// orderMoneyCents parses the existing two-decimal order amounts without a
+// floating point conversion. Formatted historical zero can be ".00".
+func orderMoneyCents(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, strconv.ErrSyntax
+	}
+	parts := strings.Split(s, ".")
+	if len(parts) > 2 {
+		return 0, strconv.ErrSyntax
+	}
+	whole := parts[0]
+	if whole == "" {
+		whole = "0"
+	}
+	frac := "00"
+	if len(parts) == 2 {
+		if len(parts[1]) > 2 || len(parts[1]) == 0 {
+			return 0, strconv.ErrSyntax
+		}
+		frac = parts[1]
+		if len(frac) == 1 {
+			frac += "0"
+		}
+	}
+	if strings.HasPrefix(whole, "-") || strings.HasPrefix(whole, "+") {
+		return 0, strconv.ErrSyntax
+	}
+	return strconv.ParseInt(whole+frac, 10, 64)
 }
 
 type batchStatusItem struct {
@@ -97,6 +142,33 @@ func (h orderAPIHandler) batchStatusOrder(c echo.Context, id int64) (batchStatus
 	if ed == nil || ed.ID != id || ed.CustomerID != row.CustomerID {
 		out.Error = "订单不存在或无权访问"
 		return out, nil
+	}
+	out.CustomerID, out.GrandTotal, out.ShippingAmount = row.CustomerID, ed.GrandTotal, ed.ShippingAmount
+	out.Notes = ed.Notes
+	out.PayStatusName, out.FullyPaid = row.PayStatus, salesdomain.IsFullyPaid(row.PayStatus)
+	grand, grandErr := orderMoneyCents(ed.GrandTotal)
+	goods, goodsErr := orderMoneyCents(ed.TotalAmount)
+	shipping, shippingErr := orderMoneyCents(ed.ShippingAmount)
+	discount, discountErr := orderMoneyCents(ed.DiscountAmount)
+	rounding, roundingErr := orderMoneyCents(strings.TrimPrefix(ed.RoundingAmount, "-"))
+	paid, paidErr := orderMoneyCents(ed.PrepaymentAmount)
+	if grandErr != nil || goodsErr != nil || shippingErr != nil || discountErr != nil || roundingErr != nil || paidErr != nil {
+		out.Error = "订单金额无效，请先核对"
+	} else {
+		// A zero total with no fee adjustments is a legacy order whose actual
+		// receivable is total_amount. Calculated zero totals remain zero.
+		if grand == 0 && shipping == 0 && discount == 0 && rounding == 0 {
+			grand = goods
+		}
+		out.TotalCents = grand
+		out.PaidCents = paid
+		if out.FullyPaid {
+			out.PaidCents = grand
+		}
+		out.DueCents = max(int64(0), grand-out.PaidCents)
+		out.GrandTotal = fmt.Sprintf("%d.%02d", grand/100, grand%100)
+		out.PaidAmount = fmt.Sprintf("%d.%02d", out.PaidCents/100, out.PaidCents%100)
+		out.UnpaidAmount = fmt.Sprintf("%d.%02d", out.DueCents/100, out.DueCents%100)
 	}
 	out.OrderNo, out.EditRevision = ed.OrderNo, ed.EditRevision
 	out.PayStatusID, out.ShipStatusID, out.PaymentMethod = ed.PayStatusID, ed.ShipStatusID, ed.PaymentMethod
