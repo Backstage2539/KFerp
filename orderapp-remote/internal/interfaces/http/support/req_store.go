@@ -252,6 +252,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-ORDER-COMBINED-PAYMENT", title: "同一客户订单合并付款和收款记录", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-10-30-order-combined-payment.md; 业务验收待完成"},
+		{table: "req_dev", code: "DEV-ORDER-COMBINED-PAYMENT-01", title: "合并收款事务、订单分配、幂等与审计", status: "doing", assignee: "Codex", evidence: "combined_payment.go; combined_payment_test.go; 验证待汇总"},
+		{table: "req_dev", code: "DEV-ORDER-COMBINED-PAYMENT-02", title: "批量状态合并付款界面、收款记录与手册", status: "doing", assignee: "Codex", evidence: "OrderBatchStatusDialog.vue; OrderCombinedPaymentRecords.vue; OP_MANUAL_ORDER_SALES.md"},
+		{table: "req_dev", code: "DEV-ORDER-COMBINED-PAYMENT-03", title: "合并付款技术验证与开发交付", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-10-30-order-combined-payment.md; 部署待完成"},
 		{table: "req_product", code: "PR-746-BILL-ORDER-DETAIL-SHARE", title: "已出账账单补充订单费用明细并下载分享图片", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-10-29-bill-order-detail-share.md"},
 		{table: "req_dev", code: "DEV-PR746-01", title: "账单来源明细与出账快照", status: "done", assignee: "Codex", evidence: "billing detail source and snapshot tests"},
 		{table: "req_dev", code: "DEV-PR746-02", title: "账单页面和 Excel、PDF、PNG 输出", status: "done", assignee: "Codex", evidence: "billing export and rendering tests"},
