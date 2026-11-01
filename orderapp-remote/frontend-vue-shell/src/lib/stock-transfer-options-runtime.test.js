@@ -84,3 +84,19 @@ test('transfer form selects a real historical specification and batch and writes
     assert.equal(item.quantity, 0)
   } finally { delete globalThis.transferRuntimeAPI; delete globalThis.window }
 })
+
+test('weight material converts its stock unit using existing gram rounding', async () => {
+  let editor
+  globalThis.window = { location: { origin: 'http://localhost' }, clearTimeout, setTimeout }
+  globalThis.transferRuntimeAPI = async () => ({ rows: [{ item_type: 'material', item_id: 8, item_name: '豆', inventory_unit: 'lb', batch_id: 8, batch_code: 'MB-8', qty_g: 1000, available_g: 1000 }], has_next: false })
+  try {
+    await renderToString(createSSRApp({ setup() { editor = View.setup({ embedded: true, viewParams: {} }, { expose() {}, emit() {} }); return () => h('div') } }))
+    editor.form.purpose_key = 'material_transfer'
+    const item = editor.form.items[0]
+    Object.assign(item, { item_type: 'material', from_warehouse: 'raw_materials', to_warehouse: 'wip' })
+    await editor.ensureChoiceInventory('raw_materials')
+    editor.selectTransferObject(item, 8)
+    item.batch_code = 'MB-8'; editor.changeTransferBatch(item); item.quantity = 1
+    assert.deepEqual(editor.transferQuantity(item), { qty_g: 454, qty_units: 0 })
+  } finally { delete globalThis.transferRuntimeAPI; delete globalThis.window }
+})

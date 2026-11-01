@@ -1139,7 +1139,7 @@ function transferQuantity(item) {
   if (spec.mode !== 'weight' && !Number.isInteger(quantity)) throw new Error('件数和克数必须为整数')
   if (spec.mode === 'count' || spec.mode === 'canonical_weight') return { qty_g: 0, qty_units: quantity }
   const grams = spec.mode === 'loose' ? quantity : quantity * transferWeightFactor(spec.unit)
-  if (!Number.isInteger(grams) && Math.abs(grams - Math.round(grams)) > 1e-9) throw new Error('数量精度不能小于 1 克')
+  if (Math.round(grams) <= 0) throw new Error('数量精度不能小于 1 克')
   return { qty_g: Math.round(grams), qty_units: 0 }
 }
 
