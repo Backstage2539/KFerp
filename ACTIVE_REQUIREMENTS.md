@@ -6392,3 +6392,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - DEV: DEV-PR746-01 detail snapshots; DEV-PR746-02 page and exports; DEV-PR746-03 manuals, validation and development deployment.
 - Verifier: TDD helper, database snapshot and source association tests, API and UI checks, Excel/PDF/PNG consistency and stamp visual verification.
 - Notes: macOS awk failed to claim PR ID; recorded here and in requirement seeds.
+
+
+## PR-STOCK-TRANSFER-SOURCE-OPTIONS（2026-11-01）
+- Branch: `codex/stock-transfer-warehouse-options`; DEV: `DEV-STOCK-TRANSFER-SOURCE-OPTIONS`.
+- 转仓商品和 BOM 规格按每条明细出库仓库存筛选；切仓清除商品；完整读取库存分页。保留过账时库存/质检校验。
+- Verifier: `node --test orderapp-remote/frontend-vue-shell/src/lib/stock-transfer-options*.test.js`; `scripts/verify_kferp.sh frontend-tests`; `scripts/verify_kferp.sh frontend-build`; `go test ./internal/interfaces/http/stock ./internal/application/stock`.
+- GREEN: frontend tests 1681/1681, frontend build, full backend, stock API, and local browser fixture. Production observed read-only; no production stock document or business data changed. Development/production deployment not performed.

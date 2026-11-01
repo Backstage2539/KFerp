@@ -378,7 +378,7 @@ test('semi-finished material is manufacture-only in material, purchase, receipt,
 
   assert.match(stockEntriesSource, /selectableStockEntryMaterials/)
   assert.match(stockEntriesSource, /const stockEntryMaterialOptions = computed\(\(\) => selectableStockEntryMaterials\(materials\.value, form\.purpose_key\)\)/)
-  assert.match(stockEntriesSource, /:options="item\.item_type === 'material' \? stockEntryMaterialOptions : products"/)
+  assert.match(stockEntriesSource, /:options="item\.item_type === 'material' \? stockEntryMaterialOptions : productOptionsForItem\(item\)"/)
 })
 
 test('materials locally filter the loaded page by semi-finished marker without changing manufacturing capability', () => {
