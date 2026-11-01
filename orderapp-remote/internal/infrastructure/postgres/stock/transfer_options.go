@@ -197,12 +197,19 @@ WHERE fi.warehouse=$1 AND (fi.onhand_units>0 OR fi.onhand_loose_g>0)`, productCo
 		}
 		row.AvailableUnits = nonnegativeStockQty(row.QtyUnits - rn)
 		row.AvailableG = nonnegativeStockQty(row.QtyG - rg)
-		if row.ItemType == "finished_product" && row.BomSpecID == 0 && row.SpecG > 0 {
-			loose := row.QtyG - row.QtyUnits*row.SpecG
-			if loose < 0 {
-				row.UnavailableReason = "批次重量与件数不一致，请核对"
+		if row.ItemType == "finished_product" {
+			var protected int64
+			if row.BatchID > 0 {
+				protected, e = finishedProtectedWeightTx(ctx, tx, r.schema, row.BatchID, row.ItemID, row.OwnerCustomerID, q.Warehouse, row.SpecG)
+				if e != nil {
+					return stockapp.TransferOptionsResult{}, e
+				}
 			}
-			row.AvailableG = nonnegativeStockQty(loose - nonnegativeStockQty(rg-rn*row.SpecG))
+			availableG, availableN, reason := finishedTransferAvailable(row.QtyG, row.QtyUnits, row.SpecG, rg, rn, protected)
+			row.AvailableG, row.AvailableUnits = availableG, availableN
+			if reason != "" {
+				row.UnavailableReason = reason
+			}
 		}
 		if row.UnavailableReason != "" {
 			row.AvailableG, row.AvailableUnits = 0, 0

@@ -120,6 +120,96 @@ func transferBatchRetainedTx(ctx context.Context, tx pgx.Tx, schema string, batc
 	return retained, err
 }
 
+func finishedTransferAvailable(g, n, specG, reservedG, reservedN, protectedWeight int64) (int64, int64, string) {
+	if specG <= 0 {
+		if reservedG > 0 {
+			return 0, 0, "批次按重量预留，规格换算待核对"
+		}
+		return 0, nonnegativeStockQty(n - reservedN), ""
+	}
+	loose := g - n*specG
+	if loose < 0 {
+		return 0, 0, "批次重量与件数不一致，请核对"
+	}
+	protected := reservedG
+	if packed := reservedN * specG; packed > protected {
+		protected = packed
+	}
+	if protectedWeight > protected {
+		protected = protectedWeight
+	}
+	freeWeight := nonnegativeStockQty(g - protected)
+	return minInt64(loose, freeWeight), minInt64(nonnegativeStockQty(n-reservedN), freeWeight/specG), ""
+}
+
+// Reserve weight is calculated per work order, so unrelated reservations in
+// grams and pieces cannot mask one another. Processing reservations overlap
+// the generic binding for the same work order and are counted only once.
+func finishedProtectedWeightTx(ctx context.Context, tx pgx.Tx, schema string, batchID, itemID, owner int64, warehouse string, specG int64) (int64, error) {
+	if specG <= 0 {
+		return 0, nil
+	}
+	byWorkOrder := map[int64]int64{}
+	has, err := stockSchemaRelationExistsTx(ctx, tx, schema, "work_order_material_reservation_batches")
+	if err != nil {
+		return 0, err
+	}
+	if has {
+		rows, e := tx.Query(ctx, fmt.Sprintf(`SELECT b.work_order_id,COALESCE(SUM(GREATEST(GREATEST(0,b.reserved_g-b.consumed_g-b.returned_g),GREATEST(0,b.reserved_units-b.consumed_units-b.returned_units)*$4)),0)::bigint
+FROM %[1]s.work_order_material_reservation_batches b JOIN %[1]s.work_order_material_reservations r ON r.id=b.reservation_id
+WHERE b.stock_batch_id=$1 AND b.warehouse=$2 AND b.owner_customer_id=$3 AND b.status='reserved' AND r.status='reserved' GROUP BY b.work_order_id`, schema), batchID, warehouse, owner, specG)
+		if e != nil {
+			return 0, e
+		}
+		for rows.Next() {
+			var workID, weight int64
+			if e = rows.Scan(&workID, &weight); e != nil {
+				rows.Close()
+				return 0, e
+			}
+			byWorkOrder[workID] = weight
+		}
+		e = rows.Err()
+		rows.Close()
+		if e != nil {
+			return 0, e
+		}
+	}
+	has, err = stockSchemaRelationExistsTx(ctx, tx, schema, "customer_processing_material_reservations")
+	if err != nil {
+		return 0, err
+	}
+	if has {
+		rows, e := tx.Query(ctx, fmt.Sprintf(`SELECT work_order_id,COALESCE(SUM(GREATEST(GREATEST(0,reserved_g-consumed_g-returned_g),GREATEST(0,reserved_units-consumed_units-returned_units)*$5)),0)::bigint
+FROM %s.customer_processing_material_reservations WHERE (finished_stock_batch_id=$1 OR finished_stock_batch_id=0) AND component_product_id=$2 AND source_warehouse_code=$3 AND CASE WHEN source_owner_type='customer' THEN source_customer_id ELSE 0 END=$4 AND status='reserved' GROUP BY work_order_id`, schema), batchID, itemID, warehouse, owner, specG)
+		if e != nil {
+			return 0, e
+		}
+		for rows.Next() {
+			var workID, weight int64
+			if e = rows.Scan(&workID, &weight); e != nil {
+				rows.Close()
+				return 0, e
+			}
+			if workID <= 0 {
+				byWorkOrder[workID] += weight
+			} else if weight > byWorkOrder[workID] {
+				byWorkOrder[workID] = weight
+			}
+		}
+		e = rows.Err()
+		rows.Close()
+		if e != nil {
+			return 0, e
+		}
+	}
+	var total int64
+	for _, weight := range byWorkOrder {
+		total += weight
+	}
+	return total, nil
+}
+
 func finishedTransferBalancesMatchTx(ctx context.Context, tx pgx.Tx, schema string, productID, specID, specG, owner int64, warehouse string) (bool, error) {
 	var units, loose int64
 	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory WHERE product_id=$1 AND bom_spec_id=$2 AND spec_g=$3 AND owner_customer_id=$4 AND warehouse=$5`, schema), productID, specID, specG, owner, warehouse).Scan(&units, &loose)
@@ -206,8 +296,16 @@ WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=$2 AND b
 	if err != nil {
 		return err
 	}
+	protected, err := finishedProtectedWeightTx(ctx, tx, schema, id, item.ProductID, item.OwnerCustomerID, item.FromWarehouse, item.SpecG)
+	if err != nil {
+		return err
+	}
+	availableG, availableN, reason := finishedTransferAvailable(g, n, item.SpecG, rg, rn, protected)
+	if reason != "" {
+		return fmt.Errorf("%s", reason)
+	}
 	if item.BomSpecID > 0 {
-		if item.QtyG != 0 || item.QtyUnits > nonnegativeStockQty(n-rn) {
+		if item.QtyG != 0 || item.QtyUnits > availableN {
 			return fmt.Errorf("来源批次可转库存不足，请刷新")
 		}
 		return nil
@@ -215,9 +313,7 @@ WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=$2 AND b
 	if item.QtyUnits > 0 && item.QtyG > 0 {
 		return fmt.Errorf("每行只能转整件或散装克数")
 	}
-	loose := g - n*item.SpecG
-	reservedLoose := nonnegativeStockQty(rg - rn*item.SpecG)
-	if loose < 0 || item.QtyUnits > nonnegativeStockQty(n-rn) || item.QtyG > nonnegativeStockQty(loose-reservedLoose) {
+	if item.QtyUnits > availableN || item.QtyG > availableG {
 		return fmt.Errorf("来源批次可转库存不足或库存需核对，请刷新")
 	}
 	return nil

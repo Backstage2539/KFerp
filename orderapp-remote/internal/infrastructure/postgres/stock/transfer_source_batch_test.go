@@ -173,6 +173,90 @@ SELECT r.id,88,b.id,'finished_goods',3 FROM %[1]s.work_order_material_reservatio
 	}
 }
 
+func TestFinishedTransferProtectsWeightReservedInsidePackedBatch(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+INSERT INTO %[1]s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g) VALUES(9,1000,'finished_goods',4,0);
+INSERT INTO %[1]s.stock_batches(batch_code,item_type,item_id,item_name,spec_g,qty_g,qty_units,remaining_g,remaining_units)
+VALUES('PACKED','finished_product',9,'测试熟豆',1000,4000,4,4000,4);
+CREATE TABLE %[1]s.work_order_material_reservation_batches (
+ reservation_id bigint, work_order_id bigint, material_batch_id bigint DEFAULT 0, stock_batch_id bigint,
+ warehouse text, owner_customer_id bigint DEFAULT 0, reserved_g bigint DEFAULT 0, reserved_units bigint DEFAULT 0,
+ consumed_g bigint DEFAULT 0, consumed_units bigint DEFAULT 0, returned_g bigint DEFAULT 0,
+ returned_units bigint DEFAULT 0, status text DEFAULT 'reserved');
+INSERT INTO %[1]s.work_order_material_reservation_batches(reservation_id,work_order_id,stock_batch_id,warehouse,reserved_g)
+SELECT r.id,88,b.id,'finished_goods',500 FROM %[1]s.work_order_material_reservations r, %[1]s.stock_batches b WHERE r.work_order_id=88 AND b.batch_code='PACKED';`, schema))
+	svc := stockapp.NewService(NewRepository(pool, schema))
+	options, err := svc.ListTransferOptions(ctx, stockapp.TransferOptionsQuery{Warehouse: "finished_goods", ItemType: "finished_product"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(options.Rows) != 1 || options.Rows[0].AvailableUnits != 3 {
+		t.Fatalf("500g reserved in four 1000g packs leaves three transferable: %+v", options.Rows)
+	}
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+INSERT INTO %[1]s.work_order_material_reservations(work_order_id,material_id,reserved_units,status) VALUES(89,1,1,'reserved');
+INSERT INTO %[1]s.work_order_material_reservation_batches(reservation_id,work_order_id,stock_batch_id,warehouse,reserved_units)
+SELECT r.id,89,b.id,'finished_goods',1 FROM %[1]s.work_order_material_reservations r, %[1]s.stock_batches b WHERE r.work_order_id=89 AND b.batch_code='PACKED';`, schema))
+	options, err = svc.ListTransferOptions(ctx, stockapp.TransferOptionsQuery{Warehouse: "finished_goods", ItemType: "finished_product"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(options.Rows) != 1 || options.Rows[0].AvailableUnits != 2 {
+		t.Fatalf("500g and one separately reserved pack leave two transferable: %+v", options.Rows)
+	}
+	_, err = svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{Purpose: stockapp.PurposeMaterialTransfer, Items: []stockapp.StockDocumentItemCommand{{ProductID: 9, ItemType: "finished_product", SpecG: 1000, QtyUnits: 3, BatchCode: "PACKED", FromWarehouse: "finished_goods", ToWarehouse: "finished_shop"}}})
+	if err == nil {
+		t.Fatal("three packs must not consume the separately reserved pack and 500g")
+	}
+}
+
+func TestFinishedTransferAvailabilityRespectsBothReservationDimensions(t *testing.T) {
+	for _, tc := range []struct {
+		name                                           string
+		g, n, spec, reservedG, reservedN, wantG, wantN int64
+		wantReason                                     bool
+	}{
+		{"weight reservation in packs", 4000, 4, 1000, 500, 0, 0, 3, false},
+		{"packed reservation with loose stock", 4200, 4, 1000, 0, 1, 200, 3, false},
+		{"weight and units are not double counted", 4200, 4, 1000, 1300, 1, 200, 2, false},
+		{"invalid physical batch", 3000, 4, 1000, 0, 0, 0, 0, true},
+		{"canonical weight reservation requires reconciliation", 0, 4, 0, 500, 0, 0, 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g, n, reason := finishedTransferAvailable(tc.g, tc.n, tc.spec, tc.reservedG, tc.reservedN, 0)
+			if g != tc.wantG || n != tc.wantN || (reason != "") != tc.wantReason {
+				t.Fatalf("got %d g / %d units / %q", g, n, reason)
+			}
+		})
+	}
+}
+
+func TestFinishedProtectedWeightDeduplicatesProcessingForSameWorkOrder(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+CREATE TABLE %[1]s.work_order_material_reservation_batches(reservation_id bigint,work_order_id bigint,stock_batch_id bigint,warehouse text,owner_customer_id bigint DEFAULT 0,reserved_g bigint DEFAULT 0,reserved_units bigint DEFAULT 0,consumed_g bigint DEFAULT 0,consumed_units bigint DEFAULT 0,returned_g bigint DEFAULT 0,returned_units bigint DEFAULT 0,status text DEFAULT 'reserved');
+CREATE TABLE %[1]s.customer_processing_material_reservations(work_order_id bigint,finished_stock_batch_id bigint,component_product_id bigint,source_warehouse_code text,source_owner_type text,source_customer_id bigint,reserved_g bigint DEFAULT 0,reserved_units bigint DEFAULT 0,consumed_g bigint DEFAULT 0,consumed_units bigint DEFAULT 0,returned_g bigint DEFAULT 0,returned_units bigint DEFAULT 0,status text DEFAULT 'reserved');
+INSERT INTO %[1]s.work_order_material_reservation_batches(reservation_id,work_order_id,stock_batch_id,warehouse,reserved_g,reserved_units)
+SELECT id,88,7,'finished_goods',1000,1 FROM %[1]s.work_order_material_reservations WHERE work_order_id=88;
+INSERT INTO %[1]s.customer_processing_material_reservations(work_order_id,finished_stock_batch_id,component_product_id,source_warehouse_code,source_owner_type,source_customer_id,reserved_g,reserved_units) VALUES
+(88,7,9,'finished_goods','factory',0,1000,1),(89,7,9,'finished_goods','factory',0,500,0);`, schema))
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	weight, err := finishedProtectedWeightTx(ctx, tx, schema, 7, 9, 0, "finished_goods", 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if weight != 1500 {
+		t.Fatalf("overlapping and separate reservations protected %dg, want 1500g", weight)
+	}
+}
+
 func TestTransferDraftAcceptsHistoricalBatchSpecification(t *testing.T) {
 	pool, schema := setupUnifiedStockDocumentTest(t)
 	ctx := context.Background()
