@@ -252,6 +252,8 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-STOCK-TRANSFER-SOURCE-OPTIONS", title: "库存转仓按出库仓库存选择商品及规格", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-11-01-stock-transfer-source-options.md"},
+		{table: "req_dev", code: "DEV-STOCK-TRANSFER-SOURCE-OPTIONS", title: "转仓商品选项按来源仓库存加载与规格匹配", status: "done", assignee: "Codex", evidence: "StockEntriesView.vue; stock-transfer-options.test.js"},
 		{table: "req_product", code: "PR-ORDER-COMBINED-PAYMENT", title: "同一客户订单合并付款和收款记录", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-10-30-order-combined-payment.md; 业务验收待完成"},
 		{table: "req_dev", code: "DEV-ORDER-COMBINED-PAYMENT-01", title: "合并收款事务、订单分配、幂等与审计", status: "doing", assignee: "Codex", evidence: "combined_payment.go; combined_payment_test.go; 验证待汇总"},
 		{table: "req_dev", code: "DEV-ORDER-COMBINED-PAYMENT-02", title: "批量状态合并付款界面、收款记录与手册", status: "doing", assignee: "Codex", evidence: "OrderBatchStatusDialog.vue; OrderCombinedPaymentRecords.vue; OP_MANUAL_ORDER_SALES.md"},
