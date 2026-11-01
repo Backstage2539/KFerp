@@ -322,6 +322,28 @@ func TestConcurrentMaterialTransfersSerializeWithoutOverdraw(t *testing.T) {
 	}
 }
 
+func TestMaterialTransferAuditContainsSelectedSourceBatch(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	svc := stockapp.NewService(NewRepository(pool, schema))
+	receipt, err := svc.ReceiveMaterial(ctx, stockapp.MaterialReceiptCommand{MaterialID: 1, QtyG: 2000, UnitCost: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %s.work_order_material_reservations SET status='consumed' WHERE material_id=1`, schema))
+	detail, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{Purpose: stockapp.PurposeMaterialTransfer, Items: []stockapp.StockDocumentItemCommand{{MaterialID: 1, ItemType: "material", QtyG: 1000, BatchCode: receipt.BatchCode, FromWarehouse: "raw_materials", ToWarehouse: "wip"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var source, target string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(meta#>>'{transfer_lines,0,source_batch_code}',''),COALESCE(meta#>>'{transfer_lines,0,target_batch_code}','') FROM %s.audit_logs WHERE entity_type='stock_entry' AND entity_id=$1 AND action='submit'`, schema), detail.ID).Scan(&source, &target); err != nil {
+		t.Fatal(err)
+	}
+	if source != receipt.BatchCode || target != receipt.BatchCode {
+		t.Fatalf("audit source=%q target=%q want %q", source, target, receipt.BatchCode)
+	}
+}
+
 func TestFinishedTransferRechecksUnboundReservationAfterBatchLock(t *testing.T) {
 	pool, schema := setupUnifiedStockDocumentTest(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
