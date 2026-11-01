@@ -49,6 +49,13 @@ VALUES('OLD','finished_product',9,'测试熟豆',1000,2000,2,2000,2),('NEW','fin
 	if len(detail.Items[0].TransferBatchMoves) != 1 || detail.Items[0].TransferBatchMoves[0].SourceBatchCode != "NEW" || detail.Items[0].TransferBatchMoves[0].TargetBatchCode == "" {
 		t.Fatalf("source and target batch identities missing: %+v", detail.Items[0])
 	}
+	var auditSource, auditTarget string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(meta#>>'{transfer_lines,0,source_batch_code}',''),COALESCE(meta#>>'{transfer_lines,0,target_batch_code}','') FROM %s.audit_logs WHERE entity_type='stock_entry' AND entity_id=$1 AND action='submit'`, schema), detail.ID).Scan(&auditSource, &auditTarget); err != nil {
+		t.Fatal(err)
+	}
+	if auditSource != "NEW" || auditTarget != detail.Items[0].TransferBatchMoves[0].TargetBatchCode {
+		t.Fatalf("audit batch identities source=%q target=%q", auditSource, auditTarget)
+	}
 }
 
 func TestOldTransferDraftWithoutBatchCannotBeSubmitted(t *testing.T) {
@@ -312,5 +319,54 @@ func TestConcurrentMaterialTransfersSerializeWithoutOverdraw(t *testing.T) {
 	}
 	if success != 1 || failures != 1 || source != 3000 {
 		t.Fatalf("success=%d failure=%d source=%d", success, failures, source)
+	}
+}
+
+func TestFinishedTransferRechecksUnboundReservationAfterBatchLock(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN component_type text NOT NULL DEFAULT 'material';
+ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN component_id bigint NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN source_warehouse text NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN source_owner_customer_id bigint NOT NULL DEFAULT 0;
+INSERT INTO %[1]s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g) VALUES(9,1000,'finished_goods',4,0);
+INSERT INTO %[1]s.stock_batches(batch_code,item_type,item_id,spec_g,qty_g,qty_units,remaining_g,remaining_units) VALUES('RACE','finished_product',9,1000,4000,4,4000,4);`, schema))
+	holder, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Rollback(ctx)
+	if _, err := holder.Exec(ctx, fmt.Sprintf(`SELECT id FROM %s.stock_batches WHERE batch_code='RACE' FOR UPDATE`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, e := stockapp.NewService(NewRepository(pool, schema)).CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{Purpose: stockapp.PurposeMaterialTransfer, Items: []stockapp.StockDocumentItemCommand{{ProductID: 9, ItemType: "finished_product", SpecG: 1000, QtyUnits: 2, BatchCode: "RACE", FromWarehouse: "finished_goods", ToWarehouse: "finished_shop"}}})
+		done <- e
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var waiting bool
+		if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%'||$1||'.stock_batches b%' AND query LIKE '%FOR UPDATE OF b%')`, schema).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("transfer did not wait for batch lock")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err := holder.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.work_order_material_reservations(work_order_id,material_id,component_type,component_id,source_warehouse,reserved_units,status) VALUES(88,0,'product',9,'finished_goods',3,'reserved')`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	if err := holder.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err == nil || !strings.Contains(err.Error(), "预留") {
+		t.Fatalf("transfer must observe committed reservation: %v", err)
 	}
 }

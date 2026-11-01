@@ -765,12 +765,18 @@ func (r Repository) submitStockDocumentTx(ctx context.Context, tx pgx.Tx, id int
 	if err := r.validateStockDocumentWorkOrderTx(ctx, tx, detail); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
+	transferLines := make([]map[string]any, 0, len(detail.Items))
 	for i := range detail.Items {
+		sourceBatch := detail.Items[i].BatchCode
 		if err := r.postStockDocumentItemTx(ctx, tx, detail, &detail.Items[i], actor); err != nil {
 			if detail.Purpose == stockapp.PurposeMaterialTransfer {
 				return stockapp.StockDocumentDetail{}, fmt.Errorf("第 %d 行：%w", i+1, err)
 			}
 			return stockapp.StockDocumentDetail{}, err
+		}
+		if detail.Purpose == stockapp.PurposeMaterialTransfer {
+			item := detail.Items[i]
+			transferLines = append(transferLines, map[string]any{"item_type": item.ItemType, "material_id": item.MaterialID, "product_id": item.ProductID, "bom_spec_id": item.BomSpecID, "spec_g": item.SpecG, "owner_customer_id": item.OwnerCustomerID, "from_warehouse": item.FromWarehouse, "to_warehouse": item.ToWarehouse, "source_batch_code": sourceBatch, "target_batch_code": item.BatchCode, "qty_g": item.QtyG, "qty_units": item.QtyUnits})
 		}
 	}
 	if err := r.updateWorkOrderStockStatsTx(ctx, tx, detail, 1); err != nil {
@@ -782,6 +788,9 @@ func (r Repository) submitStockDocumentTx(ctx context.Context, tx pgx.Tx, id int
 		return stockapp.StockDocumentDetail{}, err
 	}
 	auditMeta := postgresinfra.AuditMeta{"entry_no": detail.EntryNo, "purpose": detail.Purpose, "is_return": detail.IsReturn, "work_order_id": detail.WorkOrderID}
+	if detail.Purpose == stockapp.PurposeMaterialTransfer {
+		auditMeta["transfer_lines"] = transferLines
+	}
 	quantities, err := pickingAuditQuantitiesTx(ctx, tx, r.schema, detail)
 	if err != nil {
 		return stockapp.StockDocumentDetail{}, err

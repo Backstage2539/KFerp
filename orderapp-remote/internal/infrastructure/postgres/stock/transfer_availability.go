@@ -141,13 +141,6 @@ WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=$2 AND b
 }
 
 func validateFinishedTransferBatchTx(ctx context.Context, tx pgx.Tx, schema string, item stockapp.StockDocumentItemRow) error {
-	unbound, err := hasUnboundTransferReservationTx(ctx, tx, schema, item.ProductID, item.OwnerCustomerID, item.FromWarehouse, true)
-	if err != nil {
-		return err
-	}
-	if unbound {
-		return fmt.Errorf("存在未绑定批次的预留，请先核对")
-	}
 	for _, warehouse := range []string{item.FromWarehouse, item.ToWarehouse} {
 		var customerID int64
 		err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(customer_id,0) FROM %s.warehouses WHERE code=$1 AND active=true`, schema), warehouse).Scan(&customerID)
@@ -194,6 +187,13 @@ WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=$2 AND b
 	}
 	if quality == "hold" || quality == "reject" {
 		return fmt.Errorf("来源批次处于质检冻结状态")
+	}
+	unbound, err := hasUnboundTransferReservationTx(ctx, tx, schema, item.ProductID, item.OwnerCustomerID, item.FromWarehouse, true)
+	if err != nil {
+		return err
+	}
+	if unbound {
+		return fmt.Errorf("存在未绑定批次的预留，请先核对")
 	}
 	retained, err := transferBatchRetainedTx(ctx, tx, schema, id)
 	if err != nil {
