@@ -1,3 +1,11 @@
+### PR-STOCK-TRANSFER-BATCH-SELECTION（进行中）
+- Branch: `codex/stock-transfer-batch-spec`, based on `origin/develop`.
+- DEV-STOCK-TRANSFER-BATCH-API: transfer options, selected-batch posting, ownership, quality, reservations, historical specification identity and trace.
+- DEV-STOCK-TRANSFER-BATCH-UI: source warehouse, actual specification, mandatory batch, one quantity and book/available balances; isolated browser fixture inspected.
+- DEV-STOCK-TRANSFER-BATCH-RELEASE: manual, acceptance evidence, full verification and development deployment.
+- RED/GREEN: source batch, legacy draft, historical BOM, reserved and unbound reserved stock, mismatch, duplicate lines, concurrency, and idempotency use isolated PostgreSQL. Manual: `orderapp-remote/docs/OP_MANUAL_STOCK.md`.
+- Development deployment and Van's business acceptance pending. No production business writes.
+
 ### PR-745-MINIAPP-FEES-PRICE-PHONE
 - Branch: codex/miniapp-customer-fees-login; base origin/develop a3084c508.
 - Status: implementation and targeted checks complete; development integration/deployment and developer-tool/device acceptance pending. Production and WeChat publication deferred.

@@ -60,6 +60,11 @@ func lockStockDocumentPostingTx(ctx context.Context, tx pgx.Tx, schema string, d
 			materials = append(materials, item.MaterialID)
 		}
 	}
+	if detail.Purpose == stockapp.PurposeMaterialTransfer && len(materials) > 0 {
+		if err := lockOrdinaryTransferMaterialsTx(ctx, tx, schema, materials); err != nil {
+			return err
+		}
+	}
 	if err := lockStockDocumentWorkOrderMaterialsTx(ctx, tx, schema, detail.WorkOrderID, materials); err != nil {
 		return err
 	}
@@ -93,6 +98,21 @@ func lockStockDocumentPostingTx(ctx context.Context, tx pgx.Tx, schema string, d
 		}
 	}
 	return nil
+}
+
+func lockOrdinaryTransferMaterialsTx(ctx context.Context, tx pgx.Tx, schema string, materials []int64) error {
+	if len(materials) == 0 {
+		return nil
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id FROM %s.materials WHERE id=ANY($1::bigint[]) ORDER BY id FOR UPDATE`, schema), materials)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+	}
+	err = rows.Err()
+	rows.Close()
+	return err
 }
 
 func pickingAuditQuantitiesTx(ctx context.Context, tx pgx.Tx, schema string, detail stockapp.StockDocumentDetail) (map[string]any, error) {

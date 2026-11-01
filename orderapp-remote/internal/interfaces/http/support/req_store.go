@@ -252,6 +252,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-STOCK-TRANSFER-BATCH-SELECTION", title: "库存转仓按实际规格和必选批次填写数量", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-11-01-stock-transfer-batch-selection.md"},
+		{table: "req_dev", code: "DEV-STOCK-TRANSFER-BATCH-API", title: "转仓规格批次可用库存和指定批次过账", status: "done", assignee: "Codex", evidence: "transfer_options.go; transfer_availability.go; transfer_source_batch_test.go"},
+		{table: "req_dev", code: "DEV-STOCK-TRANSFER-BATCH-UI", title: "转仓规格批次下拉及数量库存显示", status: "done", assignee: "Codex", evidence: "StockEntriesView.vue; stock-transfer-selector.test.js"},
+		{table: "req_dev", code: "DEV-STOCK-TRANSFER-BATCH-RELEASE", title: "转仓手册、回归验证和开发环境部署", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-11-01-stock-transfer-batch-selection.md"},
 		{table: "req_product", code: "PR-STOCK-TRANSFER-SOURCE-OPTIONS", title: "库存转仓按出库仓库存选择商品及规格", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-11-01-stock-transfer-source-options.md"},
 		{table: "req_dev", code: "DEV-STOCK-TRANSFER-SOURCE-OPTIONS", title: "转仓商品选项按来源仓库存加载与规格匹配", status: "done", assignee: "Codex", evidence: "StockEntriesView.vue; stock-transfer-options.test.js"},
 		{table: "req_product", code: "PR-ORDER-COMBINED-PAYMENT", title: "同一客户订单合并付款和收款记录", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-10-30-order-combined-payment.md; 业务验收待完成"},

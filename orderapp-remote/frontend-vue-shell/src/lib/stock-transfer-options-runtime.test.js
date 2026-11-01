@@ -49,3 +49,38 @@ test('actual transfer editor scopes each row to its warehouse and selects the st
     assert.deepEqual(editor.productOptionsForItem(first).map(p => p.name), ['初晓'])
   } finally { delete globalThis.transferRuntimeAPI; delete globalThis.window }
 })
+
+test('transfer form selects a real historical specification and batch and writes only one quantity', async () => {
+  let editor
+  globalThis.window = { location: { origin: 'http://localhost' }, clearTimeout, setTimeout }
+  globalThis.transferRuntimeAPI = async path => {
+    if (String(path).startsWith('/api/stock/transfer-options')) return { rows: [{ item_type: 'finished_product', item_id: 58, item_name: '曜石', bom_spec_id: 69, bom_variant_id: 1206, spec_name: '旧 454g', inventory_unit: '袋', batch_id: 3, batch_code: 'FP-3', qty_units: 10, available_units: 7 }], has_next: false }
+    throw Error(`unexpected ${path}`)
+  }
+  try {
+    await renderToString(createSSRApp({ setup() { editor = View.setup({ embedded: true, viewParams: {} }, { expose() {}, emit() {} }); return () => h('div') } }))
+    editor.form.purpose_key = 'material_transfer'
+    const item = editor.form.items[0]
+    Object.assign(item, { item_type: 'finished_product', from_warehouse: 'finished_goods', to_warehouse: 'shop' })
+    await editor.ensureChoiceInventory('finished_goods')
+    editor.selectTransferObject(item, 58)
+    assert.equal(item.transfer_spec, 'bom:69:1206')
+    assert.equal(item.batch_code, '')
+    assert.equal(editor.transferSpecBalance(item, true), '7 件')
+    item.batch_code = 'FP-3'
+    editor.changeTransferBatch(item)
+    item.quantity = 4
+    const payload = editor.requestBody().items[0]
+    assert.equal(payload.batch_code, 'FP-3')
+    assert.equal(payload.bom_spec_id, 69)
+    assert.equal(payload.bom_variant_id, 1206)
+    assert.equal(payload.qty_units, 4)
+    assert.equal(payload.qty_g, 0)
+    assert.equal(payload.inventory_unit, '袋')
+    item.from_warehouse = 'other'
+    editor.changeTransferWarehouse(item)
+    assert.equal(item.product_id, 0)
+    assert.equal(item.batch_code, '')
+    assert.equal(item.quantity, 0)
+  } finally { delete globalThis.transferRuntimeAPI; delete globalThis.window }
+})

@@ -721,18 +721,18 @@ func TestUnifiedStockDocumentLegacyWriteServicesDoNotCreateParallelDocuments(t *
 	if err != nil {
 		t.Fatalf("legacy receipt: %v", err)
 	}
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %s.work_order_material_reservations SET status='consumed' WHERE material_id=1`, schema))
 	transfer, err := svc.TransferMaterial(ctx, stockapp.MaterialTransferCommand{
-		MaterialID: 1, FromWarehouse: "raw_materials", ToWarehouse: "wip", QtyG: 1000, Operator: "legacy-api",
+		MaterialID: 1, BatchCode: receipt.BatchCode, FromWarehouse: "raw_materials", ToWarehouse: "wip", QtyG: 1000, Operator: "legacy-api",
 	})
 	if err != nil {
 		t.Fatalf("legacy material transfer: %v", err)
 	}
-	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g)
-		VALUES(9,1000,'finished_goods',2,0)
-	`, schema))
+	if _, err := NewRepository(pool, schema).CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{ItemType: itemTypeFinishedProduct, ItemID: 9, SpecG: 1000, Warehouse: "finished_goods", TargetUnits: 2, Reason: "test", Operator: "qa"}); err != nil {
+		t.Fatal(err)
+	}
 	finished, err := svc.TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
-		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
+		BatchCode: mustTestTransferBatch(t, pool, schema, 9, 0, 1000, "finished_goods"), ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
 		QtyUnits: 1, Operator: "legacy-api",
 	})
 	if err != nil {

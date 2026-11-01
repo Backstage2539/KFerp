@@ -234,6 +234,19 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 		return c.JSON(http.StatusOK, result)
 	})
 
+	e.GET("/api/stock/transfer-options", func(c echo.Context) error {
+		limit := stockLimit(c)
+		result, err := stockSvc.ListTransferOptions(c.Request().Context(), stockapp.TransferOptionsQuery{
+			Warehouse: c.QueryParam("warehouse"), ItemType: c.QueryParam("item_type"), Q: c.QueryParam("q"),
+			ItemID: int64(support.IntParam(c, "item_id", 0)), BomSpecID: int64(support.IntParam(c, "bom_spec_id", 0)),
+			SpecG: int64(support.IntParam(c, "spec_g", 0)), Limit: limit, Offset: stockOffsetForLimit(c, limit),
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, errorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
 	e.GET("/api/stock/outbound-logs", func(c echo.Context) error {
 		limit := stockLimit(c)
 		offset := stockOffsetForLimit(c, limit)
@@ -350,6 +363,7 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 	e.POST("/api/stock/finished-transfers", func(c echo.Context) error {
 		var req struct {
 			ProductID      int64  `json:"product_id"`
+			BatchCode      string `json:"batch_code"`
 			SpecG          int64  `json:"spec_g"`
 			BomSpecID      int64  `json:"bom_spec_id"`
 			BomVariantID   int64  `json:"bom_variant_id"`
@@ -366,6 +380,7 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 		}
 		result, err := stockSvc.TransferFinishedProduct(c.Request().Context(), stockapp.FinishedProductTransferCommand{
 			ProductID:      req.ProductID,
+			BatchCode:      req.BatchCode,
 			SpecG:          req.SpecG,
 			BomSpecID:      req.BomSpecID,
 			BomVariantID:   req.BomVariantID,
@@ -387,6 +402,7 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 	e.POST("/api/stock/material-transfers", func(c echo.Context) error {
 		var req struct {
 			MaterialID     int64  `json:"material_id"`
+			BatchCode      string `json:"batch_code"`
 			FromWarehouse  string `json:"from_warehouse"`
 			ToWarehouse    string `json:"to_warehouse"`
 			QtyG           int64  `json:"qty_g"`
@@ -398,6 +414,7 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 		}
 		result, err := stockSvc.TransferMaterial(c.Request().Context(), stockapp.MaterialTransferCommand{
 			MaterialID:     req.MaterialID,
+			BatchCode:      req.BatchCode,
 			FromWarehouse:  req.FromWarehouse,
 			ToWarehouse:    req.ToWarehouse,
 			QtyG:           req.QtyG,
