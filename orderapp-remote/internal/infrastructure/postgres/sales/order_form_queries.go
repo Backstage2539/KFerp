@@ -1449,6 +1449,11 @@ func orderPublicationTierHasConcreteSalesSpec(tier salesapp.ProductTierOption) b
 func appendUniqueOrderPublicationTiers(dst, src []salesapp.ProductTierOption) []salesapp.ProductTierOption {
 	seen := make(map[string]bool, len(dst)+len(src))
 	key := func(tier salesapp.ProductTierOption) string {
+		// A template tier may be reused by several specifications in one
+		// publication. The frozen row key identifies the actual price row.
+		if tier.PriceRowKey != "" {
+			return fmt.Sprintf("%d:row:%s", tier.PublicationID, tier.PriceRowKey)
+		}
 		return fmt.Sprintf("%d:%d", tier.PublicationID, tier.ID)
 	}
 	for _, tier := range dst {

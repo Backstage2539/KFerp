@@ -955,6 +955,26 @@ func TestMergeOrderPublicationTierMapsKeepsMultiplePublishedVersions(t *testing.
 	}
 }
 
+func TestMergeCommercialPublicationKeepsSpecsSharingTierTemplate(t *testing.T) {
+	content := []byte(`{"price_rows":[
+		{"product_id":7,"bom_spec_id":223,"bom_variant_id":1188,"template_tier_id":88,"quantity_basis":"sales_spec_count","min_qty":1,"final_unit_price":166,"inventory_unit":"袋","effective_sales_spec":{"bom_spec_id":223,"inventory_unit":"袋"}},
+		{"product_id":7,"bom_spec_id":449,"bom_variant_id":1190,"template_tier_id":88,"quantity_basis":"sales_spec_count","min_qty":1,"final_unit_price":84,"inventory_unit":"袋","effective_sales_spec":{"bom_spec_id":449,"inventory_unit":"袋"}}
+	]}`)
+	parsed := commercialOrderTierMapFromPublicationContent(199, "V3.0.70", content)
+	merged := mergeLatestCommercialOrderPublicationTierMaps(nil, parsed)
+	merged = mergeLatestCommercialOrderPublicationTierMaps(merged, parsed)
+	for _, tc := range []struct {
+		spec, variant int64
+		price         float64
+	}{{223, 1188, 166}, {449, 1190, 84}} {
+		option := salesapp.ProductBOMSpecOption{MigrationState: "cutover", BomSpecID: tc.spec, BomVariantID: tc.variant, InventoryUnit: "袋"}
+		tiers := orderBOMSpecPublicationTiers(option, merged[7])
+		if len(tiers) != 1 || tiers[0].UnitPrice != tc.price {
+			t.Fatalf("spec %d tiers = %+v, want exactly one tier priced %.2f", tc.spec, tiers, tc.price)
+		}
+	}
+}
+
 func TestMergeLatestCommercialOrderPublicationTierMapsUsesNewestSnapshotPerDerivedSKUProductID(t *testing.T) {
 	newer := commercialOrderTierMapFromPublicationContent(9903, "V2", []byte(`{
 		"groups":[{"items":[

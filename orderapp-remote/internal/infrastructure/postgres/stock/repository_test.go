@@ -302,10 +302,14 @@ func TestPR605MaterialAdjustmentUsesSelectedWarehouseAndDiscreteBatchQuantity(t 
 		}); err != nil {
 			t.Fatalf("receive material: %v", err)
 		}
+		var batchCode string
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT batch_code FROM %s.material_batches WHERE material_id=40 ORDER BY id LIMIT 1`, schema)).Scan(&batchCode); err != nil {
+			t.Fatal(err)
+		}
 		if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
 			Purpose: stockapp.PurposeMaterialTransfer, Operator: "stock",
 			Items: []stockapp.StockDocumentItemCommand{{
-				ItemType: "material", MaterialID: 40, InventoryUnit: "kg",
+				ItemType: "material", MaterialID: 40, InventoryUnit: "kg", BatchCode: batchCode,
 				FromWarehouse: "raw_materials", ToWarehouse: "wip", QtyG: 4000,
 			}},
 		}); err != nil {
@@ -1061,7 +1065,7 @@ VALUES(191,41,91,'227g袋','袋',true,10),(192,41,92,'454g袋','袋',false,20);
 	}
 	service := stockapp.NewService(repo)
 	serviceTransfer, err := service.TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
-		ProductID: 7, BomSpecID: 91, BomVariantID: 191, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
+		BatchCode: mustTestTransferBatch(t, pool, schema, 7, 91, 0, "finished_goods"), ProductID: 7, BomSpecID: 91, BomVariantID: 191, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
 		QtyUnits: 4, Operator: "qa", IdempotencyKey: "bom-spec-unified-transfer-91",
 	})
 	if err != nil {
@@ -2195,6 +2199,7 @@ func TestCanonicalFinishedTransferSerializesWithBatchAdjustment(t *testing.T) {
 		t.Fatalf("seed finished stock: %v", err)
 	}
 
+	sourceBatchCode := mustTestTransferBatch(t, pool, schema, 9, 20, 0, "finished_goods")
 	batchHolder, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -2252,7 +2257,7 @@ func TestCanonicalFinishedTransferSerializesWithBatchAdjustment(t *testing.T) {
 		_, err := stockapp.NewService(repo).CreateAndSubmitStockDocument(transferCtx, stockapp.StockDocumentCommand{
 			Purpose: stockapp.PurposeMaterialTransfer, Operator: "qa", Note: "并发转移锁顺序",
 			Items: []stockapp.StockDocumentItemCommand{{
-				ProductID: 9, ItemType: itemTypeFinishedProduct, BomSpecID: 20, BomVariantID: 1186,
+				ProductID: 9, ItemType: itemTypeFinishedProduct, BomSpecID: 20, BomVariantID: 1186, BatchCode: sourceBatchCode,
 				InventoryUnit: "袋", FromWarehouse: "finished_goods", ToWarehouse: "finished_shop", QtyUnits: 1,
 			}},
 		})
@@ -2323,7 +2328,7 @@ func TestCanonicalFinishedTransferSerializesWithBatchAdjustment(t *testing.T) {
 	}
 }
 
-func TestLegacyFinishedTransferMovesFIFOStockBatches(t *testing.T) {
+func TestLegacyFinishedTransferMovesSelectedBatches(t *testing.T) {
 	pool, schema := setupUnifiedStockDocumentTest(t)
 	ctx := context.Background()
 	repo := NewRepository(pool, schema)
@@ -2339,14 +2344,23 @@ func TestLegacyFinishedTransferMovesFIFOStockBatches(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed second finished batch: %v", err)
 	}
-	transfer, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
-		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
-		QtyUnits: 8, QtyLooseG: 250, Operator: "qa", IdempotencyKey: "legacy-finished-batch-transfer",
+	first := mustTestTransferBatch(t, pool, schema, 9, 0, 1000, "finished_goods")
+	var second string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT batch_code FROM %s.stock_batches WHERE item_type='finished_product' AND item_id=9 AND batch_code<>$1 AND remaining_units>0 ORDER BY id LIMIT 1`, schema), first).Scan(&second); err != nil {
+		t.Fatal(err)
+	}
+	transfer, err := stockapp.NewService(repo).CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialTransfer, Operator: "qa", IdempotencyKey: "legacy-finished-batch-transfer",
+		Items: []stockapp.StockDocumentItemCommand{
+			{ItemType: itemTypeFinishedProduct, ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop", BatchCode: first, QtyUnits: 6},
+			{ItemType: itemTypeFinishedProduct, ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop", BatchCode: second, QtyUnits: 2},
+			{ItemType: itemTypeFinishedProduct, ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop", BatchCode: first, QtyG: 250},
+		},
 	})
 	if err != nil {
 		t.Fatalf("TransferFinishedProduct: %v", err)
 	}
-	if transfer.EntryID <= 0 {
+	if transfer.ID <= 0 {
 		t.Fatalf("transfer = %+v, want a unified stock entry", transfer)
 	}
 
@@ -2380,7 +2394,7 @@ func TestLegacyFinishedTransferMovesFIFOStockBatches(t *testing.T) {
 		t.Fatalf("source units/looseG/batches=%d/%d/%d/%d, destination=%d/%d/%d/%d; want 2/250/2/2250 and 8/250/8/8250",
 			fromUnits, fromLooseG, fromBatchUnits, fromBatchG, toUnits, toLooseG, toBatchUnits, toBatchG)
 	}
-	if _, err := stockapp.NewService(repo).CancelStockDocument(ctx, transfer.EntryID, "qa"); err != nil {
+	if _, err := stockapp.NewService(repo).CancelStockDocument(ctx, transfer.ID, "qa"); err != nil {
 		t.Fatalf("cancel transfer: %v", err)
 	}
 	fromUnits, fromBatchUnits, fromLooseG, fromBatchG = warehouseStock("finished_goods")
@@ -2408,10 +2422,10 @@ func TestLegacyFinishedTransferDoesNotCreateOpeningBatchForFrozenStock(t *testin
 	`, schema))
 
 	_, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
-		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
+		BatchCode: mustTestTransferBatch(t, pool, schema, 9, 0, 1000, "finished_goods"), ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
 		QtyUnits: 3, Operator: "qa", IdempotencyKey: "legacy-frozen-batch-transfer",
 	})
-	if err == nil || !strings.Contains(err.Error(), "blocked") {
+	if err == nil || !strings.Contains(err.Error(), "冻结") {
 		t.Fatalf("TransferFinishedProduct error = %v, want frozen-batch block", err)
 	}
 	var summaryUnits, sourceUnits, targetUnits, openingBatches int64
@@ -2462,7 +2476,7 @@ func TestLegacyFinishedTransferKeepsLooseGramsAcrossPackageBoundary(t *testing.T
 		}
 	}
 	transfer, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
-		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
+		BatchCode: mustTestTransferBatch(t, pool, schema, 9, 0, 1000, "finished_goods"), ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
 		QtyLooseG: 250, Operator: "qa", IdempotencyKey: "legacy-loose-package-boundary-transfer",
 	})
 	if err != nil {
@@ -2472,7 +2486,7 @@ func TestLegacyFinishedTransferKeepsLooseGramsAcrossPackageBoundary(t *testing.T
 		t.Fatalf("cancel transfer: %v", err)
 	}
 	if _, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
-		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
+		BatchCode: mustTestTransferBatch(t, pool, schema, 9, 0, 1000, "finished_goods"), ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
 		QtyLooseG: 250, Operator: "qa", IdempotencyKey: "legacy-loose-package-boundary-transfer-2",
 	}); err != nil {
 		t.Fatalf("TransferFinishedProduct repeat: %v", err)
@@ -2499,9 +2513,16 @@ func TestLegacyFinishedTransferKeepsLooseGramsAcrossPackageBoundary(t *testing.T
 	if summaryUnits != 0 || summaryLoose != 1000 || batchUnits != summaryUnits || batchGrams != summaryLoose {
 		t.Fatalf("destination summary/batches=%d+%dg/%d/%dg, want 0+1000g/0/1000g", summaryUnits, summaryLoose, batchUnits, batchGrams)
 	}
-	if _, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
-		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_shop", ToWarehouse: "finished_goods",
-		QtyLooseG: 1000, Operator: "qa", IdempotencyKey: "legacy-full-spec-loose-transfer",
+	var movedBatch string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT batch_code FROM %s.stock_batches WHERE source_doc_type='stock_entry_transfer' AND remaining_g=250 ORDER BY id DESC LIMIT 1`, schema)).Scan(&movedBatch); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stockapp.NewService(repo).CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialTransfer, Operator: "qa", IdempotencyKey: "legacy-full-spec-loose-transfer",
+		Items: []stockapp.StockDocumentItemCommand{
+			{ItemType: itemTypeFinishedProduct, ProductID: 9, SpecG: 1000, FromWarehouse: "finished_shop", ToWarehouse: "finished_goods", BatchCode: mustTestTransferBatch(t, pool, schema, 9, 0, 1000, "finished_shop"), QtyG: 750},
+			{ItemType: itemTypeFinishedProduct, ProductID: 9, SpecG: 1000, FromWarehouse: "finished_shop", ToWarehouse: "finished_goods", BatchCode: movedBatch, QtyG: 250},
+		},
 	}); err != nil {
 		t.Fatalf("transfer accumulated loose grams: %v", err)
 	}
@@ -2547,7 +2568,7 @@ func TestLegacyFinishedTransferCancellationPreservesHistoricalNormalization(t *t
 		}
 	}
 	transfer, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
-		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
+		BatchCode: mustTestTransferBatch(t, pool, schema, 9, 0, 1000, "finished_goods"), ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
 		QtyLooseG: 250, Operator: "qa", IdempotencyKey: "legacy-historical-cancel",
 	})
 	if err != nil {
@@ -2601,7 +2622,7 @@ func TestLegacyFinishedTransferCancellationAfterReceiptUsesBatchBalances(t *test
 		t.Fatalf("seed source loose stock: %v", err)
 	}
 	transfer, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
-		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
+		BatchCode: mustTestTransferBatch(t, pool, schema, 9, 0, 1000, "finished_goods"), ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
 		QtyLooseG: 750, Operator: "qa", IdempotencyKey: "legacy-transfer-receipt-cancel",
 	})
 	if err != nil {
@@ -2673,26 +2694,10 @@ func TestLegacyFinishedTransferAfterSourceReceiptUsesBatchBalances(t *testing.T)
 		t.Fatalf("post manufacture receipt: %v", err)
 	}
 	if _, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
-		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
+		BatchCode: mustTestTransferBatch(t, pool, schema, 9, 0, 1000, "finished_goods"), ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
 		QtyLooseG: 250, Operator: "qa", IdempotencyKey: "legacy-source-receipt-transfer",
-	}); err != nil {
-		t.Fatalf("transfer stock after receipt: %v", err)
-	}
-	var sourceUnits, sourceLoose, targetUnits, targetLoose int64
-	for _, check := range []struct {
-		warehouse string
-		units     *int64
-		loose     *int64
-	}{{"finished_goods", &sourceUnits, &sourceLoose}, {"finished_shop", &targetUnits, &targetLoose}} {
-		if err := pool.QueryRow(ctx, fmt.Sprintf(`
-			SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory
-			WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse=$1
-		`, schema), check.warehouse).Scan(check.units, check.loose); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if sourceUnits != 0 || sourceLoose != 750 || targetUnits != 0 || targetLoose != 250 {
-		t.Fatalf("transfer after source receipt source=%d+%dg target=%d+%dg; want 0+750g and 0+250g", sourceUnits, sourceLoose, targetUnits, targetLoose)
+	}); err == nil || !strings.Contains(err.Error(), "核对") {
+		t.Fatalf("inconsistent source summary must be reconciled first: %v", err)
 	}
 }
 
@@ -2710,37 +2715,20 @@ func TestLegacyFinishedTransferCancellationPreservesSummaryOnlyDestinationStock(
 		INSERT INTO %s.finished_inventory(product_id,bom_spec_id,bom_variant_id,spec_g,warehouse,onhand_units,onhand_loose_g)
 		VALUES(9,0,0,1000,'finished_shop',5,0);
 	`, schema))
-	transfer, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
-		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
-		QtyUnits: 1, Operator: "qa", IdempotencyKey: "legacy-summary-only-transfer-cancel",
+	var sourceCode string
+	sourceCode = mustTestTransferBatch(t, pool, schema, 9, 0, 1000, "finished_goods")
+	_, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
+		BatchCode: sourceCode, ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop", QtyUnits: 1, Operator: "qa",
 	})
-	if err != nil {
-		t.Fatalf("transfer into summary-only destination: %v", err)
+	if err == nil {
+		t.Fatal("unbatched warehouse stock must be reconciled before transfer")
 	}
-	if _, err := stockapp.NewService(repo).CancelStockDocument(ctx, transfer.EntryID, "qa"); err != nil {
-		t.Fatalf("cancel transfer into summary-only destination: %v", err)
-	}
-	var summaryUnits, summaryLoose int64
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`
-		SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory
-		WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse='finished_shop'
-	`, schema)).Scan(&summaryUnits, &summaryLoose); err != nil {
+	var opening int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_batches WHERE source_doc_type IN ('stock_entry_transfer_opening','stock_entry_transfer_destination_opening')`, schema)).Scan(&opening); err != nil {
 		t.Fatal(err)
 	}
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	batchUnits, batchG, err := finishedInventoryBatchQtyTx(ctx, tx, schema, 9, 0, 1000, "finished_shop")
-	if err != nil {
-		_ = tx.Rollback(ctx)
-		t.Fatal(err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if summaryUnits != 5 || summaryLoose != 0 || batchUnits != 5 || batchG != 5000 {
-		t.Fatalf("destination after cancellation summary=%d+%dg batches=%d/%dg; want 5+0g and 5/5000g", summaryUnits, summaryLoose, batchUnits, batchG)
+	if opening != 0 {
+		t.Fatalf("transfer created %d opening batches", opening)
 	}
 }
 
@@ -2758,42 +2746,20 @@ func TestLegacyFinishedTransferSourceOpeningBalanceIsWarehouseScoped(t *testing.
 		INSERT INTO %s.finished_inventory(product_id,bom_spec_id,bom_variant_id,spec_g,warehouse,onhand_units,onhand_loose_g)
 		VALUES(9,0,0,1000,'finished_shop',5,0);
 	`, schema))
-	transfer, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
-		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_shop", ToWarehouse: "finished_goods",
-		QtyUnits: 2, Operator: "qa", IdempotencyKey: "legacy-source-opening-warehouse-scope",
+	var sourceCode string
+	sourceCode = mustTestTransferBatch(t, pool, schema, 9, 0, 1000, "finished_goods")
+	_, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
+		BatchCode: sourceCode, ProductID: 9, SpecG: 1000, FromWarehouse: "finished_shop", ToWarehouse: "finished_goods", QtyUnits: 1, Operator: "qa",
 	})
-	if err != nil {
-		t.Fatalf("transfer summary-only source with a batch in another warehouse: %v", err)
+	if err == nil {
+		t.Fatal("unbatched warehouse stock must be reconciled before transfer")
 	}
-	if transfer.EntryID <= 0 {
-		t.Fatalf("transfer = %+v, want a unified stock entry", transfer)
+	var opening int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_batches WHERE source_doc_type IN ('stock_entry_transfer_opening','stock_entry_transfer_destination_opening')`, schema)).Scan(&opening); err != nil {
+		t.Fatal(err)
 	}
-	for _, check := range []struct {
-		warehouse string
-		want      int64
-	}{{"finished_shop", 3}, {"finished_goods", 3}} {
-		var summaryUnits int64
-		if err := pool.QueryRow(ctx, fmt.Sprintf(`
-			SELECT onhand_units FROM %s.finished_inventory
-			WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse=$1
-		`, schema), check.warehouse).Scan(&summaryUnits); err != nil {
-			t.Fatalf("read %s summary: %v", check.warehouse, err)
-		}
-		tx, err := pool.Begin(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		batchUnits, _, err := finishedInventoryBatchQtyTx(ctx, tx, schema, 9, 0, 1000, check.warehouse)
-		if err != nil {
-			_ = tx.Rollback(ctx)
-			t.Fatalf("read %s batches: %v", check.warehouse, err)
-		}
-		if err := tx.Commit(ctx); err != nil {
-			t.Fatal(err)
-		}
-		if summaryUnits != check.want || batchUnits != check.want {
-			t.Fatalf("%s summary/batches=%d/%d, want %d/%d", check.warehouse, summaryUnits, batchUnits, check.want, check.want)
-		}
+	if opening != 0 {
+		t.Fatalf("transfer created %d opening batches", opening)
 	}
 }
 
@@ -2808,7 +2774,7 @@ func TestLegacyFinishedTransferCancellationRejectsManualSummaryBatchMismatch(t *
 		t.Fatalf("seed source inventory: %v", err)
 	}
 	transfer, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
-		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
+		BatchCode: mustTestTransferBatch(t, pool, schema, 9, 0, 1000, "finished_goods"), ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
 		QtyUnits: 1, Operator: "qa", IdempotencyKey: "legacy-transfer-manual-summary-mismatch",
 	})
 	if err != nil {
@@ -2870,7 +2836,7 @@ func TestLegacyFinishedTransferCancellationAfterSourceReceiptUsesBatchBalances(t
 		t.Fatalf("seed source loose stock: %v", err)
 	}
 	transfer, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
-		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
+		BatchCode: mustTestTransferBatch(t, pool, schema, 9, 0, 1000, "finished_goods"), ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
 		QtyLooseG: 250, Operator: "qa", IdempotencyKey: "legacy-source-receipt-cancel",
 	})
 	if err != nil {

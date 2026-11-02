@@ -13,14 +13,53 @@ import (
 )
 
 type fakeStockRepo struct {
-	received         stockapp.MaterialReceiptCommand
-	adjustment       stockapp.StockAdjustmentCommand
-	transfer         stockapp.MaterialTransferCommand
-	finishedTransfer stockapp.FinishedProductTransferCommand
-	traceQuery       stockapp.StockTraceQuery
-	outboundQuery    stockapp.OutboundLogQuery
-	inventoryQuery   stockapp.WarehouseInventoryQuery
-	warehouseBind    stockapp.BindWarehouseCustomerCommand
+	received             stockapp.MaterialReceiptCommand
+	adjustment           stockapp.StockAdjustmentCommand
+	transfer             stockapp.MaterialTransferCommand
+	finishedTransfer     stockapp.FinishedProductTransferCommand
+	traceQuery           stockapp.StockTraceQuery
+	outboundQuery        stockapp.OutboundLogQuery
+	inventoryQuery       stockapp.WarehouseInventoryQuery
+	transferOptionsQuery stockapp.TransferOptionsQuery
+	warehouseBind        stockapp.BindWarehouseCustomerCommand
+}
+
+func (f *fakeStockRepo) ListTransferOptions(_ context.Context, q stockapp.TransferOptionsQuery) (stockapp.TransferOptionsResult, error) {
+	f.transferOptionsQuery = q
+	return stockapp.TransferOptionsResult{Rows: []stockapp.TransferOptionRow{{ItemType: "material", ItemID: 8, BatchCode: "MB-8", QtyG: 2000, AvailableG: 1200}}, Total: 1, Page: q.Offset/q.Limit + 1, Limit: q.Limit}, nil
+}
+
+func TestTransferOptionsAPIPropagatesFiltersAndAvailability(t *testing.T) {
+	repo := &fakeStockRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Stock: stockapp.NewService(repo)})
+	req := httptest.NewRequest(http.MethodGet, "/api/stock/transfer-options?warehouse=raw_materials&item_type=material&item_id=8&q=bean&page=2&limit=10", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"available_g":1200`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"qty_g":2000`)) {
+		t.Fatalf("transfer options response=%d %s", rec.Code, rec.Body.String())
+	}
+	if repo.transferOptionsQuery.Warehouse != "raw_materials" || repo.transferOptionsQuery.ItemID != 8 || repo.transferOptionsQuery.Q != "bean" || repo.transferOptionsQuery.Offset != 10 {
+		t.Fatalf("query=%+v", repo.transferOptionsQuery)
+	}
+}
+
+func TestTransferCompatibilityAPIsRejectMissingBatch(t *testing.T) {
+	repo := &fakeStockRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Stock: stockapp.NewService(repo)})
+	for _, tc := range []struct{ path, body string }{
+		{"/api/stock/material-transfers", `{"material_id":1,"qty_g":1000,"from_warehouse":"raw_materials","to_warehouse":"wip"}`},
+		{"/api/stock/finished-transfers", `{"product_id":9,"spec_g":454,"qty_units":1,"from_warehouse":"finished_goods","to_warehouse":"finished_shop"}`},
+	} {
+		req := httptest.NewRequest(http.MethodPost, tc.path, bytes.NewBufferString(tc.body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte("批次")) {
+			t.Fatalf("%s: %d %s", tc.path, rec.Code, rec.Body.String())
+		}
+	}
 }
 
 type repairableFakeStockRepo struct {
@@ -226,7 +265,7 @@ func TestStockAPIRoutes(t *testing.T) {
 		}
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/stock/material-transfers", bytes.NewBufferString(`{"material_id":1,"from_warehouse":"raw_materials","to_warehouse":"wip","qty_g":60000,"note":"三天生产领料"}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/stock/material-transfers", bytes.NewBufferString(`{"batch_code":"MB-1","material_id":1,"from_warehouse":"raw_materials","to_warehouse":"wip","qty_g":60000,"note":"三天生产领料"}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -237,14 +276,14 @@ func TestStockAPIRoutes(t *testing.T) {
 		t.Fatalf("transfer command = %+v", repo.transfer)
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/stock/finished-transfers", bytes.NewBufferString(`{"product_id":9,"spec_g":454,"from_warehouse":"finished_goods","to_warehouse":"finished_shop","qty_units":1,"qty_loose_g":20,"note":"门店备货"}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/stock/finished-transfers", bytes.NewBufferString(`{"batch_code":"FP-1","product_id":9,"spec_g":454,"from_warehouse":"finished_goods","to_warehouse":"finished_shop","qty_units":1,"qty_loose_g":0,"note":"门店备货"}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST finished transfer status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if repo.finishedTransfer.ProductID != 9 || repo.finishedTransfer.SpecG != 454 || repo.finishedTransfer.FromWarehouse != "finished_goods" || repo.finishedTransfer.ToWarehouse != "finished_shop" || repo.finishedTransfer.QtyUnits != 1 || repo.finishedTransfer.QtyLooseG != 20 {
+	if repo.finishedTransfer.ProductID != 9 || repo.finishedTransfer.SpecG != 454 || repo.finishedTransfer.FromWarehouse != "finished_goods" || repo.finishedTransfer.ToWarehouse != "finished_shop" || repo.finishedTransfer.QtyUnits != 1 || repo.finishedTransfer.QtyLooseG != 0 {
 		t.Fatalf("finished transfer command = %+v", repo.finishedTransfer)
 	}
 
@@ -387,7 +426,7 @@ func TestStockFinishedWritesKeepBOMSpecIdentityWithoutLegacySpecG(t *testing.T) 
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Stock: stockapp.NewService(repo)})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/stock/finished-transfers", bytes.NewBufferString(`{"product_id":9,"bom_spec_id":91,"bom_variant_id":191,"from_warehouse":"finished_goods","to_warehouse":"finished_shop","qty_units":2,"note":"BOM规格转仓"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/stock/finished-transfers", bytes.NewBufferString(`{"batch_code":"FP-1","product_id":9,"bom_spec_id":91,"bom_variant_id":191,"from_warehouse":"finished_goods","to_warehouse":"finished_shop","qty_units":2,"note":"BOM规格转仓"}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)

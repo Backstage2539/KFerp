@@ -386,6 +386,17 @@ func (r Repository) createStockDocumentDraftTx(ctx context.Context, tx pgx.Tx, c
 	if err := r.resolveOrdinaryFinishedStockDocumentCommandTx(ctx, tx, &cmd); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
+	if cmd.Purpose == stockapp.PurposeMaterialTransfer {
+		ids := []int64{}
+		for _, item := range cmd.Items {
+			if item.ItemType == itemTypeMaterial {
+				ids = append(ids, item.MaterialID)
+			}
+		}
+		if err := lockOrdinaryTransferMaterialsTx(ctx, tx, r.schema, ids); err != nil {
+			return stockapp.StockDocumentDetail{}, err
+		}
+	}
 	if err := r.validateStockDocumentMaterialOwnershipCommandTx(ctx, tx, cmd); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
@@ -648,7 +659,13 @@ func (r Repository) resolveOrdinaryFinishedStockDocumentCommandTx(ctx context.Co
 		if item.ItemType != itemTypeFinishedProduct || item.ProductID <= 0 || item.BomSpecID <= 0 {
 			continue
 		}
-		identity, err := resolveFinishedProductBomSpecIdentityTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.BomVariantID, item.InventoryUnit)
+		var identity finishedProductBomSpecIdentity
+		var err error
+		if cmd.Purpose == stockapp.PurposeMaterialTransfer {
+			identity, err = resolveTransferBatchIdentityTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.BomVariantID, item.OwnerCustomerID, item.BatchCode, item.InventoryUnit)
+		} else {
+			identity, err = resolveFinishedProductBomSpecIdentityTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.BomVariantID, item.InventoryUnit)
+		}
 		if err != nil {
 			return err
 		}
@@ -682,7 +699,13 @@ func (r Repository) resolveOrdinaryFinishedStockDocumentDetailTx(ctx context.Con
 		if item.ItemType != itemTypeFinishedProduct || item.ProductID <= 0 || item.BomSpecID <= 0 {
 			continue
 		}
-		identity, err := resolveFinishedProductBomSpecIdentityTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.BomVariantID, item.InventoryUnit)
+		var identity finishedProductBomSpecIdentity
+		var err error
+		if detail.Purpose == stockapp.PurposeMaterialTransfer {
+			identity, err = resolveTransferBatchIdentityTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.BomVariantID, item.OwnerCustomerID, item.BatchCode, item.InventoryUnit)
+		} else {
+			identity, err = resolveFinishedProductBomSpecIdentityTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.BomVariantID, item.InventoryUnit)
+		}
 		if err != nil {
 			return err
 		}
@@ -717,6 +740,13 @@ func (r Repository) submitStockDocumentTx(ctx context.Context, tx pgx.Tx, id int
 	if err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
+	if detail.Purpose == stockapp.PurposeMaterialTransfer {
+		for i, item := range detail.Items {
+			if strings.TrimSpace(item.BatchCode) == "" {
+				return stockapp.StockDocumentDetail{}, fmt.Errorf("第 %d 行请选择来源批次", i+1)
+			}
+		}
+	}
 	if err := r.resolveOrdinaryFinishedStockDocumentDetailTx(ctx, tx, &detail); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
@@ -735,9 +765,18 @@ func (r Repository) submitStockDocumentTx(ctx context.Context, tx pgx.Tx, id int
 	if err := r.validateStockDocumentWorkOrderTx(ctx, tx, detail); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
+	transferLines := make([]map[string]any, 0, len(detail.Items))
 	for i := range detail.Items {
+		sourceBatch := detail.Items[i].BatchCode
 		if err := r.postStockDocumentItemTx(ctx, tx, detail, &detail.Items[i], actor); err != nil {
+			if detail.Purpose == stockapp.PurposeMaterialTransfer {
+				return stockapp.StockDocumentDetail{}, fmt.Errorf("第 %d 行：%w", i+1, err)
+			}
 			return stockapp.StockDocumentDetail{}, err
+		}
+		if detail.Purpose == stockapp.PurposeMaterialTransfer {
+			item := detail.Items[i]
+			transferLines = append(transferLines, map[string]any{"item_type": item.ItemType, "material_id": item.MaterialID, "product_id": item.ProductID, "bom_spec_id": item.BomSpecID, "spec_g": item.SpecG, "owner_customer_id": item.OwnerCustomerID, "from_warehouse": item.FromWarehouse, "to_warehouse": item.ToWarehouse, "source_batch_code": sourceBatch, "target_batch_code": item.BatchCode, "qty_g": item.QtyG, "qty_units": item.QtyUnits})
 		}
 	}
 	if err := r.updateWorkOrderStockStatsTx(ctx, tx, detail, 1); err != nil {
@@ -749,6 +788,9 @@ func (r Repository) submitStockDocumentTx(ctx context.Context, tx pgx.Tx, id int
 		return stockapp.StockDocumentDetail{}, err
 	}
 	auditMeta := postgresinfra.AuditMeta{"entry_no": detail.EntryNo, "purpose": detail.Purpose, "is_return": detail.IsReturn, "work_order_id": detail.WorkOrderID}
+	if detail.Purpose == stockapp.PurposeMaterialTransfer {
+		auditMeta["transfer_lines"] = transferLines
+	}
 	quantities, err := pickingAuditQuantitiesTx(ctx, tx, r.schema, detail)
 	if err != nil {
 		return stockapp.StockDocumentDetail{}, err
@@ -951,6 +993,25 @@ func (r Repository) loadStockDocumentDetailTx(ctx context.Context, tx pgx.Tx, id
 			return stockapp.StockDocumentDetail{}, err
 		}
 		allocRows.Close()
+		if out.Purpose == stockapp.PurposeMaterialTransfer && out.Items[i].ItemType == itemTypeFinishedProduct {
+			moveRows, err := tx.Query(ctx, fmt.Sprintf(`SELECT source_batch_code,target_batch_code,qty_g,qty_units FROM %s.stock_entry_finished_batch_moves WHERE stock_entry_item_id=$1 ORDER BY id`, r.schema), out.Items[i].ID)
+			if err != nil {
+				return stockapp.StockDocumentDetail{}, err
+			}
+			for moveRows.Next() {
+				var move stockapp.StockDocumentFinishedBatchMove
+				if err := moveRows.Scan(&move.SourceBatchCode, &move.TargetBatchCode, &move.QtyG, &move.QtyUnits); err != nil {
+					moveRows.Close()
+					return stockapp.StockDocumentDetail{}, err
+				}
+				out.Items[i].TransferBatchMoves = append(out.Items[i].TransferBatchMoves, move)
+			}
+			if err := moveRows.Err(); err != nil {
+				moveRows.Close()
+				return stockapp.StockDocumentDetail{}, err
+			}
+			moveRows.Close()
+		}
 	}
 	out.ItemCount = int64(len(out.Items))
 	for _, item := range out.Items {
@@ -1830,6 +1891,11 @@ func (r Repository) postMaterialMovementItemTx(ctx context.Context, tx pgx.Tx, d
 		}
 		return err
 	}
+	if detail.Purpose == stockapp.PurposeMaterialTransfer {
+		if err := validateMaterialReceiptUnitAndQuantity(materialName, unit, item.InventoryUnit, item.QtyG, item.QtyUnits); err != nil {
+			return err
+		}
+	}
 	available, blockedG, blockedUnits, err := r.materialMoveAvailabilityTx(ctx, tx, detail, *item)
 	if err != nil {
 		return err
@@ -1991,6 +2057,15 @@ func (r Repository) postMaterialMovementItemTx(ctx context.Context, tx pgx.Tx, d
 }
 
 func (r Repository) materialMoveAvailabilityTx(ctx context.Context, tx pgx.Tx, detail stockapp.StockDocumentDetail, item stockapp.StockDocumentItemRow) ([]materialMoveAvailability, int64, int64, error) {
+	if detail.Purpose == stockapp.PurposeMaterialTransfer {
+		unbound, err := hasUnboundTransferReservationTx(ctx, tx, r.schema, item.MaterialID, item.OwnerCustomerID, item.FromWarehouse, false)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		if unbound {
+			return nil, 0, 0, fmt.Errorf("存在未绑定批次的预留，请先核对")
+		}
+	}
 	modern, err := automaticPickingWorkOrderTx(ctx, tx, r.schema, detail.WorkOrderID)
 	if err != nil {
 		return nil, 0, 0, err
@@ -2060,6 +2135,16 @@ func (r Repository) materialMoveAvailabilityTx(ctx context.Context, tx pgx.Tx, d
 	// second query to cap each batch by what the same work order actually
 	// received, so close the FIFO cursor before calculating those caps.
 	rows.Close()
+	if detail.Purpose == stockapp.PurposeMaterialTransfer {
+		for index := range out {
+			g, n, err := transferReservedTx(ctx, tx, r.schema, out[index].BatchID, item.MaterialID, item.OwnerCustomerID, item.FromWarehouse, false)
+			if err != nil {
+				return nil, 0, 0, err
+			}
+			out[index].AvailableG = nonnegativeStockQty(out[index].AvailableG - g)
+			out[index].AvailableQty = nonnegativeStockQty(out[index].AvailableQty - n)
+		}
+	}
 	if (modern && detail.WorkOrderID > 0 && detail.Purpose == stockapp.PurposeMaterialTransferForManufacture && !detail.IsReturn) || isOperationConsumption(ctx, detail.WorkOrderID) {
 		for index := range out {
 			var reservedG, reservedUnits int64
@@ -2164,7 +2249,7 @@ func (r Repository) postFinishedItemTx(ctx context.Context, tx pgx.Tx, detail st
 			return r.postPickingProductTransferTx(ctx, tx, detail, *item, actor, 1)
 		}
 	}
-	ownerCustomerID := int64(0)
+	ownerCustomerID := item.OwnerCustomerID
 	if detail.WorkOrderID > 0 {
 		if hasCustomer, err := stockSchemaColumnExistsTx(ctx, tx, r.schema, "work_orders", "customer_id"); err != nil {
 			return err
@@ -2182,6 +2267,11 @@ func (r Repository) postFinishedItemTx(ctx context.Context, tx pgx.Tx, detail st
 	canonical := item.BomSpecID > 0
 	if err := postgresinfra.LockFinishedInventoryIdentityTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG); err != nil {
 		return err
+	}
+	if detail.Purpose == stockapp.PurposeMaterialTransfer {
+		if err := validateFinishedTransferBatchTx(ctx, tx, r.schema, *item); err != nil {
+			return err
+		}
 	}
 	totalG, units, looseG := int64(0), item.QtyUnits, item.QtyG
 	if !canonical {
@@ -2417,6 +2507,10 @@ func (r Repository) moveCanonicalFinishedBatchesTx(
 	beforeToUnits int64,
 	actor string,
 ) (string, error) {
+	selectedBatch := ""
+	if detail.Purpose == stockapp.PurposeMaterialTransfer {
+		selectedBatch = item.BatchCode
+	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT b.id,b.batch_code,b.bom_variant_id,b.remaining_units,COALESCE(b.unit_cost,0)::float8,
 		       COALESCE(b.quality_status,'unchecked')
@@ -2436,9 +2530,10 @@ func (r Repository) moveCanonicalFinishedBatchesTx(
 		  AND b.remaining_units>0
 		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 		  AND COALESCE(last_ledger.warehouse,'finished_goods')=$3
+		  AND ($4='' OR b.batch_code=$4)
 		ORDER BY b.created_at,b.id
 		FOR UPDATE OF b
-	`, r.schema, r.schema), item.ProductID, item.BomSpecID, item.FromWarehouse)
+	`, r.schema, r.schema), item.ProductID, item.BomSpecID, item.FromWarehouse, selectedBatch)
 	if err != nil {
 		return "", err
 	}
@@ -2490,13 +2585,13 @@ func (r Repository) moveCanonicalFinishedBatchesTx(
 		move.TargetBatchCode = fmt.Sprintf("FP-MOVE-%010d", moveID)
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			INSERT INTO %s.stock_batches(
-				batch_code,item_type,item_id,item_name,bom_spec_id,bom_variant_id,spec_g,
+				batch_code,item_type,item_id,item_name,bom_spec_id,bom_variant_id,spec_g,owner_customer_id,
 				source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,remaining_g,remaining_units,
 				unit_cost,quality_status,operator,created_at
-			) VALUES($1,'finished_product',$2,$3,$4,$5,0,'stock_entry_transfer',$6,$7,0,$8,0,$8,$9,$10,$11,now())
+			) VALUES($1,'finished_product',$2,$3,$4,$5,0,$12,'stock_entry_transfer',$6,$7,0,$8,0,$8,$9,$10,$11,now())
 			RETURNING id
 		`, r.schema), move.TargetBatchCode, item.ProductID, productName, item.BomSpecID, move.BomVariantID,
-			moveID, move.SourceBatchCode, move.QtyUnits, move.UnitCost, move.QualityStatus, actor).Scan(&move.TargetBatchID); err != nil {
+			moveID, move.SourceBatchCode, move.QtyUnits, move.UnitCost, move.QualityStatus, actor, item.OwnerCustomerID).Scan(&move.TargetBatchID); err != nil {
 			return "", err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -2510,7 +2605,7 @@ func (r Repository) moveCanonicalFinishedBatchesTx(
 			firstTargetBatchCode = move.TargetBatchCode
 		}
 		if err := insertLedgerTx(ctx, tx, r.schema, ledgerEntry{
-			ItemType: itemTypeFinishedProduct, ItemID: item.ProductID, ItemName: productName,
+			ItemType: itemTypeFinishedProduct, ItemID: item.ProductID, ItemName: productName, OwnerCustomerID: item.OwnerCustomerID,
 			BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID, Warehouse: item.FromWarehouse,
 			SourceDocType: "stock_entry", SourceDocID: detail.ID, SourceBatchCode: move.SourceBatchCode, SourceBatchID: detail.EntryNo,
 			BeforeUnits: sourceRolling, ChangeUnits: -move.QtyUnits, AfterUnits: sourceRolling - move.QtyUnits, Operator: actor,
@@ -2519,7 +2614,7 @@ func (r Repository) moveCanonicalFinishedBatchesTx(
 		}
 		sourceRolling -= move.QtyUnits
 		if err := insertLedgerTx(ctx, tx, r.schema, ledgerEntry{
-			ItemType: itemTypeFinishedProduct, ItemID: item.ProductID, ItemName: productName,
+			ItemType: itemTypeFinishedProduct, ItemID: item.ProductID, ItemName: productName, OwnerCustomerID: item.OwnerCustomerID,
 			BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID, Warehouse: item.ToWarehouse,
 			SourceDocType: "stock_entry", SourceDocID: detail.ID, SourceBatchCode: move.TargetBatchCode, SourceBatchID: detail.EntryNo,
 			BeforeUnits: targetRolling, ChangeUnits: move.QtyUnits, AfterUnits: targetRolling + move.QtyUnits, Operator: actor,
@@ -2555,6 +2650,10 @@ func (r Repository) moveLegacyFinishedBatchesTx(
 	beforeFromG, beforeToG int64,
 	actor string,
 ) (string, error) {
+	selectedBatch := ""
+	if detail.Purpose == stockapp.PurposeMaterialTransfer {
+		selectedBatch = item.BatchCode
+	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT b.id,b.batch_code,b.bom_variant_id,b.remaining_g,b.remaining_units,
 		       COALESCE(b.unit_cost,0)::float8,COALESCE(b.quality_status,'unchecked')
@@ -2571,9 +2670,10 @@ func (r Repository) moveLegacyFinishedBatchesTx(
 		  AND (b.remaining_g>0 OR b.remaining_units>0)
 		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 		  AND COALESCE(last_ledger.warehouse,'finished_goods')=$3
+		  AND ($4='' OR b.batch_code=$4)
 		ORDER BY b.created_at,b.id
 		FOR UPDATE OF b
-	`, r.schema, r.schema), item.ProductID, item.SpecG, item.FromWarehouse)
+	`, r.schema, r.schema), item.ProductID, item.SpecG, item.FromWarehouse, selectedBatch)
 	if err != nil {
 		return "", err
 	}
@@ -2592,6 +2692,9 @@ func (r Repository) moveLegacyFinishedBatchesTx(
 		return "", err
 	}
 	rows.Close()
+	if detail.Purpose == stockapp.PurposeMaterialTransfer && len(moves) == 0 {
+		return "", fmt.Errorf("来源批次不存在、无可用库存或需核对")
+	}
 	if len(moves) == 0 && (beforeFromG > 0 || beforeFromUnits > 0) {
 		var hasExistingBatchBalance bool
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -2647,6 +2750,9 @@ func (r Repository) moveLegacyFinishedBatchesTx(
 			return "", err
 		}
 		if batchUnits == 0 && batchG == 0 {
+			if detail.Purpose == stockapp.PurposeMaterialTransfer {
+				return "", fmt.Errorf("目标仓历史库存缺少批次，请先核对")
+			}
 			var hasExistingBatchBalance bool
 			if err := tx.QueryRow(ctx, fmt.Sprintf(`
 				SELECT EXISTS(
@@ -2772,7 +2878,7 @@ func (r Repository) moveLegacyFinishedBatchesTx(
 			firstTargetBatchCode = move.TargetBatchCode
 		}
 		if err := insertLedgerTx(ctx, tx, r.schema, ledgerEntry{
-			ItemType: itemTypeFinishedProduct, ItemID: item.ProductID, ItemName: productName,
+			ItemType: itemTypeFinishedProduct, ItemID: item.ProductID, ItemName: productName, OwnerCustomerID: ownerCustomerID,
 			SpecG: item.SpecG, BomVariantID: move.BomVariantID, Warehouse: item.FromWarehouse,
 			SourceDocType: "stock_entry", SourceDocID: detail.ID, SourceBatchCode: move.SourceBatchCode, SourceBatchID: detail.EntryNo,
 			BeforeG: sourceRollingG, ChangeG: -move.QtyG, AfterG: sourceRollingG - move.QtyG,
@@ -2783,7 +2889,7 @@ func (r Repository) moveLegacyFinishedBatchesTx(
 		sourceRollingG -= move.QtyG
 		sourceRollingUnits -= move.QtyUnits
 		if err := insertLedgerTx(ctx, tx, r.schema, ledgerEntry{
-			ItemType: itemTypeFinishedProduct, ItemID: item.ProductID, ItemName: productName,
+			ItemType: itemTypeFinishedProduct, ItemID: item.ProductID, ItemName: productName, OwnerCustomerID: ownerCustomerID,
 			SpecG: item.SpecG, BomVariantID: move.BomVariantID, Warehouse: item.ToWarehouse,
 			SourceDocType: "stock_entry", SourceDocID: detail.ID, SourceBatchCode: move.TargetBatchCode, SourceBatchID: detail.EntryNo,
 			BeforeG: targetRollingG, ChangeG: move.QtyG, AfterG: targetRollingG + move.QtyG,

@@ -1,3 +1,11 @@
+### PR-STOCK-TRANSFER-BATCH-SELECTION（进行中）
+- Branch: `codex/stock-transfer-batch-spec`, based on `origin/develop`.
+- DEV-STOCK-TRANSFER-BATCH-API: transfer options, selected-batch posting, ownership, quality, reservations, historical specification identity and trace.
+- DEV-STOCK-TRANSFER-BATCH-UI: source warehouse, actual specification, mandatory batch, one quantity and book/available balances; isolated browser fixture inspected.
+- DEV-STOCK-TRANSFER-BATCH-RELEASE: manual, acceptance evidence, full verification and development deployment.
+- RED/GREEN: source batch, legacy draft, historical BOM, reserved and unbound reserved stock, mismatch, duplicate lines, concurrency, and idempotency use isolated PostgreSQL. Manual: `orderapp-remote/docs/OP_MANUAL_STOCK.md`.
+- Development deployment and Van's business acceptance pending. No production business writes.
+
 ### PR-745-MINIAPP-FEES-PRICE-PHONE
 - Branch: codex/miniapp-customer-fees-login; base origin/develop a3084c508.
 - Status: implementation and targeted checks complete; development integration/deployment and developer-tool/device acceptance pending. Production and WeChat publication deferred.
@@ -6392,3 +6400,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - DEV: DEV-PR746-01 detail snapshots; DEV-PR746-02 page and exports; DEV-PR746-03 manuals, validation and development deployment.
 - Verifier: TDD helper, database snapshot and source association tests, API and UI checks, Excel/PDF/PNG consistency and stamp visual verification.
 - Notes: macOS awk failed to claim PR ID; recorded here and in requirement seeds.
+
+
+## PR-STOCK-TRANSFER-SOURCE-OPTIONS（2026-11-01）
+- Branch: `codex/stock-transfer-warehouse-options`; DEV: `DEV-STOCK-TRANSFER-SOURCE-OPTIONS`.
+- 转仓商品和 BOM 规格按每条明细出库仓库存筛选；切仓清除商品；完整读取库存分页。保留过账时库存/质检校验。
+- Verifier: `node --test orderapp-remote/frontend-vue-shell/src/lib/stock-transfer-options*.test.js`; `scripts/verify_kferp.sh frontend-tests`; `scripts/verify_kferp.sh frontend-build`; `go test ./internal/interfaces/http/stock ./internal/application/stock`.
+- GREEN: frontend tests 1681/1681, frontend build, full backend, stock API, and local browser fixture. Production observed read-only; no production stock document or business data changed. Development/production deployment not performed.
