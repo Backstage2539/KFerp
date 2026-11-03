@@ -15,6 +15,7 @@ type OrderCopySnapshot struct {
 	Order            OrderEditData
 	CustomerName     string
 	PaymentMethod    string
+	FreightDeferred  bool
 	PayStatus        string
 	DefaultRecipient OrderCopyRecipient
 }
@@ -114,12 +115,20 @@ func BuildOrderDetailsText(snapshot OrderCopySnapshot) string {
 	if o.IsVoid {
 		lines = append(lines, "【已作废订单】")
 	}
+	freightNote, totalNote := "", ""
+	if snapshot.FreightDeferred {
+		freightNote = "（实际运费另行结算）"
+		totalNote = "（不含另行结算运费）"
+	}
 	lines = append(lines,
 		"订单号："+copyValue(o.OrderNo),
 		"客户名称："+copyValue(snapshot.CustomerName),
 		"订单日期："+copyValue(o.OrderDate),
 		"付款状态："+copyValue(snapshot.PayStatus),
 		"付款方式："+copyValue(snapshot.PaymentMethod),
+		"货款："+copyValue(o.TotalAmount)+"元",
+		"运费："+copyValue(o.ShippingAmount)+"元"+freightNote,
+		"合计付款："+copyValue(o.GrandTotal)+"元"+totalNote,
 		"",
 		"订单详情：",
 	)
