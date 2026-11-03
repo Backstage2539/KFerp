@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
+
+	salesdomain "orderapp/internal/domain/sales"
 	"strings"
 )
 
@@ -109,6 +112,16 @@ func copySpec(item OrderEditItem) string {
 	}
 	return "未填写"
 }
+func copyPaidAmount(status string, order OrderEditData) string {
+	if strings.Contains(status, "未付款") || strings.Contains(status, "未收款") {
+		return "0.00"
+	}
+	prepayment, _ := strconv.ParseFloat(order.PrepaymentAmount, 64)
+	total, _ := strconv.ParseFloat(order.GrandTotal, 64)
+	paid, _ := salesdomain.OrderPaymentAmounts(status, prepayment, total)
+	return paid
+}
+
 func BuildOrderDetailsText(snapshot OrderCopySnapshot) string {
 	o := snapshot.Order
 	lines := []string{}
@@ -128,7 +141,7 @@ func BuildOrderDetailsText(snapshot OrderCopySnapshot) string {
 		"付款方式："+copyValue(snapshot.PaymentMethod),
 		"货款："+copyValue(o.TotalAmount)+"元",
 		"运费："+copyValue(o.ShippingAmount)+"元"+freightNote,
-		"合计付款："+copyValue(o.GrandTotal)+"元"+totalNote,
+		"合计付款："+copyPaidAmount(snapshot.PayStatus, o)+"元"+totalNote,
 		"",
 		"订单详情：",
 	)
