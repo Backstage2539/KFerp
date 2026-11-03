@@ -32,7 +32,7 @@ func (r Repository) LoadOrderCopySnapshot(ctx context.Context, id int64) (*sales
 		return nil, err
 	}
 	if freightTable {
-		query = fmt.Sprintf(`SELECT COALESCE(COALESCE(NULLIF(to_jsonb(o)->'confirmation_pending'->'freight','null'::jsonb), f.snapshot_json)->>'charge_mode','') = 'deferred' FROM %[1]s.orders o LEFT JOIN %[1]s.order_freight_snapshots f ON f.order_id=o.id WHERE o.id=$1`, r.schema)
+		query = fmt.Sprintf(`SELECT (COALESCE(COALESCE(NULLIF(to_jsonb(o)->'confirmation_pending'->'freight','null'::jsonb), f.snapshot_json)->>'charge_mode','') = 'deferred' OR (COALESCE(COALESCE(NULLIF(to_jsonb(o)->'confirmation_pending'->'freight','null'::jsonb), f.snapshot_json)->>'charge_mode','') = '' AND COALESCE(COALESCE(NULLIF(to_jsonb(o)->'confirmation_pending'->'freight','null'::jsonb), f.snapshot_json)->>'status','') = 'pending_actual')) FROM %[1]s.orders o LEFT JOIN %[1]s.order_freight_snapshots f ON f.order_id=o.id WHERE o.id=$1`, r.schema)
 		if err = tx.QueryRow(ctx, query, id).Scan(&snapshot.FreightDeferred); err != nil {
 			return nil, err
 		}

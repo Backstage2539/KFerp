@@ -106,6 +106,18 @@ func TestOrderCopyDetailsPostgresSavedAddressAndSnapshots(t *testing.T) {
 			t.Fatalf("missing %s: %s", want, body.Text)
 		}
 	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %s.order_freight_snapshots SET snapshot_json='{"status":"pending_actual"}' WHERE order_id=9001`, s))
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest("GET", "/api/orders/9001/copy-details", nil))
+	if rec.Code != 200 {
+		t.Fatal(rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body.Text, "实际运费另行结算") {
+		t.Fatal(body.Text)
+	}
 
 }
 
