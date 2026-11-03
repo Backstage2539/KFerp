@@ -1,3 +1,9 @@
+### PR-ORDER-COPY-AMOUNTS-20261103 付款金额口径更正
+- Branch: `codex/order-copy-paid-amount-20261103`; DEV-ORDER-COPY-PAID-20261103.
+- 未付款为零，预付款显示已收部分，已付款显示订单已付总额；沿用订单列表付款口径，不改动真实订单。
+- RED: 应用层、HTTP 复制测试在未付款和预付款场景失败。GREEN: 应用层、HTTP、小程序接口和隔离 PostgreSQL 订单快照回归。
+- 操作手册：`orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md` 等复制详情入口；生产发布及 Van 验收待完成。
+
 ### PR-STOCK-TRANSFER-BATCH-SELECTION（进行中）
 - Branch: `codex/stock-transfer-batch-spec`, based on `origin/develop`.
 - DEV-STOCK-TRANSFER-BATCH-API: transfer options, selected-batch posting, ownership, quality, reservations, historical specification identity and trace.
