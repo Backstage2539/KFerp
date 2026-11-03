@@ -343,6 +343,11 @@
 
 # ACTIVE_REQUIREMENTS
 
+### PR-CUSTOMER-FIXED-QUOTE-RELOAD
+- Branch: `codex/customer-fixed-quote`；修复客户固定价输入在发布前恢复草稿时清空。
+- Verifier: customer-price-draft、price-table-editor-loading、相关价格表回归、发布 API 与前端构建；见 `orderapp-remote/docs/acceptance/2026-11-03-customer-fixed-quote.md`。
+- Deployment: Van 明确要求合入 main 并部署生产；生产价格表和客户报价只读核验，不代为填写或发布。
+
 ### PR-676-PRODUCT-CREATOR-BOM-SPEC-TEMPLATE
 - Implementation: PR #164 merged into `develop`; deployed integration head `892d99bc9284643f712271ae822a09793bdb0bdb` includes PR #164 and #165. Live acceptance evidence follow-up branch `codex/product-creator-v4-live-acceptance-20260930`, based on current `origin/develop`.
 - Owner/session: Codex / Van / 2026-09-30.

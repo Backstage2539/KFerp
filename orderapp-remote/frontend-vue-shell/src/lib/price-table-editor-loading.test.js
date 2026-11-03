@@ -6,6 +6,9 @@ import { publicationEditorPayload, loadPublishedEditorBatch, reconcileEditorBatc
 import { clonePriceTable, createPriceTableBatch, savePriceTableBatchDraft, readPriceTableBatchDraft, validatePriceTableBatch, publicationTableMetadata } from './price-table-batch.js'
 import { defaultPriceListProductSpecSelections, normalizePriceListProductSpecSelections, priceListProductSpecSelectionIssue } from './product-price-list-selection.js'
 import { buildPublicationSummaryURL } from './publication-summary-client.js'
+import { migrateLegacyFixedPriceFlatRowOverrides } from './product-price-list-draft.js'
+import { applyCustomerPriceRows } from './customer-price-draft.js'
+import { priceListFlatRowsReady } from './costing-price-list-workflow.js'
 
 const source = readFileSync(new URL('../views/CostingView.vue', import.meta.url), 'utf8')
 const block = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)))
@@ -30,7 +33,7 @@ const publication = { id: 152, version: 'V3.0.14', status: 'published', release_
   content: { price_rows: [{ ...spec, pricing_mode: 'fixed_price', final_unit_price: 32.8, price_unit: '盒' }] },
 }
 
-function harness({ resolveConflict = resolveEditorTableConflict, saveDraft, readDraft, normalizeSpecs = false } = {}) {
+function harness({ resolveConflict = resolveEditorTableConflict, saveDraft, readDraft, normalizeSpecs = false, customerFixedQuote = false } = {}) {
   const scope = ref('customer:471:drip'), state = ref({}), storageData = new Map(), writes = [], pending = []
   const storage = { getItem: k => storageData.get(k), setItem: (k,v) => { writes.push(k); storageData.set(k,v) } }
   const refs = {
@@ -65,12 +68,20 @@ function harness({ resolveConflict = resolveEditorTableConflict, saveDraft, read
     readPriceListGenerationDraft: () => null,
     readPriceTableBatchDraft: key => readDraft ? readDraft(key) : readPriceTableBatchDraft(key, storage),
     savePriceTableBatchDraft: (key,batch) => saveDraft ? saveDraft(key,batch) : savePriceTableBatchDraft(key,batch,storage),
-    captureNamedPriceTablePayload: () => ({ draft: clonePriceTable(state.value), content: { groups: [{ name: '商品' }] },
+    captureNamedPriceTablePayload: () => ({ draft: clonePriceTable(state.value), content: { groups: [{ name: '商品' }],
+      ...(customerFixedQuote ? { price_rows: state.value.quoteRows || [] } : {}) },
+      ...(customerFixedQuote ? { blocked_reason: priceListFlatRowsReady(state.value.quoteRows || []) ? '' : '缺少固定价' } : {}),
       ...(normalizeSpecs ? { config: { product_spec_selections: clonePriceTable(state.value.product_spec_selections || []) },
         blocked_reason: priceListProductSpecSelectionIssue(refs.pdfAvailableItems.value[0], state.value.product_spec_selections)?.message || '' } : {}) }),
     buildProductPriceListTitle: () => '新表', defaultPriceListTemplateSelection: value => value,
     restorePriceListGenerationDraftForActiveType: draft => {
       state.value = clonePriceTable(draft)
+      if (customerFixedQuote) {
+        const restored = migrateLegacyFixedPriceFlatRowOverrides(draft.flatRowOverrides, draft.productOverrides, draft.product_spec_selections, { customerID: refs.activeBeanListCustomerID.value })
+        state.value.flatRowOverrides = restored.flatRowOverrides
+        state.value.productOverrides = restored.productOverrides
+        state.value.quoteRows = applyCustomerPriceRows(draft.generatedRows, draft.customerPriceSeedRows, restored.flatRowOverrides, refs.activeBeanListCustomerID.value, { productOverrides: restored.productOverrides })
+      }
       if (normalizeSpecs) state.value.product_spec_selections = normalizePriceListProductSpecSelections(draft.product_spec_selections, refs.pdfAvailableItems.value, { preserveMissing: true })
     },
     keepActiveNamedPriceTableTabVisible: () => {},
@@ -85,6 +96,23 @@ function harness({ resolveConflict = resolveEditorTableConflict, saveDraft, read
     '\nreturn { restoreNamedPriceTableBatch, persistNamedPriceTableBatch, selectNamedPriceTable, resolveNamedTableDraft, saveNamedPriceTableBatch };')
   return { ...refs, ...setup(...Object.values(bindings)), scope, state, pending, writes, storage, storageData, requests }
 }
+
+test('publishing a customer fixed-price draft preserves its entered price during table hydration', async () => {
+  const h = harness({ customerFixedQuote: true })
+  const load = h.restoreNamedPriceTableBatch()
+  await nextTick()
+  h.pending[0].resolve({ current: publication, rows: [publication], total: 1 })
+  await load
+  const row = { parent_product_id: 974, product_id: 974, sku_id: 527, bom_spec_id: 527,
+    row_key: '527:fixed_price', pricing_mode: 'fixed_price', quantity_basis: 'sales_spec_count', price_unit: '袋',
+    inventory_unit: '袋', group_snapshot: { group_item_name: '咖啡豆' } }
+  h.state.value = { ...h.state.value, generatedRows: [row], customerPriceSeedRows: [], flatRowOverrides: { '527:fixed_price': 88 } }
+  await h.saveNamedPriceTableBatch(true)
+  assert.equal(h.error.value, '')
+  assert.equal(h.requests.length, 1)
+  assert.equal(h.requests[0].body.tables[0].content.price_rows[0].final_unit_price, 88)
+  assert.equal(h.requests[0].body.tables[0].content.price_rows[0].bom_spec_id, 527)
+})
 
 function draftIndexedDB() {
   const records = new Map()

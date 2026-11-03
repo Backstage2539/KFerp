@@ -1747,7 +1747,7 @@ const generatedPriceListFlatRows = computed(() => dedupePriceListFlatRows(normal
   pdfProductSpecSelections.value,
 )))
 const priceListFlatRows = computed(() => applyCustomerPriceRows(generatedPriceListFlatRows.value, customerPriceSeedRows.value, priceListFlatRowOverrides.value, activeBeanListCustomerID.value, {
-  configuredSources: customerPriceConfiguredSources.value, publications: customerPriceSources.value,
+  configuredSources: customerPriceConfiguredSources.value, publications: customerPriceSources.value, productOverrides: priceListProductTemplateOverrides.value,
 }))
 const priceListPricingRuleEditorOptions = computed(() => buildPriceListPricingRuleEditorOptions(pricingRules.value, priceListFlatRows.value))
 const pdfGroups = computed(() => applyPriceListFlatRowsToBeanListPdfGroups(normalizedPriceListGroups.value, priceListFlatRows.value, pdfTheme.value.listType))
@@ -2378,6 +2378,7 @@ function restorePriceListGenerationDraftForActiveType(draftOverride = null) {
     draft.flatRowOverrides,
     restoredProductOverrides,
     draft.product_spec_selections,
+    { customerID: activeBeanListCustomerID.value },
   )
   priceListProductTemplateOverrides.value = migratedFixedPriceRows.productOverrides
   priceListLegacyPricingConflicts.value = migratedProductOverrides.conflicts
@@ -3789,7 +3790,7 @@ function priceListFlatRowPricingTrialError(row = {}) {
 }
 
 function priceListFlatRowVisibleErrors(row = {}) {
-  if (row.customer_quote_missing) return ['待报价：客户表及最新公共表没有此规格报价。请补齐公共报价并发布，或填写客户价格。']
+  if (row.customer_quote_missing) return ['待报价：请填写客户固定价格。']
   return priceListFlatRowErrors(row, {
     trialStatus: priceListFlatRowPricingTrialStatus(row),
     trialError: priceListFlatRowPricingTrialError(row),
