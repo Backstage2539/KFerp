@@ -252,6 +252,8 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-CUSTOMER-FIXED-QUOTE-RELOAD", title: "客户价格表固定报价在发布和草稿恢复时保持不变", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-03-customer-fixed-quote.md"},
+		{table: "req_dev", code: "DEV-CUSTOMER-FIXED-QUOTE-RELOAD", title: "隔离客户手工报价与公共价格迁移并保留规格价格", status: "done", assignee: "Codex", evidence: "frontend-vue-shell/src/lib/customer-price-draft.test.js; price-table-editor-loading.test.js"},
 		{table: "req_product", code: "PR-STOCK-TRANSFER-BATCH-SELECTION", title: "库存转仓按实际规格和必选批次填写数量", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-11-01-stock-transfer-batch-selection.md"},
 		{table: "req_dev", code: "DEV-STOCK-TRANSFER-BATCH-API", title: "转仓规格批次可用库存和指定批次过账", status: "done", assignee: "Codex", evidence: "transfer_options.go; transfer_availability.go; transfer_source_batch_test.go"},
 		{table: "req_dev", code: "DEV-STOCK-TRANSFER-BATCH-UI", title: "转仓规格批次下拉及数量库存显示", status: "done", assignee: "Codex", evidence: "StockEntriesView.vue; stock-transfer-selector.test.js"},

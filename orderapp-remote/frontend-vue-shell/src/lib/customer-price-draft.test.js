@@ -1,6 +1,8 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {seedCustomerPriceRows,applyCustomerPriceRows} from './customer-price-draft.js'
+import { migrateLegacyFixedPriceFlatRowOverrides } from './product-price-list-draft.js'
+import { priceListFlatRowsReady } from './costing-price-list-workflow.js'
 const row=(spec,price,min=0,max=null)=>({parent_product_id:1,product_id:1,sku_id:1,bom_spec_id:spec,price_unit:'袋',final_unit_price:price,min_qty:min,max_qty:max,row_key:`${spec}:${min}`,product_name:'工厂名',group_snapshot:{group_item_name:'工厂分类'}})
 const generated=[{...row(10,999),product_name:'客户名',group_snapshot:{group_item_name:'客户分类'},customer_reference_snapshot:{customer_id:42}}]
 test('BOM version changes retain exact product/spec quotes with current write identity and original cost provenance',()=>{
@@ -68,4 +70,78 @@ test('copied final prices remain frozen even when copied pricing templates are c
  assert.equal(output.length,1)
  assert.equal(output[0].final_unit_price,65)
  assert.equal(output[0].pricing_mode,'fixed_price')
+})
+
+test('a new customer fixed quote survives draft hydration and remains ready to publish', () => {
+ const current={...row(527,0),sku_id:527,product_id:974,parent_product_id:974,row_key:'527:fixed_price',pricing_mode:'fixed_price',inventory_unit:'袋'}
+ const restored=migrateLegacyFixedPriceFlatRowOverrides({'527:fixed_price':88},{},[{...current}],{customerID:471})
+ const [quote]=applyCustomerPriceRows([current],[],restored.flatRowOverrides,471)
+ assert.equal(quote.final_unit_price,88)
+ assert.equal(quote.customer_quote_missing,false)
+ assert.equal(quote.bom_spec_id,527)
+ assert.equal(priceListFlatRowsReady([quote]),true)
+ assert.equal(priceListFlatRowsReady(applyCustomerPriceRows([current],[],{},471)),false)
+})
+
+test('a previously migrated customer fixed quote is recovered only for its exact specification', () => {
+ const current={...row(527,88),sku_id:527,product_id:974,parent_product_id:974,row_key:'527:fixed_price',pricing_mode:'fixed_price',fixed_unit_price:88}
+ const options={productOverrides:{'sku:527':{scope:'sku',sku_id:527,parent_product_id:974,fixed_unit_price:88}}}
+ const [quote]=applyCustomerPriceRows([current],[],{},471,options)
+ assert.equal(quote.final_unit_price,88)
+ assert.equal(quote.customer_quote_missing,false)
+ const other={...current,sku_id:528,bom_spec_id:528,row_key:'528:fixed_price'}
+ assert.equal(applyCustomerPriceRows([other],[],{},471,options)[0].customer_quote_missing,true)
+ const otherProduct={...current,parent_product_id:975,product_id:975}
+ assert.equal(applyCustomerPriceRows([otherProduct],[],{},471,options)[0].customer_quote_missing,true)
+})
+
+test('customer manual edits of an inherited fixed quote survive draft hydration', () => {
+ const current={...row(527,0),sku_id:527,product_id:974,parent_product_id:974,row_key:'527:fixed_price',pricing_mode:'fixed_price'}
+ const seed={...current,final_unit_price:65,customer_price_source_publication_id:155}
+ const restored=migrateLegacyFixedPriceFlatRowOverrides({'527:fixed_price':88},{},[current],{customerID:471})
+ const [quote]=applyCustomerPriceRows([current],[seed],restored.flatRowOverrides,471)
+ assert.equal(quote.final_unit_price,88)
+ assert.equal(quote.original_final_unit_price,65)
+ assert.equal(quote.customer_quote_missing,false)
+ assert.equal(quote.customer_price_source_publication_id,155)
+})
+
+test('a migrated BOM-spec quote without parent metadata recovers only its exact BOM identity', () => {
+ const current={...row(527,0),sku_id:527,product_id:974,parent_product_id:974,row_key:'527:fixed_price',pricing_mode:'fixed_price'}
+ const options={productOverrides:{'sku:527':{scope:'sku',sku_id:527,parent_product_id:0,fixed_unit_price:88}}}
+ assert.equal(applyCustomerPriceRows([current],[],{},471,options)[0].final_unit_price,88)
+ const ambiguous={...current,bom_spec_id:0}
+ assert.equal(applyCustomerPriceRows([ambiguous],[],{},471,options)[0].customer_quote_missing,true)
+ const normalized={...current}; delete normalized.sku_id
+ assert.equal(applyCustomerPriceRows([normalized],[],{},471,options)[0].final_unit_price,88)
+})
+
+test('missing customer quote asks for a fixed price without requiring a public publication', async () => {
+ const { readFileSync } = await import('node:fs')
+ const view = readFileSync(new URL('../views/CostingView.vue', import.meta.url), 'utf8')
+ const start = view.indexOf('function priceListFlatRowVisibleErrors(')
+ const end = view.indexOf('\nfunction priceListFlatRowHasLegacyUnitMismatch', start)
+ const errors = new Function('priceListFlatRowErrors', 'priceListFlatRowPricingTrialStatus', 'priceListFlatRowPricingTrialError', `${view.slice(start,end)}; return priceListFlatRowVisibleErrors`)(() => [], () => '', () => '')
+ assert.deepEqual(errors({customer_quote_missing:true}),['待报价：请填写客户固定价格。'])
+ assert.deepEqual(errors({customer_quote_missing:false}),[])
+})
+
+test('the real price-row input handler retains a customer amount through draft reload', async () => {
+ const { readFileSync } = await import('node:fs')
+ const { ref } = await import('vue')
+ const view = readFileSync(new URL('../views/CostingView.vue', import.meta.url), 'utf8')
+ const start = view.indexOf('function setPriceListFlatRowPrice(')
+ const end = view.indexOf('\nfunction revertPriceListFlatRowPrice', start)
+ const overrides = ref({})
+ let saves = 0
+ const setPrice = new Function('activeBeanListCustomerID', 'priceListFlatRowOverrides', 'setPriceListSkuFixedPrice', 'savePriceListGenerationDraftForActiveType', `${view.slice(start,end)}; return setPriceListFlatRowPrice`)(
+   ref(471), overrides, () => { throw Error('customer quote must stay in row overrides') }, () => { saves++ },
+ )
+ const current={...row(527,0),sku_id:527,product_id:974,parent_product_id:974,row_key:'527:fixed_price',pricing_mode:'fixed_price',inventory_unit:'袋'}
+ setPrice(current,'88')
+ assert.equal(saves,1)
+ const draft=migrateLegacyFixedPriceFlatRowOverrides(overrides.value,{},[current],{customerID:471})
+ const [quote]=applyCustomerPriceRows([current],[],draft.flatRowOverrides,471)
+ assert.equal(quote.final_unit_price,88)
+ assert.equal(priceListFlatRowsReady([quote]),true)
 })

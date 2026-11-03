@@ -84,13 +84,18 @@ function normalizedSKUFixedPriceOverride(value = {}, parentID = 0) {
   }
 }
 
-export function migrateLegacyFixedPriceFlatRowOverrides(flatRows = {}, productOverrides = {}, productSpecSelections = []) {
+export function migrateLegacyFixedPriceFlatRowOverrides(flatRows = {}, productOverrides = {}, productSpecSelections = [], { customerID = 0 } = {}) {
   const nextFlatRows = {}
   Object.entries(flatRows || {}).forEach(([key, value]) => {
     const price = Number(value || 0)
     if (key && Number.isFinite(price) && price > 0) nextFlatRows[key] = price
   })
   const nextProductOverrides = { ...(productOverrides || {}) }
+  // Customer row overrides are the actual quoted prices, not legacy factory
+  // configuration. Moving them to a SKU setting loses the quote on reload.
+  if (Number(customerID) > 0) {
+    return { productOverrides: nextProductOverrides, flatRowOverrides: nextFlatRows, migratedCount: 0, changedCount: 0 }
+  }
   const selectionsBySkuID = new Map((Array.isArray(productSpecSelections) ? productSpecSelections : [])
     .map((selection) => [Number(selection?.sku_id ?? selection?.skuID ?? 0) || 0, selection])
     .filter(([skuID]) => skuID > 0))
