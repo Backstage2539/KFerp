@@ -7,7 +7,7 @@ import (
 
 func TestOrderCopyDetailsTextSavedFields(t *testing.T) {
 	source := OrderCopySnapshot{CustomerName: "棵凡咖啡", PayStatus: "预付款（付款未完成）", PaymentMethod: "银行转账", Order: OrderEditData{
-		ID: 42, OrderNo: "SO-42", OrderDate: "2026-10-18", DocumentDate: "2026-10-19", ReceiverName: "张先生", ReceiverPhone: "13800000000", ReceiverAddress: "上海市测试路1号", Notes: "不要复制备注", GrandTotal: "999.99",
+		ID: 42, OrderNo: "SO-42", OrderDate: "2026-10-18", DocumentDate: "2026-10-19", ReceiverName: "张先生", ReceiverPhone: "13800000000", ReceiverAddress: "上海市测试路1号", Notes: "不要复制备注", TotalAmount: "990.00", ShippingAmount: "20.00", GrandTotal: "999.99",
 		Items: []OrderEditItem{
 			{Product: "已改名商品", ProductNameSnapshot: "下单品名", CustomerProductDisplayNameSnapshot: "客户拼配", Spec: "454", Qty: "10.500", Unit: "袋", UnitPrice: "99.99"},
 			{ProductNameSnapshot: "挂耳", ProductKind: "drip_bag", Spec: "10袋/盒", SalesUnit: "box", UnitBagCount: 10, Qty: "5", Unit: "盒"},
@@ -15,11 +15,11 @@ func TestOrderCopyDetailsTextSavedFields(t *testing.T) {
 			{Product: "历史换算", BomSpecName: "旧来源", Spec: "454", PriceSourceJSON: `{"spec_conversion":{"target_spec_name":"250g 袋装","target_unit":"袋"}}`, Qty: "2", Unit: "袋"},
 		}}}
 	got := BuildOrderDetailsText(source)
-	want := "订单号：SO-42\n客户名称：棵凡咖啡\n订单日期：2026-10-18\n付款状态：预付款（付款未完成）\n付款方式：银行转账\n\n订单详情：\n1. 客户拼配｜454g｜10.5 袋\n2. 挂耳｜10袋/盒｜5 盒\n3. 曲奇｜2Kg袋装｜1 袋\n4. 历史换算｜250g 袋装｜2 袋\n\n收件人：张先生\n电话：13800000000\n收件地址：上海市测试路1号"
+	want := "订单号：SO-42\n客户名称：棵凡咖啡\n订单日期：2026-10-18\n付款状态：预付款（付款未完成）\n付款方式：银行转账\n货款：990.00元\n运费：20.00元\n合计付款：999.99元\n\n订单详情：\n1. 客户拼配｜454g｜10.5 袋\n2. 挂耳｜10袋/盒｜5 盒\n3. 曲奇｜2Kg袋装｜1 袋\n4. 历史换算｜250g 袋装｜2 袋\n\n收件人：张先生\n电话：13800000000\n收件地址：上海市测试路1号"
 	if got != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 	}
-	for _, bad := range []string{"999.99", "99.99", "不要复制备注", "已改名商品", "2026-10-19"} {
+	for _, bad := range []string{"99.99元/", "不要复制备注", "已改名商品", "2026-10-19"} {
 		if strings.Contains(got, bad) {
 			t.Fatalf("leak %s", bad)
 		}
@@ -59,5 +59,15 @@ func TestOrderCopyDetailsTextRecipientSources(t *testing.T) {
 				t.Fatalf("got %s, want suffix %s", got, want)
 			}
 		})
+	}
+}
+
+func TestOrderCopyDetailsDeferredFreight(t *testing.T) {
+	snapshot := OrderCopySnapshot{FreightDeferred: true, Order: OrderEditData{TotalAmount: "100.00", ShippingAmount: "0.00", GrandTotal: "100.00"}}
+	got := BuildOrderDetailsText(snapshot)
+	for _, want := range []string{"运费：0.00元（实际运费另行结算）", "合计付款：100.00元（不含另行结算运费）"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in %q", want, got)
+		}
 	}
 }
