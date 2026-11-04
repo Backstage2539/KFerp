@@ -1,3 +1,9 @@
+### PR-ORDER-DATE-SAVE-20261104 留厂及代发订单日期保存
+- Branch: `codex/order-date-save-20261104`; base `origin/main` 873ab8a41。
+- 留厂销售已有代发、生产或入库关联时，保存未更改的商品明细；历史代发地址与冻结运费地区一致时，修改日期沿用原有费用依据。
+- 验证：隔离 PostgreSQL 与员工 API 先 RED 后 GREEN，检查日期、商品身份、库存权益、运费快照、操作日志及真实变更限制；不改动正式订单。
+- 状态：隔离数据库 API 回归通过；集成、部署和现场验收待完成。
+
 ### PR-DIRECTSHIP-HISTORICAL-STOCK-20261104 代发历史批次分配
 - Branch: `codex/directship-frozen-variant-20261104`; base `origin/develop` 6566b26f。
 - 喜沁客户仓中旧 BOM 版本批次分配给新代发订单时触发 `bom_variant_not_current`；新订单使用当前版本，批次保留实际冻结版本，严格核对客户、仓库、商品规格、批次与数量。

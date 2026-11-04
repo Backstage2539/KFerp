@@ -375,6 +375,19 @@ func (r *Repository) previewFulfillmentEditTx(ctx context.Context, tx pgx.Tx, v 
 		p.StockReady = len(pending) == 0
 	}
 	fc := app.FulfillmentFeeQuoteCommand{OrderID: v.OrderID, CustomerID: v.CustomerID, FulfillmentMode: v.FulfillmentMode, ExpectedFreightToken: v.Fees.Freight.Token, Province: c.Province, City: c.City, District: c.District, ServiceOverrideCents: c.ServiceFeeCents, AdjustmentReason: c.AdjustmentReason, EmployeeAdjustment: true}
+	// Some accepted requests retain an old county-level-city/locality shape,
+	// while their frozen quote already uses the canonical hierarchy. Trust that
+	// mapping only if both the locked original address and its region fields are
+	// unchanged, and the normalization matches the original frozen destination.
+	// Keep c untouched so saving never silently rewrites the recipient address.
+	if c.ReceiverAddress == v.ReceiverAddress && c.Province == v.Province && c.City == v.City && c.District == v.District {
+		legacy := freightdomain.Destination{Province: v.Province, City: v.City, District: v.District}
+		canonical, ok := freightdomain.NormalizeLegacyFulfillmentDestination(legacy)
+		frozen, err := freightdomain.ResolveDestination(v.Fees.Freight.Destination)
+		if ok && err == nil && canonical == frozen {
+			fc.Province, fc.City, fc.District = frozen.Province, frozen.City, frozen.District
+		}
+	}
 	for _, i := range p.Items {
 		fc.Items = append(fc.Items, app.FulfillmentFeeItem{ProductID: i.ProductID, BomSpecID: i.BomSpecID, BomVariantID: i.BomVariantID, SpecG: i.SpecG, Qty: i.Qty})
 	}
