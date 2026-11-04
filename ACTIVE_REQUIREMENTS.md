@@ -1,3 +1,9 @@
+### PR-748 工位待开工补料修复
+- Branch: `codex/workstation-start-replenishment-20261104`; base `origin/develop` 66c6b929; DEV-PR748-WORKSTATION-REPLENISH、DEV-PR748-OLD-SHELL-REFRESH。
+- 为实际 WIP 缺料提供单任务补料并重新核对开工预览；旧页面提示刷新，新版提示更新；未确认领料保留原请求并重试。
+- 验证：隔离 PostgreSQL 领料、开工、完工及幂等；Vue 行为和构建；手册 `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`，验收 `orderapp-remote/docs/acceptance/2026-11-04-workstation-start-replenishment.md`。
+- 状态：验证和集成中；正式工单及库存未改，部署和现场业务验收待完成。
+
 ### PR-747-TRANSFER-FROZEN-OWNER
 - Branch: `codex/transfer-frozen-bom-20261104`; DEV-PR747-01/02.
 - 历史批次身份保持，真实批次、货主、库存和预留校验不绕过；公司成品进入客户绑定仓时明确确认目标货主。

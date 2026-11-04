@@ -156,7 +156,7 @@
               <button class="secondary" @click="handleTaskAction(task,task.status==='paused'?'resume':'pause')">{{task.status==='paused'?'恢复':'暂停'}}</button>
             </div>
 
-            <OperationStartForm v-if="startPanel.open && sameTask(startPanel.task,task)" :key="`start-${task.job_card_id}`" :job-card-id="Number(task.job_card_id)" @close="startPanel.open=false" @posted="startPosted" />
+            <OperationStartForm v-if="startPanel.open && sameTask(startPanel.task,task)" :key="`start-${task.job_card_id}-${startPanel.revision}`" :job-card-id="Number(task.job_card_id)" :locked="batchIssue.open" @close="startPanel.open=false" @posted="startPosted" @issue="openStartIssue(task, $event)" />
             <OperationCompletionForm v-if="isFinishPanelForTask(task)" :key="task.job_card_id" :job-card-id="Number(task.job_card_id)" :return-params="completionReturnParams(task)" @close="closeFinishPanel" @posted="automaticPosted" />
           </div>
         </div>
@@ -166,7 +166,7 @@
         <span>{{ emptyState.hint }}</span>
       </div>
     </section>
-    <WorkstationBatchIssueDrawer v-if="batchIssue.open" :task-ids="batchIssue.ids" :workstation="selectedWorkstation" :return-params="{scope}" @close="batchIssue.open = false" @posted="load" />
+    <WorkstationBatchIssueDrawer v-if="batchIssue.open" :task-ids="batchIssue.ids" :workstation="selectedWorkstation" :return-params="{scope}" :start-shortages="batchIssue.startShortages" @close="batchIssue.open = false" @posted="batchIssuePosted" />
     <ProductionExecutionHubDrawer
       :open="executionHub.open"
       :work-order-id="executionHub.workOrderId"
@@ -185,6 +185,7 @@ import OperationAdjustmentForm from '../components/OperationAdjustmentForm.vue'
 import WorkstationBatchIssueDrawer from '../components/WorkstationBatchIssueDrawer.vue'
 import WorkstationPackagingCompletionForm from '../components/WorkstationPackagingCompletionForm.vue'
 import { issueSelectionState, toggleIssueSelection } from '../lib/workstation-batch-issue.js'
+import { issueSessionStorage, readPendingIssue } from '../lib/workstation-issue-recovery.js'
 import ProductionReturnLink from '../components/ProductionReturnLink.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { fetchProductionWorkstationOverview, runProductionTaskAction } from '../api/production.js'
@@ -216,12 +217,12 @@ const adjustment=reactive({open:false,task:null}),startGroup=reactive({open:fals
 async function adjusted(){adjustment.open=false;await load()}
 function openGroupStart(group){completionGroup.open=false;startGroup.key=group.key;startGroup.ids=group.tasks.map(t=>Number(t.job_card_id));startGroup.open=true}
 async function groupStarted(){startGroup.open=false;await load()}
-const startPanel=reactive({open:false,task:null})
+const startPanel=reactive({open:false,task:null,revision:0})
 function needsConfirmedStart(task){return task.material_consumption_policy==='bom_start_v1' && ['pending','ready','released'].includes(task.status)}
 function openStartPanel(task){if(isTaskUnattended(task)){message.value='今日该工位无人值班，请先完成排班';return};finishPanel.open=false;startPanel.task=task;startPanel.open=true}
 async function startPosted(){startPanel.open=false;await load()}
 const selectedIssueTasks = ref([])
-const batchIssue = reactive({open: false, ids: []})
+const batchIssue = reactive({open: false, ids: [], startShortages: [], recovering: false})
 const completionGroup = reactive({ open: false, key: '', ids: [] })
 const lastGroupResult = ref(null)
 const packagingSourceAvailability = ref(new Map())
@@ -231,7 +232,9 @@ function ungroupedTasks(section) { const ids = new Set(groupedTasks(section).map
 function isSimplifiedTask(task) { return Boolean(task?.automatic_completion) || /烘焙|烘烤|除石|研磨|磨粉|色选|筛选|包装|分装|装盒|装袋/.test(String(task?.operation || task?.operation_name || task?.task_name || '')) }
 function issueTasks(section) { return ungroupedTasks(section).filter(task => !isSimplifiedTask(task)) }
 function packagingGroups(section) { return workstationPackagingGroups(section.tasks) }
-function openBatchIssueForTasks(tasks) { batchIssue.ids = tasks.filter(workstationCanOpenIssue).map(task => Number(task.job_card_id)); batchIssue.open = batchIssue.ids.length > 0 }
+function openBatchIssueForTasks(tasks) { if (batchIssue.open) return; batchIssue.recovering = false; batchIssue.startShortages = []; batchIssue.ids = tasks.filter(workstationCanOpenIssue).map(task => Number(task.job_card_id)); batchIssue.open = batchIssue.ids.length > 0 }
+function openStartIssue(task, shortages) { if (batchIssue.open) return; batchIssue.recovering = false; batchIssue.ids = [Number(task.job_card_id)]; batchIssue.startShortages = shortages; batchIssue.open = true }
+async function batchIssuePosted(result) { if (batchIssue.startShortages.length && Number(result?.success_count || 0) > 0) startPanel.revision++; await load() }
 function openBatchIssue(section) { openBatchIssueForTasks(issueTasks(section).filter(task => selectedIssueTasks.value.includes(Number(task.job_card_id)))) }
 function openGroupCompletion(group) { completionGroup.key = group.key; completionGroup.ids = group.tasks.map(task => Number(task.job_card_id)); completionGroup.open = true; batchIssue.open = false }
 async function groupCompleted(result) { lastGroupResult.value = result; completionGroup.open = false; message.value = `已完成并入库 ${result.completed_qty} ${result.output_unit}`; await load() }
@@ -294,7 +297,7 @@ const tasks = computed(() => overview.value.tasks || [])
 async function convertedOldOrder(){closeFinishPanel();message.value='核对已保存，后续工序可直接完成';await load()}
 const lastAutomaticResult=ref(null)
 async function automaticPosted(data){message.value=data.completion?.message || '完成记录已保存';lastAutomaticResult.value={...data.completion};finishPanel.open=false;await load()}
-watch(selectedWorkstation, () => { selectedIssueTasks.value = []; batchIssue.open = false })
+watch(selectedWorkstation, () => { selectedIssueTasks.value = []; if (!batchIssue.recovering) batchIssue.open = false })
 watch(tasks, rows => { const available = new Set(rows.filter(workstationCanOpenIssue).map(task => Number(task.job_card_id))); selectedIssueTasks.value = selectedIssueTasks.value.filter(id => available.has(id)) })
 const sections = computed(() => {
   const taskSections = workstationTaskSections(tasks.value)
@@ -675,6 +678,10 @@ watch(() => [props.viewParams?.focus, props.viewParams?.work_order_id, props.vie
 }, { flush: 'post' })
 
 onMounted(async () => {
+  try {
+    const pending = readPendingIssue(issueSessionStorage())
+    if (pending) { batchIssue.ids = pending.job_card_ids; batchIssue.startShortages = []; batchIssue.recovering = true; batchIssue.open = true }
+  } catch (err) { error.value = err.message }
   void loadWarehouseNames()
   selectedWorkstation.value = String(props.viewParams?.workstation || '')
   await load({ focusRequested: true })
