@@ -1,0 +1,37 @@
+{
+  "/login anonymous": 200,
+  "/api/production-plans/11 anonymous": 401,
+  "/vue-shell?view=productionFlow&production_plan_id=11 authenticated": 200,
+  "/api/manufacturing-workstations authenticated": 200,
+  "/api/manufacturing-workstation-capacities authenticated": 200,
+  "shell_sha256": "ca8412ecac0962e103ce8474ae2295aacb2f9d0a9601e9d47f7f9b358a5cc971",
+  "plan11": {
+    "status": "draft",
+    "items": 14,
+    "splits": 0,
+    "unchanged": true,
+    "sha256": "36dad440d88185ad14902a56b6d1b034a680370547a16cb66cc9f7c80c8bf5ac"
+  },
+  "production_manual": 200,
+  "requirements_product": {
+    "PR-719-PRODUCTION-CAPACITY-BATCHES": "review"
+  },
+  "requirements_dev": {
+    "DEV-719-03": "done",
+    "DEV-719-02": "done",
+    "DEV-719-01": "done"
+  },
+  "commit": "9b37113659d080c30ce026bf11af694457e54964",
+  "assets": {
+    "ProducePlanView-Bkp1QNKO.js": "576558831c313f5da23e35b0ded4251c54d9e7270014f60c7f962c0140d67f01",
+    "ManufacturingWorkstationEditor-BWUuQzHp.js": "d7fdb449bd432197b4b6e51732e0c9c89bb1cc43b52985ea43c4ad1cf3308fe2"
+  },
+  "container": {
+    "running": true,
+    "health": "none",
+    "restarts": 0,
+    "image": "sha256:f5081dedb9f3c60fa955a5eb08ea889304beaf794d4118bc5728064899fbe6d4",
+    "started_at": "2026-10-23T04:00:23.742775771Z"
+  },
+  "disk_free_GiB": 2.07
+}

@@ -42,7 +42,7 @@
 - `docs/OP_MANUAL_SHIPPING_RETURN.md`；订单手册及总索引已更新。
 - PR-717-SHIPPING-RETURN：review；DEV-717-01/02/03：done。
 - 开发环境已部署并完成只读检查，版本与回滚位置见下方。
-- 正式环境与真实业务验收不在本次自动执行范围内。
+- Van 已于 2026-10-23 授权合并 main 并部署正式环境；真实 Excel 导入及业务验收另行操作。
 
 ## 开发环境部署证据
 
@@ -60,3 +60,10 @@
 - 原始检查摘要见同目录 `2026-10-23-shipping-return-runtime.json`。
 - 清理的内容仅为可重新生成的 Go/Docker 构建缓存及无标签闲置镜像；数据库、业务文件、原源码及回滚镜像保留。部署后可用空间约 3.1GB。
 - 未导入用户真实 Excel、未进行真实订单发货验收、未部署正式环境。PR 继续 review，待 Van 验收。
+
+## 正式发布准备
+
+- Van 授权合并 main 并部署生产 ERP；生产集成分支 `codex/shipping-return-production-20261023`。
+- 在最新 `origin/main` 上合并已验证并推送的 `origin/develop`（含开发交付证据）。仅 ACTIVE_REQUIREMENTS 交付记录冲突，保留双方记录；生产独有 BOM 修复和原有需求状态完整保留。
+- 合并后复检全部通过：后端全包、独立 PostgreSQL 的寄件回传/运费/发货回归、Vue 1,512 项测试与生产构建；部署脚本仍执行服务器端完整门禁。
+- 本次仅发布 ERP 服务，真实寄件文件尚未导入，业务验收状态继续 review。

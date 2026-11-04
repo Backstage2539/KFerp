@@ -123,7 +123,7 @@ func TestProductionBomLibrarySchemaBackfillAndBindingMarkers(t *testing.T) {
 		"output_product_id BIGINT NOT NULL DEFAULT 0",
 		"output_qty NUMERIC(14,6) NOT NULL DEFAULT 1",
 		"output_unit TEXT NOT NULL DEFAULT 'unit'",
-		"UPDATE %[1]s.production_boms SET output_product_id=legacy_product_id",
+		"UPDATE %[1]s.production_boms\nSET output_product_id=legacy_product_id",
 		"backfillProductionBomLibrary",
 		"inherit_current",
 		"inherit_version",
@@ -685,6 +685,29 @@ func TestProductionBomBackfillPreservesExplicitItemBackedHistoricalVersion(t *te
 	}
 	if strings.Contains(bindingRows, "locked.status='published'") {
 		t.Fatal("an explicit item-backed historical version must not silently fall back to the latest published version")
+	}
+}
+
+func TestProductionBomLegacyProductOutputBackfillSkipsMaterialOutputs(t *testing.T) {
+	schema := readBomSchemaSource(t)
+	start := strings.Index(schema, "UPDATE %[1]s.production_boms\nSET output_product_id=legacy_product_id")
+	if start == -1 {
+		t.Fatal("production BOM output identity backfill not found")
+	}
+	end := strings.Index(schema[start:], "CREATE UNIQUE INDEX IF NOT EXISTS production_boms_code_uq")
+	if end == -1 {
+		t.Fatal("production BOM output identity backfill end not found")
+	}
+	backfill := schema[start : start+end]
+	for _, want := range []string{
+		"AND COALESCE(NULLIF(output_type,''),'product')='product'",
+		"AND output_material_id=0",
+		"AND COALESCE(NULLIF(pb.output_type,''),'product')='product'",
+		"AND pb.output_material_id=0",
+	} {
+		if !strings.Contains(backfill, want) {
+			t.Fatalf("legacy product output backfill must skip material BOMs; missing %q", want)
+		}
 	}
 }
 

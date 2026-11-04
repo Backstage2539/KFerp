@@ -31,3 +31,13 @@
 - 开发包 `KFerp-bean-registration-sheet-test-20261013/KFerp-miniapp-mp-weixin-dev`，22 页及 88 页面文件验证通过；RELEASE_INFO 指向以上部署提交和开发 API。
 - 微信预览上传成功（1,194,633 bytes），二维码 `KFerp-bean-registration-sheet-test-20261013/新版豆单测试二维码.png`，附 `测试说明.txt`。日志 `/tmp/kferp-bean-sheet-preview.log`。以上路径位于 /Users/yiiiple-work/。
 - DEV-758/759、UT/API 技术交付完成；PR 保持 review、REV 保持 todo，由 Van 真机确认昵称建议、手机键盘、手机号同意/拒绝、成功返回及复用。
+
+## Van 验收与正式发布授权
+2026-10-13，重新登录微信开发者工具后预览上传成功，Van 扫码测试后确认：“可以了，合并到main，并部署到生产环境，给我小程序包，我上传最新小程序”。据此将 PR-689 / REV-689 标记完成，并执行生产发布。此前章节保留当时的待验收状态作为历史记录。
+
+发布分支 `codex/bean-sheet-production-20261013` 合并已验证的 develop `b954a3885d144cceda7dcb0e92aee9c568561fd7` 与最新 main `43ec7232`，保留生产 BOM 兼容修复。正式包必须使用 `https://erp.qacoohee.com/app`，AppID 为 `wx6512f8684f584828`；完成生产配置预检与部署后，随包交付提交、备份和线上检查记录。微信上传、审核和发布由 Van 执行，公众号菜单不在本次自动发布范围。
+
+### 生产发布额外检查说明
+登记/页面入口 PostgreSQL HTTP 测试通过。额外选取的 `TestPR598MaterialOutputRepositoryAndCompatibilityMigrationPostgres` 与 `TestUpdateProductionBomToMaterialOutputClearsDraftSpecGroupPostgres` 在发布分支以及未修改的 main `43ec7232` 上均以相同原因失败：旧测试数据不满足已有自制物料及规格模式约束。本次发布没有修改 BOM 实现，已保留 `/tmp/kferp-bean-production-api.log` 和 `/tmp/kferp-bean-production-main-baseline.log`，不将这两项历史失败计为通过。
+
+正式环境沿用自身的价格表、入口和微信配置，不复制开发环境登记用户、测试入口或业务数据。生产数据库备份位于 `/opt/stacks/erp-production/backups/bean-center-20261013/pre-release.dump`；小程序上传说明、最终提交和运行检查随正式包交付。

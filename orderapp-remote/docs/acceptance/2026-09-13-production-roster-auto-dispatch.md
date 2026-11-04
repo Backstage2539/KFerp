@@ -1,7 +1,7 @@
 # PR-657 生产排班与工位自动派工验收记录
 
-日期：2026-09-13（Asia/Shanghai）  
-范围：`develop` / development；production 不在本次范围。  
+日期：2026-09-13（Asia/Shanghai）
+范围：`develop` / development；production 不在本次范围。
 验收边界：自动化与隔离数据验证属于技术验收，Van 在 development 的真实业务判断仍待完成。
 
 ## 最终行为

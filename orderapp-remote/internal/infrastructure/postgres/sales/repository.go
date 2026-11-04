@@ -10,6 +10,8 @@ import (
 	pdfinfra "orderapp/internal/infrastructure/pdf"
 	freightpg "orderapp/internal/infrastructure/postgres/freight"
 	"orderapp/internal/infrastructure/postgres/orderweight"
+	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -1236,6 +1238,64 @@ func withOrderPriceSelectionSnapshotJSON(raw, mode, rowKey string, usage orderbe
 	return string(buf)
 }
 
+// retainedSnapshotSpecMatches accepts only weights derived from the original
+// stored label or its immutable price-source snapshot. The Vue editor can send
+// either the label's integer prefix or a normalized net weight in grams.
+var retainedSpecWeightPattern = regexp.MustCompile(`(?i)([0-9]+(?:\.[0-9]+)?)\s*(kg|千克|公斤|mg|毫克|g|克|lbs|lb|磅)`)
+
+func retainedSnapshotSpecMatches(specG int64, label string, source any) bool {
+	if specG == 0 {
+		return true
+	}
+	weight := func(qty float64, unit string) int64 {
+		switch strings.ToLower(strings.TrimSpace(unit)) {
+		case "g", "克":
+		case "kg", "千克", "公斤":
+			qty *= 1000
+		case "lb", "lbs", "磅":
+			qty *= 454
+		case "mg", "毫克":
+			qty /= 1000
+		default:
+			return 0
+		}
+		// Vue sends spec_g through parseInt when serializing the form.
+		return int64(qty)
+	}
+	if raw, ok := source.(map[string]any); ok {
+		if effective, ok := raw["effective_sales_spec"].(map[string]any); ok {
+			if n := int64(anyFloat64(effective["spec_g"])); n > 0 && n == specG {
+				return true
+			}
+			if n := weight(anyFloat64(effective["net_content_qty"]), fmt.Sprint(effective["net_content_unit"])); n > 0 && n == specG {
+				return true
+			}
+		}
+	}
+	if m := retainedSpecWeightPattern.FindStringSubmatch(label); len(m) == 3 {
+		qty, _ := strconv.ParseFloat(m[1], 64)
+		if n := weight(qty, m[2]); n > 0 && n == specG {
+			return true
+		}
+	} else if strings.EqualFold(strings.TrimSpace(label), "lb") || strings.EqualFold(strings.TrimSpace(label), "lbs") || strings.TrimSpace(label) == "磅" {
+		if specG == 454 {
+			return true
+		}
+	}
+	// Before family hydration, Vue initializes spec_g from the label's
+	// leading integer, including labels such as "1kg" and "0.5kg".
+	label = strings.TrimSpace(label)
+	end := 0
+	for end < len(label) && label[end] >= '0' && label[end] <= '9' {
+		end++
+	}
+	if end > 0 {
+		n, _ := strconv.ParseInt(label[:end], 10, 64)
+		return n > 0 && n == specG
+	}
+	return false
+}
+
 func orderItemsInsertSQL(schema string) string {
 	return fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,bom_spec_id,bom_variant_id,customer_product_alias_id,customer_product_reference_id,material_source_mode,customer_product_display_name_snapshot,customer_item_code_snapshot,brand_name_snapshot,product_code_snapshot,product_name_snapshot,price_tier_id,price_overridden,product_kind,bean_list_publication_id,bean_list_version_no,item_name,item_note,qty,unit,spec,unit_price,line_total_before_discount,discount_type,discount_value,discount_amount,line_total,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34::jsonb)`, schema)
@@ -1621,8 +1681,25 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 	}
 	preservedItemIDs := map[int64]bool{}
+	retainedSnapshotsAvailable := false
+	if editID > 0 && strings.TrimSpace(cmd.DeliveryMode) == "customer_stock" {
+		if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL AND to_regprocedure($2) IS NOT NULL`, r.schema+".customer_stock_entitlements", r.schema+".customer_stock_has_dependencies(bigint)").Scan(&retainedSnapshotsAvailable); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+		if retainedSnapshotsAvailable {
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT %s.customer_stock_has_dependencies($1)`, r.schema), orderID).Scan(&retainedSnapshotsAvailable); err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+		}
+	}
 	for idx := range items {
-		if !items[idx].preserveExistingSnapshot {
+		autoRetainedSnapshot := false
+		if !items[idx].preserveExistingSnapshot && retainedSnapshotsAvailable && items[idx].itemID > 0 && items[idx].productID != nil && items[idx].conversion == nil {
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.customer_stock_entitlements WHERE source_order_id=$1 AND source_order_item_id=$2)`, r.schema), orderID, items[idx].itemID).Scan(&autoRetainedSnapshot); err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+		}
+		if !items[idx].preserveExistingSnapshot && !autoRetainedSnapshot {
 			continue
 		}
 		if editID <= 0 || items[idx].itemID <= 0 || items[idx].productID == nil || preservedItemIDs[items[idx].itemID] {
@@ -1660,6 +1737,59 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		storedSalesUnit := stored.salesUnit
 		if strings.TrimSpace(storedSalesUnit) == "" {
 			storedSalesUnit = stored.unit
+		}
+		if autoRetainedSnapshot {
+			it := &items[idx]
+			var storedSource, requestedSource any
+			sourceMatches := false
+			if json.Unmarshal([]byte(stored.priceSource), &storedSource) == nil && json.Unmarshal([]byte(it.priceSourceJSON), &requestedSource) == nil {
+				sourceMatches = reflect.DeepEqual(storedSource, requestedSource)
+			}
+			// A manual price fully specifies pricing, so an omitted read-only
+			// source snapshot need not force recalculation.
+			if stored.priceOverride && strings.TrimSpace(it.priceSourceJSON) == "" {
+				sourceMatches = true
+			}
+			storedMode := "auto"
+			storedRowKey := ""
+			if source, ok := storedSource.(map[string]any); ok {
+				if mode, ok := source["price_selection_mode"].(string); ok && mode != "" {
+					storedMode = mode
+				}
+				storedRowKey, _ = source["selected_price_row_key"].(string)
+			}
+			if stored.priceOverride {
+				storedMode = "manual"
+			}
+			requestedSalesUnit := it.salesUnit
+			if requestedSalesUnit == "" {
+				requestedSalesUnit = normalizeOrderItemSalesUnit(requestedUnit)
+			}
+			if requestedUnit == "" && normalizeOrderItemSalesUnit(storedSalesUnit) == requestedSalesUnit {
+				requestedUnit = stored.unit
+			}
+			// For BOM rows the form's legacy gram field is derived from the
+			// stored display label; the BOM IDs remain the authoritative identity.
+			// Reject a conflicting explicit value instead of silently ignoring it.
+			specMatches := it.spec != nil && *it.spec == stored.spec
+			if stored.bomSpecID > 0 {
+				specMatches = retainedSnapshotSpecMatches(it.specG, stored.spec, storedSource)
+			}
+			kindMatches := it.productKind == "" || normalizeOrderItemProductKind(stored.productKind) == it.productKind
+			if stored.productID != *it.productID || stored.bomSpecID != it.bomSpecID || stored.bomVariantID != it.bomVariantID || stored.qty != it.units ||
+				stored.unit != requestedUnit || normalizeOrderItemSalesUnit(storedSalesUnit) != requestedSalesUnit || stored.aliasID != it.customerProductAliasID || stored.referenceID != it.customerProductReferenceID ||
+				stored.publicationID != it.itemBeanListPublicationID || strings.TrimSpace(stored.version) != strings.TrimSpace(it.itemBeanListVersionNo) ||
+				strings.TrimSpace(stored.name) != it.name || strings.TrimSpace(stored.note) != it.note || normalizeOrderItemDiscountType(stored.discountType) != it.discountType || math.Abs(stored.discountValue-it.discountValue) > 0.0001 ||
+				stored.unitBagCount != it.unitBagCount || math.Abs(stored.unitBeanG-it.unitBeanG) > 0.0001 || !specMatches || !kindMatches || !sourceMatches ||
+				storedMode != it.priceSelectionMode || (storedMode == "tier" && strings.TrimSpace(storedRowKey) != strings.TrimSpace(it.selectedPriceRowKey)) || stored.priceOverride != it.priceOverride ||
+				(stored.priceOverride && (it.manualPrice == nil || math.Abs(stored.unitPrice-*it.manualPrice) > 0.0001)) {
+				continue
+			}
+			it.preserveExistingSnapshot = true
+			it.unit = &stored.unit
+			it.salesUnit = storedSalesUnit
+			it.priceSourceJSON = stored.priceSource
+			requestedUnit = stored.unit
 		}
 		if stored.productID != *items[idx].productID || stored.bomSpecID != items[idx].bomSpecID || stored.bomVariantID != items[idx].bomVariantID ||
 			stored.qty != items[idx].units || stored.unit != requestedUnit || storedSalesUnit != items[idx].salesUnit || stored.aliasID != items[idx].customerProductAliasID ||

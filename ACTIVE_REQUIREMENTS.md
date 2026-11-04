@@ -1,3 +1,9 @@
+### PR-ORDER-DATE-SAVE-20261104 留厂及代发订单日期保存
+- Branch: `codex/order-date-save-20261104`; base `origin/main` 873ab8a41。
+- 留厂销售已有代发、生产或入库关联时，保存未更改的商品明细；历史代发地址与冻结运费地区一致时，修改日期沿用原有费用依据。
+- 验证：隔离 PostgreSQL 与员工 API 先 RED 后 GREEN，检查日期、商品身份、库存权益、运费快照、操作日志及真实变更限制；不改动正式订单。
+- 状态：隔离数据库 API 回归通过；集成、部署和现场验收待完成。
+
 ### PR-DIRECTSHIP-HISTORICAL-STOCK-20261104 代发历史批次分配
 - Branch: `codex/directship-frozen-variant-20261104`; base `origin/develop` 6566b26f。
 - 喜沁客户仓中旧 BOM 版本批次分配给新代发订单时触发 `bom_variant_not_current`；新订单使用当前版本，批次保留实际冻结版本，严格核对客户、仓库、商品规格、批次与数量。
@@ -66,19 +72,17 @@
 - Status: technical delivery complete. PR #299/#301 merged develop; clean-main PR #300 merged. Development runtime fb0f39f744f2 and production runtime 65ce9df6fbf4 verified. Browser order-to-shipment test received/shipped 24 bags with final batch/warehouse balances 0; 17 production business-table snapshots unchanged. PR-729/DEV-878 business acceptance remains with Van and site staff. Evidence: orderapp-remote/docs/acceptance/2026-10-25-production-recovery.md; sibling evidence/pr729-browser and evidence/pr729-release.
 - RED evidence: operation completion, location backfill, warehouse UI and linked replenishment tests. First linked API run found aggregate NULL scanning and missing optional customer-processing reservation table handling; both are fixed and covered by serial tests. A broad DB-enabled full-suite run reports legacy fixture/schema failures in unrelated packages and was stopped while the full production package continued; targeted production DB/API checks are green.
 - Follow-up: Van rejected the receipt navigation and requires direct inline receipt from the work-order list. Remove the drawer receipt button and reconciliation module; preserve explicit actual quantities and atomic/idempotent posting. Branch codex/production-direct-receipt from develop b6a226a1. Browser acceptance now must click through order, plan, roasting, roast receipt, packaging, product receipt and shipment in an isolated database; browser acceptance and both releases passed, including final stock/ledger reconciliation and actual /app page checks.
-- Follow-up bug (2026-10-26): `WO-PP-0000000114-0000000116` direct receipt incorrectly reran legacy BOM consumption and failed on a 0.18 kg WIP shortage although output was already recorded. Branch `codex/legacy-completed-output-receipt-only`, base `origin/develop@52784a24`; verifier is production legacy receipt API tests, Vue roster runtime test and frontend build. Direct receipt now only posts saved output; missing historical consumption is returned as a warning for later audit. Status: implementation/tests green; development browser verification and integration pending. Production remains read-only.
-- Follow-up bug (2026-10-26): development workstation completion for `WO-PP-0000000084-0000000052` failed with `direct_product_identity_requires_zero_spec` because its retired `output_product_id` was used with the still-valid frozen parent/spec identity. Branch `codex/legacy-packaging-zero-input`, based on `origin/develop@bc9d113a`; regression installs the production identity guards, reproduces RED, and verifies the completion receipt/replay uses the frozen parent product and variant exactly once.
-- Follow-up development-wide click-through (2026-10-26): current feature branch fixes three additional issues found by clicking/checking all 8 workstation views: finished receipts for legacy packaging must follow the exact frozen work-order variant; one-operation grinder and old package-card previews must fall back to explicit frozen output quantity/unit when planned-inventory fields are absent; grinder cards use the simplified completion action. Go all packages, Vue 1626/1626, Vite build and targeted isolated PostgreSQL/API tests pass. Deployment and post-deploy button completion for packaging 0111 and PR-616 0067→0066→0065 remain pending. Card 57 remains blocked by a real 13.327kg WIP shortage, no assigned workstation and no duty roster; do not infer or alter. Production remains read-only.
 - Last update: 2026-10-25
 
 ### PR-727-DEFAULT-SPEC-INITIAL-ONLY
 - Branch: codex/default-spec-initial-only; base origin/develop c0c8da28.
 - Scope: default specification is initial selection and badge only; refresh valid BOM identities without confirmation, preserve quotes, retain actual selection validation.
 - DEV: DEV-866 selection and restore; DEV-867 publication validation; DEV-868 manuals and development delivery.
-- Status: development delivery complete; PR #291 merged; PR-727 review, DEV-866/867/868 done; Vue1578/all Go/build/changed and isolated DOM/browser checks pass; Van acceptance pending.
+- Status: development and production delivery complete; PR #291/#293 merged; PR-727 review, DEV-866/867/868 done; Vue1578/all Go/build/changed and isolated DOM/browser checks pass; Van acceptance pending.
 - Verifier: selection/refresh/editor regressions, costing service and HTTP tests, Vue tests/build, backend gates, isolated UI verification.
-- Deployment: feature face99a8 -> develop/runtime e7ae6c61b4d43be327016d219d12d3521542931d; KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development from clean release clone. Source backup /opt/stacks/erp/orderapp.backup.deploy-20261024114208-e7ae6c61b4d4; rollback kferp-orderapp-rollback:development-20261024114208-e7ae6c61b4d4. Containers/API/manual/static identity readonly smoke PASS. Receipt-only follow-up updates evidence and requirement state; no business implementation change. Production excluded. Evidence: orderapp-remote/docs/acceptance/2026-10-24-default-spec-initial-only.md; ../evidence/default-spec.
+- Deployment: feature face99a8 -> develop/runtime e7ae6c61b4d43be327016d219d12d3521542931d; KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development from clean release clone. Source backup /opt/stacks/erp/orderapp.backup.deploy-20261024114208-e7ae6c61b4d4; rollback kferp-orderapp-rollback:development-20261024114208-e7ae6c61b4d4. Containers/API/manual/static identity readonly smoke PASS. Receipt-only follow-up updates evidence and requirement state; no business implementation change. Production delivery is recorded below. Evidence: orderapp-remote/docs/acceptance/2026-10-24-default-spec-initial-only.md; ../evidence/default-spec.
 - Notes: reservation script --claim fails on macOS awk newline handling; PR-727 reserved here.
+- Production: PR #293 merged; release branch codex/default-spec-production candidate d63222bd -> main/runtime 612dffd0894fb39c2bc2d305d71ad13269cb9769. Clean-clone deployment and full gates PASS; authenticated routes/API/manual and public/container/source asset identity PASS; 179 publications, 108 orders and 190 order items unchanged. Backup /opt/stacks/erp-production/orderapp.backup.deploy-20261024124341-612dffd0894f; rollback kferp-orderapp-rollback:production-20261024124341-612dffd0894f. Production-only main fixes retained. Final receipt only changes documentation; WeChat upload/publication and Van business acceptance not performed.
 
 ### PR-718-RETAINED-STOCK-FOLLOWUP
 - Branch: codex/retained-stock-order-display; base origin/develop@470018f9.
@@ -92,12 +96,13 @@
 - Production rollback: /opt/stacks/erp-production/orderapp.backup.deploy-20261023111846-81f602482493; kferp-orderapp-rollback:production-20261023111846-81f602482493. Receipt-only commits do not change runtime.
 
 ### PR-718-FULFILLMENT-OPERATIONS
+- Production authorization: Van requested “合入main，部署生产环境” on 2026-10-23. Release branch codex/fulfillment-operations-production merges verified develop@470018f9 into main@d5edc418, preserving production-only safeguards. Production delivered at main/runtime 5f218156324b183e2e3ba315608304ebcb79dc84 via GitHub PR #252; no customer business-setting writes or WeChat publication.
 - Branch: codex/fulfillment-operations-redesign; base origin/develop 0ebb0a0a.
 - Scope: customer todo home, five stable modules, Product Creator styling, internal historical read access, shared mode defaults with explicit per-field customer overrides and safe legacy preservation.
 - DEV: DEV-718-01 defaults/resolver/audit; DEV-718-02 server workbench/history; DEV-718-03 Vue operations/settings; DEV-718-04 verification/manual/development delivery.
-- Status: technical verification and development delivery complete at 13a185db1af16a881f53697fc57e7d2832a14ba7 via GitHub PR #250; Van business acceptance pending.
-- Verifier: Go resolver + isolated PostgreSQL/API authorization/concurrency; Vue helpers and actual component interaction; frontend build; changed gates; visual layout; development runtime smoke.
-- Deployment: KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development passed; backup /opt/stacks/erp/orderapp.backup.deploy-20261023023741-13a185db1af1. App running/restarts0, DB healthy, protected API401, authenticated shell/defaults/manual200, public/source/container bundle hash identical. No production release.
+- Status: technical verification, development (#250, runtime13a185db) and production (#252, runtime5f218156) delivery complete; Van business acceptance pending.
+- Verifier: Go resolver + isolated PostgreSQL/API authorization/concurrency; Vue helpers and actual component interaction; frontend build; changed gates; visual layout; development/production runtime smoke.
+- Deployment: KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development passed; backup /opt/stacks/erp/orderapp.backup.deploy-20261023023741-13a185db1af1. App running/restarts0, DB healthy, protected API401, authenticated shell/defaults/manual200, public/source/container bundle hash identical. Production: KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh production passed; backup /opt/stacks/erp-production/orderapp.backup.deploy-20261023095037-5f218156324b; tagged rollback retained. App/DB healthy, source/container/public hashes identical, selected customer overview and five queues pass read-only consistency checks.
 - Evidence: orderapp-remote/docs/acceptance/2026-10-23-fulfillment-operations.md; sibling evidence/fulfillment-operations. Server Vue1517/mini426/fullGo twice/types/builds passed. Receipt-only follow-up does not change deployed binary.
 - Notes: reserve_req_id.sh selected PR-718; --claim failed on macOS awk newline handling, reservation written here manually.
 
@@ -124,14 +129,11 @@
 - Branch: `codex/workstation-clickthrough-final`, based on latest `origin/develop@896b4f8ca133bc7594dacc914df0a852d4ae65e2`.
 - Scope: 修复包装旧冻结变体入库身份校验与挂耳包装齐套需求低估；按用户要求先逐工位点击收集问题，修复后再部署开发。
 - Evidence: `orderapp-remote/docs/acceptance/2026-10-26-development-workstation-clickthrough.md`。
-- RED/GREEN: 两个定向隔离 PostgreSQL 回归用例均先失败后通过；`production`、`productspecmigration` Go 包通过；`go build ./...`、`git diff --check` 通过。随后 `scripts/verify_kferp.sh backend` 全 Go 包通过；开发部署门禁 Vue 1626/1626、Vite、miniapp 432/432/typecheck/build、Go 全包及 Docker 构建通过。
-- Status: 已合入 `develop@44d62840854438e8d6d7f54d753872ed5403db42` 并部署开发环境；部署后浏览器再次逐工位核验。生产未访问、未写入、未部署。
+- RED/GREEN: 两个定向隔离 PostgreSQL 回归用例均先失败后通过；`production`、`productspecmigration` Go 包通过；`go build ./...`、`git diff --check` 通过。全量 Go 测试有 7 个 appmain 既有 fixture 错误（缺 `logistics_weight_g`），运行因本机空间不足中止，不记全绿。
+- Status: 实施与定向验证完成；等待分支推送、合入最新 `develop`、开发部署及部署后逐卡点验。未触及生产。
 - 本轮补充修复：历史包装完工库存身份由精确来源工序事件关联至冻结工单变体；挂耳旧单 WIP 需求按冻结 `planned_inventory_qty`/库存单位计算；开工时为缺少批次关联的本单预留锁定实物库存并留操作日志。三处均有先失败后通过的隔离 PostgreSQL 回归。
-- 验证更新：最后发现的未包装规格克重商品入库回归先 RED 后 GREEN；kg/无包装规格按克记账，混合袋数和重量仍拒绝。生产 API 重试只生成一笔 5,600g 入库及一条操作事件；后端全量验证通过。
-- 部署：`develop@44d62840854438e8d6d7f54d753872ed5403db42`；开发备份 `/opt/stacks/erp/orderapp.backup.deploy-20261026162938-44d628408544`；回滚镜像 `kferp-orderapp-rollback:development-20261026162938-44d628408544`；开发登录页 HTTP 200，数据库及其余服务未重建。磁盘预检有 16GB 可用，未清理缓存或数据。
-- 部署后浏览器：点击 `WO-PP-0000000114-0000000110` 的“确认数量并入库”，成功将系统已记录的 **17kg** 入成品仓，生成单据 116；列表显示的 21kg 是工单目标量，不是本次实际完工量。成功提示明确旧工序耗料流水未完整匹配，本次只入已记录产出、没有再次扣料；该行从“未结束”列表消失。
-- 八工位点击结果：包装 `WO-PP-0000000114-0000000111` 完成 11 袋，单据 110/111；布勒两批完成；PR-616 的研磨/挂耳包装/盒装包装按依赖先后完成，库存单据 112–115。修复后重新检查工位视图，没有剩余可直接合法执行的活动卡。卡 57 尚未开工，缺孟连水洗A 13.327kg，未指定唯一烘焙工位且今日无人排班；无法安全替现场选设备、备料或排班。其他历史待入库行目标仓未设置，不猜仓、不代办。
-- 当前结论：本轮开发环境可直接执行的工位操作和已记录完工入库均已通过浏览器点击；剩余项目是明确的现场物料/工位/排班或目标仓信息待补，不属于可由程序安全自动完成的工作。完整“下单→生产计划→烘焙→包装→入库→发货”端到端新建单据流程未在本轮验收；生产环境保持只读且未部署。
+- 验证更新：隔离 `production`、`productspecmigration` 与完成 API 定向测试通过；最新 `scripts/verify_kferp.sh backend` 全部 Go 包通过；前端无代码变更，基线 Vue 1626 项和 Vite 构建已通过。开发部署后按钮验收仍待执行；真实未分配工位卡57的13.327kg WIP缺口、工位/排班信息须现场处理。
+- 当前分支尚未集成或部署，生产环境仍只读；最终状态以部署后逐卡单据及库存/操作日志只读核对为准。
 
 
 ### PR-713-FULFILLMENT-RECIPIENT-EDIT
@@ -148,25 +150,27 @@
 ### PR-712-MINIAPP-NAVIGATION-DEDUP
 - Branch: codex/miniapp-navigation-dedup-20261022; base origin/develop@7684c047.
 - Owner/session: Codex / 2026-10-22.
-- Status: implementation and integrated local verification complete; deployment preparation in progress. Van authorized main/production delivery.
+- Status: technical delivery complete; feature f693f290 pushed, GitHub PR #239 delivered develop/runtime aca709f6; GitHub PR #240 delivered main/production/runtime/package b080846f1f2dc29adef269adfc3cd62ac2f06847 on 2026-10-22. Production preserves main-only guards; receipt update is documentation only. Van business acceptance remains pending.
 - Scope: remove duplicate home summaries and price banner, keep one logout; retain processing shipping inside My Orders; fix contextual order links, bottom-tab navigation and effective visibility.
 - DEV: DEV-829-HOME-DEDUP; DEV-830-NAVIGATION; DEV-831-NAVIGATION-DELIVERY.
 - Verifier: actual Vue rendering/click RED-GREEN, capability/role/theme matrix, existing scoped API authorization tests, full miniapp tests/type/build, Vue manual build, server release gates and DevTools verification.
 - Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md and OP_MANUAL_CUSTOMER_FULFILLMENT.md; served by customerPortalManual/customerFulfillmentManual.
 - Evidence: orderapp-remote/docs/acceptance/2026-10-22-miniapp-navigation-dedup.md.
 - Checks: local mini425, Vue1478, scoped Go API/support, typecheck, production mini/Vue builds and independent review passed. RED/GREEN and runtime baseline captured.
+- Delivery: ./deploy_orderapp.sh development and production passed Vue1478/mini425/type/build/fullGo on host+image. Production app restarts0/DB healthy, login200/protected401/manuals+PR-DEV visible; image e48d8364b3a5 matches running tag, container/static doc hashes match promoted source. Source backup orderapp.backup.deploy-20261022115811-b080846f1f2d and rollback image retained. Final export/DevTools/ZIP identical: 24 pages/96 page files/239 runtime files, CRC and SHA256 verified.
 - Boundary: no new schema or business-data changes; WeChat upload/review/publication and Van business acceptance are separate.
 
 ### PR-708-MINIAPP-ORDER-STATUS-TOP
 - Branch: codex/miniapp-order-status-top-20261021; base origin/develop e6d30fc0.
 - Owner/session: Codex / 2026-10-21.
-- Status: delivered to development a8fe07ba on 2026-10-21; automated/local UI/runtime/artifact checks passed; Van product acceptance pending.
+- Status: delivered to development a8fe07ba and production dce7b37c on 2026-10-21; automated/local UI/runtime/artifact checks passed; Van product acceptance pending.
 - Scope: employee miniapp order detail starts with order/payment/shipping status and a dedicated status editor. Payment after production/shipping must not require editing the whole order or recalculating its frozen lines.
 - DEV: DEV-813-STATUS-API; DEV-814-STATUS-TOP; DEV-815-STATUS-DELIVERY.
 - Verifier: targeted RED/GREEN miniapp interaction/client and Go service/HTTP tests, isolated database transactions and audit checks, miniapp type/build, full remote deployment gates; employee and sales manuals.
-- Deployment: development only after verified feature push and develop integration. Production and WeChat upload/review/publication are outside this request.
+- Deployment: development delivered; Van authorized main integration, production deployment and the formal miniapp package on 2026-10-21. Production branch codex/miniapp-order-status-production-20261021 starts at current main 2efe9bf3 and merges verified develop 5bd6a43c, retaining main-only BOM migration protections. WeChat upload/review/publication remains separate.
 - Evidence: orderapp-remote/docs/acceptance/2026-10-21-miniapp-order-status-top.md (technical delivery complete; Van acceptance pending).
 - Delivery: feature b47b1aac, runtime/package a8fe07ba618f2b9c0510fa587d0e2129d3b4ff46; source backup /opt/stacks/erp/orderapp.backup.deploy-20261021131604-a8fe07ba618f; rollback image retained. Go/Vue1459/mini389/type/build, isolated PostgreSQL, app running/DB healthy, protected APIs401, manuals/PR+DEV200, 24 pages/96 page files/238 total files and ZIP CRC passed. Final receipt update is documentation-only.
+- Production delivery: main/runtime/formal package dce7b37cd6e69f1968864a1110a8fe0efcaa1588; Vue1461/mini393/fullGo/isolated production BOM guards and status API passed. DB backup /opt/stacks/erp-production/backups/pr708-before-status-20261021152313.dump; source backup /opt/stacks/erp-production/orderapp.backup.deploy-20261021152828-dce7b37cd6e6; rollback kferp-orderapp-rollback:production-20261021152828-dce7b37cd6e6; production app running/DB healthy, docs+PR/DEV200 and protected APIs401, 24 pages/96 page files/239 files and ZIP CRC passed. WeChat upload/review/publication pending.
 - Notes: reserve_req_id.sh returned PR-708; reserved manually to avoid the known macOS awk multiline-string claim failure.
 
 ### PRICE-TABLE-DRAFT-QUOTA-20261021
@@ -190,6 +194,16 @@
 - Evidence: Huangyan (customer487) read-only replay restores43 families/46 specs from5 green-only families; Vue1444/mini372, typecheck/builds/fullGo, isolated PostgreSQL lifecycle and API save guards passed. Acceptance: docs/acceptance/2026-10-21-published-order-catalog-consistency.md.
 - Notes: scripts/reserve_req_id.sh reports PR-707; --claim hit known macOS awk multiline-string failure, reserved manually here. Production runtime currently main 973d5481.
 
+### PRICE-TABLE-DRAFT-QUOTA-20261021
+- Branch: codex/price-table-draft-quota-20261021; production baseline origin/main@973d5481.
+- Scope: local bounded regression, user reports production latest-publication load and publish blocked by named batch localStorage quota. No schema, business write or price semantics change.
+- Root cause: prior c591b765 protects the old-table backup only; subsequent named batch write still throws outside publish request handling.
+- Fix: durable async named-batch storage, legacy draft read compatibility, ordered snapshots and current-scope checks; avoid duplicate standalone cache writes after named hydration.
+- Verification: targeted RED/GREEN, full Vue suite/build and existing publication-batch handler checks; production deployment requested by reported environment.
+- Manual: orderapp-remote/docs/OP_MANUAL_COSTING.md, served by existing costingManual Vue entry.
+- Status: delivered to production b6efdd71 on 2026-10-21; runtime asset, manual and authenticated read-only HTTP checks passed. Targeted54/fullVue1454, mini371/typecheck/build, fullGo on host+image all GREEN; native browser real-quota/save/reload GREEN. No production business publications performed.
+- Delivery: feature2b946de6; develop4d03e0cd (Vue1457/build verified after separate integration); main/runtime b6efdd71. Production command KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh production. Rollback source orderapp.backup.deploy-20261021112612-b6efdd71d202; rollback image retained. Production excludes the independent PR-707 change. Evidence: docs/acceptance/2026-10-21-price-table-draft-quota.md.
+
 ### PR-704-MINIAPP-STOCK-ORDER-EXPERIENCE
 - Branch: codex/miniapp-stock-order-experience-20261019; base origin/develop@758a2f50.
 - Status: review; implemented and customer UI/API verified in development; Van product acceptance pending. Development delivery complete at be7338a1; subsequent receipt commit is documentation only.
@@ -209,6 +223,7 @@
 - DEV: DEV-793-MINIAPP-LOGIN-ENTRY.
 - Evidence: docs/acceptance/2026-10-19-miniapp-login-entry.md; targeted RED/GREEN, 338 miniapp tests, typecheck/build and actual DevTools form/logout checks.
 - Delivery authorization: Van requested develop then main integration and production deployment on 2026-10-19; WeChat upload/review/publication separate.
+- Production integration: codex/release-login-order-copy-20261019 combines origin/main@34a311d1 with verified origin/develop@ab573007; preserves production-only BOM material-output backfill protection and historical delivery receipts.
 - Delivery: development ab573007; production c815fb99. Vue1404, miniapp338/typecheck/build, Go/targeted DB, runtime/API/docs/progress and both 24-page artifacts passed. Packages and evidence: /Users/yiiiple-work/KFerp-login-fix-delivery-20261019. Backup and rollback details in the acceptance receipt; production-only BOM backfill protection preserved.
 
 ### PR-701-ORDER-DETAILS-COPY
@@ -291,13 +306,13 @@
 ### PR-686-PRICE-TEMPLATE-EDITOR-TRIAL
 - Branch: `codex/price-template-editor-trial-20261008`; PR #188 merged into `develop` as `57c5b29970c1630f644010067bb6c30bb8276300`.
 - Owner/session: Codex / Van / 2026-10-08.
-- Status: implementation, review fixes, full gates, develop integration, and development deployment complete; Van business acceptance pending.
+- Status: implementation, review fixes, full gates, develop integration, and development/production deployments complete; Van business acceptance pending.
 - Scope: current price-table product/spec selection, unsaved full-template auto trial, isolated results, existing save and publication semantics.
 - DEV: DEV-746-PRICE-RULE-DRAFT; DEV-747-PRICE-EDITOR-TRIAL; DEV-748-PRICE-EDITOR-DELIVERY.
 - Verifier: `./scripts/verify_kferp.sh all` passed after review fixes; Go full suite, Vue tests including 9/9 targeted editor-trial tests, Vue/Vite production build, and `git diff --check`.
 - Manual: `orderapp-remote/docs/OP_MANUAL_COSTING.md` and Vue drawer help.
 - Evidence: `orderapp-remote/docs/acceptance/2026-10-08-price-template-editor-trial.md`.
-- Deployment: development `57c5b29970c1630f644010067bb6c30bb8276300` deployed 2026-10-09. Backup: `/opt/stacks/erp/orderapp.backup.deploy-20261009004710-57c5b29970c1`; rollback image: `kferp-orderapp-rollback:development-20261009004710-57c5b29970c1`. Go/Vue/miniapp tests and builds passed on the server; `erp_orderapp` and PostgreSQL are running, PostgreSQL is healthy, and `https://dev.qacoohee.com/app/login` returned HTTP 200. Miniapp development artifact was built but not uploaded to WeChat. Production excluded; Van business acceptance pending.
+- Deployment: development `57c5b29970c1630f644010067bb6c30bb8276300` deployed 2026-10-09. Backup: `/opt/stacks/erp/orderapp.backup.deploy-20261009004710-57c5b29970c1`; rollback image: `kferp-orderapp-rollback:development-20261009004710-57c5b29970c1`. Go/Vue/miniapp tests and builds passed on the server; `erp_orderapp` and PostgreSQL are running, PostgreSQL is healthy, and `https://dev.qacoohee.com/app/login` returned HTTP 200. Production `aefe1567103c68e4297ab5457a70d8473191489f` deployed 2026-10-09 after integrating verified `develop` (`b390c2b6`) and the BOM startup compatibility fix (`5217b6f4`). Production backup: `/opt/stacks/erp-production/orderapp.backup.deploy-20261009021555-aefe1567103c`; rollback image: `kferp-orderapp-rollback:production-20261009021555-aefe1567103c`. `erp_prod_orderapp` is running, PostgreSQL is healthy, and `https://erp.qacoohee.com/app/login` returned HTTP 200. Server Vue/Vite, Go, and miniapp tests/builds passed (267 miniapp tests, typecheck, and 19-page validation). The miniapp artifact was generated but not uploaded or published to WeChat. Van business acceptance pending.
 
 ### PR-685-WECHAT-PRICE-ENTRIES-BY-TYPE
 - Owner/session: Codex / Van / 2026-10-08.
@@ -320,8 +335,8 @@
 - DEV: DEV-734-AUTH-LOGIN-ENTRY; DEV-735-CONTRACT-FILE-AUTH; DEV-736-CONTRACT-DOWNLOAD-UX.
 - Scope: make `/app/login` explicitly public, prevent protected contract files from advertising Basic challenges, and download stamped PDFs with the app Bearer token plus clear 401/403 messages.
 - Verifier: `go test ./...`; `scripts/verify_kferp.sh frontend-tests`; `scripts/verify_kferp.sh frontend-build`; `scripts/verify_kferp.sh changed`.
-- Delivery: PR #182 merged into develop as `f248c9b30d93acae0c4011cd064bd99eef69b7e6`; no environment deployed.
-- Status: implementation, docs and automated verification complete; production configuration and logs remain uninspected; no deployment.
+- Delivery: PR #182 merged into develop as `f248c9b30d93acae0c4011cd064bd99eef69b7e6`; PR #183 merged into main as `aae5afef5548a20cc684bb1e177f8fb49aa4d52e`.
+- Status: production ERP deployment is explicitly authorized and pending; this workspace has no authorized Mac SSH key/agent, so the production release script cannot run here.
 - Evidence: `orderapp-remote/docs/acceptance/2026-10-06-authenticated-contract-download.md`.
 
 ## PR-680 商品创建器 V8 引用产出停用上游（2026-10-02）
@@ -331,7 +346,7 @@
 - Verifier: Go unit/API/PostgreSQL; Node helpers/runtime; Vue build; browser; full verifier.
 - Delivery: PR #177 merged to develop `efb2a2eb8371e2ec4199de2b565b615f5157be81`, deployed development; backup `/opt/stacks/erp/orderapp.backup.deploy-20261002203637-efb2a2eb8371`.
 - Live acceptance: template #6 V1 `PR-680 V8 挂耳复用验收-20261002`; runs #63/#64 committed; products #1144/#1145/#1146, BOM #51613/#51614/#51615. Material count unchanged (94); only 3 downstream products/BOM created. Logs contain execution_plan. Source template #5 preserved.
-- Status: 1,310 frontend tests, Go/API/PostgreSQL transaction tests, Vite build and browser passed. PR #178/read-only product-input permission deployed as `2f3f411bd344e6579b05a05a467bda1cc796905e`. Final restart verification found redundant legacy BOM backfill; targeted PostgreSQL RED/GREEN and standard backend pass, final guard integration/deployment pending. PR review/Van acceptance pending.
+- Status: 1,310 frontend tests, Go/API/PostgreSQL transaction tests, Vite build and browser passed. PR #178/read-only product-input permission deployed as `2f3f411bd344e6579b05a05a467bda1cc796905e`. PR #179 startup backfill guard passed targeted RED/GREEN, merged and deployed with final development source `780d5a1c85b2a1b85bd3bc64d7ddbb74d2b2c10e`; restart verification confirmed no duplicate active BOMs. PR #180 merged to main as `a20a5911a8eab243615545adccdf6d8eb22d8d8b` and deployed to production; release and smoke evidence is recorded in `orderapp-remote/docs/acceptance/2026-10-02-product-creator-v8-reuse.md`. Van business acceptance pending.
 
 ## PR-679 商品规格作为 BOM 配方来源的连线提示（2026-10-02）
 - Branch: `codex/product-creator-product-component-20261002`; base `origin/develop@1d0042e09871bbb9c9e107eaa2d7718295297fb2`.
@@ -342,9 +357,9 @@
   - API: 不涉及 API 或服务端合同；继续沿用 `item.specs`。
   - Frontend/build: Vue shell 1,306/1,306 tests passed; `npm run build` passed (Vite 8.0.10, 6,650 modules); `git diff --check` passed.
   - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCT_CREATOR.md` 已补充商品档案口与商品规格口的区别。
-  - Review/acceptance: development and production deployment smoke pending.
-- Status: implementation and local automated verification complete; release in progress; Van acceptance pending.
-- Deployment: development then production explicitly authorized; commit/backup/smoke evidence to be recorded after each deployment.
+  - Review/acceptance: development and production login smoke both returned HTTP 200; Van's hang-ear template business acceptance pending.
+- Status: implementation, automated verification, develop/main integration, and development/production deployments complete; Van acceptance pending.
+- Deployment: development `c07697e2bc5f4bc6277990994e21ec63c0975321`, backup `/opt/stacks/erp/orderapp.backup.deploy-20261002145234-c07697e2bc5f`, rollback image `kferp-orderapp-rollback:development-20261002145234-c07697e2bc5f`; production `adb8a691cda64d4aa37a887342c5f9dcb13ff8b8`, backup `/opt/stacks/erp-production/orderapp.backup.deploy-20261002150237-adb8a691cda6`, rollback image `kferp-orderapp-rollback:production-20261002150237-adb8a691cda6`. Both `/app/login` smoke checks returned HTTP 200. WeChat Mini Program was not uploaded or published.
 - Last update: 2026-10-02.
 
 ## PR-678 商品创建器物料角色与命名简化（2026-10-02）
@@ -354,8 +369,8 @@
 - Scope: fix implicit manufactured output publication; V7 removes input presets, chooses existing inputs by default; node-top acquisition mode controls BOM input; ordered text/variable editor.
 - Evidence: development template 4 revision 37 has an output without supply_mode, matching the failing regression. No live template/business writes performed.
 - Verifier: targeted RED/GREEN graph/resolver/component tests; API lifecycle; PostgreSQL actual material mode; Vue build; `scripts/verify_kferp.sh all`.
-- Delivery: PR #172 and #173 merged into `develop`; development source `d7cbf53516c4af4595936dfad0eda29d63fd4d83` deployed on 2026-10-02. Backup `/opt/stacks/erp/orderapp.backup.deploy-20261002014729-d7cbf53516c4`; rollback image `kferp-orderapp-rollback:development-20261002014729-d7cbf53516c4`.
-- Status: targeted tests, isolated PostgreSQL, 1305 frontend tests/build, standard full verifier, merge and deployment passed. Authenticated live browser confirmed the named template editor; its validation changed from `valid:false` to `valid:true`, with revision 37/published V13 unchanged. PR-678 is review; DEV-724/725/726 are done. Van acceptance pending. No production or live template/business edits.
+- Delivery: PR #172 and #173 merged into `develop`; development source `d7cbf53516c4af4595936dfad0eda29d63fd4d83` deployed on 2026-10-02. PR #175 merged the V6 dependency and V7 release into `main` as `3aa6c8c00a597a3c4334b0c2df7e94310f8a284b`; production deployed from that exact commit the same day. Production backup `/opt/stacks/erp-production/orderapp.backup.deploy-20261002110555-3aa6c8c00a59`; rollback image `kferp-orderapp-rollback:production-20261002110555-3aa6c8c00a59`.
+- Status: targeted tests, isolated PostgreSQL, 1305 frontend tests/build, standard full verifier and both remote release gates passed. Production services are healthy; login HTTP 200 and unauthenticated app HTTP 401. Startup added nullable `materials.estimated_unit_price` as required by V6. No production template, product, material or BOM records were edited; WeChat Mini Program was not uploaded/published. Authenticated development browser confirmed the named template editor and validation changed from `valid:false` to `valid:true`, with revision 37/published V13 unchanged. PR-678 is review; DEV-724/725/726 are done. Van acceptance pending.
 
 ## PR-677 商品创建器 V6 物料预设、分类与暂估成本（2026-10-02）
 - Branch: `codex/product-creator-v6-20261001`; base `origin/develop@16bee722f3aee71c2cb0d4a38f8e847e4b87af4c`.
@@ -499,123 +514,85 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-737-WAREHOUSE-BATCH-STOCK-ADJUSTMENT
-- Branch: `codex/warehouse-batch-stock-adjustment`, based on `origin/develop@d1877487c`, in managed worktree `/Users/yiiiple-work/.codex/worktrees/warehouse-batch-stock-adjustment/KFerp`; PR #312 targets develop and PR #311 targets production main. Current pushed head before the latest review fixes: `3d1691e62`.
+- Branch: `codex/warehouse-batch-stock-adjustment`, based on `origin/develop@d1877487c`, in managed worktree `/Users/yiiiple-work/.codex/worktrees/warehouse-batch-stock-adjustment/KFerp`; PR #312 targets develop and PR #311 targets production main. Final implementation commit: `27db9456b0b7739414a109d04bfc9a868cac8dab`.
 - Scope: 按吴国宏仓真实成品批次余额修正初晓、曜石2.0的 454g/227g 库存；保留生产历史、同步汇总和操作日志；规格 0 遗留库存仅可清零。
-- Status: service/API/database RED/GREEN complete, including review regressions for legacy/incomplete manual batches, repeated manual adjustments, concurrent manual/manufacturing batch creation, summary-only balances, canonical and legacy transfer FIFO/reversal, frozen-batch blocking, unique per-move batch source identities, loose-gram category preservation, historical transfer cancellation with and without intervening receipt, stock identity lock ordering and migration ordering. Latest review findings have RED/GREEN regressions for shipment order/identity locking and warehouse-scoped opening batches. Additional review fixes now reject transfer cancellation when summary and batch balances diverge and prelock work orders before finished-stock identities; both new PostgreSQL regressions were confirmed RED then GREEN. Latest local verification: full Go suite without external DB, all stock PostgreSQL tests, operation-manual tests (3/3), `scripts/verify_kferp.sh changed`, and diff checks pass. Prior full sales PostgreSQL run reports unrelated shared `EnsureSchema` fixture errors (`orders.is_void`/`ship_status_id` and a missing canonical order item); targeted sales regressions pass. Previous server preflight failed on disk exhaustion; user authorized cleanup, which removed 50 unused rollback tags and 21.25GB unused build cache. Root disk is now 51% used with 28GB free; services and data volumes were not changed. Latest fixes still need commit/push, review, final production preflight, integration and release. No production stock write has occurred.
+- Status: service/API/database RED/GREEN complete. PR #312 merged to develop at `7eb69b040cdfcd70ba8283a3f7f994b0ca191457`; PR #311 merged to main at `d5cd5b66c6bee6854feeca72a6ac1920e0efff9a`. Final production preflight passed on that main commit; production deployment and formal stock corrections are complete. Van business acceptance remains open. The full Go suite without external DB, all stock PostgreSQL tests, operation-manual tests (3/3), `scripts/verify_kferp.sh changed`, diff checks, exact-main preflight, API-level production adjustment calls and read-only reconciliation all passed. The broader sales PostgreSQL run still has unrelated shared `EnsureSchema` fixture errors (`orders.is_void`/`ship_status_id` and a missing canonical order item); targeted sales regressions pass. User-authorized cleanup removed 50 unused rollback tags and 21.25GB build cache; root disk is now 51% used with 28GB free. Services and data volumes were preserved during cleanup.
 - DEV: DEV-880-FINISHED-BATCH-ADJUSTMENT; DEV-881-WAREHOUSE-CORRECTION-DELIVERY.
 - Verifier: `env -u ORDERAPP_TEST_DATABASE_URL -u DATABASE_URL go test ./...` passed; with temporary local PostgreSQL, full `go test ./internal/infrastructure/postgres/stock -count=1` passed; targeted sales regressions `TestShipmentTrackingPrelocksOrdersBeforeFinishedIdentities`, `TestMultiOrderShipmentIdentityLocksAreOrderIndependent`, `TestSourceWarehouseShipmentDeductsBatchAndSummaryTogether`, and `TestSalesShipmentLocksFinishedIdentityBeforeBatchAndSummary` passed; stock HTTP/application tests, `node --test frontend-vue-shell/src/lib/operation-manuals.test.js` (3/3), and `./scripts/verify_kferp.sh changed` passed. New RED evidence: `TestLegacyFinishedTransferSourceOpeningBalanceIsWarehouseScoped` was rejected when another warehouse had a positive batch; the shipment prelock test initially failed to compile because the order-first lock helper was absent. Both regressions pass after fixes.
 - Manual: `orderapp-remote/docs/OP_MANUAL_STOCK.md`; frontend manual entry `stockManual` maps to that document in `orderapp-remote/frontend-vue-shell/src/lib/operation-manuals.js`.
 - Evidence: `orderapp-remote/docs/acceptance/2026-10-27-wuguohong-warehouse-correction.md`.
-- Deployment: production was requested by Van. Server cache/image cleanup completed only; no deployment/restart or business stock write. Next: push final fixes, complete both reviews and production preflight, merge develop/main through the tracked PRs, deploy production, verify the rotated credential without exposing it, then submit only the two required production adjustments and read-only reconcile all four target balances.
-- Last update: 2026-10-27.
+- Deployment: production `main@d5cd5b66c6bee6854feeca72a6ac1920e0efff9a` deployed at 2026-10-27 10:32 CST using `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh production`; login smoke HTTP 200. Backup `/opt/stacks/erp-production/orderapp.backup.deploy-20261027103203-d5cd5b66c6be`; rollback image `kferp-orderapp-rollback:production-20261027103203-d5cd5b66c6be`. Formal adjustments 19/20 corrected 初晓 454g 14→1 and 227g 14→4; 曜石2.0 was already at 1/4 and was left unchanged. Final API returned exactly four rows, and read-only database verification matched summary, batch allocations, ledger (211/212), audit logs (8672/8673) and operation logs (256249/256267). Both adjustment reasons contain the submitted text “吴国宏仓库存更正”, missing one “库” compared with the planned wording; the API has no submitted-adjustment reason edit endpoint. No Mini Program package export/upload/publication.
+- Last update: 2026-10-27; implementation and production data correction complete, Van business acceptance pending.
 
 ### PR-736-FROZEN-RECEIPT-ALLOCATION
-- Branches: `codex/production-followup-live-blockers` (first production patch); `codex/production-frozen-dropship-allocation` (follow-up), based on `origin/develop@1acd4452`.
+- Branches: `codex/production-followup-live-blockers` and `codex/production-frozen-dropship-allocation`; follow-up based on `origin/develop@1acd4452`.
 - Scope: user-reported recorded-output receipt and legacy packaging completion blocked at retained-stock allocation; single-card legacy buttons still shown.
-- Status: first patch deployed at production `fc96f672`, then four retained-output API attempts still hit the same guard because downstream reserved order lines had moved to a newer published variant. This follow-up now reproduces and fixes that exact cross-version reservation case in isolated PostgreSQL/API tests; integration/development/production release pending. Van acceptance remains pending.
-- Verification: `TestFrozenProductionReceiptConvertsRetainedSupplyAfterBOMRepublish`, current variant guard, adjacent legacy receipt tests, `workstation-legacy-packaging-runtime.test.js`; no production business writes.
-- Follow-up verifier: updated the API fixture so the historical source order retains its frozen variant while the exact reserved dropship line uses the republished current variant; RED reproduced `bom_variant_not_current`, GREEN now passes both recorded receipt and legacy completion paths. Repeated-request, rollback, nonzero-cost and 12 mismatch checks remain in the test.
-- DEV: DEV-PR736-03-REPUBLISHED-DROPSHIP-IDENTITY.
-- DEV UI row is defined in `support/req_store.go`; its status is done after the isolated API RED/GREEN. It will appear in the environment on the next application start.
+- Status: first patch deployed at 21:58 but four newer-variant reservations still failed. The follow-up reproduces those exact failures in isolated PostgreSQL/API tests and is deployed to development; production release is in progress. Van business acceptance pending.
+- Integration: first patch develop `1acd4452`; follow-up develop/runtime `78560416ddb53ec5576ed18a201d51f02a8dd9ab`; production main/runtime remains `fc96f6720f67a474e2ba6893e0f27ab5163534dd` until this follow-up release completes.
+- Deployment: development runtime `78560416ddb53ec5576ed18a201d51f02a8dd9ab`, login HTTP 200, app running with restart count 0 and PostgreSQL healthy. Source backup `/opt/stacks/erp/orderapp.backup.deploy-20261026223246-78560416ddb5`; rollback image `kferp-orderapp-rollback:development-20261026223246-78560416ddb5`.
+- Verification: `TestFrozenProductionReceiptConvertsRetainedSupplyAfterBOMRepublish`, current variant guard, adjacent legacy receipt tests, `workstation-legacy-packaging-runtime.test.js`; full Go, Vue 1,630, miniapp 432, typecheck and 24-page build passed. Production business rows remain read-only.
+- DEV: DEV-PR736-01-ALLOCATION; DEV-PR736-02-PACKAGING-UI; DEV-PR736-03-REPUBLISHED-RESERVATION.
 - Evidence: `orderapp-remote/docs/acceptance/2026-10-26-frozen-receipt-allocation.md`.
 - Last update: 2026-10-26.
 
-
-### PR-734-ORDER-COPY-CUSTOMER-PAYMENT
-- Branch: `codex/order-copy-details-fields`, based on `origin/develop@8f9b5b74061784741354736033c10f54278b7cb6`.
-- Owner/session: Codex / 2026-10-26.
-- Status: verified and merged to `origin/develop@58b32cff5`; development deployment is held until PR-733 follow-up browser acceptance is complete; Van acceptance pending.
-- Scope: order-detail copy text includes the saved customer name and payment method for ERP, customer portal, and mini-program users; empty fields display `未填写`.
-- DEV: DEV-879-ORDER-COPY-CUSTOMER-PAYMENT.
-- Verifier: RED/GREEN application unit test; copy-details API and isolated PostgreSQL tests; copy-button component tests; Vue production build. Browser and runtime checks pending deployment.
-- Manual: `orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md`, `OP_MANUAL_CUSTOMER_ACCOUNT.md`, `OP_MANUAL_CUSTOMER_FULFILLMENT.md`, `OP_MANUAL_CUSTOMER_PORTAL.md`, `OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`.
-- Review/acceptance: `orderapp-remote/docs/acceptance/2026-10-26-order-details-copy-fields.md`.
-- Delivery: feature branch pushed and fast-forward integrated into `develop` at `58b32cff5` after verifying the latest remote base. Development deployment remains gated by the pending PR-733 follow-up browser acceptance.
-- Last update: 2026-10-26.
-- Notes: PR/DEV source rows were added manually after the macOS `awk` multi-line claim error. The incoming `origin/develop@0ebc4c4ba` includes PR-733 follow-up work whose isolated browser action acceptance is pending; do not deploy it until that workflow's gate is cleared.
-
-### PR-733-BOM-REFRESH-WORKSTATION-FOCUS
-- Branch: `codex/legacy-roasting-completion`; based on current `origin/develop@a9c7ba534`.
-- Owner/session: Codex / 2026-10-26.
-- Status: follow-up implementation passes the full Go suite, all 1,622 Vue tests, Vite production build, and isolated PostgreSQL/API regression for both legacy roasting shapes. Isolated browser action acceptance for this follow-up is pending; production remains gated and read-only.
-- Scope: eligible old roasting work orders adopt the latest complete published version of the same BOM at first actual posting; reserve and consume only the current batch while retaining full future demand; direct work-order task navigation reads real card status and schedule state.
-- DEV: DEV-PR733-01 published BOM refresh and reservation; DEV-PR733-02 work-order/task focus and roster gating; DEV-PR733-03 tests, manual and acceptance evidence; DEV-PR733-04 no-reservation BOM demand, real material identity allocation, and accurate completion blockers.
-- Verifier: `scripts/verify_kferp.sh changed`, `scripts/verify_kferp.sh backend`, `scripts/verify_kferp.sh frontend`; isolated PostgreSQL/API regression for legacy refresh and frozen BOM without reservations; browser path with isolated work orders.
-- Deployment: prior base `develop@8eb775b3d2ada601f72725ee0d7a2684d2188c45` was deployed to development on 2026-10-26; this follow-up is not yet deployed. Production remains gated on isolated browser action acceptance and stays read-only.
-- Evidence: `orderapp-remote/docs/acceptance/2026-10-26-bom-refresh-workstation-focus.md`.
+### PR-735-PRODUCTION-FOLLOWUP
+- Branch: `codex/production-followup-20261026`; base `origin/main@001c65b0`; source remainder `origin/develop@692f09b8`.
+- Owner/session: this production follow-up release; only this workflow owns its integration and deployment.
+- Authorization: implement approved plan, fix incremental roasting, integrate remaining three features, complete isolated acceptance, merge main and deploy production. Production business records remain read-only.
+- Status: released production ac663d9a with readonly runtime proof; user blockers fixed and released in PR-736 at fc96f672. PR-734 already existed on develop; PR-735 reserved manually. Van business acceptance remains pending.
+- DEV: DEV-PR735-01 incremental roasting and accounting; DEV-PR735-02 remaining feature integration; DEV-PR735-03 isolated acceptance and release; DEV-PR735-04 bulk weight receipt ledger consistency.
+- Verifier: unit/API RED then GREEN; dedicated local PostgreSQL database; Vue tests/build; BOM refresh and multi-source packaging browser acceptance; final server release gates and readonly runtime evidence.
+- Evidence: `orderapp-remote/docs/acceptance/2026-10-26-production-followup-release.md`.
+- Development integration: PR #306/#307/#308; origin/develop dd603e05083cecbcaab76d506cf983b9fb9c6525; no development deployment.
+- Deployment: production ac663d9a on 2026-10-26 21:14 CST; backup/rollback deploy-20261026210439-ac663d9a505a. Main BOM output backfill protections and accepted requirement states preserved.
 - Last update: 2026-10-26.
 
-### PR-732-PRODUCTION-PLAN-GROUPED-PREPARATION
-- Branch: `codex/production-plan-material-groups`; initial base `origin/develop` 7f77b824c.
-- GitHub PR: #305, merged into `develop` at `fd9c0abfd55578988efb81a4394677fee483d0a7`.
-- Owner/session: Codex / 2026-10-25.
-- Status: implementation and development deployment complete; Van's product acceptance remains pending. Van explicitly authorized publishing current develop including PR-731 while its isolated-data/browser acceptance remains pending. PR-731 acceptance remains an independent follow-up.
-- Scope: group production tasks only when stage, typed output identity, frozen spec/conversion, BOM/process/config snapshot, and target warehouse match; aggregate each linked preparation source once; retain each task's orders, allocations, owners, warehouses, batches, and edits.
-- DEV: DEV-PR732-01 grouping/sums; DEV-PR732-02 nested detail and issue focus; DEV-PR732-03 isolated detail API association; DEV-PR732-04 manual/evidence/development delivery.
-- Verifier: `scripts/verify_kferp.sh frontend`; `scripts/verify_kferp.sh changed`; isolated PostgreSQL `TestProductionPlanAPICreatesMaterialShortageWorkOrderAndCompletesIntoDownstreamWIP`; desktop 1440x1100 and narrow 390x844 component preview with no horizontal overflow and actual source-focus expansion.
-- Broad Go regression: `go test ./internal/interfaces/http/production ./internal/application/production ./internal/infrastructure/postgres/production -count=1` reports unrelated production fixture/schema, schedule-staff, and customer-processing material-reservation failures; the changed isolated plan-detail API test passes.
-- Production boundary: PP-0000000017 is only the read-only reference; no production save, refresh, submit, or work-order action.
-- Evidence: `orderapp-remote/docs/acceptance/2026-10-25-production-plan-grouped-preparation.md`.
-- Feature implementation merged to `develop` at `fd9c0abfd55578988efb81a4394677fee483d0a7`; deployed release follow-up `44672f1dcc2cdbc3365474f1daefb28f3e06310b` updates the DEV-PR732-04 seed status after the initial release. Full frontend/backend/build, miniapp, changed, isolated API, support-package and desktop/narrow preview gates passed.
-- Latest development deployment: `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development` at `44672f1dcc2cdbc3365474f1daefb28f3e06310b`; backup source `/opt/stacks/erp/orderapp.backup.deploy-20261026023531-44672f1dcc2c`; rollback image `kferp-orderapp-rollback:development-20261026023531-44672f1dcc2c`.
-- Runtime smoke: `erp_orderapp` running, restart count 0, image `sha256:c7b255ed2be3acdd10043a87aefc8593183b2d7a34eb398f425c900c1ffd58f9`; `erp_postgres` running/healthy, `erp_docconvert` running. `/app/login` and `/app/vue-shell` 200, `/app/` 303 to `orders`; anonymous requirement API 401. Authenticated development UI shows PR-732 product status `review`, DEV-PR732-01 through -04 `done`; manual/frontend markers were confirmed. `/app/` redirects in this deployment; protected API authentication behaved as expected.
-- No production deployment or production-plan writes; WeChat upload/publication not performed.
-- Last update: 2026-10-26.
 
 ### PR-730-PACKAGING-GROUPED-EXECUTION
 - Branch: `codex/packaging-grouped-execution-20261025`; base `origin/develop` 4457e1e536c23a36596869594707428eab7b6c82.
 - Owner/session: Codex / 2026-10-25.
-- Status: implementation and targeted unit/API/Vue gates pass; isolated browser acceptance, development delivery, clean-main production release, and authorized location repairs remain pending. Production verification stays read-only except the two explicitly authorized location corrections; no live completion/receipt.
+- Status: implementation and development click-through completed; merged to `main` and production app deployed at `d064197308c5c98561df2a6ead04d2bc8639784a` on 2026-10-26. Production checks were read-only; no work-order completion, receipt, or inventory-location repair was performed. Site operation and Van business acceptance remain pending.
 - Scope: group equivalent packaging tasks, show unique WIP/source availability, fix old singleton task quantity resolution and duplicate issue controls, atomic grouped completion, remove workstation replan action, repair confirmed batch locations and reservation warehouses.
 - DEV: DEV-PR730-01 grouping/readiness and old task quantity; DEV-PR730-02 grouped issue/completion; DEV-PR730-03 audited location correction and reservation migration; DEV-PR730-04 browser, manuals, release evidence.
-- Verifier: baseline RED captured at `/tmp/kferp-pr730-red`; Go application and PostgreSQL production package tests pass; targeted real-PostgreSQL HTTP completion/replay tests pass; Vue 1,611/1,611 and Vite production build pass; `git diff --check` pass. Still required: isolated old-shape four-work-order browser click flow, inventory/cost/audit reconciliation for authorized repairs, develop and clean-main release, and read-only production smoke.
-- Deployment: authorized to integrate/deploy develop and main after gates; production real work-order completion remains for site staff.
-- Last update: 2026-10-25
-
-### PR-730-LEGACY-PACKAGING-COMPLETION-FOLLOWUP
-- Branch: `codex/legacy-packaging-zero-input`; based on current `origin/develop@a31eab044643924069fb74862acf4f7c861bcdcf`.
-- Owner/session: Codex / 2026-10-26.
-- Status: isolated API regression is RED on baseline and GREEN after the fix; full Go suite and changed-files verifier pass. Development browser acceptance and deployment are pending.
-- Scope: permit a single unambiguous old packaging card with `planned_input_qty=0` to use the frozen work-order bag quantity; allow an empty legacy execution snapshot to be frozen atomically on first completion; preserve multi-card ambiguity and non-empty configuration conflict blocks.
-- DEV: DEV-PR730-05.
-- Verifier: `ORDERAPP_TEST_DATABASE_URL='postgresql:///codex_pr734_roast_test?host=/tmp' go test ./internal/interfaces/http/production -run '^TestLegacyPackagingCompletion' -count=1`; `go test ./internal/infrastructure/postgres/production -run 'TestIsEmptyLegacyExecutionSnapshot' -count=1`; `scripts/verify_kferp.sh backend`; `scripts/verify_kferp.sh changed`; `git diff --check`. Isolated browser completion still pending.
-- Deployment: latest `origin/develop` matches the branch base at start; no push, merge or deployment has occurred in this follow-up. Production work orders remain read-only.
-- Evidence: `orderapp-remote/docs/acceptance/2026-10-26-legacy-packaging-completion.md`.
-- Last update: 2026-10-26.
+- Verifier: baseline RED captured at `/tmp/kferp-pr730-red`; targeted real-PostgreSQL HTTP completion/replay tests pass. Release candidate `scripts/verify_kferp.sh all` passed (Go suite, Vue 1,613/1,613, Vite build); production server preflight/deploy passed Vue 1,613, miniapp 432 plus typecheck/build, full Go suite, image build, and HTTPS smoke. Production authenticated shell and workstation asset returned 200; see `orderapp-remote/docs/acceptance/2026-10-26-production-workstation-release.md`.
+- Deployment: clean-main release commit `d064197308c5c98561df2a6ead04d2bc8639784a`; production image `sha256:6431817fb3d6468dfd4732836fbf86e11c260143449c4ac054df13f1d6b9ce69`, app restart count 0, PostgreSQL healthy, 12 GB free. Source backup `/opt/stacks/erp-production/orderapp.backup.deploy-20261026181159-d064197308c5`; rollback image `kferp-orderapp-rollback:production-20261026181159-d064197308c5`. Miniapp artifact synced locally but not uploaded/published to WeChat. Real work-order completion and inventory corrections remain for site staff.
+- Last update: 2026-10-26
 
 ### ORDER-DRAWER-CLEANUP-20261022
+- Production follow-up: PR #244 merged, main/runtime 08a352704fcc9f3704345cdc0d312e0e18d638e9 deployed 2026-10-22 20:58 Asia/Shanghai via KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh production, exit0. Full server Vue1498/mini425/typecheck/build/Go/image-Go gates passed. Image sha256:ec163a32f6f47111ff334bbb17ecc237ac9ee573753067105fccae1864e71a01, restart_count0. Public bundles and manuals match container; protected anonymous API401, authenticated shell/requirements/docs200; DEV row visible. Real order117 read-only UI confirms sender, one A fee card and one bottom save. Orders115/117 snapshot hashes unchanged; development app start unchanged, both databases healthy. Backup /opt/stacks/erp-production/orderapp.backup.deploy-20261022205007-08a352704fcc; rollback image kferp-orderapp-rollback:production-20261022205007-08a352704fcc. No local miniapp export or WeChat upload; Van business acceptance pending. Release logs/production-runtime-smoke.json/production-bottom-save.png in evidence directory.
 - Branch: codex/order-drawer-cleanup-20261022; base origin/develop b28d91c7.
 - Scope: refresh-safe sender display, one bottom save button, one fulfillment fee summary in area A including recalculation. PR-714 follow-up; DEV-ORDER-DRAWER-CLEANUP.
 - Status: PR #242 merged and development deployed 05692ae0da240383f1f9fe6cd45d6fca8b1fdbdd at 2026-10-22 20:35 Asia/Shanghai. DOM 8/8, frontend 1498/1498, full Go and HTTP passed; server frontend/miniapp 1498/425, typecheck/build and image Go gates passed. Local browser checked; runtime smoke passed. Production excluded; Van business acceptance pending.
 - Verifiers: node --test src/lib/fulfillment-full-edit-dom.test.js; frontend suite/build; existing fulfillment HTTP tests; local browser fixture.
-- Evidence: outputs/order-drawer-cleanup-20261022/. No production/business-data writes authorized by this task.
+- Evidence: outputs/order-drawer-cleanup-20261022/. Production release authorized in this follow-up; production business orders stay read-only.
 - Delivery: KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development; image sha256:a9606dd940cb8e60651cf640e8167d29b0ee8fb71cd04229d2dbe6553faaf013. Public main/Orders/OrderEntry bundles match container, docs/API200 and anonymous protected API401, DEV-ORDER-DRAWER-CLEANUP visible. Source backup /opt/stacks/erp/orderapp.backup.deploy-20261022202604-05692ae0da24; rollback image kferp-orderapp-rollback:development-20261022202604-05692ae0da24. Production app start/image unchanged, both databases healthy; no local miniapp export or WeChat upload.
 
 ### PR-681-PRODUCT-CREATOR-CATEGORY-ROOT-OPTIONS
 - Branch: `codex/product-creator-category-root-options-20261002`; base `origin/develop@780d5a1c`
 - Owner/session: Codex / Van / 2026-10-03
-- Status: implementation and targeted verification complete; full gates and ordered development/production deployment in progress
+- Status: implementation, full gates, development deployment, and production deployment complete; Van business acceptance pending
 - Scope: show selected classification template names (large categories) alongside nested categories in the creator drawer; permit a new object to be assigned directly to an enabled template root and display it under that heading.
 - DEV: DEV-732-PC-CATEGORY-ROOT-OPTIONS
 - Verifier:
   - Unit: business-group root options/search, root assignment display, price-list scope, and service validation.
   - API: `POST /api/business-group-assignments` accepts root assignment; creator transaction persists it with audit.
-  - Frontend/build: focused Node tests, full Vue shell tests/build, browser/development smoke.
+  - Frontend/build: 43 targeted Vue tests; 1,313 full Vue tests and Vite build passed on the production candidate; Go full suite passed. Deployment script passed miniapp tests (264), type-check/build, container Go tests, and HTTPS login smoke in both environments.
   - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCT_CREATOR.md`.
   - Review/acceptance: `orderapp-remote/docs/acceptance/2026-10-03-product-creator-category-root-options.md`; Van business acceptance pending.
-- Deployment: development then main/production explicitly requested; pending.
+- Deployment: `develop` `5c34c51e2b4af63c95714b59be7bddd1e57c0196` deployed; source backup `/opt/stacks/erp/orderapp.backup.deploy-20261003005453-5c34c51e2b4a`. `main` `e5fcd41439be0ae7f078cd8edc533b40f4d6f286` deployed; source backup `/opt/stacks/erp-production/orderapp.backup.deploy-20261003011601-e5fcd41439be`, rollback image `kferp-orderapp-rollback:production-20261003011601-e5fcd41439be`. Both public login smoke checks returned HTTP 200.
 - Last update: 2026-10-03.
 - Notes: preserve existing object classifications and child-category behavior; root assignments use group_item_id=0.
 
 ### PR-676 商品创建器 V5 后续：工艺接线与命名即时预览
 - Branches: V5 PR #167 and ordinary-preview fix PR #168 merged into `develop`; evidence follow-up branch `codex/product-creator-v5-acceptance-evidence-20261001`.
 - Owner/session: Codex / Van / 2026-10-01.
-- Status: implementation, RED/GREEN/API/UI checks, development deployment and V12 run #19 product creation complete; PR-676 remains `review` pending Van business acceptance.
+- Status: implementation, RED/GREEN/API/UI checks, development and production code deployment, and V12 run #19 product creation complete; PR-676 remains `review` pending Van business acceptance.
 - Scope: V5 material/product BOMs each accept one connected process route; shared routes, independent per-BOM run override, per-spec route preview/results/audit, and live name composition preview with non-persistent examples; V1–V4 releases/runs remain unchanged.
 - DEV: DEV-710-PC-V5-ROUTE-CONNECTION; DEV-711-PC-V5-ROUTE-OVERRIDE; DEV-712-PC-NAME-LIVE-PREVIEW; DEV-713-PC-V5-DOCS-DELIVERY; DEV-714-PC-V5-PREVIEW-ROUTE-LOOKUP.
 - Verifier: `scripts/verify_kferp.sh all` passed (Vue 1,293 tests and Vite build); V5 PostgreSQL preview/commit tests and Go all passed; targeted regression reproduced and fixed ordinary preview without a transaction. Browser preview succeeded, created records were verified in 操作日志, and product specs/default BOM were verified in 商品档案. Additional PostgreSQL BOM-package legacy failures are recorded in the acceptance file.
 - Manuals/evidence: `orderapp-remote/docs/OP_MANUAL_PRODUCT_CREATOR.md`; `orderapp-remote/docs/OPERATION_MANUALS.md`; `orderapp-remote/docs/acceptance/2026-09-30-product-creator-v5-process-preview.md`.
-- Development: V5 PR #167 and fix PR #168 merged; final commit `25889c3304eadf4c330942dae80c46cfb2b6c033` deployed with login HTTP 200; backup `/opt/stacks/erp/orderapp.backup.deploy-20261001002453-25889c3304ea`; rollback image `kferp-orderapp-rollback:development-20261001002453-25889c3304ea`. Template V12 run #19 committed product `SKU-001101`, semi-finished material, two BOMs and three specs; operation logs verified. Production and WeChat publication excluded.
+- Development: V5 PR #167 and fix PR #168 merged; final commit `25889c3304eadf4c330942dae80c46cfb2b6c033` deployed with login HTTP 200; backup `/opt/stacks/erp/orderapp.backup.deploy-20261001002453-25889c3304ea`; rollback image `kferp-orderapp-rollback:development-20261001002453-25889c3304ea`. Template V12 run #19 committed product `SKU-001101`, semi-finished material, two BOMs and three specs; operation logs verified. Production and WeChat publication were excluded from that development-stage delivery.
+- Production: Van authorized release on 2026-10-01; `develop` merged into `main` at `96e87fe84575bbbd1ce63b4f618a76325fe7757d` and deployed. `erp_prod_orderapp` is running with restart count 0; PostgreSQL is healthy; external login HTTP 200 and unauthenticated `/app/` HTTP 401. Source backup `/opt/stacks/erp-production/orderapp.backup.deploy-20261001024102-96e87fe84575`; rollback image `kferp-orderapp-rollback:production-20261001024102-96e87fe84575`. The mini-program was not synced to the local DevTools directory, uploaded, reviewed, or published.
 - PR-676 remains `review` until Van accepts the business behavior.
 - Last update: 2026-10-01.
 
@@ -6056,15 +6033,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-689-bean-registration-sheet
 - Branch: codex/bean-registration-sheet-20261013
 - Owner: Codex; product acceptance: Van
-- Status: implemented and development delivered; Van real-device acceptance pending
+- Status: accepted by Van on 2026-10-13; production release authorized
 - Scope: 价格表点击后原地底部登记面板；昵称及微信手机号授权；成功打开所选表，取消保留目录；直接链接使用同一面板，客户权限不变。
 - DEV: DEV-758-BEAN-REGISTRATION-SHEET; DEV-759-BEAN-SHEET-DELIVERY
 - Verifier: failed-first miniapp behavior/API tests; PostgreSQL HTTP permissions; miniapp typecheck/build; Vue build; DEV deployment and preview QR.
 - Manual: orderapp-remote/docs/OP_MANUAL_BEAN_LIST_CENTER.md
-- Delivery: development only; Van real-device acceptance pending.
+- Delivery: Van authorized merge into main, production backend deployment and a production miniapp upload package; upload/review/publication remains with Van.
 
 
 - PR-689 delivery: PR #195 merged; development 8418391726728dd65020a37bb6f931bace22d7a5 deployed with health/source/artifact checks. Backup /opt/stacks/erp/orderapp.backup.deploy-20261013014204-841839172672. Four cards, anonymous registration-required 401, admin auth 401, service-account identity/config preserved. 22 pages / 88 page files; preview upload succeeded and QR generated 2026-10-13. Receipt: orderapp-remote/docs/acceptance/2026-10-13-bean-registration-sheet.md. Van phone acceptance remains pending.
+
+- PR-689 production authorization (2026-10-13): Van confirmed “可以了，合并到main，并部署到生产环境，给我小程序包，我上传最新小程序”. Release branch codex/bean-sheet-production-20261013 combines origin/main 43ec7232 with verified origin/develop b954a388. PR/REV are done for the accepted registration experience. Production-config preflight and release evidence will be delivered with the upload package.
 
 ### PR-693-SPEC-CONVERSION-ORDERS
 - Branch: `codex/spec-conversion-orders-20261015`; base `develop@25b377af`.
@@ -6193,18 +6172,21 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-710-FULFILLMENT-VIRTUAL-WAREHOUSES
 - Branch: codex/fulfillment-virtual-warehouses-20261021; base origin/develop 5b838315.
 - Owner/session: Codex / 2026-10-21.
-- Status: delivered to development 2059307c; automated/local UI/runtime/migration checks passed; Van business acceptance pending.
+- Status: delivered to development 2059307c and production main 867fe68c; automated/local UI/runtime/migration checks passed; Van business acceptance pending.
 - Scope: independent dropship scene cards, atomic shipping/warehouse/service-fee save, ordinary sale policy in business logistics settings, customer-bound virtual warehouse management drawer and guarded CRUD.
 - DEV: DEV-819-ATOMIC-FULFILLMENT; DEV-820-VIRTUAL-WAREHOUSES; DEV-821-FULFILLMENT-UI; DEV-822-FULFILLMENT-DELIVERY.
 - Verifier: TDD RED/GREEN application/HTTP/isolated PostgreSQL tests; Vue behavior/runtime and build; local desktop/mobile drawer checks; source manuals and development technical smoke.
 - Evidence: orderapp-remote/docs/acceptance/2026-10-21-fulfillment-virtual-warehouses.md.
 - Deployment: development runtime 2059307c38968c88bc1da8936d42a3a979543d63; feature342758cd pushed and verified before integration. Source backup /opt/stacks/erp/orderapp.backup.deploy-20261021224657-2059307c3896; rollback image retained. Vue1472/mini393/type/build/fullGo/isolated PostgreSQL and read-only runtime checks passed. Warehouses20/finished_inventory34 hashes unchanged;14 customer warehouses classified virtual;30 reference guards. Production image/start unchanged; Van business acceptance remains separate.
 - Notes: scripts/reserve_req_id.sh identified PR-710; reserved here before implementation. Existing customer warehouses retain codes, balances and historical links; virtual parent is display-only.
+- Production authorization: Van requested main integration and production deployment on 2026-10-21; merged release gates/backup and read-only migration checks apply. Production business acceptance and WeChat upload/publication remain separate.
+
+- PR-710 production receipt (2026-10-21): main 867fe68c6266d56a668848281960fd4379571222 pushed and deployed via locked production flow. Vue1472/mini393/type/build/24pages/host+image Go passed; authenticated new API reads, permissions, manuals and health passed. Production warehouses10 and finished_inventory3 baseline hashes unchanged;1 historical customer warehouse classified virtual;30 reference guards. Source/image rollback deploy-20261021230954-867fe68c6266 and verified DB backup pr710-before-production-20261021230607.sql.gz retained. Development image/start unchanged. No real customer business writes or WeChat upload/publication. Final receipt is documentation-only.
 
 ### PR-711-MINIAPP-CUSTOMER-CATALOG-INVENTORY
 - Branch: codex/miniapp-customer-catalog-inventory-20261021; baseline origin/develop 7277f43e.
 - Owner/session: Codex / 2026-10-21.
-- Status: implementation/automated verification/independent review complete; production integration pending; business acceptance separate.
+- Status: delivered to production runtime5e65091c; automated/API/isolated production-copy submit/read-only runtime/DevTools package checks passed; business acceptance separate.
 - Scope: resolve bound current price tables in customer dropship/product ordering and restrict my-inventory categories/warehouses to current customer authorization, including empty virtual warehouses.
 - DEV: DEV-823-MINI-CATALOG; DEV-824-MINI-INVENTORY-SCOPE; DEV-825-MINI-SCOPE-DELIVERY; DEV-826-DROPSHIP-PRODUCT-ORDER.
 - Verifier: targeted unit/API/isolated PostgreSQL RED-GREEN; miniapp tests/type/build; observed production DevTools and read-only production checks; manuals.
@@ -6220,15 +6202,19 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 - PR-711 follow-up GREEN: retained-stock submit rawcap regression reproduced on isolated production backup; shared effective authorization fixes no-address final submission. Five targeted app/HTTP/real-PG packages, mini403/type/build and independent review CLEAR; idempotent replay and strict new warehouse authorization preserved. New production backup20261022004018; final integration/deployment pending.
 
+- PR-711 FINAL: feature3f1b0a56 pushed -> develop19fb15d3 -> main runtime5e65091c, ./deploy_orderapp.sh production succeeded. Vue1478/mini403/type/build/fullGo/real-PG/API/BOM guards passed; final independent main audit CLEAR. Production Me/admin/final repository effective cap on, no-address retained preview200, exact bound179 V3.0.68, only own finished virtual warehouse, all7 business-table hashes unchanged and development unchanged. CurrentDevTools matching package swapped with backup/private config preserved, reopened as吴国宏 and observed only吴国宏仓库/全部/成品; ordinary compile restored. No real production test order or WeChat publication. Rollback source /opt/stacks/erp-production/orderapp.backup.deploy-20261022004411-5e65091c8d97 and tagged rollback retained. Acceptance doc and permanent validation directory contain receipt.
+
 ### PR-711-MULTI-ITEM-RETAINED-PURCHASE-20261022
 - Branch: codex/miniapp-multi-item-retained-purchase-20261022; base origin/develop19fb15d3.
-- Status: root cause reproduced on local isolated production copy, TDD in progress; production5e65091c remains online.
+- Status: delivered to production runtimec6a1d8b8; migration/API/PG/mini404/type/build/fullGo/review/read-only runtime verified; current three-line draft retained.
 - DEV-828-MULTI-ITEM-PURCHASE: multiple canonical BOM specifications of the same product must submit atomically in one retained purchase; remove only obsolete legacy unique constraint regardless of PostgreSQL-generated name, keep modern canonical/legacy uniqueness.
 - Reproduction: customer488, 曜石2.0 454g x1 + 初晓227g x4 + 曜石2.0 227g x4; preview succeeds but submit23505 on legacy(request_id,product_id,spec_g), both canonical spec_g0. Production SELECT confirms actual truncated constraint name.
 - Verifier: schema migration RED/GREEN, actual API/real PG multi-line submit/idempotency/rollback/rights/audit, mini component multi-line payload and quote consistency, production read-only constraints/data/smoke/package. No production test orders.
 - Evidence: orderapp-remote/docs/acceptance/2026-10-22-miniapp-multi-item-purchase.md. Production merge/deploy authorization continues in this thread.
 
 - DEV-828 GREEN: automatic legacy-name migration + actual three-line API/PG, amounts/rights/audit/idempotency/rollback, isolated production-copy exact326 purchase, mini404/type/build, fullGo; review/integration pending. Backup20261022010540 and16-table current business baselines captured; preserve actual customer single-line purchase.
+
+- DEV-828 FINAL: feature6471a639 -> develop7684c047 -> main runtimec6a1d8b8, ./deploy_orderapp.sh production successful. Old exact legacy constraint removed in production, PK/FK/line/canonical+legacy identities retained;16 business-table hashes unchanged including actual one-bag customer purchase. Same3-line no-address preview326/can_submit true, exact table179 V3.0.68, effective permission/own stock scope/anonymous401/manual200 checked; dev unchanged. Matching24page96file package has identical runtime payload to currentDevTools, so only release marker updated with backup; current Wu login and3line draft1/4/4 preserved. No production test order or WeChat publication. Source/image rollback retained at20261022011104-c6a1d8b86ad1; acceptance and persistent evidence complete.
 
 ### PR-714-FULFILLMENT-FULL-EDIT
 - Branch: codex/fulfillment-full-edit-20261022
@@ -6241,11 +6227,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Last update: 2026-10-22
 
 ### PR-715-spec-template-rollout
-- Branch: codex/spec-template-rollout-20261022
-- Status: delivered to development 624341aa via PR #246; tests and runtime checks passed; Van business acceptance pending
+- Branch: codex/spec-template-rollout-production-20261022 (production integration from origin/main 6dea2af0; verified feature commits only)
+- Status: development624341aa and productionb2d6e1be delivered; PR #248 merged main; all release gates and read-only runtime/package checks passed; Van business acceptance pending
 - Scope: 模板差异下发并原子发布 BOM；稳定规格报价与执行版本解耦
 - Verifier: Go unit / isolated PostgreSQL / API / Vue runtime / build
-- Deployment: development via ./deploy_orderapp.sh development; runtime 624341aa53e34b486043409e47f4e131e38691fd; rollback /opt/stacks/erp/orderapp.backup.deploy-20261022213755-624341aa53e3; evidence orderapp-remote/docs/acceptance/2026-10-22-spec-template-rollout.md; production unchanged
+- Deployment: development via ./deploy_orderapp.sh development; runtime 624341aa53e34b486043409e47f4e131e38691fd; rollback /opt/stacks/erp/orderapp.backup.deploy-20261022213755-624341aa53e3; evidence orderapp-remote/docs/acceptance/2026-10-22-spec-template-rollout.md; production ./deploy_orderapp.sh production completed at b2d6e1be65b787679f73409a4d46bfcf0f689707; rollback /opt/stacks/erp-production/orderapp.backup.deploy-20261022222528-b2d6e1be65b7; preserve main-only material backfill safeguards; production miniapp exported, no WeChat upload/publication
 
 ### PR-716-freight-template-priority
 - Branch: codex/freight-template-priority-20261022
@@ -6253,9 +6239,19 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Scope: global default, separate customer sale policy, scene > customer > system resolution
 - DEV: DEV-843 policy/API; DEV-844 Vue/manual/delivery
 - Verifier: TestFreightTemplatePriorityAPI; freight/domain and fulfillment tests; Vue runtime; frontend build; backend gate
-- Deployment: development after verification
+- Deployment: development e3d588b8 deployed; runtime/API/manual read-only checks passed; production untouched
 
 - PR-716 evidence: isolated PostgreSQL regression passed; all Go packages passed; 1508 Vue tests and build passed; local browser preview checked, no live business writes.
+
+## 开发环境交付结果（2026-10-22）
+- 实现分支：`codex/freight-template-priority-20261022`，已推送 `1da77322`。
+- 已合并并推送 develop：`e3d588b856609e9e6d7cea8252fa78b318fccd5d`；合并树与验证分支完全一致。
+- 执行：`KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`，服务器 6/6 成功；前端1508项测试、小程序测试/类型检查/24页面产物、全部Go测试和镜像内复检通过。
+- 旧源码：`/opt/stacks/erp/orderapp.backup.deploy-20261022223720-e3d588b85660`。回滚镜像：`kferp-orderapp-rollback:development-20261022223720-e3d588b85660`。
+- 运行镜像：`sha256:c23405551d742cfb145fcec3d533d3f3c91641f4a3d7a8f250e1b3257a736287`；容器 running，22:46:27 +08 重启。
+- 只读核对：物流页面200；默认配置GET200（revision=0，尚未配置）；PR-716接口200且记录存在；运费手册raw=1返回200且含三层优先级；未登录入口303跳登录，配置API401。
+- 未创建真实业务订单、未更改客户/运费业务配置；未发布生产或上传微信。系统默认模板需由业务人员选择并保存。业务验收待Van。
+- 发布前后只清理可再生成构建缓存，保留数据库、业务文件及回滚版本；结束可用空间2.1GB。
 
 ### PR-717-shipping-return-import
 - Branch: codex/shipping-return-import-20261023
@@ -6264,33 +6260,39 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier: Go domain/API/PostgreSQL GREEN; all Go packages; 1512 Vue tests and production build GREEN; local mock UI checked
 - Evidence: orderapp-remote/docs/acceptance/2026-10-23-shipping-return.md
 - Deployment: development dccaa17a46964e6d148c6ad14b8c0d2aca3b2e0a via KFERP_SKIP_MINIAPP_EXPORT=1 bash deploy_orderapp.sh development; read-only shell/template/manual/PR checks 200, anonymous API 401; backup /opt/stacks/erp/orderapp.backup.deploy-20261023010512-dccaa17a4696; no production deployment or real workbook import
+- Production release authorized by Van on 2026-10-23. Integration branch: codex/shipping-return-production-20261023; preserve current main fixes, merge verified develop, rerun relevant gates, then deploy production ERP. Real workbook import and Van business acceptance remain pending.
 ### PR-719-PRODUCTION-CAPACITY-BATCHES
 - Branch: codex/production-capacity-batches-20261023
 - Owner: Codex
-- Status: verified; integration/release pending; Van acceptance pending
+- Status: delivered to production; PR review / Van business acceptance pending
 - Scope: collapsible review, shared workstation editor drawer, integer batches and take-all, legacy partial preservation.
-- Verifier: targeted frontend/runtime, Go unit/API with isolated PostgreSQL, frontend build, production read-only smoke.
-- Deployment: production requested; not deployed.
+- Verifier: 1,533 frontend tests, Vue build, all Go packages, five isolated PostgreSQL/API tests, local UI fixtures; authenticated production read-only smoke and public/host/container asset identity passed. Two broader database fixture failures reproduce on the original baseline; recorded separately.
+- Integration: PR #256 merged to develop (3edf408a); PR #259 merged to main (9b37113659d080c30ce026bf11af694457e54964).
+- Deployment: production 9b37113659d080c30ce026bf11af694457e54964; formal release completed 2026-10-23, orderapp started 12:00:23 Asia/Shanghai, zero restarts at verification. Plan 11 unchanged (draft, 14 items, zero persisted splits).
+- Rollback: /opt/stacks/erp-production/orderapp.backup.deploy-20261023114958-9b37113659d0; kferp-orderapp-rollback:production-20261023114958-9b37113659d0.
+- Evidence: orderapp-remote/docs/acceptance/2026-10-23-production-capacity-batches.md; production-capacity-runtime-proof.json.
 - Last update: 2026-10-23
 ### PR-720-EMPLOYEE-ORDER-AUTO-FREIGHT
-- Branch: codex/employee-order-auto-freight-20261023; merged by GitHub PR #261.
+- Branch: codex/employee-order-auto-freight-main-20261023; rebased by merge onto origin/main@bedaeeb935a3636b7ac3cb3c64eff531a32bd02c.
 - Owner/session: Codex / 2026-10-23.
-- Status: implementation verified and merged; development deployed; Van business acceptance pending.
+- Status: implementation verified; GitHub PR #264 merged to main and deployed to production at `6b3e67af6bda35572d91f95d4178887eb73be033`; Van business acceptance pending.
 - Scope: ordinary employee web and miniapp order freight auto-current calculation, per-order active template choice, manual freight, free shipping, explicit gross parcel weight when BOM logistics weight is missing; diagnose/fix miniapp update 500.
 - DEV: DEV-845 quote API/domain/snapshot; DEV-846 Vue entry flow; DEV-847 miniapp save and sanitized diagnostics; DEV-848 docs/verification/development delivery.
 - Verifier: all Go packages (single worker, DB integration tests skipped); targeted domain/API/PostgreSQL tests; Vue runtime/API tests and build; miniapp 432 tests, typecheck and development build.
 - Evidence: orderapp-remote/docs/acceptance/2026-10-23-employee-order-auto-freight.md.
-- Deployment: `bash ./deploy_orderapp.sh development`; deployed `origin/develop@2eb937868cbcbff3af9ee8b7616168756290c464`. Backup: `/opt/stacks/erp/orderapp.backup.deploy-20261023121954-2eb937868cbc`; rollback image: `kferp-orderapp-rollback:development-20261023121954-2eb937868cbc`. `erp_orderapp` and `erp_docconvert` running; `erp_postgres` healthy. `/app/login` HTTP 200, `/app/` redirects HTTP 303, unauthenticated requirement API HTTP 401. Authenticated requirement API shows PR-720 `review` and DEV-845..848 `done`.
-- No production order writes, production deployment, WeChat upload, review, or publication.
+- Integration: PR #264 applies only the verified employee-order freight feature to the current main baseline. Current main's already-merged PR #266 roster fix is verified and included in the production-target preflight; unrelated develop-only changes remain excluded.
+- Deployment: development code deployed at `2eb937868cbcbff3af9ee8b7616168756290c464`; PR #264 merged to `main` and production deployed at `6b3e67af6bda35572d91f95d4178887eb73be033`. Production source backup `/opt/stacks/erp-production/orderapp.backup.deploy-20261023133639-6b3e67af6bda`; rollback image `kferp-orderapp-rollback:production-20261023133639-6b3e67af6bda`. App running/restarts 0, PostgreSQL healthy; `/app/login` 200, anonymous app/API 401, authenticated PR/DEV requirements API 200. Production package has 24 pages / 96 verified files, `PAGE_FILE_MANIFEST` SHA-256 `d52b9af4b3640a76c0396343e593aacd330ddc021ff1003c6fadc240f968e5bb`. No production order writes or WeChat upload/publication.
 
 ### PR-721-WORK-ORDER-ROSTER-STATUS
 - Branch: codex/work-order-roster-status-20261023
 - Owner: Codex
-- Status: verified; production integration pending; Van business acceptance pending
+- Status: deployed to production at 6b3e67af6bda35572d91f95d4178887eb73be033; independent runtime/API/live UI verification passed; Van business acceptance pending
 - Scope: work-order todo/action follows saved daily workstation roster; no business writes.
 - Verifier: 8 runtime regressions RED/GREEN; 1,545 frontend tests/build; Go all packages; 2 isolated PostgreSQL roster API tests; fixture browser navigation/status.
 - Evidence: orderapp-remote/docs/acceptance/2026-10-23-work-order-roster-status.md
-- Target: production, continuing the current production repair. Preserve existing roster and work orders 18/19.
+- Integration: feature ac1c6c62, PR #265 -> develop 8091b262; production PR #266 -> main bedaeeb9. Shared verified main release 6b3e67af includes this fix; deployed once through the coordinated production release.
+- Runtime: 2026-10-23 13:46 CST, work orders 18/19 show waiting for workstation processing and today's owner; work orders/job cards/roster snapshot unchanged; public/host/container assets identical; production database healthy.
+- Rollback: /opt/stacks/erp-production/orderapp.backup.deploy-20261023133639-6b3e67af6bda; kferp-orderapp-rollback:production-20261023133639-6b3e67af6bda (previous runtime 9b371136).
 - Last update: 2026-10-23
 
 ### PR-722-BULK-WIP-PICKING-RETURN
@@ -6316,18 +6318,19 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Notes: reserve script reports PR-723 but BSD awk claim fails before mutation; manually reserve this number. Original ccd2 dirty checkout remains untouched.
 
 ### PR-724-WORKSTATION-BATCH-MATERIAL-ISSUE
-- Branch: codex/workstation-batch-material-issue-20261023
-- Status: doing
+- Branch: codex/workstation-batch-material-issue-20261023; production: codex/workstation-batch-material-issue-main-20261023
+- Status: development and production technical delivery complete; review; Van business acceptance pending
 - Scope: 工位多选任务、同料合并、实际数量修改、部分可领、一键过账；生产交付。
 - DEV: DEV-724-PREVIEW, DEV-724-POSTING, DEV-724-UI, DEV-724-DELIVERY
 - Verifier: targeted Go unit/API/PostgreSQL + frontend node tests + build; read-only production preview.
-- Deployment: pending development then production
-- Notes: Existing worktrees untouched; PR id reserved manually after reserve_req_id.sh macOS awk error. Targeted race/API PostgreSQL 10 scenarios GREEN; full Go and frontend 1,563 tests GREEN; Vue build passed.
+- Deployment: development de55849d1aea and production main 5b787153bb54 deployed; runtime/bundle/read-only preview verified. GitHub PR #279/#280 develop, #281 production. Production rollback source /opt/stacks/erp-production/orderapp.backup.deploy-20261023221335-5b787153bb54 and image kferp-orderapp-rollback:production-20261023221335-5b787153bb54 retained.
+- Production acceptance: 16 packaging tasks, 15 selected, 5 material groups and 3 available; 4 tasks require quantity confirmation. API/UI previews and local quantity edits only; all default quantities restored. Before/after inventory/document/reservation snapshots identical. Final evidence: orderapp-remote/docs/acceptance/2026-10-23-workstation-batch-material-issue.md.
+- Notes: Existing worktrees untouched; PR id reserved manually after reserve_req_id.sh macOS awk error. Targeted race/API PostgreSQL 10 scenarios GREEN locally and on isolated development schemas; full Go and frontend 1,564 tests GREEN; Vue build passed. Production real business records remain read-only.
 
 ### PR-725-COMPLETION-MERGED-INBOUND
-- Branch: codex/completion-merged-inbound-20261023; GitHub PR #283; merged to develop as `3a2169997fba68e9ab6322adf447d7aa66ac8b64`
+- Branch: codex/completion-merged-inbound-20261023; GitHub PR #283 merged to develop; PR #285 merged to main at `7883f1aa3beb0f5ab76646758f8b88075484d168`
 - Owner/session: Codex / 2026-10-23
-- Status: implementation, automated/browser verification, develop integration, and development deployment complete; Van business acceptance pending
+- Status: implementation, development and production deployment verified; Van business acceptance pending
 - Scope: 完工入库按相同商品、规格、目标仓合并操作；展示目标仓名称；保留每张工单的库存与审计追溯。
 - DEV: DEV-858-GROUPING, DEV-859-BATCH-POSTING, DEV-860-WAREHOUSE-LABEL, DEV-861-DELIVERY
 - Verifier:
@@ -6336,10 +6339,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Browser: isolated local fixture checked grouping, warehouse label, aggregate quantity, source note, one successful Stock Entry and one work-order quantity rejection
   - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`, `orderapp-remote/docs/OPERATION_MANUALS.md`
   - Review/acceptance: `orderapp-remote/docs/acceptance/2026-10-23-completion-merged-inbound.md`; no real inventory writes
-- Development deployment: `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development` from clean `develop@3a2169997fba68e9ab6322adf447d7aa66ac8b64`; preflight passed. Backup: `/opt/stacks/erp/orderapp.backup.deploy-20261023232357-3a2169997fba`; rollback image: `kferp-orderapp-rollback:development-20261023232357-3a2169997fba`.
-- Runtime: `erp_orderapp` running, `erp_postgres` healthy; authenticated `/app/vue-shell?view=productionAcceptance` and `/app/login` returned 200; anonymous `/app/` redirects 303 and `/app/orders` redirects 302 to login. PR-725 remains `review`; authenticated requirements API shows DEV-858 through DEV-861 as `done`; manual and built JS contain the warehouse-label update. No production deployment, real inventory writes, or WeChat upload/review/publication.
-- Deployment source: `/private/tmp/kferp-pr725-deploy-20261023`, clean clone at the exact merged develop commit; release evidence in `orderapp-remote/docs/acceptance/2026-10-23-completion-merged-inbound.md`.
-- Last update: 2026-10-23
+- Development: deployed at `3a2169997fba68e9ab6322adf447d7aa66ac8b64`; runtime and authenticated feature route verified. DEV-858 through DEV-861 are done; PR-725 remains review for Van acceptance.
+- Production: deployed `7883f1aa3beb0f5ab76646758f8b88075484d168` on 2026-10-24 after cache and archived journal cleanup. Full release gates and authenticated feature/API checks passed; 10 task quantity projections and finished-receipt database aggregates unchanged. Rollback image: `kferp-orderapp-rollback:production-20261024084152-7883f1aa3beb`. Evidence: `orderapp-remote/docs/acceptance/2026-10-23-completion-merged-inbound.md`.
+- Last update: 2026-10-24
 - Notes: reserve_req_id.sh identified PR-725; auto-claim failed on the existing macOS awk multiline argument, so this entry was reserved manually.
 
 ### PR-726-FINISHED-RECEIPT-CORRECTION
@@ -6380,12 +6382,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-740-CUSTOMER-FEES-BILLING-LEDGER
 - Branch: `codex/customer-fees-billing`; base `origin/develop@aa4e792a54b9`.
 - Owner/session: Codex / 客户费用流水与正式出账单据。
-- Status: implementation, unit/API/PostgreSQL verification, manual and acceptance evidence complete; integrated and deployed to development at `a1f775455be672d13b9f333ef4a1327ffe3b8793`; authenticated browser acceptance passed. Product acceptance is with Van. Wu Guohong's record is absent from the development customer dataset, so customer-specific live calculation review remains deferred; production remains on the prior version.
+- Status: implementation, unit/API/PostgreSQL verification, manuals, acceptance evidence, main integration and production delivery complete at `e89799f900cd2e334678f233b808d62d3136f253`; product acceptance remains with Van. Wu Guohong's record is absent from the development customer dataset; production migration evidence is recorded in the acceptance file.
 - Scope: 费用改为合计未付、未出账、已出账；支持筛选、勾选、预览并确认出账，保留历史账单，提供账单详情、Excel、带公章 PDF。
 - DEV: DEV-PR740-01 未出账/已出账查询与金额汇总；DEV-PR740-02 费用预览、正式出账、来源锁定与幂等；DEV-PR740-03 账单详情、Excel/PDF 与公章设置；DEV-PR740-04 Vue 界面、手册、验收和开发交付。
 - Verifier: RED captured for missing migration API; targeted PostgreSQL/HTTP/Excel/PDF Go tests pass; serial full Go suite `GOMAXPROCS=1 GOFLAGS=-p=1 go test -p 1 ./...` passes; Vue `node --test` 1643/1643; Vite build passes with existing large PDF chunk warning; 70-line Chinese PDF sample rendered and inspected across first, continuation and last pages. Default-parallel Go tests with a local shared test database hit fixture/schema conflicts and shared-memory exhaustion. See `orderapp-remote/docs/acceptance/2026-10-27-customer-fees-billing.md`.
-- Deployment: feature branch based on `origin/develop@aa4e792a54b9`; integrated to `develop` and deployed to the development environment at `a1f775455be672d13b9f333ef4a1327ffe3b8793`. Server Go verification and `/app/login` HTTP 200 smoke passed; authenticated browser verified fee summaries and the unbilled ledger. Production and WeChat publication were not performed.
-- Notes: 订单货款仅计未收余额；旧草稿迁移保留明细快照、归还来源、记系统操作日志并跳过 processing billing run；不生成吴国宏正式账单、不登记收款、不发布 production 或微信。
+- Deployment: merged `origin/develop@d5208d5c1388c45a378f2fc94a3627bfc2acfeb2` into `main@bbee1003a682505c67735c7013e7cf70c597f836`; runtime commit `e89799f900cd2e334678f233b808d62d3136f253`. `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh production` passed Vue/Vite tests and build, 436 Mini Program tests/typecheck/build and 24-page check, server Go tests and Docker-image Go tests. Production app is running with restart count 0; PostgreSQL is healthy; `/app/login` returned HTTP 200 and the protected billing API returned HTTP 401 anonymously. Source rollback `/opt/stacks/erp-production/orderapp.backup.deploy-20261027214517-e89799f900cd`; rollback image `kferp-orderapp-rollback:production-20261027214517-e89799f900cd`; pre-release DB dump `/opt/stacks/erp-production/backups/pre-customer-fees-billing-20261027.dump` (15,155,525 bytes; SHA-256 `87411f1630bd9c2228223ce687c421e3ce56ac098b887176539c37dd2fac1a0f`). WeChat was not uploaded or published.
+- Notes: 订单款项只计未收余额；生产启动迁移已将吴国宏客户 ID 488 的 2 笔旧草稿（合计 ¥26.20）标记 reversed，释放 4 条费用来源关联，两笔 `legacy_draft_release` 操作日志可查，遗留草稿数为 0。未生成正式账单、未登记收款；未发布微信小程序。
 
 ### PR-744-SHARED-CUSTOMER-WORKBENCH
 - Branch: `codex/customer-shared-workbench`; base `origin/develop@d8b893f91`.
@@ -6429,11 +6431,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Scope: unpaid rows stay red; shipped+paid rows turn green; customer fee view classifies order money, posted freight and dropship service fees; monthly statements support selectable types and periods; remove legacy fee-area dropship buttons.
 - DEV: DEV-PR739-01 order row color; DEV-PR739-02 fee recognition and visibility; DEV-PR739-03 mixed/separate settlement source links, duplicate guards and audit; DEV-PR739-04 Vue, manuals, verification and development delivery.
 - Verifier: `scripts/verify_kferp.sh backend` (with DB integration tests selected separately) passes; `scripts/verify_kferp.sh frontend` passes 1,638 tests and Vite build; live PostgreSQL tests cover selected source snapshots, partial payment, legacy total fallback, dropship exclusion, overlap/idempotency, audit, customer account read, operations workbench, and processing-billing reversal; `scripts/verify_kferp.sh changed` passes. Acceptance: `orderapp-remote/docs/acceptance/2026-10-27-customer-fees-monthly.md`.
-- Deployment: feature commit `7701bbae5d8845446a485436175439d9c0953c25` and tracking/evidence commit `2b52d05279643ead7593f72010baf9b45a30dee4` are integrated into `develop`; latest deployment used `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`. Runtime commit `2b52d05279643ead7593f72010baf9b45a30dee4`; backup `/opt/stacks/erp/orderapp.backup.deploy-20261027163016-2b52d0527964`, rollback image `kferp-orderapp-rollback:development-20261027163016-2b52d0527964`. Runtime healthy, login HTTP 200, anonymous protected API 401, authenticated PR/DEV marker confirmed. Browser checks verified fee-period options, default charge types, legacy dropship controls removed from Fees, and unpaid-shipped red / paid-shipped green row colors. Production verification was read-only; no production month-close, collection, data changes, or WeChat release.
-- Notes: Van confirmed that only each order's unpaid balance enters the settlement receivable, with receivable/received/unpaid shown per order. Production orders and fee-source associations were reconciled read-only; existing draft batches were left unchanged. Production month-close, collection and WeChat release are excluded.
+- Deployment: feature commit `7701bbae5d8845446a485436175439d9c0953c25` and tracking/evidence commit `2b52d05279643ead7593f72010baf9b45a30dee4` are integrated into `develop`; development runtime was `2b52d05279643ead7593f72010baf9b45a30dee4`, deployed with `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`. Development checks included HTTP 200/401, authenticated PR/DEV markers, fee-period options, default charge types, removal of old dropship controls, and unpaid-shipped red / paid-shipped green row colors. Production was subsequently deployed at `e89799f900cd2e334678f233b808d62d3136f253`; app running/restarts 0, PostgreSQL healthy, login HTTP 200, anonymous protected API 401. Deployment, database backup and migration evidence are in `orderapp-remote/docs/acceptance/2026-10-27-customer-fees-monthly.md`.
+- Historical development rollback evidence: source backup `/opt/stacks/erp/orderapp.backup.deploy-20261027163016-2b52d0527964`; image `kferp-orderapp-rollback:development-20261027163016-2b52d0527964` was later removed during user-approved cleanup.
+- Notes: Van confirmed that only each order's unpaid balance enters the settlement receivable, with receivable/received/unpaid shown per order. The earlier production reconciliation was read-only and left draft batches unchanged; the later production startup released two legacy draft batches for customer 488 to unbilled fees and wrote two audit rows. No formal bill or collection was created at that deployment. WeChat release remained excluded.
+
 ### PR-746-BILL-ORDER-DETAIL-SHARE
 - Branch: codex/bill-detail-share; base origin/develop.
-- Status: merged latest develop into feature; local Go, PostgreSQL and 1652 frontend tests passed; isolated browser fixture checked; development deployment and real browser acceptance pending.
+- Status: included in development runtime `1d1cf3aeec71518a36212623865859a0bb2ad798`; local Go, PostgreSQL and frontend tests passed. Development browser recheck verified the default seal in preview and downloaded PNG; Van acceptance is pending.
 - Scope: billed order goods, actual freight, service details and share image.
 - DEV: DEV-PR746-01 detail snapshots; DEV-PR746-02 page and exports; DEV-PR746-03 manuals, validation and development deployment.
 - Verifier: TDD helper, database snapshot and source association tests, API and UI checks, Excel/PDF/PNG consistency and stamp visual verification.

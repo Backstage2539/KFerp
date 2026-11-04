@@ -1,7 +1,7 @@
 # PR-730 旧包装工单合组完成兼容验收
 
-日期：2026-10-26  
-分支：`codex/legacy-packaging-zero-input`  
+日期：2026-10-26
+分支：`codex/legacy-packaging-zero-input`
 基线：`origin/develop@a31eab044643924069fb74862acf4f7c861bcdcf`
 
 ## 问题复现（RED）

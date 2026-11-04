@@ -1,7 +1,7 @@
 # PR-639 物料唯一归属验收记录
 
 日期：2026-09-08
-环境：development
+环境：development / production
 产品验收：待 Van 确认
 
 ## 最终业务口径
@@ -32,10 +32,20 @@
 - 应用发布：`origin/develop=715bc7260ef4cfd953ada43a00c0bebd87e958fa`；旧源码 `/opt/stacks/erp/orderapp.backup.deploy-20260908164117-715bc7260ef4`；回滚镜像 `kferp-orderapp-rollback:development-20260908164117-715bc7260ef4`。
 - 健康与接口：`erp_orderapp` running、重启计数 0，外部 `/app/login` 200；客户 296 的物料查询只返回新档案 77/78，本公司查询保留原档案 8/66；缺失归属和多客户提交均为 400，旧关联 GET/POST 均为 410；PR-639 需求接口 200 且状态为 `review`。
 
+## 生产环境执行记录
+
+- 业务功能版本：`e279da417a26f1a51056a8c4bc094f5a011500ee`，由最新 `develop` 合并到 `main` 后执行生产预检和正式发布；后续交付记录提交不改变物料、BOM 或库存行为。
+- 数据库备份：`/opt/stacks/erp-production/backups/pr639-material-owner-predeploy-20260908203303-e279da41.dump`，SHA-256 `ef117f2429926073db681aa50537b100cb6412f3a5b7c298f3b39c4e5e9d93bd`；`pg_restore -l` 可读取。
+- 只读及正式预检查：生产库没有客户库存批次或工厂/客户混存物料。正式清单 `manifest_id=afcd44717d037135`，候选、冲突和映射均为 0；应用结果 `applied=0`，重复预检查仍为 0，验证了无数据需要拆分时的幂等空执行。
+- 库存守恒：迁移前后有效批次均为 41 行、150824856g、16004 个、金额 10959518.507；有效库位均为 44 行、150824856g、19504 个。物料主档 144 条全部归属本公司，没有无效归属或客户迁移映射。
+- 健康与接口：`erp_prod_orderapp` running、重启计数 0，`erp_prod_postgres` healthy；物料接口返回 200 且归属均为本公司，旧客户关联接口返回 410，需求接口返回 200 且 PR-639 保持 `review` 等待产品验收。
+- 回滚资产：旧源码 `/opt/stacks/erp-production/orderapp.backup.deploy-20260908203332-e279da417a26`；镜像 `kferp-orderapp-rollback:production-20260908203332-e279da417a26`。
+- 小程序固定产物：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，14 个页面、56 个文件，环境和生产 API 指纹正确；本次没有上传或发布微信版本。
+
 ## 产品验收建议
 
 1. 新建本公司物料与客户物料，核对保存提示、列表归属和详情归属。
 2. 复制物料，确认重新选择归属、编码独立且库存、成本、交易及 BOM 不复制。
 3. 分别打开工厂 BOM 与客户 BOM，确认物料选项显示归属且其他客户物料不可用。
 4. 查看迁移形成的客户物料、客户批次和工厂原档案，核对数量、单位成本、批次属性和到货时间。
-5. 由 Van 在 development 完成最终产品验收；production 未操作。
+5. 由 Van 在 development 或 production 完成最终产品验收；自动化、迁移和生产技术验收已完成。

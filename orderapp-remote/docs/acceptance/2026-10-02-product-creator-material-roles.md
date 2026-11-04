@@ -38,6 +38,14 @@
 - `erp_orderapp`、`erp_docconvert` running，`erp_postgres` healthy。公网 `/app/login` HTTP 200，`/app/` HTTP 303；认证后的创建器 API 可正常读取。服务检查 `/tmp/pc-v7-final-smoke.log`。
 - 同一模板 #4 的只读发布校验：修复前 `valid:false`，错误为半成品节点 `bom_output_requires_manufacture`；最终部署后返回 `{"issues":[],"valid":true}`。再次读取模板仍为 revision 37、published V13，没有保存、发布或覆盖 Van 的配置。
 - 最终部署后使用独立、已认证的 Chrome 会话打开真实开发环境。检查该模板顶部自制选择、半成品输入口、外购无输入口、无默认物料行、简化命名按钮；无页面错误。会话阻止所有写请求，实际检查未尝试任何写入。日志 `/tmp/pc-v7-final-browser.log`，截图 `/tmp/pc-v7-live-inspector.png`。
-- 实际需求接口返回 PR-678 `review`，DEV-724/725/726 `done`。没有生产变更，没有微信小程序上传或发布。
+- 实际需求接口返回 PR-678 `review`，DEV-724/725/726 `done`。
 
 验收入口：[开发环境商品创建器](https://dev.qacoohee.com/app/vue-shell?view=productCreator)。Van 刷新并重新打开原模板编辑，保存、发布新版本，再开启新运行即可采用 V7；本次没有创建额外验收商品，业务验收仍待 Van 确认。
+
+## Production 发布证据
+
+- 生产发布 PR [#175](https://github.com/Backstage2539/KFerp/pull/175) 合入 `main`，运行源码为 `3aa6c8c00a597a3c4334b0c2df7e94310f8a284b`。发布包含 V6 所需字段及 V7 创建器修复。
+- 在推送的发布分支先执行 `./deploy_orderapp.sh --preflight production`，远端 Vue、小程序、Go 全量测试及隔离 Docker 镜像构建通过；预检未重启服务。之后从与 `origin/main` 同步且干净的 main 执行 `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh production`，退出 0。
+- 发布脚本重建并仅重启 `erp_prod_orderapp`。前版备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20261002110555-3aa6c8c00a59`；回滚镜像 `kferp-orderapp-rollback:production-20261002110555-3aa6c8c00a59`。
+- 上线后 `erp_prod_orderapp`、`erp_prod_docconvert` running，`erp_prod_postgres` healthy；`https://erp.qacoohee.com/app/login` HTTP 200，未认证 `/app/` HTTP 401，部署公网 smoke HTTP 200。Production 启动时通过现有 `EnsureSchema` 添加可空 `materials.estimated_unit_price` 列，线上只读 SQL 确认该列存在。
+- 没有在生产创建、修改或发布模板、商品、物料、BOM 或单据。没有同步、上传或发布微信小程序版本。正式业务验收仍待 Van 确认。
