@@ -125,6 +125,7 @@ CREATE INDEX IF NOT EXISTS stock_entry_batch_allocations_item_idx
 		return err
 	}
 	for _, stmt := range []string{
+		fmt.Sprintf(`ALTER TABLE %s.stock_entry_batch_allocations ADD COLUMN IF NOT EXISTS stock_batch_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS is_return BOOLEAN NOT NULL DEFAULT false`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS return_source TEXT NOT NULL DEFAULT ''`, schema),

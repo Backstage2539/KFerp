@@ -684,7 +684,7 @@ func productCreatorEdge(id, source, sourceHandle, target, targetHandle string) c
 }
 
 func productCreatorVariant(id, name, unit string, isDefault bool) map[string]any {
-	return map[string]any{"row_id": id, "name": name, "unit": unit, "is_default": isDefault}
+	return map[string]any{"row_id": id, "name": name, "unit": unit, "is_default": isDefault, "logistics_weight_g": 250.0}
 }
 
 func productCreatorBusinessCounts(ctx context.Context, pool *pgxpool.Pool, schema string) ([6]int, error) {

@@ -164,6 +164,9 @@ func (r Repository) SubmitLegacyReviewOnce(ctx context.Context, c app.LegacyRevi
 	if err = lockReceiptWorkOrderTx(ctx, tx, r.schema, c.WorkOrderID); err != nil {
 		return out, err
 	}
+	if err := requireLegacyExecutionTx(ctx, tx, r.schema, c.WorkOrderID); err != nil {
+		return out, err
+	}
 	replayID, replay, err := requestProductionKeyTx(ctx, tx, r.schema, "legacy_reconcile", c.Operator, c.RequestID, c)
 	if err != nil {
 		return out, err

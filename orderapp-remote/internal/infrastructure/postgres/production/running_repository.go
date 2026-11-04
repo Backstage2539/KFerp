@@ -101,6 +101,9 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 		return productionapp.FinishResult{}, err
 	}
 	if receiptWorkOrderID > 0 {
+		if err := requireLegacyExecutionTx(ctx, tx, schema, receiptWorkOrderID); err != nil {
+			return productionapp.FinishResult{}, err
+		}
 		if err := lockReceiptWorkOrderTx(ctx, tx, schema, receiptWorkOrderID); err != nil {
 			return productionapp.FinishResult{}, err
 		}
@@ -956,6 +959,22 @@ func (repo Repository) Cancel(ctx context.Context, cmd productionapp.CancelComma
 		return err
 	}
 	if supplierID > 0 {
+		if err := lockReceiptWorkOrderTx(ctx, tx, schema, supplierID); err != nil {
+			return err
+		}
+		var policy string
+		var used bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT material_consumption_policy FROM %s.work_orders WHERE id=$1`, schema), supplierID).Scan(&policy); err != nil {
+			return err
+		}
+		if policy == "bom_start_v1" {
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.production_started_inputs WHERE work_order_id=$1 AND status='posted') OR EXISTS(SELECT 1 FROM %[1]s.production_started_handoffs h JOIN %[1]s.job_cards j ON j.id=h.job_card_id WHERE j.work_order_id=$1 AND h.status='posted')`, schema), supplierID).Scan(&used); err != nil {
+				return err
+			}
+			if used {
+				return fmt.Errorf("已开工工单不能直接取消，请先撤销未报工批次或通过生产记录更正")
+			}
+		}
 		if err := guardSupplierCancellationTx(ctx, tx, schema, supplierID, 0); err != nil {
 			return err
 		}

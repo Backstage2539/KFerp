@@ -27,6 +27,9 @@ func productionPlanReadiness(detail productionapp.ProductionPlanDetail) producti
 		})
 	}
 	for _, item := range detail.Items {
+		if _, err := freezeBOMStartRoute(item.ProcessSnapshotJSON, firstNonEmpty(item.OutputUnit, item.InventoryUnit), item.TargetWarehouse); err != nil {
+			addBlocking(productionapp.ProductionPlanReadinessIssue{Code: "frozen_route_invalid", Category: "route", ProductionPlanItemID: item.ID, Message: fmt.Sprintf("%s 的冻结工艺路线不可执行：%v", firstNonEmpty(item.OutputName, item.ProductName), err), Action: "完善工艺路线并刷新供应"})
+		}
 		if productionPlanItemHasLegacyUpstreamLossSnapshot(item) {
 			addBlocking(productionapp.ProductionPlanReadinessIssue{
 				Code: "legacy_loss_snapshot", Category: "quantity", ProductionPlanItemID: item.ID,

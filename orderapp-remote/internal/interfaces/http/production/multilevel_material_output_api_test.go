@@ -1124,7 +1124,7 @@ func TestCountOnlyMaterialOutputWritesActualPerUnitBatchCost(t *testing.T) {
 	assertProductionFlowCount(t, pool, schema, "production_batch_costs", fmt.Sprintf("running_item_id=%d AND material_cost=24 AND operation_cost=6 AND total_cost=30", runningItemID), 1)
 }
 
-func createSubmittedFullStockTypedPlan(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string, batchID int64) (*echo.Echo, int64, int64) {
+func createSubmittedFullStockTypedPlan(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string, batchID int64, policy ...string) (*echo.Echo, int64, int64) {
 	t.Helper()
 	seedMultilevelMaterialOutputFlow(t, ctx, pool, schema)
 	seedProductionFlowWIPBatch(t, ctx, pool, schema, batchID, 10, fmt.Sprintf("MB-ROASTED-%d", batchID), "在制熟豆", 22_700)
@@ -1159,7 +1159,10 @@ func createSubmittedFullStockTypedPlan(t *testing.T, ctx context.Context, pool *
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.work_orders WHERE production_plan_id=$1`, schema), planID).Scan(&workOrderID); err != nil {
 		t.Fatalf("load typed work order id: %v", err)
 	}
-	return app, planID, workOrderID
+	// These tests characterize pre-existing work orders. New-policy tests opt in
+ // explicitly; restore the original frozen route for the historical fixture.
+ if len(policy)==0 {mustExecProductionFlowTestSQL(t,ctx,pool,fmt.Sprintf(`UPDATE %[1]s.work_orders w SET material_consumption_policy='legacy',process_snapshot_json=p.process_route_snapshot_json FROM %[1]s.production_plan_items p WHERE w.id=%[2]d AND p.id=w.production_plan_item_id`,schema,workOrderID))}
+ return app, planID, workOrderID
 }
 
 func serveMultilevelProductionJSON(t *testing.T, app http.Handler, method, path string, body any) *httptest.ResponseRecorder {

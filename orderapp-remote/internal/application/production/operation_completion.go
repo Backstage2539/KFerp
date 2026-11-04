@@ -8,6 +8,15 @@ import (
 	"strings"
 )
 
+func (s *Service) PreviewOperationStart(ctx context.Context, id int64) (OperationCompletionPreview, error) {
+	if repo, ok := s.repo.(interface {
+		PreviewOperationStart(context.Context, int64) (OperationCompletionPreview, error)
+	}); ok {
+		return repo.PreviewOperationStart(ctx, id)
+	}
+	return OperationCompletionPreview{}, fmt.Errorf("开工预览不可用")
+}
+
 func (s *Service) PreviewOperationCompletion(ctx context.Context, id int64) (OperationCompletionPreview, error) {
 	if repo, ok := s.repo.(interface {
 		PreviewOperationCompletion(context.Context, int64) (OperationCompletionPreview, error)
@@ -183,30 +192,42 @@ func AllocateOperationHandoff(rows []OperationBatchBalance, qty float64, unit st
 	return out, nil
 }
 
+type OperationMaterialBatch struct {
+	BatchID      int64   `json:"batch_id"`
+	BatchCode    string  `json:"batch_code"`
+	AvailableQty float64 `json:"available_qty"`
+}
+
 type OperationMaterialUse struct {
-	JobCardID       int64   `json:"job_card_id,omitempty"`
-	Key             string  `json:"key"`
-	ReservationID   int64   `json:"reservation_id"`
-	MaterialID      int64   `json:"material_id"`
-	ProductID       int64   `json:"product_id"`
-	BomSpecID       int64   `json:"bom_spec_id"`
-	BomVariantID    int64   `json:"bom_variant_id"`
-	SpecG           int64   `json:"spec_g"`
-	Name            string  `json:"name"`
-	Unit            string  `json:"unit"`
-	Qty             float64 `json:"qty"`
-	TotalQty        float64 `json:"total_qty,omitempty"`
-	ConsumedQty     float64 `json:"consumed_qty,omitempty"`
-	AvailableQty    float64 `json:"available_qty,omitempty"`
-	ShortageQty     float64 `json:"shortage_qty,omitempty"`
-	Warehouse       string  `json:"warehouse"`
-	WarehouseName   string  `json:"warehouse_name"`
-	OwnerCustomerID int64   `json:"owner_customer_id"`
-	NodeKey         string  `json:"node_key"`
-	RatioPct        float64 `json:"ratio_pct,omitempty"`
+	EligibleBatches []OperationMaterialBatch `json:"eligible_batches,omitempty"`
+	JobCardID       int64                    `json:"job_card_id,omitempty"`
+	Key             string                   `json:"key"`
+	ReservationID   int64                    `json:"reservation_id"`
+	MaterialID      int64                    `json:"material_id"`
+	ProductID       int64                    `json:"product_id"`
+	BomSpecID       int64                    `json:"bom_spec_id"`
+	BomVariantID    int64                    `json:"bom_variant_id"`
+	SpecG           int64                    `json:"spec_g"`
+	Name            string                   `json:"name"`
+	Unit            string                   `json:"unit"`
+	Qty             float64                  `json:"qty"`
+	TotalQty        float64                  `json:"total_qty,omitempty"`
+	ConsumedQty     float64                  `json:"consumed_qty,omitempty"`
+	AvailableQty    float64                  `json:"available_qty,omitempty"`
+	ShortageQty     float64                  `json:"shortage_qty,omitempty"`
+	Warehouse       string                   `json:"warehouse"`
+	WarehouseName   string                   `json:"warehouse_name"`
+	OwnerCustomerID int64                    `json:"owner_customer_id"`
+	NodeKey         string                   `json:"node_key"`
+	RatioPct        float64                  `json:"ratio_pct,omitempty"`
 }
 
 type OperationCompletionPreview struct {
+	StartedInputs             []StartedInputDetail   `json:"started_inputs"`
+	StartedMaterials          []OperationMaterialUse `json:"started_materials"`
+	MaterialConsumptionPolicy string                 `json:"material_consumption_policy"`
+	StartedInputQty           float64                `json:"started_input_qty"`
+
 	LegacyExecution           bool                    `json:"legacy_execution,omitempty"`
 	LegacyPackaging           bool                    `json:"legacy_packaging,omitempty"`
 	BlockedCode               string                  `json:"blocked_code,omitempty"`

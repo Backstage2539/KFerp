@@ -9,6 +9,7 @@ import (
 )
 
 type OperationCompletionGroupCommand struct {
+	ProcessedInputs  map[int64]float64      `json:"processed_inputs,omitempty"`
 	JobCardIDs       []int64                `json:"job_card_ids"`
 	ActualOutputQty  float64                `json:"actual_output_qty"`
 	OutputUnit       string                 `json:"output_unit"`
@@ -25,6 +26,8 @@ type OperationCompletionGroupCommand struct {
 }
 
 type OperationCompletionGroupItem struct {
+	InputQty      float64 `json:"input_qty"`
+	InputUnit     string  `json:"input_unit"`
 	JobCardID     int64   `json:"job_card_id"`
 	WorkOrderID   int64   `json:"work_order_id"`
 	WorkOrderNo   string  `json:"work_order_no"`
@@ -54,17 +57,18 @@ type OperationCompletionGroupMaterial struct {
 }
 
 type OperationCompletionGroupPreview struct {
-	GroupKey      string                             `json:"group_key"`
-	Version       string                             `json:"version"`
-	Items         []OperationCompletionGroupItem     `json:"items"`
-	Materials     []OperationCompletionGroupMaterial `json:"materials"`
-	PlannedQty    float64                            `json:"planned_qty"`
-	CompletedQty  float64                            `json:"completed_qty"`
-	RemainingQty  float64                            `json:"remaining_qty"`
-	MaxOutputQty  float64                            `json:"max_output_qty"`
-	OutputUnit    string                             `json:"output_unit"`
-	WarehouseName string                             `json:"warehouse_name"`
-	BlockedReason string                             `json:"blocked_reason"`
+	MaterialConsumptionPolicy string                             `json:"material_consumption_policy"`
+	GroupKey                  string                             `json:"group_key"`
+	Version                   string                             `json:"version"`
+	Items                     []OperationCompletionGroupItem     `json:"items"`
+	Materials                 []OperationCompletionGroupMaterial `json:"materials"`
+	PlannedQty                float64                            `json:"planned_qty"`
+	CompletedQty              float64                            `json:"completed_qty"`
+	RemainingQty              float64                            `json:"remaining_qty"`
+	MaxOutputQty              float64                            `json:"max_output_qty"`
+	OutputUnit                string                             `json:"output_unit"`
+	WarehouseName             string                             `json:"warehouse_name"`
+	BlockedReason             string                             `json:"blocked_reason"`
 }
 
 type OperationCompletionGroupResult struct {

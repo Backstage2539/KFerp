@@ -9,3 +9,7 @@ func TestOperationCompletionStockPermission(t *testing.T) {
 		}
 	}
 }
+
+func TestBOMStartStockPermissions(t *testing.T){for _,r:=range []struct{method,path,want string}{
+ {"GET","/api/job-cards/1/start-preview","stock.read"},{"POST","/api/job-cards/1/start","stock.write"},{"POST","/api/job-cards/1/material-adjustments","stock.write"},{"POST","/api/job-cards/1/start-reversal","stock.write"},{"POST","/api/production/workstation/start/preview","stock.read"},{"POST","/api/production/workstation/start/submit","stock.write"},
+ }{if got:=operationCompletionStockPermission(r.method,r.path);got!=r.want{t.Errorf("%s: %s != %s",r.path,got,r.want)}}}

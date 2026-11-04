@@ -142,7 +142,7 @@ func TestProductionPlanReadinessReportsAllBlockingSections(t *testing.T) {
 		ID:     41,
 		Status: "draft",
 		Items: []productionapp.ProductionPlanItem{{
-			ID: 51, ProductName: "初晓商品", SalesSpecCount: 20,
+			ID: 51, ProductName: "初晓商品", OutputUnit: "袋", SalesSpecCount: 20,
 			ProcessSnapshotJSON: `{"operations":[{"seq":1,"operation":"包装"}]}`,
 		}},
 		ComponentSources: []productionapp.ProductionPlanComponentSource{{
@@ -174,7 +174,13 @@ func TestProductionPlanReadinessRequiresRefreshForLegacyUpstreamLossSnapshot(t *
 		}},
 	}
 	readiness := productionPlanReadiness(detail)
-	if readiness.CanSubmit || readiness.BlockingCount != 1 || readiness.Issues[0].Code != "legacy_loss_snapshot" {
+	foundLoss := false
+	for _, issue := range readiness.Issues {
+		if issue.Code == "legacy_loss_snapshot" {
+			foundLoss = true
+		}
+	}
+	if readiness.CanSubmit || !foundLoss {
 		t.Fatalf("readiness = %+v, want explicit supply refresh blocker", readiness)
 	}
 }
@@ -288,4 +294,18 @@ func assertProductionPlanMaterial(t *testing.T, rows []productionapp.MaterialNee
 		}
 	}
 	t.Fatalf("material summary missing %s in %+v", name, rows)
+}
+
+func TestProductionPlanReadinessValidatesFrozenStartRoute(t *testing.T) {
+	detail := productionapp.ProductionPlanDetail{ID: 747, Status: "draft", Items: []productionapp.ProductionPlanItem{{ID: 1, OutputName: "红岩", OutputUnit: "kg", ProcessSnapshotJSON: `{"operations":[]}`}}}
+	readiness := productionPlanReadiness(detail)
+	found := false
+	for _, issue := range readiness.Issues {
+		if issue.Code == "frozen_route_invalid" {
+			found = true
+		}
+	}
+	if !found || readiness.CanSubmit {
+		t.Fatalf("missing frozen route blocker: %+v", readiness)
+	}
 }

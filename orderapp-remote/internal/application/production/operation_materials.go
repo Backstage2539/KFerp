@@ -48,3 +48,12 @@ func (s *Service) SaveOperationMaterialConfig(ctx context.Context, c SaveOperati
 	}
 	return OperationMaterialConfig{}, fmt.Errorf("用料工序配置不可用")
 }
+
+func (s *Service) SaveMaterialSources(ctx context.Context, c SaveOperationMaterialConfig) (OperationMaterialConfig, error) {
+	if r, ok := s.repo.(interface {
+		SaveMaterialSources(context.Context, SaveOperationMaterialConfig) (OperationMaterialConfig, error)
+	}); ok {
+		return r.SaveMaterialSources(ctx, c)
+	}
+	return OperationMaterialConfig{}, fmt.Errorf("来源仓配置不可用")
+}

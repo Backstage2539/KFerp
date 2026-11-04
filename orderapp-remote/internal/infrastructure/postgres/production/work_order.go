@@ -1027,16 +1027,25 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 			return 0, err
 		}
 	} else if err == pgx.ErrNoRows {
+		frozenRoute, routeErr := freezeBOMStartRoute(string(processSnapshotJSON), quantity.InventoryUnit, "finished_goods")
+		if routeErr != nil {
+			return 0, routeErr
+		}
+		processSnapshotJSON = []byte(frozenRoute)
+		if err = json.Unmarshal(processSnapshotJSON, &processSnapshot); err != nil {
+			return 0, err
+		}
+
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			INSERT INTO %s.work_orders(
 				work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status,
 				material_snapshot,bom_version_id,operation_template_id,process_template_id,process_template_name,process_snapshot_json,
 				production_config_snapshot_json,customer_product_snapshot_json,
 				parent_product_id,sales_spec_count,inventory_qty_per_sales_unit,inventory_unit,planned_inventory_qty,
-				sales_spec_snapshot_json,planned_output_g,order_nos,created_at
+				sales_spec_snapshot_json,planned_output_g,order_nos,material_consumption_policy,created_at
 			)
 			VALUES($1,$2,$3,$4,$5,$6,$7,'running',$8,$9,$10,$11,$12,$13,$14,$15,
-			       $16,$17,$18,$19,$20,$21::jsonb,$22,$23,now())
+			       $16,$17,$18,$19,$20,$21::jsonb,$22,$23,'bom_start_v1',now())
 			RETURNING id
 		`, schema), workOrderNo(runningItemID), runningItemID, batchID, productID, productName, specG, plannedG,
 			materialSnapshot, bomVersionID, operationTemplateID, processTemplateID, processTemplateName,
@@ -1049,6 +1058,10 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 	} else {
 		return 0, err
 	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.work_orders SET operation_material_bindings=COALESCE((SELECT bindings FROM %[1]s.production_bom_operation_bindings WHERE bom_version_id=$2 AND bom_variant_id=0),'{}'::jsonb) WHERE id=$1 AND material_consumption_policy='bom_start_v1'`, schema), workOrderID, bomVersionID); err != nil {
+		return 0, err
+	}
+
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.job_cards WHERE work_order_id=$1`, schema), workOrderID); err != nil {
 		return 0, err
 	}
@@ -1983,6 +1996,9 @@ func (r Repository) UpdateJobCardActuals(ctx context.Context, cmd productionapp.
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT work_order_id FROM %s.job_cards WHERE id=$1`, r.schema), cmd.ID).Scan(&guardWorkOrderID); err != nil {
 		return err
 	}
+	if err := requireLegacyExecutionTx(ctx, tx, r.schema, guardWorkOrderID); err != nil {
+		return err
+	}
 	if err := lockReceiptWorkOrderTx(ctx, tx, r.schema, guardWorkOrderID); err != nil {
 		return err
 	}
@@ -2138,6 +2154,9 @@ func (r Repository) CancelWorkOrder(ctx context.Context, cmd productionapp.WorkO
 		return productionapp.WorkOrderRow{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockReceiptWorkOrderTx(ctx, tx, r.schema, cmd.ID); err != nil {
+		return productionapp.WorkOrderRow{}, err
+	}
 	if err := guardSupplierCancellationTx(ctx, tx, r.schema, cmd.ID, 0); err != nil {
 		return productionapp.WorkOrderRow{}, err
 	}

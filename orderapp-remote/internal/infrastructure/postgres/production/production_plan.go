@@ -1403,6 +1403,9 @@ func (r Repository) SaveWorkOrderOperationSplits(ctx context.Context, cmd produc
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := lockReceiptWorkOrderTx(ctx, tx, r.schema, cmd.ID); err != nil {
+		return productionapp.WorkOrderOperationSplitsResult{}, err
+	}
 	wo, err := loadWorkOrderForOperationSplitTx(ctx, tx, r.schema, cmd.ID)
 	if err != nil {
 		return productionapp.WorkOrderOperationSplitsResult{}, err
@@ -2699,6 +2702,12 @@ func operationSplitIdentityValue(split productionapp.ProductionPlanOperationSpli
 }
 
 func createReleasedWorkOrderForPlanItemTx(ctx context.Context, tx pgx.Tx, schema string, item productionapp.ProductionPlanItem, operator string, splits []productionapp.ProductionPlanOperationSplit) (productionapp.WorkOrderRow, []productionapp.JobCardRow, error) {
+	frozenRoute, routeErr := freezeBOMStartRoute(item.ProcessSnapshotJSON, firstNonEmpty(item.OutputUnit, item.InventoryUnit), item.TargetWarehouse)
+	if routeErr != nil {
+		return productionapp.WorkOrderRow{}, nil, routeErr
+	}
+	item.ProcessSnapshotJSON = frozenRoute
+
 	processTemplateID, processTemplateName := processTemplateFieldsFromSnapshot(item.ProcessSnapshotJSON)
 	var id int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -2708,10 +2717,10 @@ func createReleasedWorkOrderForPlanItemTx(ctx context.Context, tx pgx.Tx, schema
 			sales_spec_count,inventory_qty_per_sales_unit,inventory_unit,planned_inventory_qty,sales_spec_snapshot_json,bom_inherited,
 			planned_g,planned_output_g,order_nos,status,material_snapshot,bom_version_id,operation_template_id,
 			process_template_id,process_template_name,process_snapshot_json,production_config_snapshot_json,customer_product_snapshot_json,
-			customer_id,target_warehouse,processing_request_item_id,created_at
+			customer_id,target_warehouse,processing_request_item_id,material_consumption_policy,created_at
 		)
 		VALUES($1,0,$2,$3,'',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16,
-		       $17,$18,$19,'released',$20::jsonb,$21,$22,$23,$24,$25::jsonb,$26::jsonb,$27::jsonb,$28,$29,$30,now())
+		       $17,$18,$19,'released',$20::jsonb,$21,$22,$23,$24,$25::jsonb,$26::jsonb,$27::jsonb,$28,$29,$30,'bom_start_v1',now())
 		RETURNING id
 	`, schema),
 		releasedWorkOrderNo(item.PlanID, item.ID), item.PlanID, item.ID,

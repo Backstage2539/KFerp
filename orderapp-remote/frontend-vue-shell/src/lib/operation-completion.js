@@ -38,6 +38,7 @@ export function suggestedInputQty(preview, batchOutputQty = preview?.max_output_
   return Math.round(input * output / planned * 1e6) / 1e6
 }
 export function completionDraft(preview) {
+  if(preview.material_consumption_policy==='bom_start_v1')return {actual_output_qty:Number(preview.planned_qty||0),actual_input_qty:Number(preview.input_qty||0),actual_minutes:0,difference_reason:'',finish_operation:true}
   return {actual_output_qty:Number(preview.planned_qty || 0)}
 }
 function quantity(value,unit) {
@@ -48,6 +49,10 @@ function quantity(value,unit) {
 }
 export function completionPayload(preview,draft,id) {
   const output=quantity(draft.actual_output_qty,preview.output_unit)
+  if(preview.material_consumption_policy==='bom_start_v1'){
+   const minutes=Number(draft.actual_minutes||0);if(!Number.isInteger(minutes)||minutes<0)throw new Error('请填写有效工时')
+   return {request_id:id,expected_version:preview.version,input_unit:preview.input_unit,output_unit:preview.output_unit,actual_input_qty:quantity(draft.actual_input_qty,preview.input_unit),actual_output_qty:output,finish_operation:draft.finish_operation!==false,actual_minutes:minutes,difference_reason:draft.difference_reason||''}
+  }
   return {request_id:id,expected_version:preview.version,output_unit:preview.output_unit,actual_output_qty:output,finish_operation:true}
 }
 export function completionRetry() {

@@ -115,7 +115,8 @@ test('workstation exposes one material action and one completion form per compat
   assert.match(source, /workstationPackagingGroups\(section\.tasks\)/)
   assert.match(source, /@click="openBatchIssueForTasks\(group\.tasks\)"\>补齐物料/)
   assert.match(source, /!groupHasShortage\(group\)/)
-  assert.match(source, /@click="openGroupCompletion\(group\)"\>完成并入库/)
+  assert.match(source, /openGroupStart\(group\).*openGroupCompletion\(group\)/)
+  assert.match(source,/OperationStartGroupForm/)
   assert.match(source, /来源仓可补/)
   assert.match(source, /apiSend\('\/api\/production\/workstation\/material-issue\/preview'/)
   assert.match(source, /WorkstationPackagingCompletionForm[\s\S]*:task-ids="completionGroup\.ids"/)
@@ -345,7 +346,7 @@ test('workstation action buttons reveal their forms inside the clicked task row'
   assert.doesNotMatch(source, /isFinishPanelForTask\(task\) &&[^\n]*automatic_completion/)
 })
 
-test('roasting task completion is inline and requires only output quantity', () => {
+test('completion preserves legacy output-only and new processed-input reporting', () => {
  const source=readFileSync(new URL('../views/WorkstationView.vue',import.meta.url),'utf8')
  const form=readFileSync(new URL('../components/OperationCompletionForm.vue',import.meta.url),'utf8')
  assert.match(source, /OperationCompletionForm v-if="isFinishPanelForTask\(task\)"/)
@@ -353,7 +354,9 @@ test('roasting task completion is inline and requires only output quantity', () 
  assert.doesNotMatch(source, /submitFinishPanel|finishRunningProduction|partial_finish/)
  assert.match(form,/completionQuantityLabel\(preview\.output_unit\)/)
  assert.ok(form.includes('冻结的本批投料和 BOM 自动计算用料'))
- for(const forbidden of ['本单用料','实际投入','实际工时','保存进度','呼叫补料','报异常','核对旧单'])assert.doesNotMatch(form,new RegExp(forbidden))
+ assert.match(form,/material_consumption_policy\s*===\s*'bom_start_v1'/)
+ assert.match(form,/实际处理投入/)
+ for(const forbidden of ['保存进度','呼叫补料','报异常','核对旧单'])assert.doesNotMatch(form,new RegExp(forbidden))
  assert.match(form,/expected_version|completionPayload/)
 })
 
@@ -547,4 +550,12 @@ test('employee workstation defaults to personal roster and only administrators s
     assert.ok(source.includes(marker), `missing personal roster state: ${marker}`)
   }
   assert.ok(source.includes('今日工位暂无任务'), 'factory overview must not imply that the administrator owns an unattended workstation')
+})
+
+test('new packaging groups isolate pending starts from running and legacy tasks',()=>{
+ const base={packaging_group_key:'same',operation:'包装',work_order_status:'running'}
+ const rows=[1,2].map(id=>({...base,job_card_id:id,status:'pending',material_consumption_policy:'bom_start_v1'}))
+ rows.push(...[3,4].map(id=>({...base,job_card_id:id,status:'running',material_consumption_policy:'bom_start_v1'})))
+ rows.push(...[5,6].map(id=>({...base,job_card_id:id,status:'pending',material_consumption_policy:'legacy'})))
+ assert.equal(workstationPackagingGroups(rows).length,3)
 })

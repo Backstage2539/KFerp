@@ -1157,19 +1157,20 @@ type ProductionWorkstationLoad struct {
 }
 
 type ProductionTask struct {
-	AutomaticCompletion  bool    `json:"automatic_completion"`
-	HasPredecessor       bool    `json:"has_predecessor"`
-	PredecessorCompleted bool    `json:"predecessor_completed"`
-	PredecessorOutputQty float64 `json:"predecessor_output_qty"`
-	ProductionPlanID     int64   `json:"production_plan_id"`
-	ProductionPlanItemID int64   `json:"production_plan_item_id"`
-	OperationID          int64   `json:"operation_id"`
-	WorkstationID        int64   `json:"workstation_id"`
-	RosterEmployeeID     int64   `json:"roster_employee_id"`
-	RosterEmployeeName   string  `json:"roster_employee_name"`
-	RosterSource         string  `json:"roster_source"`
-	RosterStatus         string  `json:"roster_status"`
-	PendingHandover      bool    `json:"pending_handover"`
+	MaterialConsumptionPolicy string  `json:"material_consumption_policy"`
+	AutomaticCompletion       bool    `json:"automatic_completion"`
+	HasPredecessor            bool    `json:"has_predecessor"`
+	PredecessorCompleted      bool    `json:"predecessor_completed"`
+	PredecessorOutputQty      float64 `json:"predecessor_output_qty"`
+	ProductionPlanID          int64   `json:"production_plan_id"`
+	ProductionPlanItemID      int64   `json:"production_plan_item_id"`
+	OperationID               int64   `json:"operation_id"`
+	WorkstationID             int64   `json:"workstation_id"`
+	RosterEmployeeID          int64   `json:"roster_employee_id"`
+	RosterEmployeeName        string  `json:"roster_employee_name"`
+	RosterSource              string  `json:"roster_source"`
+	RosterStatus              string  `json:"roster_status"`
+	PendingHandover           bool    `json:"pending_handover"`
 
 	AssignedEmployeeID      int64              `json:"assigned_employee_id"`
 	CollaboratorEmployeeIDs []int64            `json:"collaborator_employee_ids"`
@@ -3721,6 +3722,21 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 		}
 		tasks = append(tasks, productionTaskFromWorkOrder(workOrder))
 	}
+	if policyRepo, ok := s.repo.(interface {
+		WorkOrderConsumptionPolicies(context.Context, []int64) (map[int64]string, error)
+	}); ok {
+		ids := make([]int64, 0, len(workOrders))
+		for _, wo := range workOrders {
+			ids = append(ids, wo.ID)
+		}
+		policies, e := policyRepo.WorkOrderConsumptionPolicies(ctx, ids)
+		if e != nil {
+			return ProductionWorkstationOverview{}, e
+		}
+		for i := range tasks {
+			tasks[i].MaterialConsumptionPolicy = policies[tasks[i].WorkOrderID]
+		}
+	}
 	if coverageRepo, ok := s.repo.(workOrderWIPCoverageRepository); ok {
 		coverageByWorkOrder := make(map[int64]ProductionWIPStatus)
 		for i := range tasks {
@@ -4377,7 +4393,7 @@ func applyPackagingGroupKeys(tasks []ProductionTask, workOrders map[int64]WorkOr
 		}
 		sort.Strings(lines)
 		productID := firstNonZeroInt64(wo.OutputProductID, wo.ProductID)
-		task.PackagingGroupKey = fmt.Sprintf("pack:%d:%d:%s:%s:%d:%s:%s:%s", productID, task.SpecG, task.InventoryUnit, task.TargetWarehouse, task.SequenceNo, strings.TrimSpace(task.Operation), strings.TrimSpace(task.Workstation), strings.Join(lines, ";"))
+		task.PackagingGroupKey = task.MaterialConsumptionPolicy + ":" + fmt.Sprintf("pack:%d:%d:%s:%s:%d:%s:%s:%s", productID, task.SpecG, task.InventoryUnit, task.TargetWarehouse, task.SequenceNo, strings.TrimSpace(task.Operation), strings.TrimSpace(task.Workstation), strings.Join(lines, ";"))
 		var frozen struct {
 			Operations []struct {
 				Seq           int    `json:"seq"`

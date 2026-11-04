@@ -19,6 +19,11 @@ func (r Repository) CreateStockEntry(ctx context.Context, cmd productionapp.Stoc
 		return productionapp.StockEntryDetail{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if cmd.WorkOrderID > 0 {
+		if err := requireLegacyExecutionTx(ctx, tx, r.schema, cmd.WorkOrderID); err != nil {
+			return productionapp.StockEntryDetail{}, err
+		}
+	}
 	detail, err := createStockEntryRecordTx(ctx, tx, r.schema, cmd, true)
 	if err != nil {
 		return productionapp.StockEntryDetail{}, err
@@ -100,18 +105,18 @@ func (r Repository) ListWorkOrderLedgerEntries(ctx context.Context, query produc
 		SELECT l.id,
 		       COALESCE(se.id,0),
 		       COALESCE(se.entry_no,''),
-		       COALESCE(se.entry_type, CASE WHEN l.source_doc_type='production_run' THEN 'finished_receipt' ELSE '' END),
+		       COALESCE(se.entry_type, CASE WHEN l.source_doc_type IN('production_run','production_operation_event','operation_completion') THEN 'finished_receipt' WHEN l.source_doc_type='production_input_return' THEN 'material_return' ELSE '' END),
 		       l.item_type,l.item_id,l.item_name,l.spec_g,l.warehouse,
 		       l.qty_change_g,l.qty_after_g,l.qty_change_units,l.qty_after_units,
 		       l.source_doc_type,l.source_doc_id,l.source_batch_code,l.operator,
 		       to_char(l.created_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.stock_ledger_entries l
 		LEFT JOIN %s.stock_entries se ON se.id=l.source_doc_id AND l.source_doc_type='stock_entry'
-		LEFT JOIN %s.work_orders wo ON wo.running_item_id=l.source_doc_id AND l.source_doc_type='production_run'
+		LEFT JOIN %s.work_orders wo ON (wo.running_item_id=l.source_doc_id AND l.source_doc_type='production_run') OR (l.source_doc_type IN('production_operation_event','operation_completion','operation_correction','production_input_return') AND EXISTS(SELECT 1 FROM %s.production_operation_events ev WHERE ev.id=l.source_doc_id AND ev.work_order_id=wo.id))
 		WHERE %s
 		ORDER BY l.created_at DESC,l.id DESC
 		LIMIT $%d
-	`, r.schema, r.schema, r.schema, strings.Join(where, " AND "), limitArg), args...)
+	`, r.schema, r.schema, r.schema, r.schema, strings.Join(where, " AND "), limitArg), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -304,11 +309,18 @@ func loadStockEntryDetailTx(ctx context.Context, tx pgx.Tx, schema string, id in
 }
 
 func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.JobCardActionCommand) (productionapp.JobCardActionResult, error) {
+	var policy string
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT w.material_consumption_policy FROM %s.job_cards j JOIN %s.work_orders w ON w.id=j.work_order_id WHERE j.id=$1`, r.schema, r.schema), cmd.ID).Scan(&policy); err != nil {
+		return productionapp.JobCardActionResult{}, err
+	}
+	if policy == "bom_start_v1" && cmd.Action == "start" {
+		return r.startOperation(ctx, cmd)
+	}
 	var automatic bool
 	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.job_cards j JOIN %[1]s.work_orders w ON w.id=j.work_order_id CROSS JOIN LATERAL jsonb_array_elements(COALESCE(w.process_snapshot_json->'operations','[]'::jsonb)) op WHERE j.id=$1 AND (op->>'seq')::int=j.sequence_no AND NULLIF(op->>'execution_json','')::jsonb->>'version'='1')`, r.schema), cmd.ID).Scan(&automatic); err != nil {
 		return productionapp.JobCardActionResult{}, err
 	}
-	if cmd.Action == "complete" && (automatic || cmd.ExpectedVersion != "") {
+	if cmd.Action == "complete" && (policy == "bom_start_v1" || automatic || cmd.ExpectedVersion != "") {
 		return r.completeOperation(ctx, cmd)
 	}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -332,6 +344,9 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 		if err == pgx.ErrNoRows {
 			return productionapp.JobCardActionResult{}, fmt.Errorf("job card not found")
 		}
+		return productionapp.JobCardActionResult{}, err
+	}
+	if err := checkBOMStartWriteTx(ctx, tx, r.schema, workOrderID); err != nil {
 		return productionapp.JobCardActionResult{}, err
 	}
 	var workOrderStatus string
@@ -482,6 +497,13 @@ func (r Repository) CompleteWorkOrder(ctx context.Context, cmd productionapp.Wor
 	wo, incomplete, err := r.workOrderCompletionPrecheck(ctx, cmd.ID)
 	if err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
+	}
+	var policy string
+	if err = r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT material_consumption_policy FROM %s.work_orders WHERE id=$1`, r.schema), cmd.ID).Scan(&policy); err != nil {
+		return productionapp.WorkOrderCompleteResult{}, err
+	}
+	if policy == "bom_start_v1" {
+		return productionapp.WorkOrderCompleteResult{}, fmt.Errorf("请先确认用料并开工；请在工位完成或生产记录中更正")
 	}
 	if wo.RunningItemID <= 0 {
 		return productionapp.WorkOrderCompleteResult{}, fmt.Errorf("work order has not started")

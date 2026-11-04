@@ -17,6 +17,7 @@ import (
 
 // All quantity-changing paths acquire this lock before work-order/card row locks.
 func lockReceiptWorkOrderTx(ctx context.Context, tx pgx.Tx, schema string, id int64) error {
+ if err:=checkBOMStartWriteTx(ctx,tx,schema,id);err!=nil{return err}
 	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, fmt.Sprintf("%s:finished-receipt:%d", schema, id))
 	return err
 }

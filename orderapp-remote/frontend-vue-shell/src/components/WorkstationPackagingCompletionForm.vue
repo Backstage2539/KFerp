@@ -8,7 +8,11 @@
       <div class="source-list"><span v-for="item in preview.items" :key="item.job_card_id">{{ item.work_order_no }}：已完成 {{ qty(item.completed_qty) }} / {{ qty(item.planned_qty) }} {{ item.unit }}</span></div>
       <label class="quantity-field"><span>本次实际完成袋数</span><input v-model.number="actualOutputQty" type="number" min="1" step="1" inputmode="numeric" /><small>参考剩余量 {{ qty(preview.remaining_qty) }} 袋；实际数量按现场填写。</small></label>
       <label class="quantity-field"><span>本次实际工时（分钟，可选）</span><input v-model.number="actualMinutes" type="number" min="0" step="1" /></label>
-      <div class="materials">
+      <div v-if="preview.material_consumption_policy==='bom_start_v1'" class="source-inputs">
+ <p>用料已在开工时扣减。逐项填写本次实际处理投入，完成时只结转成本。</p>
+ <label v-for="item in preview.items" :key="item.job_card_id" class="quantity-field">{{item.work_order_no}} 实际处理投入（{{item.input_unit}}，剩余 {{item.input_qty}}）<input type="number" min="0" step="any" v-model.number="processedInputs[item.job_card_id]" /></label>
+ </div>
+ <div v-else class="materials">
         <h4>本次建议用料（可调整）</h4>
         <div v-for="(material, index) in materialInputs" :key="material.key" class="material-input-row">
           <label><span>{{ material.name }} · {{ material.warehouse_name || material.warehouse }}</span><input v-model.number="material.qty" type="number" min="0" :step="isCountUnit(material.unit) ? 1 : 0.001" @input="touchMaterial(index)" /></label>
@@ -42,6 +46,7 @@ const actualMinutes = ref(0)
 const finishGroup = ref(false)
 const differenceReason = ref('')
 const materialInputs = ref([])
+const processedInputs=ref({})
 const requestID = ref('')
 const unitFactor = (unit) => ({ g: 1, 克: 1, kg: 1000, 千克: 1000, 公斤: 1000, mg: 0.001, 毫克: 0.001 })[String(unit || '').toLowerCase()] || 0
 const isCountUnit = (unit) => unitFactor(unit) === 0
@@ -73,7 +78,7 @@ function touchMaterial(index) {
 
 watch(actualOutputQty, updateSuggestedMaterials)
 
-watch([actualOutputQty, finishGroup, differenceReason, materialInputs], () => { if (!busy.value && !result.value) requestID.value = '' }, { deep: true })
+watch([actualOutputQty, finishGroup, differenceReason, materialInputs, processedInputs], () => { if (!busy.value && !result.value) requestID.value = '' }, { deep: true })
 
 async function load() {
   busy.value = true
@@ -81,6 +86,7 @@ async function load() {
   try {
     const data = await apiSend('/api/production/workstation/completion/preview', { body: { job_card_ids: props.taskIds.map(Number) } })
     preview.value = data
+ processedInputs.value=Object.fromEntries((data.items||[]).map(i=>[i.job_card_id,i.input_qty]))
     actualOutputQty.value = Number(data.remaining_qty || 0)
     materialInputs.value = (data.materials || []).map(material => ({
       ...material,
@@ -130,7 +136,8 @@ async function submit() {
     actual_output_qty: Number(actualOutputQty.value),
     output_unit: preview.value.output_unit,
     actual_minutes: Number(actualMinutes.value || 0),
-    materials: materialRowsForSubmit(),
+    materials: preview.value.material_consumption_policy==='bom_start_v1'?null:materialRowsForSubmit(),
+    processed_inputs:preview.value.material_consumption_policy==='bom_start_v1'?processedInputs.value:undefined,
     difference_reason: differenceReason.value.trim(),
     finish_group: Boolean(finishGroup.value),
     expected_version: preview.value.version,

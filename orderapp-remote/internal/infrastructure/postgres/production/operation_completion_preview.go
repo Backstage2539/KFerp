@@ -246,6 +246,22 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	if err = json.Unmarshal([]byte(snapshot), &route); err != nil {
 		return p, wo, err
 	}
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT material_consumption_policy FROM %s.work_orders WHERE id=$1`, r.schema), wo.ID).Scan(&p.MaterialConsumptionPolicy); err != nil {
+		return p, wo, err
+	}
+	startPolicy := p.MaterialConsumptionPolicy == "bom_start_v1"
+	if startPolicy {
+		first, err = firstFrozenRouteSequence(route)
+		last = 0
+		for _, operation := range route.Operations {
+			if operation.Seq > last {
+				last = operation.Seq
+			}
+		}
+		if err != nil {
+			return p, wo, err
+		}
+	}
 	var routeOperation string
 	for _, op := range route.Operations {
 		if op.Seq == seq {
@@ -356,6 +372,9 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	}
 	p.PlannedQty = math.Max(0, p.TotalPlannedQty-p.CompletedOutputQty)
 	p.InputQty = input
+	if startPolicy && app.OperationUnitFactor(p.InputUnit) == 0 {
+		p.InputQty = p.TotalPlannedQty
+	}
 	inputUnitFactor := app.OperationUnitFactor(p.InputUnit)
 	if inputUnitFactor > 0 {
 		p.InputQty = input / inputUnitFactor
@@ -404,7 +423,7 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	if err = json.Unmarshal([]byte(materialSnapshot), &frozenMaterials); err != nil {
 		return p, wo, err
 	}
-	if isRoastingOperationName(p.OperationName) && p.BomVersionID > 0 {
+	if (isRoastingOperationName(p.OperationName) || startPolicy && seq == first && recipeRatioTotal(frozenMaterials) > 0) && p.BomVersionID > 0 {
 		resolved, versionID, refresh, resolveErr := r.effectiveRoastingMaterialSnapshotTx(ctx, tx, wo, frozenMaterials)
 		if resolveErr != nil {
 			return p, wo, resolveErr
@@ -431,6 +450,9 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	consumedByReservation := map[int64]float64{}
 	effectiveRecipeKeys := map[string]struct{}{}
 	isRoasting := isRoastingOperationName(p.OperationName)
+	if startPolicy {
+		isRoasting = seq == first && recipeRatioTotal(frozenMaterials) > 0
+	}
 	if isRoasting {
 		effectiveRecipeKeys = effectiveRoastingMaterialKeys(frozenMaterials)
 	}
@@ -495,10 +517,16 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 			}
 		}
 		binding := mapped[m.Key]
+		if startPolicy {
+			if seq != first {
+				continue
+			}
+			binding.NodeKey = p.Execution.NodeKey
+		}
 		if p.LegacyExecution {
 			binding.NodeKey = p.Execution.NodeKey
 			binding.SourceWarehouse = firstNonEmpty(binding.SourceWarehouse, "wip")
-		} else if p.BomRefreshPending {
+		} else if p.BomRefreshPending && !startPolicy {
 			binding = roastingRecipeBinding(m.Key, mapped, route)
 		}
 		m.NodeKey = binding.NodeKey
@@ -575,6 +603,10 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 				}
 			}
 			binding := roastingRecipeBinding(key, mapped, route)
+			if startPolicy {
+				binding = mapped[key]
+				binding.NodeKey = p.Execution.NodeKey
+			}
 			if p.LegacyExecution {
 				binding.NodeKey = p.Execution.NodeKey
 				binding.SourceWarehouse = firstNonEmpty(binding.SourceWarehouse, "wip")
@@ -604,7 +636,7 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 			p.Materials = append(p.Materials, m)
 		}
 	}
-	if isRoastingOperationName(p.OperationName) {
+	if isRoasting {
 		for _, material := range p.Materials {
 			p.RecipeRatioPct += material.RatioPct
 		}
@@ -628,6 +660,12 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 		p.BlockedCode = "legacy_materials_missing"
 	}
 	for i := range p.Materials {
+		if startPolicy {
+			p.Materials[i].Warehouse, err = startedMaterialWarehouseTx(ctx, tx, r.schema, wo.ID, p.Materials[i])
+			if err != nil {
+				return p, wo, err
+			}
+		}
 		if p.Materials[i].ReservationID > 0 {
 			p.Materials[i].AvailableQty, err = operationMaterialAvailableTx(ctx, tx, r.schema, p.Materials[i].ReservationID, p.Materials[i].Warehouse, p.Materials[i].OwnerCustomerID, p.Materials[i].Unit)
 		} else {
@@ -635,6 +673,12 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 		}
 		if err != nil {
 			return p, wo, err
+		}
+		if startPolicy {
+			p.Materials[i].EligibleBatches, err = startedMaterialBatchesTx(ctx, tx, r.schema, wo.ID, p.Materials[i])
+			if err != nil {
+				return p, wo, err
+			}
 		}
 		p.Materials[i].ShortageQty = math.Max(0, p.Materials[i].Qty-p.Materials[i].AvailableQty)
 		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT name FROM %s.warehouses WHERE code=$1 AND active=true`, r.schema), p.Materials[i].Warehouse).Scan(&p.Materials[i].WarehouseName); err != nil {
@@ -647,9 +691,17 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 		if lock {
 			suffix = " FOR UPDATE OF b"
 		}
+		predecessorSeq := 0
+		if startPolicy {
+			for _, op := range route.Operations {
+				if op.Seq < seq && op.Seq > predecessorSeq {
+					predecessorSeq = op.Seq
+				}
+			}
+		}
 		rows, err = tx.Query(ctx, fmt.Sprintf(`SELECT b.id,b.work_order_id,b.job_card_id,b.owner_customer_id,b.remaining_qty::float8,b.unit,b.warehouse,wh.name,j.operation,b.remaining_cost::float8
  FROM %[1]s.production_operation_balances b JOIN %[1]s.job_cards j ON j.id=b.job_card_id JOIN %[1]s.warehouses wh ON wh.code=b.warehouse
- WHERE b.work_order_id=$1 AND b.sequence_no=(SELECT MAX(sequence_no) FROM %[1]s.job_cards WHERE work_order_id=$1 AND sequence_no<$2 AND status<>'cancelled') AND b.remaining_qty>0 AND b.quality_status NOT IN('hold','reject') AND NOT EXISTS(SELECT 1 FROM (SELECT DISTINCT ON(q.job_card_id,q.scope,q.reference_type,q.reference_no) q.result FROM %[1]s.quality_inspections q WHERE (q.work_order_id=b.work_order_id AND q.job_card_id=0) OR q.job_card_id=b.job_card_id ORDER BY q.job_card_id,q.scope,q.reference_type,q.reference_no,q.created_at DESC,q.id DESC) latest WHERE lower(trim(result)) IN('hold','reject','failed','fail','blocked')) ORDER BY b.id`+suffix, r.schema), p.WorkOrderID, seq)
+ WHERE b.work_order_id=$1 AND b.sequence_no=CASE WHEN $3::int>0 THEN $3 ELSE (SELECT MAX(sequence_no) FROM %[1]s.job_cards WHERE work_order_id=$1 AND sequence_no<$2 AND status<>'cancelled') END AND b.remaining_qty>0 AND b.quality_status NOT IN('hold','reject') AND NOT EXISTS(SELECT 1 FROM (SELECT DISTINCT ON(q.job_card_id,q.scope,q.reference_type,q.reference_no) q.result FROM %[1]s.quality_inspections q WHERE (q.work_order_id=b.work_order_id AND q.job_card_id=0) OR q.job_card_id=b.job_card_id ORDER BY q.job_card_id,q.scope,q.reference_type,q.reference_no,q.created_at DESC,q.id DESC) latest WHERE lower(trim(result)) IN('hold','reject','failed','fail','blocked')) ORDER BY b.id`+suffix, r.schema), p.WorkOrderID, seq, predecessorSeq)
 		if err != nil {
 			return p, wo, err
 		}
@@ -665,6 +717,26 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 		rows.Close()
 		if err != nil {
 			return p, wo, err
+		}
+		if startPolicy {
+			filtered := []app.OperationBatchBalance{}
+			for _, b := range p.PredecessorBatches {
+				var own, other float64
+				if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(remaining_qty) FILTER(WHERE job_card_id=$2),0)::float8,COALESCE(SUM(remaining_qty) FILTER(WHERE job_card_id<>$2),0)::float8 FROM %s.production_started_handoffs WHERE source_balance_id=$1 AND status='posted'`, r.schema), b.ID, id).Scan(&own, &other); err != nil {
+					return p, wo, err
+				}
+				available := math.Max(0, b.Remaining-other)
+				if status == "running" || status == "paused" {
+					available = math.Min(available, own)
+					p.StartedInputQty += own
+				}
+				if available > 0 {
+					b.TotalCost = b.TotalCost * available / b.Remaining
+					b.Remaining = available
+					filtered = append(filtered, b)
+				}
+			}
+			p.PredecessorBatches = filtered
 		}
 		p.InputQty = 0
 		if len(p.PredecessorBatches) > 0 {
@@ -720,6 +792,44 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 		p.BlockedReason = "任务已取消"
 		p.BlockedCode = "job_card_cancelled"
 	}
+	if startPolicy && seq == first {
+		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(remaining_qty),0)::float8 FROM %s.production_started_inputs WHERE job_card_id=$1 AND status='posted'`, r.schema), id).Scan(&p.StartedInputQty); err != nil {
+			return p, wo, err
+		}
+		if status == "running" || status == "paused" {
+			p.InputQty = p.StartedInputQty
+			p.MaxOutputQty = p.PlannedQty
+			inputRows, e := tx.Query(ctx, fmt.Sprintf(`SELECT material_snapshot FROM %s.production_started_inputs WHERE job_card_id=$1 AND status='posted' ORDER BY id`, r.schema), id)
+			if e != nil {
+				return p, wo, e
+			}
+			for inputRows.Next() {
+				var raw []byte
+				if e = inputRows.Scan(&raw); e != nil {
+					inputRows.Close()
+					return p, wo, e
+				}
+				var materials []app.OperationMaterialUse
+				if e = json.Unmarshal(raw, &materials); e != nil {
+					inputRows.Close()
+					return p, wo, e
+				}
+				p.StartedMaterials = append(p.StartedMaterials, materials...)
+			}
+			e = inputRows.Err()
+			inputRows.Close()
+			if e != nil {
+				return p, wo, e
+			}
+		}
+	}
+	if p.MaterialConsumptionPolicy == "bom_start_v1" {
+		p.StartedInputs, err = r.startedInputsTx(ctx, tx, id)
+		if err != nil {
+			return p, wo, err
+		}
+	}
+
 	return p, wo, nil
 }
 

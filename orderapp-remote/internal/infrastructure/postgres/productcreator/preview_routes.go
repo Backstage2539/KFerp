@@ -16,6 +16,7 @@ func (e BusinessExecutor) inspectPreviewRouteCapacities(ctx context.Context, det
 		return nil
 	}
 	cache := map[int64]string{}
+	invalidRoute := map[int64]bool{}
 	issues := []app.ValidationIssue{}
 	nodeIDs := make([]string, 0, len(details))
 	for id := range details {
@@ -47,6 +48,16 @@ func (e BusinessExecutor) inspectPreviewRouteCapacities(ctx context.Context, det
 		for _, id := range routeIDs {
 			message, checked := cache[id]
 			if !checked {
+				var routeErr error
+				if tx := queryWithTransaction(ctx); tx != nil {
+					routeErr = pg.ValidateManufacturingRoute(ctx, tx, e.schema, id)
+				} else {
+					routeErr = pg.ValidateManufacturingRoute(ctx, e.pool, e.schema, id)
+				}
+				if routeErr != nil {
+					message = routeErr.Error()
+					invalidRoute[id] = true
+				}
 				var issue *pg.StandardCostCapacityIssue
 				var err error
 				if tx := queryWithTransaction(ctx); tx != nil {
@@ -54,15 +65,19 @@ func (e BusinessExecutor) inspectPreviewRouteCapacities(ctx context.Context, det
 				} else {
 					issue, err = pg.FindStandardCostCapacityIssue(ctx, e.pool, e.schema, id)
 				}
-				if err != nil {
+				if message == "" && err != nil {
 					message = fmt.Sprintf("工艺路线 #%d 的标准成本配置暂时无法校验，请稍后重试", id)
-				} else if issue != nil {
+				} else if message == "" && issue != nil {
 					message = issue.Error()
 				}
 				cache[id] = message
 			}
 			if message != "" {
-				issues = append(issues, app.ValidationIssue{NodeID: nodeID, Field: "route", Code: "process_route_capacity_invalid", Message: message})
+				code := "process_route_capacity_invalid"
+				if invalidRoute[id] {
+					code = "process_route_invalid"
+				}
+				issues = append(issues, app.ValidationIssue{NodeID: nodeID, Field: "route", Code: code, Message: message})
 			}
 		}
 	}
