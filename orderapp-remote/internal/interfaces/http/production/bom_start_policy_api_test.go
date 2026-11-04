@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	app "orderapp/internal/application/production"
+	"strings"
 	"testing"
 )
 
@@ -107,4 +108,33 @@ func TestBOMStartDirectCreationFreezesBOMRoute(t *testing.T) {
 	if r.Code != 200 {
 		t.Fatal(r.Body.String())
 	}
+}
+
+func TestBOMStartOldCompletionClientIsToldToRefresh(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	server, _, work := createSubmittedFullStockTypedPlan(t, ctx, pool, schema, 74990, "bom_start_v1")
+	var card int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.job_cards WHERE work_order_id=$1 ORDER BY sequence_no,id LIMIT 1`, schema), work).Scan(&card); err != nil {
+		t.Fatal(err)
+	}
+	res := serveMultilevelProductionJSON(t, server, "POST", fmt.Sprintf("/api/job-cards/%d/complete", card), map[string]any{"actual_output_qty": 1})
+	if res.Code == 200 || !strings.Contains(res.Body.String(), "刷新页面") || !strings.Contains(res.Body.String(), "开工") {
+		t.Fatalf("old completion client must get actionable refresh and start instructions: %d %s", res.Code, res.Body.String())
+	}
+	previewResult := serveMultilevelProductionJSON(t, server, "GET", fmt.Sprintf("/api/job-cards/%d/completion-preview", card), nil)
+	var preview app.OperationCompletionPreview
+	if previewResult.Code != 200 {
+		t.Fatalf("completion preview: %d %s", previewResult.Code, previewResult.Body.String())
+	}
+	if err := json.Unmarshal(previewResult.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	res = serveMultilevelProductionJSON(t, server, "POST", fmt.Sprintf("/api/job-cards/%d/complete", card), map[string]any{"actual_output_qty": preview.PlannedQty, "expected_version": preview.Version, "request_id": "old-completion-versioned"})
+	if res.Code == 200 || !strings.Contains(res.Body.String(), "刷新页面") || !strings.Contains(res.Body.String(), "开工") {
+		t.Fatalf("versioned old completion client must get actionable refresh and start instructions: %d %s", res.Code, res.Body.String())
+	}
+	assertProductionFlowCount(t, pool, schema, "job_cards", fmt.Sprintf("id=%d AND status='pending'", card), 1)
+	assertProductionFlowCount(t, pool, schema, "production_operation_events", fmt.Sprintf("job_card_id=%d", card), 0)
+	assertProductionFlowCount(t, pool, schema, "production_started_inputs", fmt.Sprintf("job_card_id=%d", card), 0)
 }

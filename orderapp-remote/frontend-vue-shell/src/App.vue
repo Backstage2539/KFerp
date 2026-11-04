@@ -91,6 +91,7 @@
         <div v-if="actorName" class="actor">{{ actorName }}</div>
         <button v-if="currentActor" class="logout" type="button" @click="logout">退出</button>
       </header>
+      <div v-if="shellUpdateAvailable" class="shell-update-notice" role="status">系统已更新，请先保存当前内容，再刷新页面使用新版本。</div>
       <div
         v-if="allNotifications.length"
         ref="notificationStack"
@@ -168,6 +169,7 @@
 <script setup>
 import { computed, defineAsyncComponent, h, markRaw, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiGet } from './api/client'
+import { createShellUpdateMonitor } from './lib/shell-update-monitor.js'
 import { customerWorkspaceMenu, customerWorkspacePages } from './lib/customer-workspace'
 import { customerAccountView } from './lib/customer-account'
 const AsyncViewLoading = {
@@ -1174,7 +1176,12 @@ async function logout() {
   redirectToLogin()
 }
 
+const shellUpdateAvailable = ref(false)
+let shellUpdateMonitor = null
+
 onMounted(async () => {
+  shellUpdateMonitor = createShellUpdateMonitor({ document, location: window.location, fetch: window.fetch.bind(window), setInterval: window.setInterval.bind(window), clearInterval: window.clearInterval.bind(window), onUpdate: () => { shellUpdateAvailable.value = true } })
+  void shellUpdateMonitor.start()
   handleResize()
   stopTableAutoPagination = installTableAutoPagination(document.querySelector('.content') || document.body)
   expandedGroups.value = restoreExpandedGroups(
@@ -1196,6 +1203,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  shellUpdateMonitor?.stop()
   window.removeEventListener('resize', handleResize)
   window.removeEventListener('touchstart', handleTouchStart)
   window.removeEventListener('touchend', handleTouchEnd)
@@ -1323,6 +1331,7 @@ watch([visibleNotifications, isMobile], syncNotificationStackSpace, { flush: 'po
 </script>
 
 <style scoped>
+.shell-update-notice { padding: 10px 16px; color: #664b00; background: #fff4cf; border: 1px solid #e8d08b; border-radius: 6px; line-height: 1.5; }
 .view-loading,.view-load-error{min-height:180px;display:grid;place-content:center;justify-items:center;gap:8px;padding:32px;color:#4b5563}.view-loading strong,.view-load-error strong{color:#111827}.view-load-error button{border:1px solid #9ca3af;background:#fff;border-radius:6px;padding:7px 14px;cursor:pointer}
 * { box-sizing: border-box; }
 .layout { display: flex; height: 100vh; overflow: hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; position: relative; }
