@@ -17,6 +17,7 @@ set -euo pipefail
 #   KFERP_MINIAPP_EXPORT_DIR=/path       # production artifact destination
 #   KFERP_MINIAPP_DEVELOPMENT_EXPORT_DIR=/path  # development artifact destination
 #   KFERP_SKIP_MINIAPP_EXPORT=1          # do not pull the target mp-weixin artifact
+#   KFERP_ERP_ONLY=1                    # retain the existing miniapp artifact; do not build or export it
 
 # Remote helper contract and source-level regression markers. The commands run
 # in scripts/remote_orderapp_release.sh, never on the Mac:
@@ -36,6 +37,8 @@ set -euo pipefail
 # into its workspace context before the remote Docker build.
 
 SERVER="${KFERP_DEPLOY_SERVER:-root@1.12.242.58}"
+ERP_ONLY="${KFERP_ERP_ONLY:-0}"
+case "$ERP_ONLY" in 0|1) ;; *) echo 'ERROR: KFERP_ERP_ONLY must be 0 or 1' >&2; exit 1 ;; esac
 PREFLIGHT=0
 if [ "${1:-}" = "--preflight" ]; then
   PREFLIGHT=1
@@ -196,6 +199,9 @@ remote_release_args=(
 if [ "$PREFLIGHT" -eq 1 ]; then
   remote_release_args+=(--preflight)
 fi
+if [ "$ERP_ONLY" = "1" ]; then
+  remote_release_args+=(--erp-only)
+fi
 printf -v remote_release_command '%q ' "${remote_release_args[@]}"
 
 if [ "$PREFLIGHT" -eq 1 ]; then
@@ -323,7 +329,7 @@ if [ "$PREFLIGHT" -eq 0 ]; then
   external_smoke
 fi
 
-if [ "$PREFLIGHT" -eq 0 ] && [ "${KFERP_SKIP_MINIAPP_EXPORT:-0}" != "1" ]; then
+if [ "$PREFLIGHT" -eq 0 ] && [ "$ERP_ONLY" != "1" ] && [ "${KFERP_SKIP_MINIAPP_EXPORT:-0}" != "1" ]; then
   sync_miniapp_artifact
 fi
 
@@ -336,7 +342,9 @@ fi
 echo "Deployed $TARGET_ENV origin/$REQUIRED_BRANCH=$REMOTE_HEAD"
 echo "Frontend URL: $PUBLIC_URL"
 echo "Server source: $SERVER:$APP_DIR"
-if [ "$TARGET_ENV" = "production" ]; then
+if [ "$ERP_ONLY" = "1" ]; then
+  echo "NOTICE: ERP-only release retained the previous miniapp artifact; no miniapp was built or exported."
+elif [ "$TARGET_ENV" = "production" ]; then
   echo "NOTICE: server deployment does not upload or publish a WeChat Mini Program version."
   echo "Import /Users/yiiiple-work/KFerp-miniapp-mp-weixin into WeChat DevTools, then upload/review/publish separately."
 else
