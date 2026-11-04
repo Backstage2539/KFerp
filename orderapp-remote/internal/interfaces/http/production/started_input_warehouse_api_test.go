@@ -6,6 +6,7 @@ import (
 	"fmt"
 	app "orderapp/internal/application/production"
 	stockapp "orderapp/internal/application/stock"
+	postgresproduction "orderapp/internal/infrastructure/postgres/production"
 	stockrepo "orderapp/internal/infrastructure/postgres/stock"
 	"strings"
 	"testing"
@@ -69,6 +70,20 @@ func TestBOMStartRollbackModePausesNewAndRetainsLegacy(t *testing.T) {
 	ctx := context.Background()
 	e, _, wo := createSubmittedFullStockTypedPlan(t, ctx, pool, schema, 74821, "bom_start_v1")
 	t.Setenv("KFERP_BOM_START_READ_ONLY", "1")
+	repo := postgresproduction.NewRepository(pool, schema)
+	if _, err := repo.SaveScheduleAssignment(ctx, app.ScheduleAssignmentCommand{WorkOrderID: wo}); err == nil || !strings.Contains(err.Error(), "暂停写入") {
+		t.Fatalf("rollback accepted new-policy scheduling: %v", err)
+	}
+	var card int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT MIN(id) FROM %s.job_cards WHERE work_order_id=$1`, schema), wo).Scan(&card); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.ScheduleBatch(ctx, app.ScheduleBatchCommand{Items: []app.ScheduleTaskPatch{{WorkOrderID: wo, JobCardID: card}}}, false); err == nil || !strings.Contains(err.Error(), "暂停写入") {
+		t.Fatalf("rollback accepted new-policy task scheduling: %v", err)
+	}
+	if _, err := repo.CreateQualityInspection(ctx, app.QualityInspectionCommand{WorkOrderID: wo, JobCardID: card, Scope: "work_order", Result: "pass"}); err == nil || !strings.Contains(err.Error(), "暂停写入") {
+		t.Fatalf("rollback accepted new-policy inspection: %v", err)
+	}
 	res := serveMultilevelProductionJSON(t, e, "POST", fmt.Sprintf("/api/produce/work-orders/%d/start", wo), nil)
 	if res.Code == 200 || !strings.Contains(res.Body.String(), "暂停写入") {
 		t.Fatalf("rollback accepted new-policy work order: %s", res.Body.String())

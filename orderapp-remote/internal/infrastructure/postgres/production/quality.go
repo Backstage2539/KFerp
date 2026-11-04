@@ -5,6 +5,7 @@ import (
 	"fmt"
 	productionapp "orderapp/internal/application/production"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
+	"os"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -21,6 +22,28 @@ func (r Repository) CreateQualityInspection(ctx context.Context, cmd productiona
 		return productionapp.QualityInspectionRow{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if os.Getenv("KFERP_BOM_START_READ_ONLY") == "1" {
+		workID := cmd.WorkOrderID
+		if workID > 0 {
+			if err := checkBOMStartWriteTx(ctx, tx, r.schema, workID); err != nil {
+				return productionapp.QualityInspectionRow{}, err
+			}
+		}
+		if cmd.JobCardID > 0 {
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT work_order_id FROM %s.job_cards WHERE id=$1`, r.schema), cmd.JobCardID).Scan(&workID); err != nil {
+				return productionapp.QualityInspectionRow{}, err
+			}
+		} else if workID == 0 && (cmd.Scope == "work_order" || cmd.ReferenceType == "work_order") && strings.TrimSpace(cmd.ReferenceNo) != "" {
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.work_orders WHERE work_order_no=$1`, r.schema), strings.TrimSpace(cmd.ReferenceNo)).Scan(&workID); err != nil && err != pgx.ErrNoRows {
+				return productionapp.QualityInspectionRow{}, err
+			}
+		}
+		if workID > 0 {
+			if err := checkBOMStartWriteTx(ctx, tx, r.schema, workID); err != nil {
+				return productionapp.QualityInspectionRow{}, err
+			}
+		}
+	}
 
 	var row productionapp.QualityInspectionRow
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
