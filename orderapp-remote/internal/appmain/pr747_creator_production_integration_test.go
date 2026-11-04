@@ -453,6 +453,17 @@ func pr747ProductionChain(t *testing.T, pool *pgxpool.Pool, schema string, templ
 	if residual != 0 {
 		t.Fatalf("unsettled inputs=%v", residual)
 	}
+	var starts, loggedStarts, completions, loggedCompletions int
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT
+ (SELECT COUNT(*) FROM %[1]s.production_operation_events WHERE kind='start' AND status='posted'),
+ (SELECT COUNT(*) FROM %[1]s.audit_logs WHERE entity_type='job_card' AND action='start_consumption'),
+ (SELECT COUNT(*) FROM %[1]s.production_operation_events WHERE kind='complete' AND status='posted'),
+ (SELECT COUNT(*) FROM %[1]s.audit_logs WHERE entity_type='job_card' AND action='complete')`, schema)).Scan(&starts, &loggedStarts, &completions, &loggedCompletions); err != nil {
+		t.Fatal(err)
+	}
+	if starts == 0 || starts != loggedStarts || completions == 0 || completions != loggedCompletions {
+		t.Fatalf("production events missing audit records: start %d/%d, complete %d/%d", starts, loggedStarts, completions, loggedCompletions)
+	}
 	t.Logf("PR748 template %d: %d BOMs, %d work orders, final receipt %g %s, cost %.6f", template, want, len(works), qty, unit, cost)
 }
 

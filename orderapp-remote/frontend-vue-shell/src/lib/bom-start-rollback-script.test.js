@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -60,4 +60,42 @@ test('release checks rollback before restoring the image and persists the write 
   assert.match(release, /rollback_check_status" -ne 0/)
   assert.match(release, /KFERP_BOM_START_READ_ONLY: 1/)
   assert.match(dockerfile, /LABEL io\.kferp\.bom-start-aware="1"/)
+})
+
+test('failed release stops first and never restores an unsafe image', () => {
+  for (const mode of ['blocked', 'aware']) {
+    const dir = mkdtempSync(join(tmpdir(), 'pr748-release-'))
+    try {
+      const release = readFileSync(join(root, 'scripts/remote_orderapp_release.sh'), 'utf8')
+      const cleanup = release.slice(release.indexOf('cleanup() {'), release.indexOf('trap cleanup EXIT'))
+        .replace('exit "$status"', 'return "$status"')
+      mkdirSync(join(dir, 'scripts'))
+      mkdirSync(join(dir, 'app'))
+      mkdirSync(join(dir, 'backup'))
+      writeFileSync(join(dir, 'docker'), '#!/bin/sh\nprintf "%s\\n" "$*" >> "$TEST_DIR/calls"\nexit 0\n', { mode: 0o755 })
+      writeFileSync(join(dir, 'sed'), '#!/bin/sh\n[ "$1" = -i ] || exit 1\n/usr/bin/sed "$2" "$3" > "$3.tmp" && /bin/mv "$3.tmp" "$3"\n', { mode: 0o755 })
+      writeFileSync(join(dir, 'scripts/check_bom_start_rollback.sh'), '#!/bin/sh\n[ "$TEST_MODE" = blocked ] && exit 1\necho aware\n')
+      writeFileSync(join(dir, 'override.yml'), '      KFERP_BOM_START_READ_ONLY: 0\n')
+      const program = `${cleanup}\nwait_for_orderapp_http() { return 0; }\nfalse\ncleanup\n`
+      const result = spawnSync('bash', ['-c', program], {
+        encoding: 'utf8',
+        env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, TEST_DIR: dir, TEST_MODE: mode,
+          DEPLOY_OK: '0', PROMOTED: '1', IMAGE_BUILT: '1', OLD_IMAGE_ID: 'old-id', OLD_IMAGE_REF: 'old-tag',
+          ROLLBACK_IMAGE: 'saved-image', SOURCE_ROOT: dir, STACK_DIR: dir, ORDERAPP_CONTAINER: 'app',
+          DOC_CONVERT_OVERRIDE: join(dir, 'override.yml'), APP_DIR: join(dir, 'app'), BACKUP: join(dir, 'backup'),
+          FAILED_RELEASE: join(dir, 'failed'), BUILD_ROOT: dir, PREFLIGHT_IMAGE: '' },
+      })
+      assert.equal(result.status, 1)
+      const calls = readFileSync(join(dir, 'calls'), 'utf8')
+      assert.match(calls, /^stop app/m)
+      if (mode === 'blocked') {
+        assert.doesNotMatch(calls, /image tag/)
+      } else {
+        assert.match(calls, /image tag saved-image old-tag/)
+        assert.match(readFileSync(join(dir, 'override.yml'), 'utf8'), /KFERP_BOM_START_READ_ONLY: 1/)
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
 })
