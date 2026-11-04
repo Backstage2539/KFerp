@@ -33,6 +33,9 @@ func freezeBOMStartRoute(raw, unit, warehouse string) (string, error) {
 	nodes := map[string]bool{}
 	for i := range route.Operations {
 		op := &route.Operations[i]
+		if strings.TrimSpace(op.Operation) == "" {
+			return "", fmt.Errorf("工序 %d 缺少名称", op.Seq)
+		}
 		var config app.OperationExecution
 		if strings.TrimSpace(op.ExecutionJSON) != "" {
 			if err := json.Unmarshal([]byte(op.ExecutionJSON), &config); err != nil {
@@ -48,6 +51,12 @@ func freezeBOMStartRoute(raw, unit, warehouse string) (string, error) {
 			return "", fmt.Errorf("工序 %d 执行版本或节点标识无效", op.Seq)
 		}
 		nodes[config.NodeKey] = true
+		if op.Seq == last && !config.ReceiptEnabled {
+			return "", fmt.Errorf("末道工序未配置入库")
+		}
+		if op.Seq != last && config.ReceiptEnabled {
+			return "", fmt.Errorf("非末道工序不能配置最终入库")
+		}
 		config.OutputUnit = firstNonEmpty(config.OutputUnit, unit)
 		config.SourceWarehouse = firstNonEmpty(config.SourceWarehouse, "wip")
 		config.ReceiptWarehouse = firstNonEmpty(config.ReceiptWarehouse, warehouse, "wip")
@@ -87,6 +96,27 @@ func requireLegacyExecutionTx(ctx context.Context, tx pgx.Tx, schema string, wor
 	}
 	if policy == "bom_start_v1" {
 		return fmt.Errorf("请先确认用料并开工；本工单须在工位报工或生产记录中更正")
+	}
+	return nil
+}
+
+type newWorkOrderBOMIssue struct{ Code, Message string }
+
+func newWorkOrderBOMIssues(version int64, snapshot string) []newWorkOrderBOMIssue {
+	issues := []newWorkOrderBOMIssue{}
+	if version <= 0 {
+		issues = append(issues, newWorkOrderBOMIssue{"bom_missing", "缺少已发布的生产 BOM"})
+	}
+	var rows []materialSnapshotRow
+	if json.Unmarshal([]byte(snapshot), &rows) != nil || len(rows) == 0 {
+		issues = append(issues, newWorkOrderBOMIssue{"bom_input_missing", "冻结 BOM 缺少投入物料，请完善 BOM 并刷新供应"})
+	}
+	return issues
+}
+
+func requireBOMStartEnabled() error {
+	if os.Getenv("KFERP_BOM_START_READ_ONLY") == "1" {
+		return fmt.Errorf("新策略工单已暂停写入，请待开工扣料版本恢复后继续")
 	}
 	return nil
 }

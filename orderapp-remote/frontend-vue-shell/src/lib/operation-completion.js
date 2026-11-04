@@ -1,4 +1,4 @@
-export function weightUnit(unit) { return ['g','kg','mg','克','千克','公斤','毫克'].includes(String(unit).toLowerCase()) }
+export function weightUnit(unit) { return ['g','gram','grams','kg','kilogram','kilograms','mg','lb','lbs','pound','pounds','oz','ounce','ounces','克','千克','公斤','毫克','磅','盎司'].includes(String(unit).toLowerCase()) }
 export function routeExecution(op = {}, last = false, fallbackKey = '') {
   let saved = {}; try { saved = JSON.parse(op.execution_json || '{}') } catch { /* API validates on save. */ }
   return { version: 1, node_key: fallbackKey, receipt_enabled: last, receipt_warehouse: '', source_warehouse: 'wip', output_unit: last ? '' : 'g', ...saved }

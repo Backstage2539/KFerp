@@ -277,7 +277,11 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	p.OperationName = routeOperation
 	p.Enabled = p.Execution.Version == 1
 	p.Final = seq == last
-	if !p.Enabled {
+	if !p.Enabled && startPolicy {
+		p.BlockedReason = "冻结工艺路线的当前工序缺少执行配置，请核对工单"
+		p.BlockedCode = "frozen_route_invalid"
+	}
+	if !p.Enabled && !startPolicy {
 		p.BlockedReason = "旧工单暂不可自动完成，请核对冻结 BOM 与工艺路线"
 		p.BlockedCode = "legacy_execution_unresolved"
 		legacyRoute := len(route.Operations) == 1
@@ -423,7 +427,7 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	if err = json.Unmarshal([]byte(materialSnapshot), &frozenMaterials); err != nil {
 		return p, wo, err
 	}
-	if (isRoastingOperationName(p.OperationName) || startPolicy && seq == first && recipeRatioTotal(frozenMaterials) > 0) && p.BomVersionID > 0 {
+	if (!startPolicy && isRoastingOperationName(p.OperationName) || startPolicy && seq == first && recipeRatioTotal(frozenMaterials) > 0) && p.BomVersionID > 0 {
 		resolved, versionID, refresh, resolveErr := r.effectiveRoastingMaterialSnapshotTx(ctx, tx, wo, frozenMaterials)
 		if resolveErr != nil {
 			return p, wo, resolveErr
@@ -644,12 +648,35 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 			p.BlockedReason = reason
 			p.BlockedCode = "bom_incomplete"
 		} else {
-			resolved, e := app.ResolveRoastingMaterialUses(p.Materials, p.InputQty, p.InputUnit)
+			var resolved []app.OperationMaterialUse
+			var e error
+			if startPolicy {
+				resolved, e = app.ResolveBOMStartMaterialUses(p.Materials, p.InputQty, p.InputUnit)
+			} else {
+				resolved, e = app.ResolveRoastingMaterialUses(p.Materials, p.InputQty, p.InputUnit)
+			}
 			if e != nil {
 				p.BlockedReason = e.Error()
 				p.BlockedCode = "bom_incomplete"
 			} else {
 				p.Materials = resolved
+			}
+		}
+	}
+	if startPolicy && seq == first {
+		present := make(map[string]bool, len(p.Materials))
+		for _, material := range p.Materials {
+			present[material.Key] = true
+		}
+		for _, frozen := range frozenMaterials {
+			kind, component := "material", frozen.MaterialID
+			if frozen.ComponentType == "finished_product" || frozen.ComponentType == "product" {
+				kind, component = "product", frozen.ComponentProductID
+			}
+			if !present[operationMaterialKey(kind, component, frozen.ComponentBomSpecID, frozen.ComponentSpecG)] {
+				p.BlockedReason = "工单缺少冻结 BOM 投入：" + frozen.MaterialName
+				p.BlockedCode = "bom_material_reservation_missing"
+				break
 			}
 		}
 	}
@@ -678,6 +705,18 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 			p.Materials[i].EligibleBatches, err = startedMaterialBatchesTx(ctx, tx, r.schema, wo.ID, p.Materials[i])
 			if err != nil {
 				return p, wo, err
+			}
+			if p.Materials[i].ProductID > 0 {
+				var hasBatchBindings bool
+				if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.work_order_material_reservation_batches WHERE reservation_id=$1 AND status='reserved')`, r.schema), p.Materials[i].ReservationID).Scan(&hasBatchBindings); err != nil {
+					return p, wo, err
+				}
+				if !hasBatchBindings {
+					p.Materials[i].AvailableQty = 0
+					for _, batch := range p.Materials[i].EligibleBatches {
+						p.Materials[i].AvailableQty += batch.AvailableQty
+					}
+				}
 			}
 		}
 		p.Materials[i].ShortageQty = math.Max(0, p.Materials[i].Qty-p.Materials[i].AvailableQty)

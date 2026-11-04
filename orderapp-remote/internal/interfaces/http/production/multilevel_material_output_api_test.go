@@ -155,6 +155,7 @@ func TestProductionPlanAPICreatesMaterialShortageWorkOrderAndCompletesIntoDownst
 	if submit.Code != http.StatusOK {
 		t.Fatalf("POST production plan submit status=%d body=%s", submit.Code, submit.Body.String())
 	}
+	markLegacyPlanForTest(t, ctx, pool, schema, planID)
 	assertProductionFlowCount(t, pool, schema, "work_orders", fmt.Sprintf("production_plan_id=%d", planID), 2)
 	assertProductionFlowCount(t, pool, schema, "work_order_dependencies", "material_id=10 AND required_g=12700 AND required_units=0", 1)
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", "material_id=10 AND required_g=22700 AND reserved_g=10000 AND status='reserved'", 1)
@@ -340,6 +341,7 @@ func TestProductionPlanAPITypedProductComponentRecursesWithPartialFinishedStock(
 	if submit.Code != http.StatusOK {
 		t.Fatalf("submit typed product-component plan status=%d body=%s", submit.Code, submit.Body.String())
 	}
+	markLegacyPlanForTest(t, ctx, pool, schema, planID)
 	assertProductionFlowCount(t, pool, schema, "work_orders", fmt.Sprintf("production_plan_id=%d", planID), 2)
 	assertProductionFlowCount(t, pool, schema, "work_orders", fmt.Sprintf(
 		"production_plan_id=%d AND output_type='product' AND output_product_id=2 AND output_material_id=0 AND output_qty=12700 AND output_unit='g' AND target_warehouse='finished_goods' AND bom_version_id=300 AND material_snapshot::text LIKE '%%生产生豆%%'",
@@ -950,6 +952,7 @@ func TestMaterialOutputCompletionHonorsFrozenPlanTargetWarehouse(t *testing.T) {
 	if submit.Code != http.StatusOK {
 		t.Fatalf("submit material target plan status=%d body=%s", submit.Code, submit.Body.String())
 	}
+	markLegacyPlanForTest(t, ctx, pool, schema, planID)
 	var workOrderID int64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id FROM %s.work_orders
@@ -1031,6 +1034,7 @@ func TestMaterialOutputShortAndOverProductionKeepDownstreamCoverageExact(t *test
 			if submit.Code != http.StatusOK {
 				t.Fatalf("submit variance plan status=%d body=%s", submit.Code, submit.Body.String())
 			}
+			markLegacyPlanForTest(t, ctx, pool, schema, planID)
 			var rootWorkOrderID, upstreamWorkOrderID int64
 			if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.work_orders WHERE production_plan_id=$1 AND output_type='product'`, schema), planID).Scan(&rootWorkOrderID); err != nil {
 				t.Fatalf("load variance root work order: %v", err)
@@ -1160,9 +1164,11 @@ func createSubmittedFullStockTypedPlan(t *testing.T, ctx context.Context, pool *
 		t.Fatalf("load typed work order id: %v", err)
 	}
 	// These tests characterize pre-existing work orders. New-policy tests opt in
- // explicitly; restore the original frozen route for the historical fixture.
- if len(policy)==0 {mustExecProductionFlowTestSQL(t,ctx,pool,fmt.Sprintf(`UPDATE %[1]s.work_orders w SET material_consumption_policy='legacy',process_snapshot_json=p.process_route_snapshot_json FROM %[1]s.production_plan_items p WHERE w.id=%[2]d AND p.id=w.production_plan_item_id`,schema,workOrderID))}
- return app, planID, workOrderID
+	// explicitly; restore the original frozen route for the historical fixture.
+	if len(policy) == 0 {
+		mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %[1]s.work_orders w SET material_consumption_policy='legacy',process_snapshot_json=p.process_route_snapshot_json FROM %[1]s.production_plan_items p WHERE w.id=%[2]d AND p.id=w.production_plan_item_id`, schema, workOrderID))
+	}
+	return app, planID, workOrderID
 }
 
 func serveMultilevelProductionJSON(t *testing.T, app http.Handler, method, path string, body any) *httptest.ResponseRecorder {

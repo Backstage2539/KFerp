@@ -34,6 +34,15 @@ func TestBOMStartConsumesOnceAndCompletionOnlyAllocates(t *testing.T) {
 	if p.BlockedReason != "" || len(p.Materials) == 0 {
 		t.Fatalf("preview missing inputs: %+v", p)
 	}
+	half := append([]app.OperationMaterialUse(nil), p.Materials...)
+	for i := range half {
+		half[i].Qty /= 2
+	}
+	noReason := serveMultilevelProductionJSON(t, e, http.MethodPost, fmt.Sprintf("/api/job-cards/%d/start", card), map[string]any{"actual_input_qty": p.InputQty / 2, "input_unit": p.InputUnit, "materials": half, "expected_version": p.Version, "request_id": "different-input-without-reason"})
+	if noReason.Code == 200 {
+		t.Fatal("changed batch input accepted without reason")
+	}
+	assertProductionFlowCount(t, pool, schema, "production_started_inputs", fmt.Sprintf("job_card_id=%d", card), 0)
 	payload := map[string]any{"actual_input_qty": p.InputQty, "actual_output_qty": p.PlannedQty, "input_unit": p.InputUnit, "output_unit": p.OutputUnit, "expected_version": p.Version, "request_id": "start-747", "materials": p.Materials}
 	res = serveMultilevelProductionJSON(t, e, http.MethodPost, fmt.Sprintf("/api/job-cards/%d/complete", card), payload)
 	if res.Code == 200 {
@@ -193,4 +202,40 @@ func TestBOMStartTwoBatchesUseFrozenSequenceAndPartialReports(t *testing.T) {
 	post(cards[2], "complete", "sort-complete", p, 8, 8, true)
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", fmt.Sprintf("work_order_id=%d AND material_id=10 AND consumed_g=3000", woID), 1)
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", fmt.Sprintf("work_order_id=%d AND material_id=747 AND consumed_g=7000", woID), 1)
+}
+
+func TestBOMStartRatioRoundingConsumesExactlyOneGram(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	e, woID, _ := startProductCompletionAtomicityFixture(t, ctx, pool, schema, 74730)
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+ INSERT INTO %[1]s.materials(id,code,name,kind,unit,cost_unit,onhand_g) VALUES(747,'PR747-TINY','第二种生豆','bean','kg','kg',10000);
+ UPDATE %[1]s.work_orders SET material_consumption_policy='bom_start_v1',bom_version_id=0,operation_material_bindings='{}',output_qty=0.001,output_unit='kg',inventory_unit='kg',planned_inventory_qty=0.001,planned_output_g=1,planned_g=1,
+ material_snapshot='[{"material_id":10,"material_name":"第一种生豆","unit":"kg","ratio_pct":50,"source":"bom","component_type":"material"},{"material_id":747,"material_name":"第二种生豆","unit":"kg","ratio_pct":50,"source":"bom","component_type":"material"}]',
+ process_snapshot_json='{"operations":[{"seq":10,"operation":"加工","execution_json":"{\"version\":1,\"node_key\":\"first\",\"receipt_enabled\":true,\"output_unit\":\"kg\"}"}]}' WHERE id=%[2]d;
+ UPDATE %[1]s.job_cards SET status='pending',sequence_no=10,planned_input_qty=1,actual_input_qty=0,actual_output_qty=0,completed_at=NULL WHERE work_order_id=%[2]d;
+ UPDATE %[1]s.work_order_material_reservations SET status='released' WHERE work_order_id=%[2]d AND material_id<>10;
+ INSERT INTO %[1]s.work_order_material_reservations(work_order_id,material_id,component_type,component_id,material_name,unit,required_g,reserved_g,source_warehouse,status) VALUES(%[2]d,747,'material',747,'第二种生豆','kg',1,0,'wip','reserved');
+ `, schema, woID))
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 74731, 747, "PR747-TINY-B", "第二种生豆", 10000)
+	var card int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.job_cards WHERE work_order_id=$1 ORDER BY id LIMIT 1`, schema), woID).Scan(&card); err != nil {
+		t.Fatal(err)
+	}
+	res := serveMultilevelProductionJSON(t, e, "GET", fmt.Sprintf("/api/job-cards/%d/start-preview", card), nil)
+	var p app.OperationCompletionPreview
+	if res.Code != 200 || json.Unmarshal(res.Body.Bytes(), &p) != nil || p.BlockedReason != "" || len(p.Materials) != 2 {
+		t.Fatalf("preview: %d %s", res.Code, res.Body.String())
+	}
+	if p.Materials[0].Qty+p.Materials[1].Qty != 0.001 {
+		t.Fatalf("rounded preview does not total one gram: %+v", p.Materials)
+	}
+	res = serveMultilevelProductionJSON(t, e, "POST", fmt.Sprintf("/api/job-cards/%d/start", card), map[string]any{"actual_input_qty": p.InputQty, "input_unit": p.InputUnit, "materials": p.Materials, "expected_version": p.Version, "request_id": "pr747-one-gram"})
+	if res.Code != 200 {
+		t.Fatalf("start: %d %s", res.Code, res.Body.String())
+	}
+	var grams int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(consumed_g),0) FROM %s.work_order_material_reservations WHERE work_order_id=$1`, schema), woID).Scan(&grams); err != nil || grams != 1 {
+		t.Fatalf("physical stock consumed %d grams: %v", grams, err)
+	}
 }

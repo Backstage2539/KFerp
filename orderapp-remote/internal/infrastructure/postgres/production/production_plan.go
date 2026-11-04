@@ -2702,6 +2702,12 @@ func operationSplitIdentityValue(split productionapp.ProductionPlanOperationSpli
 }
 
 func createReleasedWorkOrderForPlanItemTx(ctx context.Context, tx pgx.Tx, schema string, item productionapp.ProductionPlanItem, operator string, splits []productionapp.ProductionPlanOperationSplit) (productionapp.WorkOrderRow, []productionapp.JobCardRow, error) {
+	if err := requireBOMStartEnabled(); err != nil {
+		return productionapp.WorkOrderRow{}, nil, err
+	}
+	if issues := newWorkOrderBOMIssues(item.BomVersionID, item.MaterialSnapshot); len(issues) > 0 {
+		return productionapp.WorkOrderRow{}, nil, fmt.Errorf("%s", issues[0].Message)
+	}
 	frozenRoute, routeErr := freezeBOMStartRoute(item.ProcessSnapshotJSON, firstNonEmpty(item.OutputUnit, item.InventoryUnit), item.TargetWarehouse)
 	if routeErr != nil {
 		return productionapp.WorkOrderRow{}, nil, routeErr
@@ -3002,6 +3008,9 @@ func (r Repository) StartWorkOrder(ctx context.Context, cmd productionapp.WorkOr
 }
 
 func (r Repository) startWorkOrderTx(ctx context.Context, tx pgx.Tx, cmd productionapp.WorkOrderStartCommand, requireWholeOrderReady bool, deferMaterialReservations ...bool) (productionapp.WorkOrderStartResult, error) {
+	if err := checkBOMStartWriteTx(ctx, tx, r.schema, cmd.ID); err != nil {
+		return productionapp.WorkOrderStartResult{}, err
+	}
 	wo, materialSnapshot, err := loadReleasedWorkOrderForStartTx(ctx, tx, r.schema, cmd.ID)
 	if err != nil {
 		return productionapp.WorkOrderStartResult{}, err

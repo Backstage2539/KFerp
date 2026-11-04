@@ -123,6 +123,11 @@ func TestV5BOMPreviewShowsSharedConnectedRouteAndOverridesEveryProductVariant(t 
  CREATE TABLE %[1]s.manufacturing_workstation_capacities(id bigint,name text,status text,workstation_id bigint);
  CREATE TABLE %[1]s.manufacturing_workstations(id bigint,name text,status text);
  CREATE TABLE %[1]s.manufacturing_workstation_operations(workstation_id bigint,operation_id bigint);
+ INSERT INTO %[1]s.manufacturing_operations VALUES(1,'包装');
+ INSERT INTO %[1]s.manufacturing_workstations VALUES(1,'工位','active');
+ INSERT INTO %[1]s.manufacturing_workstation_capacities VALUES(1,'标准','active',1);
+ INSERT INTO %[1]s.manufacturing_workstation_operations VALUES(1,1);
+ INSERT INTO %[1]s.process_route_operations VALUES(1,31,1,1,'包装',1),(2,32,1,1,'包装',1),(3,73,1,1,'包装',1);
  `, schema)); err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +208,7 @@ func TestV5BOMPreviewShowsSharedConnectedRouteAndOverridesEveryProductVariant(t 
 	}
 	// A route can remain active while its standard-cost capacity is deactivated.
 	// Preview must reject the same broken dependency that publication rejects.
-	if _, err := pool.Exec(context.Background(), fmt.Sprintf(`INSERT INTO %s.process_route_operations VALUES(1,31,1,1,'包装',99)`, schema)); err != nil {
+	if _, err := pool.Exec(context.Background(), fmt.Sprintf(`INSERT INTO %s.process_route_operations VALUES(4,31,2,1,'包装',99)`, schema)); err != nil {
 		t.Fatal(err)
 	}
 	_, issues = executor.InspectConfigurationPreview(context.Background(), run)

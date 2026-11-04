@@ -264,7 +264,60 @@ func pr747ProductionChain(t *testing.T, pool *pgxpool.Pool, schema string, templ
 		}
 	}
 	var plan productionapp.ProductionPlanDetail
-	call("POST", "/api/production-plans", map[string]any{"from": "2026-11-01", "to": "2026-11-01", "selected": []string{fmt.Sprintf("product:%d:bom_spec:%d", product, spec)}}, &plan)
+	if opt.Direct {
+		call("POST", "/api/produce/start", map[string]any{"from": "2026-11-01", "to": "2026-11-01", "selected": []string{fmt.Sprintf("product:%d:bom_spec:%d", product, spec)}}, nil)
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT production_plan_id FROM %s.work_orders ORDER BY id DESC LIMIT 1`, schema)).Scan(&plan.ID); err != nil {
+			t.Fatal(err)
+		}
+		call("GET", fmt.Sprintf("/api/production-plans/%d", plan.ID), nil, &plan)
+	} else {
+		call("POST", "/api/production-plans", map[string]any{"from": "2026-11-01", "to": "2026-11-01", "selected": []string{fmt.Sprintf("product:%d:bom_spec:%d", product, spec)}}, &plan)
+		want := 2
+		if template == 2 {
+			want = 4
+		}
+		if opt.ExpectedLayers > 0 {
+			want = opt.ExpectedLayers
+		}
+		if len(plan.Items) != want {
+			t.Fatalf("plan layers=%d want %d: %+v", len(plan.Items), want, plan.Items)
+		}
+		groups := map[int64][]productionapp.ProductionPlanComponentSource{}
+		for _, s := range plan.ComponentSources {
+			if len(s.Options) > 0 {
+				s.SourceWarehouse = s.Options[0].Warehouse
+				s.SourceOwnerCustomerID = s.Options[0].OwnerCustomerID
+				groups[s.ProductionPlanItemID] = append(groups[s.ProductionPlanItemID], s)
+			}
+		}
+		for id, sources := range groups {
+			call("PUT", fmt.Sprintf("/api/production-plans/%d/items/%d/component-sources", plan.ID, id), map[string]any{"sources": sources}, nil)
+		}
+		splits := []productionapp.ProductionPlanOperationSplit{}
+		for _, item := range plan.Items {
+			rows, err := pool.Query(ctx, fmt.Sprintf(`SELECT o.seq,o.operation_id,o.operation,o.standard_cost_capacity_id,c.batch_size_unit FROM %[1]s.process_route_operations o JOIN %[1]s.manufacturing_workstation_capacities c ON c.id=o.standard_cost_capacity_id WHERE o.route_id=$1 ORDER BY o.seq`, schema), item.ProcessRouteID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for rows.Next() {
+				var s productionapp.ProductionPlanOperationSplit
+				var u string
+				if err = rows.Scan(&s.OperationSeq, &s.OperationID, &s.Operation, &s.WorkstationCapacityID, &u); err != nil {
+					t.Fatal(err)
+				}
+				s.ProductionPlanItemID = item.ID
+				if f := productionapp.OperationUnitFactor(u); f > 0 {
+					s.PlannedQty = float64(item.PlannedG) / f
+				} else {
+					s.PlannedQty = item.PlannedInventoryQty
+				}
+				splits = append(splits, s)
+			}
+			rows.Close()
+		}
+		call("POST", fmt.Sprintf("/api/production-plans/%d/operation-splits", plan.ID), map[string]any{"items": splits}, nil)
+		call("POST", fmt.Sprintf("/api/production-plans/%d/submit", plan.ID), nil, nil)
+	}
 	want := 2
 	if template == 2 {
 		want = 4
@@ -272,44 +325,6 @@ func pr747ProductionChain(t *testing.T, pool *pgxpool.Pool, schema string, templ
 	if opt.ExpectedLayers > 0 {
 		want = opt.ExpectedLayers
 	}
-	if len(plan.Items) != want {
-		t.Fatalf("plan layers=%d want %d: %+v", len(plan.Items), want, plan.Items)
-	}
-	groups := map[int64][]productionapp.ProductionPlanComponentSource{}
-	for _, s := range plan.ComponentSources {
-		if len(s.Options) > 0 {
-			s.SourceWarehouse = s.Options[0].Warehouse
-			s.SourceOwnerCustomerID = s.Options[0].OwnerCustomerID
-			groups[s.ProductionPlanItemID] = append(groups[s.ProductionPlanItemID], s)
-		}
-	}
-	for id, sources := range groups {
-		call("PUT", fmt.Sprintf("/api/production-plans/%d/items/%d/component-sources", plan.ID, id), map[string]any{"sources": sources}, nil)
-	}
-	splits := []productionapp.ProductionPlanOperationSplit{}
-	for _, item := range plan.Items {
-		rows, err := pool.Query(ctx, fmt.Sprintf(`SELECT o.seq,o.operation_id,o.operation,o.standard_cost_capacity_id,c.batch_size_unit FROM %[1]s.process_route_operations o JOIN %[1]s.manufacturing_workstation_capacities c ON c.id=o.standard_cost_capacity_id WHERE o.route_id=$1 ORDER BY o.seq`, schema), item.ProcessRouteID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for rows.Next() {
-			var s productionapp.ProductionPlanOperationSplit
-			var u string
-			if err = rows.Scan(&s.OperationSeq, &s.OperationID, &s.Operation, &s.WorkstationCapacityID, &u); err != nil {
-				t.Fatal(err)
-			}
-			s.ProductionPlanItemID = item.ID
-			if f := productionapp.OperationUnitFactor(u); f > 0 {
-				s.PlannedQty = float64(item.PlannedG) / f
-			} else {
-				s.PlannedQty = item.PlannedInventoryQty
-			}
-			splits = append(splits, s)
-		}
-		rows.Close()
-	}
-	call("POST", fmt.Sprintf("/api/production-plans/%d/operation-splits", plan.ID), map[string]any{"items": splits}, nil)
-	call("POST", fmt.Sprintf("/api/production-plans/%d/submit", plan.ID), nil, nil)
 	var consumed int
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_entries WHERE purpose='material_consumption_for_manufacture'`, schema)).Scan(&consumed); err != nil {
 		t.Fatal(err)
@@ -368,9 +383,21 @@ func pr747ProductionChain(t *testing.T, pool *pgxpool.Pool, schema string, templ
 			for _, m := range p.Materials {
 				if m.ProductID == opt.ReuseProductID && m.ProductID > 0 {
 					wrongVariant = true
+					if m.AvailableQty < m.Qty || len(m.EligibleBatches) == 0 {
+						t.Fatalf("reused product stock missing from preview: %+v", m)
+					}
 				}
 			}
 			if wrongVariant {
+				if opt.Direct {
+					exec(`UPDATE %s.work_order_material_reservations SET status='released' WHERE work_order_id=$1 AND component_type='product'`, work)
+					var incomplete productionapp.OperationCompletionPreview
+					call("GET", fmt.Sprintf("/api/job-cards/%d/start-preview", id), nil, &incomplete)
+					if incomplete.BlockedCode != "bom_material_reservation_missing" {
+						t.Fatalf("missing product component did not block start: %+v", incomplete)
+					}
+					exec(`UPDATE %s.work_order_material_reservations SET status='reserved' WHERE work_order_id=$1 AND component_type='product'`, work)
+				}
 				exec(`ALTER TABLE %s.stock_batches DISABLE TRIGGER USER`)
 				exec(`UPDATE %s.stock_batches SET bom_variant_id=$2 WHERE item_type='finished_product' AND item_id=$1`, opt.ReuseProductID, opt.ReuseVariantID+100000)
 				call("GET", fmt.Sprintf("/api/job-cards/%d/start-preview", id), nil, &p)
@@ -432,6 +459,7 @@ func pr747ProductionChain(t *testing.T, pool *pgxpool.Pool, schema string, templ
 type pr747ProductionOptions struct {
 	ReuseMaterialID, ReuseProductID, ReuseSpecID, ReuseVariantID int64
 	ExpectedLayers                                               int
+	Direct                                                       bool
 }
 
 func TestPR747ExistingTemplateReuseProduction(t *testing.T) {
@@ -526,4 +554,31 @@ func TestPR747CreatorRejectsIncompleteRouteWithoutRequiringInventory(t *testing.
 	if run.Preview.Valid || !found {
 		t.Fatalf("empty route accepted: %+v", run.Preview.Issues)
 	}
+}
+
+func TestPR747DirectCreateFromReusedRoastProduction(t *testing.T) {
+	pool, schema, svc := pr747CreatorFixture(t)
+	ctx := context.Background()
+	pr747Create(t, svc, 1, "PR747-direct-source", nil)
+	var id int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.materials WHERE is_semi_finished AND name LIKE 'PR747-direct-source%%'`, schema)).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	pr747Create(t, svc, 1, "PR747-direct", map[string]map[string]any{pr747Roasted: {"action": "reuse", "material_id": id}})
+	pr747ProductionChain(t, pool, schema, 1, pr747ProductionOptions{ReuseMaterialID: id, ExpectedLayers: 1, Direct: true})
+}
+
+func TestPR747DirectCreateFromReusedBagProduction(t *testing.T) {
+	pool, schema, svc := pr747CreatorFixture(t)
+	ctx := context.Background()
+	pr747Create(t, svc, 2, "PR747-direct-bag-source", nil)
+	opt := pr747ProductionOptions{ExpectedLayers: 1, Direct: true}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT p.id,s.id,v.id FROM %[1]s.products p JOIN %[1]s.production_boms b ON b.output_product_id=p.id JOIN %[1]s.production_bom_versions bv ON bv.bom_id=b.id AND bv.status='published' JOIN %[1]s.production_bom_version_variants v ON v.version_id=bv.id JOIN %[1]s.production_bom_specs s ON s.id=v.bom_spec_id WHERE p.name LIKE '挂耳-%%' AND s.spec_key='spec-1'`, schema)).Scan(&opt.ReuseProductID, &opt.ReuseSpecID, &opt.ReuseVariantID); err != nil {
+		t.Fatal(err)
+	}
+	pr747Create(t, svc, 2, "PR747-direct-bag", map[string]map[string]any{
+		pr747Bag: {"action": "reuse", "product_id": opt.ReuseProductID},
+		pr747Box: {"main_input_source_node_id": pr747Bag, "main_input_source_row_id": fmt.Sprint(opt.ReuseSpecID)},
+	})
+	pr747ProductionChain(t, pool, schema, 2, opt)
 }

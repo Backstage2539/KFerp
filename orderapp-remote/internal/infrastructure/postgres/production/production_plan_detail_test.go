@@ -142,7 +142,7 @@ func TestProductionPlanReadinessReportsAllBlockingSections(t *testing.T) {
 		ID:     41,
 		Status: "draft",
 		Items: []productionapp.ProductionPlanItem{{
-			ID: 51, ProductName: "初晓商品", OutputUnit: "袋", SalesSpecCount: 20,
+			ID: 51, ProductName: "初晓商品", OutputUnit: "袋", BomVersionID: 1, MaterialSnapshot: `[{"material_id":1,"material_name":"豆","unit":"kg","ratio_pct":100}]`, SalesSpecCount: 20,
 			ProcessSnapshotJSON: `{"operations":[{"seq":1,"operation":"包装"}]}`,
 		}},
 		ComponentSources: []productionapp.ProductionPlanComponentSource{{
@@ -168,7 +168,7 @@ func TestProductionPlanReadinessRequiresRefreshForLegacyUpstreamLossSnapshot(t *
 	detail := productionapp.ProductionPlanDetail{
 		ID: 109, Status: "draft",
 		Items: []productionapp.ProductionPlanItem{{
-			ID: 51, OutputType: "material", OutputName: "初晓熟豆", OutputQty: 4.54, OutputUnit: "kg", PlannedG: 5640, PlannedOutputG: 4540,
+			ID: 51, BomVersionID: 1, OutputType: "material", OutputName: "初晓熟豆", OutputQty: 4.54, OutputUnit: "kg", PlannedG: 5640, PlannedOutputG: 4540,
 			MaterialSnapshot:    `[{"material_id":7,"material_name":"咖啡生豆","unit":"kg","ratio_pct":100,"material_loss_rate":0.18}]`,
 			ProcessSnapshotJSON: `{"operations":[]}`,
 		}},
@@ -223,7 +223,7 @@ func TestPreviewProductionPlanOperationSplitsShowsCoverageAndMaterialGap(t *test
 func TestPreviewProductionPlanOperationSplitsReturnsNativeTaskQuantities(t *testing.T) {
 	items := []productionapp.ProductionPlanItem{
 		{
-			ID: 51, OutputType: "material", OutputName: "初晓熟豆", OutputQty: 4.54, OutputUnit: "kg",
+			ID: 51, BomVersionID: 1, OutputType: "material", OutputName: "初晓熟豆", OutputQty: 4.54, OutputUnit: "kg",
 			PlannedG: 5640, PlannedOutputG: 4540,
 			ProcessSnapshotJSON: `{"operations":[{"seq":1,"operation_id":701,"operation":"滚筒烘焙"}]}`,
 		},
@@ -307,5 +307,16 @@ func TestProductionPlanReadinessValidatesFrozenStartRoute(t *testing.T) {
 	}
 	if !found || readiness.CanSubmit {
 		t.Fatalf("missing frozen route blocker: %+v", readiness)
+	}
+}
+func TestProductionPlanReadinessRejectsMissingBOMAndInputs(t *testing.T) {
+	detail := productionapp.ProductionPlanDetail{ID: 747, Status: "draft", Items: []productionapp.ProductionPlanItem{{ID: 1, OutputName: "红岩", OutputUnit: "kg", ProcessSnapshotJSON: `{"operations":[{"seq":1,"operation":"烘焙"}]}`, MaterialSnapshot: `[]`}}}
+	got := productionPlanReadiness(detail)
+	found := map[string]bool{}
+	for _, i := range got.Issues {
+		found[i.Code] = true
+	}
+	if !found["bom_missing"] || !found["bom_input_missing"] || got.CanSubmit {
+		t.Fatalf("missing BOM blockers: %+v", got)
 	}
 }

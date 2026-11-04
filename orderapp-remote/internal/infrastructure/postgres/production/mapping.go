@@ -70,6 +70,13 @@ func startNeedsToApp(rows []UnprodNeedRow) []productionapp.StartNeed {
 	out := make([]productionapp.StartNeed, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, productionapp.StartNeed{
+			SelectionID:              productionDemandSelectionID(r),
+			OrderDetails:             r.OrderDetails,
+			BomSpecID:                r.BomSpecID,
+			BomVariantID:             r.BomVariantID,
+			CustomerID:               r.CustomerID,
+			TargetWarehouse:          r.TargetWarehouse,
+			ProcessingRequestItemID:  r.ProcessingRequestItemID,
 			ProductID:                r.ProductID,
 			ParentProductID:          r.ParentProductID,
 			ProductName:              r.Product,
@@ -93,6 +100,12 @@ func startNeedsFromApp(rows []productionapp.StartNeed) []UnprodNeedRow {
 	out := make([]UnprodNeedRow, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, UnprodNeedRow{
+			OrderDetails:             r.OrderDetails,
+			BomSpecID:                r.BomSpecID,
+			BomVariantID:             r.BomVariantID,
+			CustomerID:               r.CustomerID,
+			TargetWarehouse:          r.TargetWarehouse,
+			ProcessingRequestItemID:  r.ProcessingRequestItemID,
 			ProductID:                r.ProductID,
 			ParentProductID:          r.ParentProductID,
 			Product:                  r.ProductName,

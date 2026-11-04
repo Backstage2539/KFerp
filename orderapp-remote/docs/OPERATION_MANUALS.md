@@ -1,3 +1,5 @@
+PR-748：新工单首道工序按批确认并扣料、补退料和误开工撤销，参见[生产手册](OP_MANUAL_PRODUCTION.md#按批开工扣料新工单)、[库存作业手册](OP_MANUAL_STOCK.md#按批开工与领退料)和[商品创建器手册](OP_MANUAL_PRODUCT_CREATOR.md#创建商品后的生产准备)。
+
 履约账单收款、撤销及库存关联订单付款状态，参见[客户履约手册](OP_MANUAL_CUSTOMER_FULFILLMENT.md#履约账单收款与撤销)。
 
 PR-745：客户小程序订单费用、客户价格表和手机号登录，参见[客户履约手册](OP_MANUAL_CUSTOMER_FULFILLMENT.md)及[价格表中心手册](OP_MANUAL_BEAN_LIST_CENTER.md)。

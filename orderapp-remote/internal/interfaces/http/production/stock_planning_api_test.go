@@ -48,6 +48,16 @@ func TestStockProductionPreviewIsReadOnlyAndCreatesIndependentMaterialPlan(t *te
 	}
 }
 
+// These legacy regression scenarios intentionally execute an already-issued
+// historical work order through old completion and stock APIs. New orders are
+// covered by the bom_start_v1 end-to-end tests.
+func markLegacyPlanForTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string, plan int64) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.work_orders w SET material_consumption_policy='legacy',process_snapshot_json=p.process_route_snapshot_json FROM %[1]s.production_plan_items p WHERE w.production_plan_item_id=p.id AND w.production_plan_id=$1`, schema), plan); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func selectPlanningTestSources(t *testing.T, app *echo.Echo, planID int64) {
 	t.Helper()
 	rec := serveMultilevelProductionJSON(t, app, http.MethodGet, fmt.Sprintf("/api/production-plans/%d", planID), nil)

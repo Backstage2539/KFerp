@@ -52,12 +52,16 @@ type OperationCompletionPlan struct {
 
 func OperationUnitFactor(unit string) float64 {
 	switch strings.ToLower(strings.TrimSpace(unit)) {
-	case "g", "克":
+	case "g", "gram", "grams", "克":
 		return 1
-	case "kg", "千克", "公斤":
+	case "kg", "kilogram", "kilograms", "千克", "公斤":
 		return 1000
 	case "mg", "毫克":
 		return .001
+	case "lb", "lbs", "pound", "pounds", "磅":
+		return 453.59237
+	case "oz", "ounce", "ounces", "盎司":
+		return 28.349523125
 	}
 	return 0
 }

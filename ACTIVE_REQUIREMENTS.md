@@ -6413,16 +6413,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - DEV: DEV-PR746-01 detail snapshots; DEV-PR746-02 page and exports; DEV-PR746-03 manuals, validation and development deployment.
 - Verifier: TDD helper, database snapshot and source association tests, API and UI checks, Excel/PDF/PNG consistency and stamp visual verification.
 - Notes: macOS awk failed to claim PR ID; recorded here and in requirement seeds.
-### PR-747-BOM-START-CONSUMPTION
+### PR-748-BOM-START-CONSUMPTION
 - Branch: `codex/bom-start-consumption`; base `eba63ae30`; latest fetched develop `3ef4bce47` integrated into feature; revalidation pending.
 - Status: implementation and integration testing in progress; not merged or deployed. Van explicitly authorized complete feature → develop → development deployment; production release and PP-0000000018 business actions excluded.
-- DEV: DEV-PR747-01 policy/start; DEV-PR747-02 balances/adjustments/cost; DEV-PR747-03 Vue/creator; DEV-PR747-04 manuals/acceptance/development delivery. PR remains awaiting Van acceptance.
+- DEV: DEV-PR748-01 policy/start; DEV-PR748-02 balances/adjustments/cost; DEV-PR748-03 Vue/creator; DEV-PR748-04 manuals/acceptance/development delivery. PR remains awaiting Van acceptance.
 - Implemented locally: new-order policy freeze and deterministic route defaults, single/group atomic starts, FIFO input/component cost allocations, partial reporting without consumption, original-batch returns and reversal, source-only BOM API/UI, start/adjustment/group Vue forms, old-path guards and rollback write-pause setting. These remain subject to full integration review.
 - RED/GREEN evidence: missing start/reversal/source routes; new policy initially `legacy`; missing group actual processed inputs; group UI mixed pending/running/legacy; missing additional stock permissions; core start two-batch, allocation, adjustment/reversal/restart and plan→start→report→receipt tests GREEN on isolated PostgreSQL port 55439. Vue build GREEN; stale legacy-only UI assertions being updated.
 - Additional evidence 2026-11-04: isolated production-template snapshots passed coffee and four-layer drip creation → plan → start → report → receipt, and reuse of roasted beans, powder and bagged product; originals unchanged. Two batches and following sorting, partial reporting/return/reversal, FIFO cost, issued-WIP source, failed audit/stock/quality/owner/version and concurrent idempotent starts have dedicated PostgreSQL API checks. Creator rejects an empty route without requiring stock at creation. The latter source/batch changes and current develop updates need full revalidation.
 - Verifier pending: full live PostgreSQL regression and comparison to baseline; product variant/return and rollback matrix; frontend interaction and browser; merge latest develop; compatible rollback verification; deployment and business rehearsal. Basic Go tests are not delivery acceptance.
 - Read-only template audit 2026-11-01: production template #1 咖啡烘焙豆商品 revision24/version10; #2 挂耳咖啡商品 revision27/version9 has four BOM layers. Development #2/#5 are older/different two-/three-BOM templates. Do not overwrite or upgrade either environment's templates; use isolated snapshots of the production templates for the required acceptance flow.
-- No production business writes, no original template mutations, no merge/push/deployment performed by this task yet. PR-747 absent from development requirement table on read-only check.
+- No production business writes, no original template mutations, no merge/push/deployment performed by this task yet. PR-748 absent from development requirement table on read-only check.
 
 
 ## PR-STOCK-TRANSFER-SOURCE-OPTIONS（2026-11-01）

@@ -113,6 +113,10 @@ func (r Repository) startOperationLockedTx(ctx context.Context, tx pgx.Tx, cmd a
 	if cmd.InputUnit != p.InputUnit || cmd.ActualInputQty <= 0 {
 		return out, fmt.Errorf("请确认本批实际投入数量和单位")
 	}
+	if math.Round(cmd.ActualInputQty*1e8) != math.Round(p.InputQty*1e8) && strings.TrimSpace(cmd.DifferenceReason) == "" {
+		return out, fmt.Errorf("实际投入与建议数量不一致，请填写差异原因")
+	}
+
 	if err = app.ValidateOperationQuantity(cmd.ActualInputQty, cmd.InputUnit); err != nil {
 		return out, err
 	}
@@ -122,7 +126,7 @@ func (r Repository) startOperationLockedTx(ctx context.Context, tx pgx.Tx, cmd a
 			return out, err
 		}
 	} else if p.RecipeRatioPct > 0 {
-		expected, err = app.ResolveRoastingMaterialUses(expected, cmd.ActualInputQty, p.InputUnit)
+		expected, err = app.ResolveBOMStartMaterialUses(expected, cmd.ActualInputQty, p.InputUnit)
 		if err != nil {
 			return out, err
 		}

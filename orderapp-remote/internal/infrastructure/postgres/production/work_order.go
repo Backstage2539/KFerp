@@ -52,6 +52,10 @@ type plannedOperationMetrics struct {
 }
 
 type legacyWorkOrderQuantitySnapshot struct {
+	BomVersionID             int64
+	BomSpecID                int64
+	BomVariantID             int64
+	FrozenRoute              string
 	ParentProductID          int64
 	PlannedOutputG           int64
 	SalesSpecCount           float64
@@ -64,6 +68,8 @@ type legacyWorkOrderQuantitySnapshot struct {
 
 func legacyWorkOrderQuantitySnapshotFromGroup(group startRunGroup) legacyWorkOrderQuantitySnapshot {
 	return legacyWorkOrderQuantitySnapshot{
+		BomSpecID:                group.BomSpecID,
+		BomVariantID:             group.BomVariantID,
 		ParentProductID:          group.ParentProductID,
 		PlannedOutputG:           group.NeedG,
 		SalesSpecCount:           group.SalesSpecCount,
@@ -944,14 +950,26 @@ func routeSequenceOnlyOperation(op processSnapshotOperation) processSnapshotOper
 }
 
 func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, batchID string, productID int64, productName string, specG int64, plannedG int64, materialSnapshot []byte, operationTemplateID int64, quantity legacyWorkOrderQuantitySnapshot) (int64, error) {
-	processSnapshot, processSnapshotJSON, err := loadProcessRouteSnapshotForWorkOrderTx(ctx, tx, schema, productID)
-	if err != nil {
-		return 0, err
-	}
-	if processSnapshot == nil {
-		processSnapshot, processSnapshotJSON, err = loadActiveProcessTemplateSnapshotTx(ctx, tx, schema, productID)
+	var processSnapshot *processTemplateSnapshot
+	var processSnapshotJSON []byte
+	var err error
+	if strings.TrimSpace(quantity.FrozenRoute) != "" {
+		processSnapshotJSON = []byte(quantity.FrozenRoute)
+		var frozen processTemplateSnapshot
+		if err = json.Unmarshal(processSnapshotJSON, &frozen); err != nil {
+			return 0, fmt.Errorf("冻结工艺路线无效：%w", err)
+		}
+		processSnapshot = &frozen
+	} else {
+		processSnapshot, processSnapshotJSON, err = loadProcessRouteSnapshotForWorkOrderTx(ctx, tx, schema, productID)
 		if err != nil {
 			return 0, err
+		}
+		if processSnapshot == nil {
+			processSnapshot, processSnapshotJSON, err = loadActiveProcessTemplateSnapshotTx(ctx, tx, schema, productID)
+			if err != nil {
+				return 0, err
+			}
 		}
 	}
 	processTemplateID := int64(0)
@@ -988,14 +1006,24 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 	if len(productionConfigSnapshot) == 0 {
 		productionConfigSnapshot = []byte("{}")
 	}
-	bomVersionID, err := loadBoundBomVersionIDForProductTx(ctx, tx, schema, productID)
-	if err != nil {
-		return 0, err
+	bomVersionID := quantity.BomVersionID
+	if bomVersionID <= 0 {
+		bomVersionID, err = loadBoundBomVersionIDForProductTx(ctx, tx, schema, productID)
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	var workOrderID int64
 	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.work_orders WHERE running_item_id=$1 FOR UPDATE`, schema), runningItemID).Scan(&workOrderID)
 	if err == nil {
+		var policy string
+		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT material_consumption_policy FROM %s.work_orders WHERE id=$1`, schema), workOrderID).Scan(&policy); err != nil {
+			return 0, err
+		}
+		if policy == "bom_start_v1" {
+			return 0, fmt.Errorf("已冻结的新策略工单不能通过旧流程重置配方或路线")
+		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			UPDATE %s.work_orders
 			SET status='running',
@@ -1027,6 +1055,12 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 			return 0, err
 		}
 	} else if err == pgx.ErrNoRows {
+		if err = requireBOMStartEnabled(); err != nil {
+			return 0, err
+		}
+		if issues := newWorkOrderBOMIssues(bomVersionID, string(materialSnapshot)); len(issues) > 0 {
+			return 0, fmt.Errorf("%s", issues[0].Message)
+		}
 		frozenRoute, routeErr := freezeBOMStartRoute(string(processSnapshotJSON), quantity.InventoryUnit, "finished_goods")
 		if routeErr != nil {
 			return 0, routeErr
@@ -1038,30 +1072,26 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			INSERT INTO %s.work_orders(
-				work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status,
+				work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status,bom_spec_id,bom_variant_id,
 				material_snapshot,bom_version_id,operation_template_id,process_template_id,process_template_name,process_snapshot_json,
 				production_config_snapshot_json,customer_product_snapshot_json,
 				parent_product_id,sales_spec_count,inventory_qty_per_sales_unit,inventory_unit,planned_inventory_qty,
 				sales_spec_snapshot_json,planned_output_g,order_nos,material_consumption_policy,created_at
 			)
-			VALUES($1,$2,$3,$4,$5,$6,$7,'running',$8,$9,$10,$11,$12,$13,$14,$15,
+			VALUES($1,$2,$3,$4,$5,$6,$7,'running',$24,$25,$8,$9,$10,$11,$12,$13,$14,$15,
 			       $16,$17,$18,$19,$20,$21::jsonb,$22,$23,'bom_start_v1',now())
 			RETURNING id
 		`, schema), workOrderNo(runningItemID), runningItemID, batchID, productID, productName, specG, plannedG,
 			materialSnapshot, bomVersionID, operationTemplateID, processTemplateID, processTemplateName,
 			processSnapshotJSON, productionConfigSnapshot, customerProductSnapshot,
 			quantity.ParentProductID, quantity.SalesSpecCount, quantity.InventoryQtyPerSalesUnit, quantity.InventoryUnit,
-			quantity.PlannedInventoryQty, salesSpecSnapshotJSON, quantity.PlannedOutputG, quantity.OrderNos,
+			quantity.PlannedInventoryQty, salesSpecSnapshotJSON, quantity.PlannedOutputG, quantity.OrderNos, quantity.BomSpecID, quantity.BomVariantID,
 		).Scan(&workOrderID); err != nil {
 			return 0, err
 		}
 	} else {
 		return 0, err
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.work_orders SET operation_material_bindings=COALESCE((SELECT bindings FROM %[1]s.production_bom_operation_bindings WHERE bom_version_id=$2 AND bom_variant_id=0),'{}'::jsonb) WHERE id=$1 AND material_consumption_policy='bom_start_v1'`, schema), workOrderID, bomVersionID); err != nil {
-		return 0, err
-	}
-
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.job_cards WHERE work_order_id=$1`, schema), workOrderID); err != nil {
 		return 0, err
 	}

@@ -31,11 +31,18 @@ func (e BusinessExecutor) inspectPreviewRouteCapacities(ctx context.Context, det
 				ids[id] = true
 			}
 		}
+		if route, hasRoute := detail["process_route"].(map[string]any); hasRoute {
+			if _, hasTemplate := detail["specification_template"].(map[string]any); !hasTemplate && positiveNumber(route["id"]) <= 0 {
+				issues = append(issues, app.ValidationIssue{NodeID: nodeID, Field: "route", Code: "process_route_invalid", Message: "BOM 尚未选择工艺路线，请先选择完整路线"})
+			}
+		}
 		if template, ok := detail["specification_template"].(map[string]any); ok {
 			if variants, ok := template["variants"].([]bomapp.ProductionBomSpecTemplateVariant); ok {
 				for _, v := range variants {
 					if v.ProcessRouteID > 0 {
 						ids[v.ProcessRouteID] = true
+					} else {
+						issues = append(issues, app.ValidationIssue{NodeID: nodeID, Field: "route", Code: "process_route_invalid", Message: fmt.Sprintf("规格 %s 尚未选择工艺路线", v.Name)})
 					}
 				}
 			}

@@ -181,7 +181,7 @@ func (r Repository) AdjustOperationMaterials(ctx context.Context, c app.Operatio
 					}
 					returnedCost += amount
 				}
-				if p.RecipeRatioPct > 0 && math.Abs(reduce*app.OperationUnitFactor(input.Unit)-totalG) > 1e-8 {
+				if p.RecipeRatioPct > 0 && math.Abs(math.Round(reduce*app.OperationUnitFactor(input.Unit))-totalG) > 1e-8 {
 					return out, fmt.Errorf("比例配方退料合计必须等于减少的实际投入")
 				}
 				if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_started_inputs SET remaining_qty=remaining_qty-$2,remaining_cost=remaining_cost-$3,status=CASE WHEN $4 THEN 'reversed' ELSE status END WHERE id=$1`, r.schema), input.ID, reduce, returnedCost, c.Kind == "start_reversal"); err != nil {

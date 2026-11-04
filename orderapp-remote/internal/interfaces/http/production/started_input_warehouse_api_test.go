@@ -7,6 +7,7 @@ import (
 	app "orderapp/internal/application/production"
 	stockapp "orderapp/internal/application/stock"
 	stockrepo "orderapp/internal/infrastructure/postgres/stock"
+	"strings"
 	"testing"
 )
 
@@ -45,4 +46,39 @@ func TestBOMStartUsesIssuedLocationInsteadOfFrozenSource(t *testing.T) {
 		t.Fatal(r.Body.String())
 	}
 	assertProductionFlowCount(t, pool, schema, "stock_entry_items", fmt.Sprintf("material_id=10 AND from_warehouse='wip' AND stock_entry_id IN(SELECT id FROM %s.stock_entries WHERE source_type='operation_start')", schema), 1)
+	r = serveMultilevelProductionJSON(t, e, "GET", fmt.Sprintf("/api/job-cards/%d/start-preview", card), nil)
+	if err = json.Unmarshal(r.Body.Bytes(), &p); err != nil {
+		t.Fatal(err)
+	}
+	r = serveMultilevelProductionJSON(t, e, "POST", fmt.Sprintf("/api/job-cards/%d/start-reversal", card), map[string]any{"expected_version": p.Version, "request_id": "issued-reverse", "reason": "尚未投入加工", "unprocessed_confirmed": true})
+	if r.Code != 200 {
+		t.Fatal(r.Body.String())
+	}
+	r = serveMultilevelProductionJSON(t, e, "GET", fmt.Sprintf("/api/job-cards/%d/start-preview", card), nil)
+	if err = json.Unmarshal(r.Body.Bytes(), &p); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range p.Materials {
+		if m.MaterialID == 10 && m.Warehouse != "wip" {
+			t.Fatalf("returned issued batch must remain in WIP: %s", m.Warehouse)
+		}
+	}
+}
+func TestBOMStartRollbackModePausesNewAndRetainsLegacy(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	e, _, wo := createSubmittedFullStockTypedPlan(t, ctx, pool, schema, 74821, "bom_start_v1")
+	t.Setenv("KFERP_BOM_START_READ_ONLY", "1")
+	res := serveMultilevelProductionJSON(t, e, "POST", fmt.Sprintf("/api/produce/work-orders/%d/start", wo), nil)
+	if res.Code == 200 || !strings.Contains(res.Body.String(), "暂停写入") {
+		t.Fatalf("rollback accepted new-policy work order: %s", res.Body.String())
+	}
+	assertProductionFlowCount(t, pool, schema, "work_orders", fmt.Sprintf("id=%d AND status='released' AND running_item_id=0", wo), 1)
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET material_consumption_policy='legacy' WHERE id=$1`, schema), wo); err != nil {
+		t.Fatal(err)
+	}
+	res = serveMultilevelProductionJSON(t, e, "POST", fmt.Sprintf("/api/produce/work-orders/%d/start", wo), nil)
+	if res.Code != 200 {
+		t.Fatalf("rollback mode prevented legacy work order: %s", res.Body.String())
+	}
 }

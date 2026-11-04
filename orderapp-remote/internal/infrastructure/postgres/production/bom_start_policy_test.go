@@ -29,3 +29,10 @@ func TestFreezeBOMStartRouteUsesSequenceAndPreservesExplicitConfiguration(t *tes
 		t.Fatal("empty route accepted")
 	}
 }
+func TestFreezeBOMStartRouteRejectsIncompleteSteps(t *testing.T) {
+	for _, route := range []string{`{"operations":[{"seq":1,"operation":""}]}`, `{"operations":[{"seq":1,"operation":"加工","execution_json":"{\"version\":1,\"node_key\":\"n1\",\"receipt_enabled\":false}"}]}`} {
+		if _, err := freezeBOMStartRoute(route, "kg", "wip"); err == nil {
+			t.Fatalf("incomplete route accepted: %s", route)
+		}
+	}
+}

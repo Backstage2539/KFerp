@@ -742,8 +742,8 @@
   "materials": [
     {
       "id": 100,
-      "code": "MAT-000100",
-      "name": "咖啡豆袋-454-银色-镀铝",
+      "code": "PR747-100",
+      "name": "PR747物料-100",
       "kind": "other",
       "unit": "pic",
       "cost_unit": "pic",
@@ -751,8 +751,8 @@
     },
     {
       "id": 32,
-      "code": "KMM-PACK-041",
-      "name": "挂耳盒子",
+      "code": "PR747-32",
+      "name": "PR747物料-32",
       "kind": "pack",
       "unit": "个",
       "cost_unit": "个",
@@ -760,8 +760,8 @@
     },
     {
       "id": 137,
-      "code": "MAT-000137",
-      "name": "咖啡豆袋-1kg",
+      "code": "PR747-137",
+      "name": "PR747物料-137",
       "kind": "other",
       "unit": "pic",
       "cost_unit": "pic",
@@ -769,8 +769,8 @@
     },
     {
       "id": 49,
-      "code": "KMM-PACK-DRIP-FILTER",
-      "name": "挂耳滤袋",
+      "code": "PR747-49",
+      "name": "PR747物料-49",
       "kind": "pack",
       "unit": "个",
       "cost_unit": "个",
@@ -778,8 +778,8 @@
     },
     {
       "id": 50,
-      "code": "KMM-PACK-DRIP-INNER",
-      "name": "挂耳内膜",
+      "code": "PR747-50",
+      "name": "PR747物料-50",
       "kind": "pack",
       "unit": "个",
       "cost_unit": "个",
@@ -787,8 +787,8 @@
     },
     {
       "id": 103,
-      "code": "MAT-000103",
-      "name": "咖啡豆袋227g",
+      "code": "PR747-103",
+      "name": "PR747物料-103",
       "kind": "other",
       "unit": "pic",
       "cost_unit": "pic",
@@ -796,8 +796,8 @@
     },
     {
       "id": 101,
-      "code": "MAT-000101",
-      "name": "咖啡豆袋-18/36g",
+      "code": "PR747-101",
+      "name": "PR747物料-101",
       "kind": "other",
       "unit": "pic",
       "cost_unit": "pic",
@@ -805,8 +805,8 @@
     },
     {
       "id": 105,
-      "code": "MAT-000105",
-      "name": "咖啡豆袋-2.5kg",
+      "code": "PR747-105",
+      "name": "PR747物料-105",
       "kind": "other",
       "unit": "pic",
       "cost_unit": "pic",
@@ -814,8 +814,8 @@
     },
     {
       "id": 102,
-      "code": "MAT-000102",
-      "name": "咖啡豆袋-50/80g",
+      "code": "PR747-102",
+      "name": "PR747物料-102",
       "kind": "other",
       "unit": "pic",
       "cost_unit": "pic",
@@ -870,10 +870,10 @@
       "batch_size_qty": 14.0,
       "batch_size_unit": "件",
       "standard_minutes": 15,
-      "hourly_rate": 15.0,
+      "hourly_rate": 12,
       "planned_batch_count": 1,
       "planned_minutes": 15,
-      "planned_operation_cost": 0.5,
+      "planned_operation_cost": 0,
       "records_loss": false,
       "quality_checklist_json": [],
       "operation_id": 4,
@@ -903,17 +903,17 @@
       "batch_size_qty": 1000.0,
       "batch_size_unit": "件",
       "standard_minutes": 45,
-      "hourly_rate": 42.0,
+      "hourly_rate": 12,
       "planned_batch_count": 1,
       "planned_minutes": 45,
-      "planned_operation_cost": 0.315,
+      "planned_operation_cost": 0,
       "records_loss": false,
       "quality_checklist_json": [],
       "operation_id": 5,
       "workstation_id": 0,
       "standard_cost_capacity_id": 14,
       "cost_method": "piece",
-      "piece_rate": 0.315,
+      "piece_rate": 0.5,
       "execution_json": {
         "version": 1,
         "node_key": "route-8-step-1",
@@ -936,17 +936,17 @@
       "batch_size_qty": 15.0,
       "batch_size_unit": "kg",
       "standard_minutes": 3,
-      "hourly_rate": 270.0,
+      "hourly_rate": 12,
       "planned_batch_count": 1,
       "planned_minutes": 3,
-      "planned_operation_cost": 0.9,
+      "planned_operation_cost": 0,
       "records_loss": false,
       "quality_checklist_json": [],
       "operation_id": 6,
       "workstation_id": 0,
       "standard_cost_capacity_id": 12,
       "cost_method": "time",
-      "piece_rate": 0.0,
+      "piece_rate": 0,
       "execution_json": {
         "version": 1,
         "node_key": "route-9-step-1",
@@ -969,17 +969,17 @@
       "batch_size_qty": 15.0,
       "batch_size_unit": "kg",
       "standard_minutes": 18,
-      "hourly_rate": 102.0,
+      "hourly_rate": 12,
       "planned_batch_count": 1,
       "planned_minutes": 18,
-      "planned_operation_cost": 2.04,
+      "planned_operation_cost": 0,
       "records_loss": false,
       "quality_checklist_json": [],
       "operation_id": 3,
       "workstation_id": 0,
       "standard_cost_capacity_id": 2,
       "cost_method": "time",
-      "piece_rate": 0.0,
+      "piece_rate": 0,
       "execution_json": {
         "version": 1,
         "node_key": "route-5-step-1",
@@ -1002,17 +1002,17 @@
       "batch_size_qty": 15.0,
       "batch_size_unit": "kg",
       "standard_minutes": 10,
-      "hourly_rate": 6.0,
+      "hourly_rate": 12,
       "planned_batch_count": 1,
       "planned_minutes": 10,
-      "planned_operation_cost": 0.07,
+      "planned_operation_cost": 0,
       "records_loss": true,
       "quality_checklist_json": [],
       "operation_id": 2,
       "workstation_id": 0,
       "standard_cost_capacity_id": 9,
       "cost_method": "time",
-      "piece_rate": 0.0,
+      "piece_rate": 0,
       "execution_json": {
         "version": 1,
         "node_key": "route-5-step-2",
@@ -1030,7 +1030,7 @@
       "name": "色选",
       "status": "inactive",
       "default_minutes": 0,
-      "standard_operation_cost": 0.0,
+      "standard_operation_cost": 0,
       "note": ""
     },
     {
@@ -1039,7 +1039,7 @@
       "name": "色选",
       "status": "active",
       "default_minutes": 0,
-      "standard_operation_cost": 0.0,
+      "standard_operation_cost": 0,
       "note": ""
     },
     {
@@ -1048,7 +1048,7 @@
       "name": "咖啡烘焙+除石",
       "status": "active",
       "default_minutes": 0,
-      "standard_operation_cost": 0.0,
+      "standard_operation_cost": 0,
       "note": ""
     },
     {
@@ -1057,7 +1057,7 @@
       "name": "包装",
       "status": "active",
       "default_minutes": 0,
-      "standard_operation_cost": 0.0,
+      "standard_operation_cost": 0,
       "note": ""
     },
     {
@@ -1066,7 +1066,7 @@
       "name": "挂耳生产",
       "status": "active",
       "default_minutes": 0,
-      "standard_operation_cost": 0.0,
+      "standard_operation_cost": 0,
       "note": ""
     },
     {
@@ -1075,7 +1075,7 @@
       "name": "磨粉",
       "status": "active",
       "default_minutes": 0,
-      "standard_operation_cost": 0.0,
+      "standard_operation_cost": 0,
       "note": ""
     }
   ],
@@ -1086,10 +1086,10 @@
       "name": "挂耳机",
       "status": "active",
       "default_minutes": 0,
-      "machine_hourly_cost": 17.0,
-      "labor_hourly_cost": 20.0,
-      "overhead_hourly_cost": 5.0,
-      "hourly_rate": 42.0,
+      "machine_hourly_cost": 0,
+      "labor_hourly_cost": 0,
+      "overhead_hourly_cost": 0,
+      "hourly_rate": 12,
       "note": ""
     },
     {
@@ -1098,10 +1098,10 @@
       "name": "磨粉机器",
       "status": "active",
       "default_minutes": 0,
-      "machine_hourly_cost": 50.0,
-      "labor_hourly_cost": 20.0,
-      "overhead_hourly_cost": 200.0,
-      "hourly_rate": 270.0,
+      "machine_hourly_cost": 0,
+      "labor_hourly_cost": 0,
+      "overhead_hourly_cost": 0,
+      "hourly_rate": 12,
       "note": ""
     },
     {
@@ -1110,10 +1110,10 @@
       "name": "包装台",
       "status": "active",
       "default_minutes": 0,
-      "machine_hourly_cost": 0.0,
-      "labor_hourly_cost": 15.0,
-      "overhead_hourly_cost": 0.0,
-      "hourly_rate": 15.0,
+      "machine_hourly_cost": 0,
+      "labor_hourly_cost": 0,
+      "overhead_hourly_cost": 0,
+      "hourly_rate": 12,
       "note": ""
     },
     {
@@ -1122,10 +1122,10 @@
       "name": "布勒",
       "status": "active",
       "default_minutes": 0,
-      "machine_hourly_cost": 72.0,
-      "labor_hourly_cost": 30.0,
-      "overhead_hourly_cost": 0.0,
-      "hourly_rate": 102.0,
+      "machine_hourly_cost": 0,
+      "labor_hourly_cost": 0,
+      "overhead_hourly_cost": 0,
+      "hourly_rate": 12,
       "note": ""
     },
     {
@@ -1134,10 +1134,10 @@
       "name": "智烘",
       "status": "active",
       "default_minutes": 0,
-      "machine_hourly_cost": 72.0,
-      "labor_hourly_cost": 30.0,
-      "overhead_hourly_cost": 0.0,
-      "hourly_rate": 102.0,
+      "machine_hourly_cost": 0,
+      "labor_hourly_cost": 0,
+      "overhead_hourly_cost": 0,
+      "hourly_rate": 12,
       "note": ""
     },
     {
@@ -1146,10 +1146,10 @@
       "name": "色选机",
       "status": "active",
       "default_minutes": 0,
-      "machine_hourly_cost": 6.0,
-      "labor_hourly_cost": 0.0,
-      "overhead_hourly_cost": 0.0,
-      "hourly_rate": 6.0,
+      "machine_hourly_cost": 0,
+      "labor_hourly_cost": 0,
+      "overhead_hourly_cost": 0,
+      "hourly_rate": 12,
       "note": ""
     }
   ],
@@ -1163,12 +1163,12 @@
       "batch_size_qty": 18.0,
       "batch_size_unit": "kg",
       "standard_minutes": 20,
-      "hourly_rate": 0.0,
+      "hourly_rate": 0,
       "production_capacity": 1,
       "sort_order": 0,
       "note": "",
       "cost_method": "time",
-      "piece_rate": 0.0
+      "piece_rate": 0
     },
     {
       "id": 2,
@@ -1179,12 +1179,12 @@
       "batch_size_qty": 15.0,
       "batch_size_unit": "kg",
       "standard_minutes": 18,
-      "hourly_rate": 0.0,
+      "hourly_rate": 0,
       "production_capacity": 1,
       "sort_order": 0,
       "note": "",
       "cost_method": "time",
-      "piece_rate": 0.0
+      "piece_rate": 0
     },
     {
       "id": 3,
@@ -1195,12 +1195,12 @@
       "batch_size_qty": 12.0,
       "batch_size_unit": "kg",
       "standard_minutes": 15,
-      "hourly_rate": 0.0,
+      "hourly_rate": 0,
       "production_capacity": 1,
       "sort_order": 0,
       "note": "",
       "cost_method": "time",
-      "piece_rate": 0.0
+      "piece_rate": 0
     },
     {
       "id": 4,
@@ -1211,12 +1211,12 @@
       "batch_size_qty": 10.0,
       "batch_size_unit": "kg",
       "standard_minutes": 10,
-      "hourly_rate": 0.0,
+      "hourly_rate": 0,
       "production_capacity": 1,
       "sort_order": 0,
       "note": "",
       "cost_method": "time",
-      "piece_rate": 0.0
+      "piece_rate": 0
     },
     {
       "id": 5,
@@ -1227,12 +1227,12 @@
       "batch_size_qty": 20.0,
       "batch_size_unit": "kg",
       "standard_minutes": 25,
-      "hourly_rate": 0.0,
+      "hourly_rate": 0,
       "production_capacity": 1,
       "sort_order": 0,
       "note": "",
       "cost_method": "time",
-      "piece_rate": 0.0
+      "piece_rate": 0
     },
     {
       "id": 6,
@@ -1243,12 +1243,12 @@
       "batch_size_qty": 2.0,
       "batch_size_unit": "kg",
       "standard_minutes": 12,
-      "hourly_rate": 0.0,
+      "hourly_rate": 0,
       "production_capacity": 1,
       "sort_order": 0,
       "note": "",
       "cost_method": "time",
-      "piece_rate": 0.0
+      "piece_rate": 0
     },
     {
       "id": 7,
@@ -1259,12 +1259,12 @@
       "batch_size_qty": 3.0,
       "batch_size_unit": "kg",
       "standard_minutes": 15,
-      "hourly_rate": 0.0,
+      "hourly_rate": 0,
       "production_capacity": 1,
       "sort_order": 0,
       "note": "",
       "cost_method": "time",
-      "piece_rate": 0.0
+      "piece_rate": 0
     },
     {
       "id": 8,
@@ -1275,12 +1275,12 @@
       "batch_size_qty": 3.0,
       "batch_size_unit": "kg",
       "standard_minutes": 12,
-      "hourly_rate": 0.0,
+      "hourly_rate": 0,
       "production_capacity": 1,
       "sort_order": 0,
       "note": "",
       "cost_method": "time",
-      "piece_rate": 0.0
+      "piece_rate": 0
     },
     {
       "id": 9,
@@ -1291,12 +1291,12 @@
       "batch_size_qty": 15.0,
       "batch_size_unit": "kg",
       "standard_minutes": 10,
-      "hourly_rate": 0.0,
+      "hourly_rate": 0,
       "production_capacity": 1,
       "sort_order": 0,
       "note": "",
       "cost_method": "time",
-      "piece_rate": 0.0
+      "piece_rate": 0
     },
     {
       "id": 10,
@@ -1307,7 +1307,7 @@
       "batch_size_qty": 14.0,
       "batch_size_unit": "件",
       "standard_minutes": 15,
-      "hourly_rate": 0.0,
+      "hourly_rate": 0,
       "production_capacity": 1,
       "sort_order": 0,
       "note": "",
@@ -1323,12 +1323,12 @@
       "batch_size_qty": 100.0,
       "batch_size_unit": "件",
       "standard_minutes": 5,
-      "hourly_rate": 0.0,
+      "hourly_rate": 0,
       "production_capacity": 1,
       "sort_order": 0,
       "note": "",
       "cost_method": "piece",
-      "piece_rate": 0.515
+      "piece_rate": 0.5
     },
     {
       "id": 13,
@@ -1339,12 +1339,12 @@
       "batch_size_qty": 500.0,
       "batch_size_unit": "件",
       "standard_minutes": 30,
-      "hourly_rate": 0.0,
+      "hourly_rate": 0,
       "production_capacity": 1,
       "sort_order": 0,
       "note": "",
       "cost_method": "piece",
-      "piece_rate": 0.415
+      "piece_rate": 0.5
     },
     {
       "id": 14,
@@ -1355,12 +1355,12 @@
       "batch_size_qty": 1000.0,
       "batch_size_unit": "件",
       "standard_minutes": 45,
-      "hourly_rate": 0.0,
+      "hourly_rate": 0,
       "production_capacity": 1,
       "sort_order": 0,
       "note": "",
       "cost_method": "piece",
-      "piece_rate": 0.315
+      "piece_rate": 0.5
     },
     {
       "id": 12,
@@ -1371,12 +1371,12 @@
       "batch_size_qty": 15.0,
       "batch_size_unit": "kg",
       "standard_minutes": 3,
-      "hourly_rate": 0.0,
+      "hourly_rate": 0,
       "production_capacity": 1,
       "sort_order": 0,
       "note": "",
       "cost_method": "time",
-      "piece_rate": 0.0
+      "piece_rate": 0
     },
     {
       "id": 15,
@@ -1387,12 +1387,12 @@
       "batch_size_qty": 8.0,
       "batch_size_unit": "kg",
       "standard_minutes": 15,
-      "hourly_rate": 0.0,
+      "hourly_rate": 0,
       "production_capacity": 1,
       "sort_order": 0,
       "note": "",
       "cost_method": "time",
-      "piece_rate": 0.0
+      "piece_rate": 0
     }
   ]
 }

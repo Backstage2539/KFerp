@@ -1,6 +1,9 @@
 package production
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestValidateStartedInputMaterials(t *testing.T) {
 	expected := []OperationMaterialUse{
@@ -54,5 +57,29 @@ func TestStartedInputRejectsUnrepresentableStockAndMismatchedTotal(t *testing.T)
 	}
 	if err := ValidateStartedInputTotals([]OperationMaterialUse{{Unit: "kg", Qty: 0}}, 5, "kg", false); err == nil {
 		t.Fatal("empty physical input accepted")
+	}
+}
+
+func TestBOMStartWeightUnitsAndRatioRemainder(t *testing.T) {
+	rows := []OperationMaterialUse{{Key: "a", Name: "A", Unit: "kg", RatioPct: 50}, {Key: "b", Name: "B", Unit: "kg", RatioPct: 50}}
+	out, err := ResolveBOMStartMaterialUses(rows, 1, "g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int64(math.Round(out[0].Qty*1000))+int64(math.Round(out[1].Qty*1000)) != 1 {
+		t.Fatalf("one gram distributed more than once: %+v", out)
+	}
+	if err = ValidateStartedInputTotals(out, 1, "g", true); err != nil {
+		t.Fatal(err)
+	}
+	lbs, err := ResolveBOMStartMaterialUses(rows, 1, "lb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = ValidateStartedInputTotals(lbs, 1, "lb", true); err != nil {
+		t.Fatal(err)
+	}
+	if int64(math.Round(lbs[0].Qty*1000))+int64(math.Round(lbs[1].Qty*1000)) != 454 {
+		t.Fatalf("one pound should consume 454g: %+v", lbs)
 	}
 }

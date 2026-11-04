@@ -3,6 +3,7 @@ package production
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 )
 
@@ -32,8 +33,8 @@ func ValidateStartedInputMaterials(expected, actual []OperationMaterialUse, reas
 		if err := ValidateOperationQuantity(row.Qty, row.Unit); err != nil {
 			return err
 		}
-		if factor := OperationUnitFactor(row.Unit); factor > 0 && math.Abs(row.Qty*factor-math.Round(row.Qty*factor)) > 1e-8 {
-			return fmt.Errorf("物料 %s 的实际用量必须能换算为整数克", row.Name)
+		if factor := OperationUnitFactor(row.Unit); factor > 0 && row.Qty > 0 && math.Round(row.Qty*factor) < 1 {
+			return fmt.Errorf("物料 %s 的实际用量不足 1 克", row.Name)
 		}
 		if !validStartedInputPrecision(row.Qty, 1e8) || !validStartedInputPrecision(want.Qty, 1e8) {
 			return fmt.Errorf("用料数量超过支持的精度")
@@ -55,14 +56,62 @@ func ValidateStartedInputTotals(materials []OperationMaterialUse, qty float64, u
 			if factor <= 0 {
 				return fmt.Errorf("比例配方必须使用重量单位")
 			}
-			totalG += m.Qty * factor
+			totalG += math.Round(m.Qty * factor)
 		}
 	}
 	if !positive {
 		return fmt.Errorf("本批实际用料不能全部为零")
 	}
-	if ratio && (OperationUnitFactor(unit) <= 0 || math.Abs(totalG-qty*OperationUnitFactor(unit)) > 1e-8) {
+	if ratio && (OperationUnitFactor(unit) <= 0 || math.Abs(totalG-math.Round(qty*OperationUnitFactor(unit))) > 1e-8) {
 		return fmt.Errorf("各项实际用料合计必须等于本批实际投入")
 	}
 	return nil
+}
+
+// ResolveBOMStartMaterialUses distributes physical integer grams exactly once.
+// Ties retain BOM order, keeping preview and posting deterministic.
+func ResolveBOMStartMaterialUses(expected []OperationMaterialUse, qty float64, inputUnit string) ([]OperationMaterialUse, error) {
+	factor := OperationUnitFactor(inputUnit)
+	if factor <= 0 || math.IsNaN(qty) || math.IsInf(qty, 0) || qty <= 0 {
+		return nil, fmt.Errorf("本批实际投入数量无效")
+	}
+	ratio := 0.0
+	for _, m := range expected {
+		ratio += m.RatioPct
+		if m.RatioPct <= 0 || OperationUnitFactor(m.Unit) <= 0 {
+			return nil, fmt.Errorf("物料 %s 缺少有效比例或重量单位", m.Name)
+		}
+	}
+	if reason := IncompleteRoastingBOMReason(ratio); reason != "" {
+		return nil, fmt.Errorf("%s", reason)
+	}
+	grams := int64(math.Round(qty * factor))
+	if grams <= 0 {
+		return nil, fmt.Errorf("本批投入不足 1 克")
+	}
+	type share struct {
+		idx      int
+		grams    int64
+		fraction float64
+	}
+	parts := make([]share, len(expected))
+	allocated := int64(0)
+	for i, m := range expected {
+		raw := float64(grams) * m.RatioPct / ratio
+		whole := int64(math.Floor(raw))
+		parts[i] = share{i, whole, raw - float64(whole)}
+		allocated += whole
+	}
+	sort.SliceStable(parts, func(i, j int) bool { return parts[i].fraction > parts[j].fraction })
+	for i := int64(0); i < grams-allocated; i++ {
+		parts[int(i)%len(parts)].grams++
+	}
+	out := append([]OperationMaterialUse(nil), expected...)
+	for _, p := range parts {
+		f := OperationUnitFactor(out[p.idx].Unit)
+		v := math.Round(float64(p.grams)/f*1e8) / 1e8
+		out[p.idx].Qty = v
+		out[p.idx].TotalQty = v
+	}
+	return out, nil
 }

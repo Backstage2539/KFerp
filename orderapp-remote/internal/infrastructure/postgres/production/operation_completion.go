@@ -25,9 +25,13 @@ func (r Repository) completeOperationOnce(ctx context.Context, cmd app.JobCardAc
 		return out, fmt.Errorf("请先绑定员工")
 	}
 	if strings.TrimSpace(cmd.RequestID) == "" || strings.TrimSpace(cmd.ExpectedVersion) == "" {
-        var policy,status string
-        if err:=r.pool.QueryRow(ctx,fmt.Sprintf(`SELECT w.material_consumption_policy,j.status FROM %[1]s.job_cards j JOIN %[1]s.work_orders w ON w.id=j.work_order_id WHERE j.id=$1`,r.schema),cmd.ID).Scan(&policy,&status);err!=nil{return out,err}
-        if policy=="bom_start_v1"&&(status=="pending"||status=="ready"){return out,fmt.Errorf("请先确认用料并开工")}
+		var policy, status string
+		if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT w.material_consumption_policy,j.status FROM %[1]s.job_cards j JOIN %[1]s.work_orders w ON w.id=j.work_order_id WHERE j.id=$1`, r.schema), cmd.ID).Scan(&policy, &status); err != nil {
+			return out, err
+		}
+		if policy == "bom_start_v1" && (status == "pending" || status == "ready") {
+			return out, fmt.Errorf("请先确认用料并开工")
+		}
 		return out, fmt.Errorf("请刷新完成建议后提交")
 	}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
@@ -151,6 +155,9 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 		}
 	}
 	if runID <= 0 {
+		if startPolicy {
+			return out, fmt.Errorf("开工状态异常，请刷新并重新确认用料")
+		}
 		started, e := r.startWorkOrderTx(ctx, tx, app.WorkOrderStartCommand{ID: wo.ID, Operator: cmd.Operator}, false, isRoastingOperationName(p.OperationName))
 		if e != nil {
 			return out, e
