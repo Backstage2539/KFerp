@@ -362,36 +362,38 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 
 	e.POST("/api/stock/finished-transfers", func(c echo.Context) error {
 		var req struct {
-			ProductID      int64  `json:"product_id"`
-			BatchCode      string `json:"batch_code"`
-			SpecG          int64  `json:"spec_g"`
-			BomSpecID      int64  `json:"bom_spec_id"`
-			BomVariantID   int64  `json:"bom_variant_id"`
-			UnitCode       string `json:"unit_code"`
-			FromWarehouse  string `json:"from_warehouse"`
-			ToWarehouse    string `json:"to_warehouse"`
-			QtyUnits       int64  `json:"qty_units"`
-			QtyLooseG      int64  `json:"qty_loose_g"`
-			Note           string `json:"note"`
-			IdempotencyKey string `json:"idempotency_key"`
+			ProductID             int64  `json:"product_id"`
+			TargetOwnerCustomerID int64  `json:"target_owner_customer_id"`
+			BatchCode             string `json:"batch_code"`
+			SpecG                 int64  `json:"spec_g"`
+			BomSpecID             int64  `json:"bom_spec_id"`
+			BomVariantID          int64  `json:"bom_variant_id"`
+			UnitCode              string `json:"unit_code"`
+			FromWarehouse         string `json:"from_warehouse"`
+			ToWarehouse           string `json:"to_warehouse"`
+			QtyUnits              int64  `json:"qty_units"`
+			QtyLooseG             int64  `json:"qty_loose_g"`
+			Note                  string `json:"note"`
+			IdempotencyKey        string `json:"idempotency_key"`
 		}
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse{Error: "invalid request"})
 		}
 		result, err := stockSvc.TransferFinishedProduct(c.Request().Context(), stockapp.FinishedProductTransferCommand{
-			ProductID:      req.ProductID,
-			BatchCode:      req.BatchCode,
-			SpecG:          req.SpecG,
-			BomSpecID:      req.BomSpecID,
-			BomVariantID:   req.BomVariantID,
-			UnitCode:       req.UnitCode,
-			FromWarehouse:  req.FromWarehouse,
-			ToWarehouse:    req.ToWarehouse,
-			QtyUnits:       req.QtyUnits,
-			QtyLooseG:      req.QtyLooseG,
-			Note:           req.Note,
-			Operator:       support.ActorOf(c),
-			IdempotencyKey: req.IdempotencyKey,
+			ProductID:             req.ProductID,
+			TargetOwnerCustomerID: req.TargetOwnerCustomerID,
+			BatchCode:             req.BatchCode,
+			SpecG:                 req.SpecG,
+			BomSpecID:             req.BomSpecID,
+			BomVariantID:          req.BomVariantID,
+			UnitCode:              req.UnitCode,
+			FromWarehouse:         req.FromWarehouse,
+			ToWarehouse:           req.ToWarehouse,
+			QtyUnits:              req.QtyUnits,
+			QtyLooseG:             req.QtyLooseG,
+			Note:                  req.Note,
+			Operator:              support.ActorOf(c),
+			IdempotencyKey:        req.IdempotencyKey,
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse{Error: err.Error()})

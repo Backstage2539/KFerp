@@ -518,19 +518,20 @@ type MaterialTransferResult struct {
 }
 
 type FinishedProductTransferCommand struct {
-	ProductID      int64
-	BatchCode      string
-	SpecG          int64
-	BomSpecID      int64
-	BomVariantID   int64
-	UnitCode       string
-	FromWarehouse  string
-	ToWarehouse    string
-	QtyUnits       int64
-	QtyLooseG      int64
-	Note           string
-	Operator       string
-	IdempotencyKey string
+	TargetOwnerCustomerID int64
+	ProductID             int64
+	BatchCode             string
+	SpecG                 int64
+	BomSpecID             int64
+	BomVariantID          int64
+	UnitCode              string
+	FromWarehouse         string
+	ToWarehouse           string
+	QtyUnits              int64
+	QtyLooseG             int64
+	Note                  string
+	Operator              string
+	IdempotencyKey        string
 }
 
 type FinishedProductTransferResult struct {
@@ -598,6 +599,7 @@ type StockDocumentItemCommand struct {
 	UnitCost                  float64 `json:"unit_cost"`
 	Supplier                  string  `json:"supplier"`
 	OwnerCustomerID           int64   `json:"owner_customer_id,omitempty"`
+	TargetOwnerCustomerID     int64   `json:"target_owner_customer_id,omitempty"`
 	CropSeason                string  `json:"crop_season"`
 	Origin                    string  `json:"origin"`
 	ProducerFlavorDescription string  `json:"producer_flavor_description"`
@@ -654,6 +656,7 @@ type StockDocumentItemRow struct {
 	ItemType                  string                           `json:"item_type"`
 	ItemName                  string                           `json:"item_name"`
 	OwnerCustomerID           int64                            `json:"owner_customer_id,omitempty"`
+	TargetOwnerCustomerID     int64                            `json:"target_owner_customer_id,omitempty"`
 	SpecG                     int64                            `json:"spec_g"`
 	BomSpecID                 int64                            `json:"bom_spec_id,omitempty"`
 	BomVariantID              int64                            `json:"bom_variant_id,omitempty"`
@@ -957,6 +960,12 @@ func normalizeStockDocumentCommand(cmd StockDocumentCommand) (StockDocumentComma
 			} else if item.SpecG <= 0 {
 				return StockDocumentCommand{}, fmt.Errorf("item %d spec_g or bom_spec_id required", i+1)
 			}
+		}
+		if item.OwnerCustomerID < 0 || item.TargetOwnerCustomerID < 0 {
+			return StockDocumentCommand{}, fmt.Errorf("item %d owner customer ID cannot be negative", i+1)
+		}
+		if item.TargetOwnerCustomerID > 0 && (cmd.Purpose != PurposeMaterialTransfer || item.ItemType != itemTypeFinishedProduct || item.BomSpecID <= 0) {
+			return StockDocumentCommand{}, fmt.Errorf("item %d target owner is only supported for BOM finished product transfers", i+1)
 		}
 		if item.ItemType != itemTypeMaterial && item.ItemType != itemTypeFinishedProduct {
 			return StockDocumentCommand{}, fmt.Errorf("item %d invalid item_type", i+1)
@@ -1468,17 +1477,18 @@ func (s *Service) TransferFinishedProduct(ctx context.Context, cmd FinishedProdu
 			Note:           cmd.Note,
 			IdempotencyKey: cmd.IdempotencyKey,
 			Items: []StockDocumentItemCommand{{
-				ProductID:     cmd.ProductID,
-				BatchCode:     cmd.BatchCode,
-				ItemType:      itemTypeFinishedProduct,
-				SpecG:         cmd.SpecG,
-				BomSpecID:     cmd.BomSpecID,
-				BomVariantID:  cmd.BomVariantID,
-				InventoryUnit: cmd.UnitCode,
-				FromWarehouse: cmd.FromWarehouse,
-				ToWarehouse:   cmd.ToWarehouse,
-				QtyG:          cmd.QtyLooseG,
-				QtyUnits:      cmd.QtyUnits,
+				ProductID:             cmd.ProductID,
+				TargetOwnerCustomerID: cmd.TargetOwnerCustomerID,
+				BatchCode:             cmd.BatchCode,
+				ItemType:              itemTypeFinishedProduct,
+				SpecG:                 cmd.SpecG,
+				BomSpecID:             cmd.BomSpecID,
+				BomVariantID:          cmd.BomVariantID,
+				InventoryUnit:         cmd.UnitCode,
+				FromWarehouse:         cmd.FromWarehouse,
+				ToWarehouse:           cmd.ToWarehouse,
+				QtyG:                  cmd.QtyLooseG,
+				QtyUnits:              cmd.QtyUnits,
 			}},
 		})
 		if err != nil {
