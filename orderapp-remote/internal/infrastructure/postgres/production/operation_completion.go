@@ -30,7 +30,7 @@ func (r Repository) completeOperationOnce(ctx context.Context, cmd app.JobCardAc
 			return out, err
 		}
 		if policy == "bom_start_v1" && (status == "pending" || status == "ready") {
-			return out, fmt.Errorf("请先确认用料并开工")
+			return out, fmt.Errorf("页面已更新，请刷新页面后确认用料并开工")
 		}
 		return out, fmt.Errorf("请刷新完成建议后提交")
 	}
@@ -89,7 +89,7 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 	}
 	startPolicy := p.MaterialConsumptionPolicy == "bom_start_v1"
 	if startPolicy && status != "running" && status != "paused" {
-		return out, fmt.Errorf("请先确认用料并开工")
+		return out, fmt.Errorf("请先确认用料并开工；若未显示开工，请刷新页面")
 	}
 	if status == "completed" || status == "cancelled" {
 		return out, fmt.Errorf("本工序已结束，请从记录更正")

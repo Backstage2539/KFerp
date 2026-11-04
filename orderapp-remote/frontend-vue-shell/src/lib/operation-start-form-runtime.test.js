@@ -26,3 +26,30 @@ test('start form shows batch and warehouse, then retries the same confirmation a
  await state.submit();assert.equal(state.retry.uncertain,true);assert.equal(writes.length,1)
  await state.submit();assert.equal(writes.length,2);assert.deepEqual(writes[1].body,writes[0].body);assert.match(writes[0].body.request_id,/^[0-9a-f-]{36}$/);assert.equal(events[0].event,'posted')
 })
+test('short WIP opens replenishment with the actual start deficit and prevents uncertain retries from changing stock',async()=>{
+ const events=[]
+ const Component=await loadForm({apiGet:async()=>{throw Error('unexpected read')},apiSend:async()=>({})})
+ const props=reactive({jobCardId:42});let state
+ await renderToString(createSSRApp({setup(){state=Component.setup(props,{expose(){},emit:(...args)=>events.push(args)});return()=>h('div')}}))
+ const preview={input_qty:45,input_unit:'kg',recipe_ratio_pct:100,materials:[{key:'bean',name:'水洗 A',unit:'kg',qty:45,ratio_pct:100,warehouse:'wip',available_qty:39.698}]}
+ state.preview.value=preview;Object.assign(state.draft,startDraft(preview))
+ const html=()=>renderToString(createSSRApp({...Component,setup:()=>state},props))
+ assert.match(await html(),/补齐物料/)
+ assert.match(await html(),/5\.302/)
+ state.openIssue();assert.equal(events[0][0],'issue');assert.equal(events[0][1][0].shortage_qty,5.302)
+ state.retry.begin({},()=> 'test');state.retry.fail(new Error('network'));assert.match(await html(),/disabled[^>]*>补齐物料/)
+ state.openIssue();assert.equal(events.length,1)
+ state.retry.clear();state.preview.value.predecessor_required=true
+ assert.doesNotMatch(await html(),/补齐物料/)
+})
+test('start form locks while replenishment drawer is open and warns that successful replenishment reloads the draft',async()=>{
+ const events=[];const Component=await loadForm({apiGet:async()=>({}),apiSend:async()=>({})})
+ const props=reactive({jobCardId:42,locked:true});let state
+ await renderToString(createSSRApp({setup(){state=Component.setup(props,{expose(){},emit:(...args)=>events.push(args)});return()=>h('div')}}))
+ const preview={input_qty:45,input_unit:'kg',recipe_ratio_pct:100,materials:[{key:'bean',name:'水洗 A',unit:'kg',qty:45,ratio_pct:100,warehouse:'wip',available_qty:39.698}]}
+ state.preview.value=preview;Object.assign(state.draft,startDraft(preview))
+ const html=await renderToString(createSSRApp({...Component,setup:()=>state},props))
+ assert.match(html,/disabled[^>]*>确认开工并扣料/)
+ assert.match(html,/补料成功后.*重新读取.*重置/)
+ state.openIssue();assert.equal(events.length,0)
+})
