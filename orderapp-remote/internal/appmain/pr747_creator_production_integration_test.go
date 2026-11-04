@@ -129,7 +129,7 @@ const pr747Box = "2ecd4680-8742-4fcd-bd1a-551d0affc7df"
 func pr747Create(t *testing.T, svc *creatorapp.Service, template int64, name string, overrides map[string]map[string]any) creatorapp.Run {
 	t.Helper()
 	ctx := context.Background()
-	run, err := svc.StartRun(ctx, template, "PR-747验收")
+	run, err := svc.StartRun(ctx, template, "PR-748验收")
 	if err != nil {
 		t.Fatalf("%#v", err)
 	}
@@ -149,24 +149,24 @@ func pr747Create(t *testing.T, svc *creatorapp.Service, template int64, name str
 	for k, v := range overrides {
 		inputs[k] = v
 	}
-	run, err = svc.SaveRunDraft(ctx, run.ID, run.Revision, inputs, map[string]string{"bfceff1c-bc42-4284-acb6-d68554a78950": name}, "PR-747验收")
+	run, err = svc.SaveRunDraft(ctx, run.ID, run.Revision, inputs, map[string]string{"bfceff1c-bc42-4284-acb6-d68554a78950": name}, "PR-748验收")
 	if err != nil {
 		t.Fatalf("%#v", err)
 	}
-	run, err = svc.PreviewRun(ctx, run.ID, run.Revision, "PR-747验收")
+	run, err = svc.PreviewRun(ctx, run.ID, run.Revision, "PR-748验收")
 	if err != nil {
 		t.Fatalf("%#v", err)
 	}
 	if !run.Preview.Valid {
 		t.Fatalf("creator preview: %+v", run.Preview.Issues)
 	}
-	run, err = svc.CommitConfiguration(ctx, run.ID, run.Revision, "pr747-create-"+name, "PR-747验收")
+	run, err = svc.CommitConfiguration(ctx, run.ID, run.Revision, "pr747-create-"+name, "PR-748验收")
 	if err != nil {
 		t.Fatalf("%#v", err)
 	}
 	return run
 }
-func TestPR747ExistingCreatorTemplatesProductionChain(t *testing.T) {
+func TestPR748ExistingCreatorTemplatesProductionChain(t *testing.T) {
 	for _, id := range []int64{1, 2} {
 		t.Run(fmt.Sprint(id), func(t *testing.T) {
 			pool, schema, svc := pr747CreatorFixture(t)
@@ -175,7 +175,7 @@ func TestPR747ExistingCreatorTemplatesProductionChain(t *testing.T) {
 			if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT md5(string_agg(workflow::text,',' ORDER BY id)) FROM %s.business_template_versions`, schema)).Scan(&before); err != nil {
 				t.Fatalf("%#v", err)
 			}
-			pr747Create(t, svc, id, fmt.Sprintf("PR747-%d", id), nil)
+			pr747Create(t, svc, id, fmt.Sprintf("PR748-%d", id), nil)
 			var count int
 			if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.production_boms`, schema)).Scan(&count); err != nil {
 				t.Fatalf("%#v", err)
@@ -215,29 +215,29 @@ func pr747ProductionChain(t *testing.T, pool *pgxpool.Pool, schema string, templ
 	// Only purchased inputs are stocked. Every manufactured layer must come from
 	// the previous layer's actual receipt, not synthetic inventory.
 	exec(`INSERT INTO %[1]s.material_batches(batch_code,material_id,material_name,received_g,qty_g,remaining_g,qty_units,remaining_units,unit_cost,status,quality_status)
- SELECT 'PR747-OPEN-'||id,id,name,CASE WHEN unit='kg' THEN 1000000 ELSE 0 END,CASE WHEN unit='kg' THEN 1000000 ELSE 0 END,CASE WHEN unit='kg' THEN 1000000 ELSE 0 END,CASE WHEN unit='kg' THEN 0 ELSE 10000 END,CASE WHEN unit='kg' THEN 0 ELSE 10000 END,CASE WHEN unit='kg' THEN 30 ELSE 1 END,'active','pass' FROM %[1]s.materials WHERE NOT is_semi_finished OR id=$1`, opt.ReuseMaterialID)
+ SELECT 'PR748-OPEN-'||id,id,name,CASE WHEN unit='kg' THEN 1000000 ELSE 0 END,CASE WHEN unit='kg' THEN 1000000 ELSE 0 END,CASE WHEN unit='kg' THEN 1000000 ELSE 0 END,CASE WHEN unit='kg' THEN 0 ELSE 10000 END,CASE WHEN unit='kg' THEN 0 ELSE 10000 END,CASE WHEN unit='kg' THEN 30 ELSE 1 END,'active','pass' FROM %[1]s.materials WHERE NOT is_semi_finished OR id=$1`, opt.ReuseMaterialID)
 	exec(`INSERT INTO %[1]s.material_batch_locations(material_batch_id,batch_code,material_id,warehouse,qty_g,qty_units) SELECT id,batch_code,material_id,'wip',remaining_g,remaining_units FROM %[1]s.material_batches`)
 	exec(`UPDATE %[1]s.materials SET onhand_g=b.g,onhand_units=b.n FROM (SELECT material_id,SUM(remaining_g) g,SUM(remaining_units) n FROM %[1]s.material_batches GROUP BY material_id) b WHERE materials.id=b.material_id`)
 
 	exec(`INSERT INTO %[1]s.order_process_statuses(name,sort,active) SELECT x.name,x.sort,true FROM (VALUES('待处理',10),('生产中',20)) x(name,sort) WHERE NOT EXISTS(SELECT 1 FROM %[1]s.order_process_statuses s WHERE s.name=x.name)`)
 	if opt.ReuseProductID > 0 {
 		exec(`INSERT INTO %[1]s.finished_inventory(product_id,bom_spec_id,bom_variant_id,spec_g,warehouse,onhand_units) VALUES($1,$2,$3,0,'wip',1000)`, opt.ReuseProductID, opt.ReuseSpecID, opt.ReuseVariantID)
-		exec(`INSERT INTO %[1]s.stock_batches(batch_code,item_type,item_id,bom_spec_id,bom_variant_id,item_name,spec_g,source_doc_type,source_doc_id,qty_units,remaining_units,unit_cost,quality_status) VALUES('PR747-EXISTING-BAGS','finished_product',$1,$2,$3,'已有袋装商品',0,'opening',747,1000,1000,2,'pass')`, opt.ReuseProductID, opt.ReuseSpecID, opt.ReuseVariantID)
-		exec(`INSERT INTO %[1]s.stock_ledger_entries(item_type,item_id,bom_spec_id,bom_variant_id,item_name,warehouse,source_doc_type,source_doc_id,source_batch_code,qty_before_units,qty_change_units,qty_after_units) VALUES('finished_product',$1,$2,$3,'已有袋装商品','wip','opening',747,'PR747-EXISTING-BAGS',0,1000,1000)`, opt.ReuseProductID, opt.ReuseSpecID, opt.ReuseVariantID)
+		exec(`INSERT INTO %[1]s.stock_batches(batch_code,item_type,item_id,bom_spec_id,bom_variant_id,item_name,spec_g,source_doc_type,source_doc_id,qty_units,remaining_units,unit_cost,quality_status) VALUES('PR748-EXISTING-BAGS','finished_product',$1,$2,$3,'已有袋装商品',0,'opening',747,1000,1000,2,'pass')`, opt.ReuseProductID, opt.ReuseSpecID, opt.ReuseVariantID)
+		exec(`INSERT INTO %[1]s.stock_ledger_entries(item_type,item_id,bom_spec_id,bom_variant_id,item_name,warehouse,source_doc_type,source_doc_id,source_batch_code,qty_before_units,qty_change_units,qty_after_units) VALUES('finished_product',$1,$2,$3,'已有袋装商品','wip','opening',747,'PR748-EXISTING-BAGS',0,1000,1000)`, opt.ReuseProductID, opt.ReuseSpecID, opt.ReuseVariantID)
 	}
 	var product, spec, variant int64
 	var name, unit, label string
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT p.id,s.id,v.id,p.name,v.inventory_unit,s.name FROM %[1]s.products p JOIN %[1]s.production_boms b ON b.output_product_id=p.id JOIN %[1]s.production_bom_versions bv ON bv.bom_id=b.id AND bv.status='published' JOIN %[1]s.production_bom_version_variants v ON v.version_id=bv.id JOIN %[1]s.production_bom_specs s ON s.id=v.bom_spec_id ORDER BY p.id DESC,v.is_default DESC,v.id LIMIT 1`, schema)).Scan(&product, &spec, &variant, &name, &unit, &label); err != nil {
 		t.Fatal(err)
 	}
-	exec(`INSERT INTO %[1]s.orders(id,order_no,order_date,is_void,process_status_id) VALUES(747,'SO-PR747','2026-11-01',false,(SELECT id FROM %[1]s.order_process_statuses WHERE name='待处理'))`)
+	exec(`INSERT INTO %[1]s.orders(id,order_no,order_date,is_void,process_status_id) VALUES(747,'SO-PR748','2026-11-01',false,(SELECT id FROM %[1]s.order_process_statuses WHERE name='待处理'))`)
 	exec(`INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,bom_spec_id,bom_variant_id,unit_price,line_total) VALUES(747,1,$1,10,$2,$3,$4,$5,$6,1,10)`, name, unit, label, product, spec, variant)
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			c.Set("employee_id", int64(747))
-			c.Set("actor", "PR-747验收")
-			c.Set("operator_employee", "PR-747验收")
+			c.Set("actor", "PR-748验收")
+			c.Set("operator_employee", "PR-748验收")
 			return next(c)
 		}
 	})
@@ -353,7 +353,7 @@ func pr747ProductionChain(t *testing.T, pool *pgxpool.Pool, schema string, templ
 			if i.FromWarehouse == i.ToWarehouse || i.QtyG+i.QtyUnits == 0 {
 				continue
 			}
-			_, err := stockapp.NewService(postgresstock.NewRepository(pool, schema)).CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: work, Operator: "PR-747验收", Items: []stockapp.StockDocumentItemCommand{{ItemType: i.ItemType, MaterialID: i.MaterialID, ProductID: i.ProductID, BomSpecID: i.BomSpecID, BomVariantID: i.BomVariantID, SpecG: i.SpecG, InventoryUnit: i.InventoryUnit, OwnerCustomerID: i.OwnerCustomerID, QtyG: i.QtyG, QtyUnits: i.QtyUnits, BatchCode: i.BatchCode, FromWarehouse: i.FromWarehouse, ToWarehouse: i.ToWarehouse}}})
+			_, err := stockapp.NewService(postgresstock.NewRepository(pool, schema)).CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: work, Operator: "PR-748验收", Items: []stockapp.StockDocumentItemCommand{{ItemType: i.ItemType, MaterialID: i.MaterialID, ProductID: i.ProductID, BomSpecID: i.BomSpecID, BomVariantID: i.BomVariantID, SpecG: i.SpecG, InventoryUnit: i.InventoryUnit, OwnerCustomerID: i.OwnerCustomerID, QtyG: i.QtyG, QtyUnits: i.QtyUnits, BatchCode: i.BatchCode, FromWarehouse: i.FromWarehouse, ToWarehouse: i.ToWarehouse}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -422,14 +422,14 @@ func pr747ProductionChain(t *testing.T, pool *pgxpool.Pool, schema string, templ
 				call("GET", fmt.Sprintf("/api/job-cards/%d/start-preview", id), nil, &p)
 				call("POST", fmt.Sprintf("/api/job-cards/%d/start-reversal", id), map[string]any{"expected_version": p.Version, "request_id": "pr747-bag-reversal", "reason": "误开工，袋装未投入加工", "unprocessed_confirmed": true}, nil)
 				var remaining int64
-				if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT remaining_units FROM %s.stock_batches WHERE item_type='finished_product' AND item_id=$1 AND batch_code='PR747-EXISTING-BAGS'`, schema), opt.ReuseProductID).Scan(&remaining); err != nil || remaining != 1000 {
+				if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT remaining_units FROM %s.stock_batches WHERE item_type='finished_product' AND item_id=$1 AND batch_code='PR748-EXISTING-BAGS'`, schema), opt.ReuseProductID).Scan(&remaining); err != nil || remaining != 1000 {
 					t.Fatalf("product return failed original batch: %d %v", remaining, err)
 				}
 				call("GET", fmt.Sprintf("/api/job-cards/%d/start-preview", id), nil, &p)
 				call("POST", fmt.Sprintf("/api/job-cards/%d/start", id), map[string]any{"actual_input_qty": p.InputQty, "input_unit": p.InputUnit, "materials": p.Materials, "expected_version": p.Version, "request_id": "pr747-bag-restart"}, nil)
 			}
 			call("GET", fmt.Sprintf("/api/job-cards/%d/completion-preview", id), nil, &p)
-			call("POST", fmt.Sprintf("/api/job-cards/%d/complete", id), map[string]any{"actual_input_qty": p.InputQty, "actual_output_qty": p.PlannedQty, "input_unit": p.InputUnit, "output_unit": p.OutputUnit, "expected_version": p.Version, "request_id": fmt.Sprintf("pr747-complete-%d", id), "finish_operation": true, "actual_minutes": 10, "difference_reason": "PR747按计划逐层生产验收"}, nil)
+			call("POST", fmt.Sprintf("/api/job-cards/%d/complete", id), map[string]any{"actual_input_qty": p.InputQty, "actual_output_qty": p.PlannedQty, "input_unit": p.InputUnit, "output_unit": p.OutputUnit, "expected_version": p.Version, "request_id": fmt.Sprintf("pr747-complete-%d", id), "finish_operation": true, "actual_minutes": 10, "difference_reason": "PR748按计划逐层生产验收"}, nil)
 		}
 	}
 	var qty, cost float64
@@ -453,7 +453,7 @@ func pr747ProductionChain(t *testing.T, pool *pgxpool.Pool, schema string, templ
 	if residual != 0 {
 		t.Fatalf("unsettled inputs=%v", residual)
 	}
-	t.Logf("PR747 template %d: %d BOMs, %d work orders, final receipt %g %s, cost %.6f", template, want, len(works), qty, unit, cost)
+	t.Logf("PR748 template %d: %d BOMs, %d work orders, final receipt %g %s, cost %.6f", template, want, len(works), qty, unit, cost)
 }
 
 type pr747ProductionOptions struct {
@@ -462,7 +462,7 @@ type pr747ProductionOptions struct {
 	Direct                                                       bool
 }
 
-func TestPR747ExistingTemplateReuseProduction(t *testing.T) {
+func TestPR748ExistingTemplateReuseProduction(t *testing.T) {
 	for _, kind := range []string{"roasted", "powder", "bag"} {
 		t.Run(kind, func(t *testing.T) {
 			pool, schema, svc := pr747CreatorFixture(t)
@@ -471,7 +471,7 @@ func TestPR747ExistingTemplateReuseProduction(t *testing.T) {
 			if kind == "roasted" {
 				template = 1
 			}
-			pr747Create(t, svc, template, "PR747-existing", nil)
+			pr747Create(t, svc, template, "PR748-existing", nil)
 			opt := pr747ProductionOptions{}
 			overrides := map[string]map[string]any{}
 			if kind == "bag" {
@@ -482,11 +482,11 @@ func TestPR747ExistingTemplateReuseProduction(t *testing.T) {
 				overrides[pr747Box] = map[string]any{"main_input_source_node_id": pr747Bag, "main_input_source_row_id": fmt.Sprint(opt.ReuseSpecID)}
 				opt.ExpectedLayers = 1
 			} else {
-				prefix := "PR747-existing_"
+				prefix := "PR748-existing_"
 				node := pr747Roasted
 				opt.ExpectedLayers = 1
 				if kind == "powder" {
-					prefix = "咖啡粉_PR747-existing"
+					prefix = "咖啡粉_PR748-existing"
 					node = pr747Powder
 					opt.ExpectedLayers = 2
 				}
@@ -497,7 +497,7 @@ func TestPR747ExistingTemplateReuseProduction(t *testing.T) {
 			}
 			var before int
 			pool.QueryRow(ctx, fmt.Sprintf("SELECT count(*) FROM %s.production_boms", schema)).Scan(&before)
-			run := pr747Create(t, svc, template, "PR747-reuse-"+kind, overrides)
+			run := pr747Create(t, svc, template, "PR748-reuse-"+kind, overrides)
 			var after int
 			pool.QueryRow(ctx, fmt.Sprintf("SELECT count(*) FROM %s.production_boms", schema)).Scan(&after)
 			if after-before != opt.ExpectedLayers {
@@ -519,10 +519,10 @@ func TestPR747ExistingTemplateReuseProduction(t *testing.T) {
 	}
 }
 
-func TestPR747CreatorRejectsIncompleteRouteWithoutRequiringInventory(t *testing.T) {
+func TestPR748CreatorRejectsIncompleteRouteWithoutRequiringInventory(t *testing.T) {
 	pool, schema, svc := pr747CreatorFixture(t)
 	ctx := context.Background()
-	source := pr747Create(t, svc, 1, "PR747-zero-stock", nil)
+	source := pr747Create(t, svc, 1, "PR748-zero-stock", nil)
 	var stock int
 	if err := pool.QueryRow(ctx, fmt.Sprintf("SELECT count(*) FROM %s.material_batches", schema)).Scan(&stock); err != nil {
 		t.Fatal(err)
@@ -533,15 +533,15 @@ func TestPR747CreatorRejectsIncompleteRouteWithoutRequiringInventory(t *testing.
 	if _, err := pool.Exec(ctx, fmt.Sprintf("DELETE FROM %s.process_route_operations WHERE route_id=5", schema)); err != nil {
 		t.Fatal(err)
 	}
-	run, err := svc.StartRun(ctx, 1, "PR-747验收")
+	run, err := svc.StartRun(ctx, 1, "PR-748验收")
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err = svc.SaveRunDraft(ctx, run.ID, run.Revision, source.Inputs, map[string]string{"bfceff1c-bc42-4284-acb6-d68554a78950": "PR747-broken-route"}, "PR-747验收")
+	run, err = svc.SaveRunDraft(ctx, run.ID, run.Revision, source.Inputs, map[string]string{"bfceff1c-bc42-4284-acb6-d68554a78950": "PR748-broken-route"}, "PR-748验收")
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err = svc.PreviewRun(ctx, run.ID, run.Revision, "PR-747验收")
+	run, err = svc.PreviewRun(ctx, run.ID, run.Revision, "PR-748验收")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -556,27 +556,27 @@ func TestPR747CreatorRejectsIncompleteRouteWithoutRequiringInventory(t *testing.
 	}
 }
 
-func TestPR747DirectCreateFromReusedRoastProduction(t *testing.T) {
+func TestPR748DirectCreateFromReusedRoastProduction(t *testing.T) {
 	pool, schema, svc := pr747CreatorFixture(t)
 	ctx := context.Background()
-	pr747Create(t, svc, 1, "PR747-direct-source", nil)
+	pr747Create(t, svc, 1, "PR748-direct-source", nil)
 	var id int64
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.materials WHERE is_semi_finished AND name LIKE 'PR747-direct-source%%'`, schema)).Scan(&id); err != nil {
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.materials WHERE is_semi_finished AND name LIKE 'PR748-direct-source%%'`, schema)).Scan(&id); err != nil {
 		t.Fatal(err)
 	}
-	pr747Create(t, svc, 1, "PR747-direct", map[string]map[string]any{pr747Roasted: {"action": "reuse", "material_id": id}})
+	pr747Create(t, svc, 1, "PR748-direct", map[string]map[string]any{pr747Roasted: {"action": "reuse", "material_id": id}})
 	pr747ProductionChain(t, pool, schema, 1, pr747ProductionOptions{ReuseMaterialID: id, ExpectedLayers: 1, Direct: true})
 }
 
-func TestPR747DirectCreateFromReusedBagProduction(t *testing.T) {
+func TestPR748DirectCreateFromReusedBagProduction(t *testing.T) {
 	pool, schema, svc := pr747CreatorFixture(t)
 	ctx := context.Background()
-	pr747Create(t, svc, 2, "PR747-direct-bag-source", nil)
+	pr747Create(t, svc, 2, "PR748-direct-bag-source", nil)
 	opt := pr747ProductionOptions{ExpectedLayers: 1, Direct: true}
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT p.id,s.id,v.id FROM %[1]s.products p JOIN %[1]s.production_boms b ON b.output_product_id=p.id JOIN %[1]s.production_bom_versions bv ON bv.bom_id=b.id AND bv.status='published' JOIN %[1]s.production_bom_version_variants v ON v.version_id=bv.id JOIN %[1]s.production_bom_specs s ON s.id=v.bom_spec_id WHERE p.name LIKE '挂耳-%%' AND s.spec_key='spec-1'`, schema)).Scan(&opt.ReuseProductID, &opt.ReuseSpecID, &opt.ReuseVariantID); err != nil {
 		t.Fatal(err)
 	}
-	pr747Create(t, svc, 2, "PR747-direct-bag", map[string]map[string]any{
+	pr747Create(t, svc, 2, "PR748-direct-bag", map[string]map[string]any{
 		pr747Bag: {"action": "reuse", "product_id": opt.ReuseProductID},
 		pr747Box: {"main_input_source_node_id": pr747Bag, "main_input_source_row_id": fmt.Sprint(opt.ReuseSpecID)},
 	})

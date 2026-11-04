@@ -56,8 +56,6 @@ func OperationUnitFactor(unit string) float64 {
 		return 1
 	case "kg", "kilogram", "kilograms", "千克", "公斤":
 		return 1000
-	case "mg", "毫克":
-		return .001
 	case "lb", "lbs", "pound", "pounds", "磅":
 		return 453.59237
 	case "oz", "ounce", "ounces", "盎司":

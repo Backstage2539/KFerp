@@ -160,9 +160,40 @@ cleanup() {
   local status=$?
   local rollback_needed=0
   local rollback_ok=1
+  local rollback_mode=""
+  local rollback_check_status=0
   set +e
 
   if [ "$status" -ne 0 ] && [ "$DEPLOY_OK" -eq 0 ]; then
+    if { [ "$PROMOTED" -eq 1 ] || [ "$IMAGE_BUILT" -eq 1 ]; } && [ -n "$OLD_IMAGE_ID" ]; then
+      # Prevent new orders being created between checking the database and
+      # starting a potentially older binary.
+      if ! docker stop "$ORDERAPP_CONTAINER" >&2; then
+        echo "ERROR: cannot stop orderapp before checking rollback safety." >&2
+        rollback_ok=0
+        PROMOTED=0
+        IMAGE_BUILT=0
+      else
+        rollback_mode="$(bash "$SOURCE_ROOT/scripts/check_bom_start_rollback.sh" "$STACK_DIR" "$ORDERAPP_CONTAINER" "$OLD_IMAGE_ID")" || rollback_check_status=$?
+      fi
+      if [ "$rollback_ok" -eq 1 ] && [ "$rollback_check_status" -ne 0 ]; then
+        echo "ERROR: rollback image is not safe for existing batch-start orders; stopping orderapp for recovery." >&2
+        rollback_ok=0
+        PROMOTED=0
+        IMAGE_BUILT=0
+      elif [ "$rollback_ok" -eq 1 ] && [ "$rollback_mode" = aware ]; then
+        # Persist the write pause across container restarts until an operator
+        # explicitly deploys a corrected release.
+        if ! grep -q '^      KFERP_BOM_START_READ_ONLY:' "$DOC_CONVERT_OVERRIDE" ||
+           ! sed -i 's/^      KFERP_BOM_START_READ_ONLY:.*/      KFERP_BOM_START_READ_ONLY: 1/' "$DOC_CONVERT_OVERRIDE"; then
+          echo "ERROR: cannot persist the new-policy write pause; stopping orderapp for recovery." >&2
+          docker stop "$ORDERAPP_CONTAINER" >&2 || true
+          rollback_ok=0
+          PROMOTED=0
+          IMAGE_BUILT=0
+        fi
+      fi
+    fi
     if [ "$PROMOTED" -eq 1 ]; then
       rollback_needed=1
       echo "Deployment failed after source promotion; restoring the prior source." >&2
@@ -383,6 +414,7 @@ services:
       WECHAT_OFFICIAL_MENU_PUBLISH_ENABLED: \${WECHAT_OFFICIAL_MENU_PUBLISH_ENABLED:-0}
       WECHAT_WEB_OAUTH_ENABLED: \${WECHAT_WEB_OAUTH_ENABLED:-0}
       WECHAT_WEB_PUBLIC_ORIGIN: \${WECHAT_WEB_PUBLIC_ORIGIN:-}
+      KFERP_BOM_START_READ_ONLY: \${KFERP_BOM_START_READ_ONLY:-0}
 
   docconvert:
     image: \${DOCX_CONVERTER_IMAGE:-docker.m.daocloud.io/gotenberg/gotenberg:8-libreoffice}

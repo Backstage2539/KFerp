@@ -117,12 +117,14 @@ func TestStockSupplyPartialReceiptsEnablePackagingAndKeepCostsIncremental(t *tes
 	}
 	stock := createPlan(map[string]any{"source_type": "stock", "items": []map[string]any{{"output_material_id": 10, "output_qty": 30, "target_warehouse": "wip"}}})
 	submit(stock)
+	markLegacyPlanForTest(t, ctx, pool, schema, stock)
 	assertProductionFlowCount(t, pool, schema, "orders", fmt.Sprintf("process_status_id IN (SELECT id FROM %s.order_process_statuses WHERE name='待处理')", schema), 1)
 	orders := createPlan(map[string]any{"from": "2026-08-01", "to": "2026-08-31", "selected": []string{"1-227"}})
 	assertProductionFlowCount(t, pool, schema, "production_plan_items", fmt.Sprintf("production_plan_id=%d AND output_type='material'", orders), 0)
 	assertProductionFlowCount(t, pool, schema, "production_supply_allocations", fmt.Sprintf("production_plan_id=%d AND required_g=22700 AND status='proposed'", orders), 1)
 	submit(orders)
 	submit(orders)
+	markLegacyPlanForTest(t, ctx, pool, schema, orders)
 	var supplier, consumer int64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.work_orders WHERE production_plan_id=$1`, schema), stock).Scan(&supplier); err != nil {
 		t.Fatal(err)

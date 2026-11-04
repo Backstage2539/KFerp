@@ -1061,6 +1061,11 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 		if issues := newWorkOrderBOMIssues(bomVersionID, string(materialSnapshot)); len(issues) > 0 {
 			return 0, fmt.Errorf("%s", issues[0].Message)
 		}
+		if strings.TrimSpace(quantity.InventoryUnit) == "" {
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(NULLIF(variant.inventory_unit,''),NULLIF(version.output_unit,''),'') FROM %[1]s.production_bom_versions version LEFT JOIN %[1]s.production_bom_version_variants variant ON variant.id=$2 AND variant.version_id=version.id WHERE version.id=$1`, schema), bomVersionID, quantity.BomVariantID).Scan(&quantity.InventoryUnit); err != nil {
+				return 0, err
+			}
+		}
 		frozenRoute, routeErr := freezeBOMStartRoute(string(processSnapshotJSON), quantity.InventoryUnit, "finished_goods")
 		if routeErr != nil {
 			return 0, routeErr

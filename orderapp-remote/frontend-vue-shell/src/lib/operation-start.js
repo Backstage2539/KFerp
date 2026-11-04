@@ -1,4 +1,4 @@
-const factor = unit => ({g:1,gram:1,grams:1,克:1,kg:1000,kilogram:1000,kilograms:1000,千克:1000,公斤:1000,mg:.001,毫克:.001,lb:453.59237,lbs:453.59237,pound:453.59237,pounds:453.59237,磅:453.59237,oz:28.349523125,ounce:28.349523125,ounces:28.349523125,盎司:28.349523125})[String(unit).trim().toLowerCase()] || 0
+const factor = unit => ({g:1,gram:1,grams:1,克:1,kg:1000,kilogram:1000,kilograms:1000,千克:1000,公斤:1000,lb:453.59237,lbs:453.59237,pound:453.59237,pounds:453.59237,磅:453.59237,oz:28.349523125,ounce:28.349523125,ounces:28.349523125,盎司:28.349523125})[String(unit).trim().toLowerCase()] || 0
 const rounded = n => Math.round(n*1e8)/1e8
 export function startSuggestedMaterials(preview,input) {
  const materials=preview.materials||[]
