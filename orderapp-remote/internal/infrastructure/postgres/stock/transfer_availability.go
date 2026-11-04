@@ -230,19 +230,54 @@ WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=$2 AND b
 	return units == batchN && units*specG+loose == batchG, nil
 }
 
-func validateFinishedTransferBatchTx(ctx context.Context, tx pgx.Tx, schema string, item stockapp.StockDocumentItemRow) error {
-	for _, warehouse := range []string{item.FromWarehouse, item.ToWarehouse} {
-		var customerID int64
-		err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(customer_id,0) FROM %s.warehouses WHERE code=$1 AND active=true`, schema), warehouse).Scan(&customerID)
+// The target customer must be explicitly confirmed for a company-owned canonical
+// finished batch. All other transfers keep the existing owner unchanged.
+func effectiveTransferOwner(item stockapp.StockDocumentItemRow) int64 {
+	if item.TargetOwnerCustomerID > 0 {
+		return item.TargetOwnerCustomerID
+	}
+	return item.OwnerCustomerID
+}
+
+func validateTransferOwnersTx(ctx context.Context, tx pgx.Tx, schema string, item stockapp.StockDocumentItemRow) (int64, error) {
+	var fromCustomer, toCustomer int64
+	for _, endpoint := range []struct {
+		warehouse string
+		customer  *int64
+	}{{item.FromWarehouse, &fromCustomer}, {item.ToWarehouse, &toCustomer}} {
+		err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(customer_id,0) FROM %s.warehouses WHERE code=$1 AND active=true FOR SHARE`, schema), endpoint.warehouse).Scan(endpoint.customer)
 		if err == pgx.ErrNoRows {
-			return fmt.Errorf("转仓仓库不存在或已停用")
+			return 0, fmt.Errorf("转仓仓库不存在或已停用")
 		}
 		if err != nil {
-			return err
+			return 0, err
 		}
-		if customerID > 0 && customerID != item.OwnerCustomerID {
-			return fmt.Errorf("仓库货主与来源批次不一致")
-		}
+	}
+	if fromCustomer > 0 && fromCustomer != item.OwnerCustomerID {
+		return 0, fmt.Errorf("来源仓库货主与来源批次不一致")
+	}
+	target := effectiveTransferOwner(item)
+	if item.TargetOwnerCustomerID > 0 && (item.OwnerCustomerID != 0 || item.BomSpecID <= 0 || toCustomer != item.TargetOwnerCustomerID) {
+		return 0, fmt.Errorf("仅支持将公司成品明确转为目标仓绑定的客户货权")
+	}
+	if toCustomer > 0 && toCustomer != target {
+		return 0, fmt.Errorf("目标仓绑定客户，请明确确认货权转移")
+	}
+	var conflict bool
+	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.finished_inventory WHERE product_id=$1 AND bom_spec_id=$2 AND spec_g=$3 AND warehouse=$4 AND owner_customer_id<>$5 AND (onhand_units<>0 OR onhand_loose_g<>0)) OR EXISTS(SELECT 1 FROM %[1]s.stock_batches b LEFT JOIN LATERAL (SELECT l.warehouse FROM %[1]s.stock_ledger_entries l WHERE l.source_batch_code=b.batch_code AND l.item_type=b.item_type AND l.item_id=b.item_id AND l.bom_spec_id=b.bom_spec_id AND l.owner_customer_id=b.owner_customer_id ORDER BY l.id DESC LIMIT 1) loc ON true WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=$2 AND b.spec_g=$3 AND b.owner_customer_id<>$5 AND (b.remaining_units<>0 OR b.remaining_g<>0) AND COALESCE(loc.warehouse,'finished_goods')=$4)`, schema), item.ProductID, item.BomSpecID, item.SpecG, item.ToWarehouse, target).Scan(&conflict)
+	if err != nil {
+		return 0, err
+	}
+	if conflict {
+		return 0, fmt.Errorf("目标仓已有不同货主的同规格库存，请先核对")
+	}
+	return target, nil
+}
+
+func validateFinishedTransferBatchTx(ctx context.Context, tx pgx.Tx, schema string, item stockapp.StockDocumentItemRow) error {
+	targetOwner, err := validateTransferOwnersTx(ctx, tx, schema, item)
+	if err != nil {
+		return err
 	}
 	matched, err := finishedTransferBalancesMatchTx(ctx, tx, schema, item.ProductID, item.BomSpecID, item.SpecG, item.OwnerCustomerID, item.FromWarehouse)
 	if err != nil {
@@ -251,7 +286,7 @@ func validateFinishedTransferBatchTx(ctx context.Context, tx pgx.Tx, schema stri
 	if !matched {
 		return fmt.Errorf("来源仓成品库存与批次汇总不一致，请先核对")
 	}
-	matched, err = finishedTransferBalancesMatchTx(ctx, tx, schema, item.ProductID, item.BomSpecID, item.SpecG, item.OwnerCustomerID, item.ToWarehouse)
+	matched, err = finishedTransferBalancesMatchTx(ctx, tx, schema, item.ProductID, item.BomSpecID, item.SpecG, targetOwner, item.ToWarehouse)
 	if err != nil {
 		return err
 	}

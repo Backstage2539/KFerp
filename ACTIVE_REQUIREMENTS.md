@@ -1,3 +1,10 @@
+### PR-747-TRANSFER-FROZEN-OWNER
+- Branch: `codex/transfer-frozen-bom-20261104`; DEV-PR747-01/02.
+- 历史批次身份保持，真实批次、货主、库存和预留校验不绕过；公司成品进入客户绑定仓时明确确认目标货主。
+- RED: 隔离 PostgreSQL 重现 `bom_variant_not_current`；GREEN: 历史批次、客户货权、重复提交及撤销 API、前端测试。
+- 手册 `orderapp-remote/docs/OP_MANUAL_STOCK.md`；生产发布及 Van 业务验收待完成。
+- PR 编号预留脚本在 macOS awk 因多行字符串报错，手工记录。
+
 ### PR-ORDER-COPY-AMOUNTS-20261103 付款金额口径更正
 - Branch: `codex/order-copy-paid-amount-20261103`; DEV-ORDER-COPY-PAID-20261103.
 - 未付款为零，预付款显示已收部分，已付款显示订单已付总额；沿用订单列表付款口径，不改动真实订单。
