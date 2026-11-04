@@ -212,7 +212,8 @@
               <label><span>规格</span><select v-model="item.transfer_spec" @change="changeTransferSpec(item)"><option value="">请选择</option><option v-for="spec in transferItemSpecs(item)" :key="spec.key" :value="spec.key">{{ spec.label }}</option></select><small v-if="selectedTransferSpec(item)" class="source-balance">该规格库存 {{ transferSpecBalance(item, false) }}；可转 {{ transferSpecBalance(item, true) }}</small></label>
               <label class="wide"><span>来源批次（必选）</span><select v-model="item.batch_code" @change="changeTransferBatch(item)"><option value="">请选择批次</option><option v-for="row in transferItemBatches(item)" :key="row.batch_id" :value="row.batch_code" :disabled="Boolean(row.unavailable_reason) || transferRowAmount(row, item, true) <= 0">{{ row.batch_code }} · 可转 {{ transferRowAmount(row, item, true) }} {{ selectedTransferSpec(item)?.unit }}{{ row.unavailable_reason ? ` · ${row.unavailable_reason}` : '' }}</option></select><small v-if="selectedTransferBatch(item)" class="source-balance">该批次库存 {{ transferRowAmount(selectedTransferBatch(item), item, false) }}；本行最多可转 {{ remainingTransferBatch(item) }} {{ selectedTransferSpec(item)?.unit }}</small></label>
               <label><span>数量（{{ selectedTransferSpec(item)?.unit || '件' }}）</span><input v-model.number="item.quantity" type="number" min="0" :step="selectedTransferSpec(item)?.mode === 'weight' ? 'any' : 1" /><small v-if="selectedTransferSpec(item)?.mode === 'loose'" class="source-balance">当前按克计量，填写 100 即转 100 克</small><small v-else-if="selectedTransferSpec(item)?.mode === 'canonical_weight'" class="source-balance">当前按 {{ selectedTransferSpec(item)?.unit }} 计量</small></label>
-              <label><span>入库仓</span><select v-model="item.to_warehouse"><option value="">请选择</option><option v-for="warehouse in warehouses" :key="warehouse.code" :value="warehouse.code">{{ warehouse.name }}</option></select></label>
+              <label><span>入库仓</span><select v-model="item.to_warehouse" @change="item.target_owner_customer_id = 0"><option value="">请选择</option><option v-for="warehouse in warehouses" :key="warehouse.code" :value="warehouse.code">{{ warehouse.name }}</option></select></label>
+              <label v-if="ownerTransferCustomerID(item)" class="wide"><span>货权变更</span><span><input type="checkbox" :checked="Number(item.target_owner_customer_id || 0) === ownerTransferCustomerID(item)" @change="item.target_owner_customer_id = $event.target.checked ? ownerTransferCustomerID(item) : 0" /> 确认将本次转入的公司成品变更为{{ warehouseName(item.to_warehouse) }}所属客户的库存</span></label>
             </template>
             <template v-else>
             <label>
@@ -405,7 +406,7 @@ function emptyItem() {
     spec_g: 0, inventory_unit: '', from_warehouse: 'raw_materials', to_warehouse: 'wip',
     quantity: 0, quantity_basis: '', canonical_qty_per_unit: 0, transfer_spec: '',
     required_qty: 0, remaining_qty: null, remembered_qty: 0, default_qty: 0,
-    qty_g: 0, qty_units: 0, batch_code: '', unit_cost: 0, supplier: '', crop_season: '',
+    qty_g: 0, qty_units: 0, batch_code: '', owner_customer_id: 0, target_owner_customer_id: 0, unit_cost: 0, supplier: '', crop_season: '',
     origin: '', producer_flavor_description: '', product_detail_ready: false, allocations: [], source_balance: { book_qty: 0, available_qty: 0, frozen_qty: 0 },
   }
 }
@@ -429,7 +430,7 @@ function normalizedPurpose(value) {
 }
 
 function draftFingerprint() {
-  const keys = ['material_id', 'product_id', 'item_type', 'bom_spec_id', 'bom_variant_id', 'spec_g', 'from_warehouse', 'to_warehouse', 'quantity', 'qty_g', 'qty_units', 'batch_code', 'unit_cost', 'supplier', 'crop_season', 'origin', 'producer_flavor_description']
+  const keys = ['material_id', 'product_id', 'item_type', 'bom_spec_id', 'bom_variant_id', 'spec_g', 'from_warehouse', 'to_warehouse', 'owner_customer_id', 'target_owner_customer_id', 'quantity', 'qty_g', 'qty_units', 'batch_code', 'unit_cost', 'supplier', 'crop_season', 'origin', 'producer_flavor_description']
   return JSON.stringify({
     purpose: form.purpose_key, note: form.note,
     items: form.items.map(item => Object.fromEntries(keys.map(key => [key, item[key] ?? '']))),
@@ -750,6 +751,7 @@ function requestBody() {
     if (!selectedObjectID(item) || !selectedTransferSpec(item) || !item.batch_code || !selectedTransferBatch(item)) throw new Error(`第 ${index + 1} 行请选择来源商品、规格和批次`)
     if (!item.from_warehouse || !item.to_warehouse || item.from_warehouse === item.to_warehouse) throw new Error(`第 ${index + 1} 行请选择不同的出库仓和入库仓`)
     if (!(Number(item.quantity) > 0) || Number(item.quantity) > remainingTransferBatch(item)) throw new Error(`第 ${index + 1} 行数量无效或超过批次可转库存`)
+    if (ownerTransferCustomerID(item) && Number(item.target_owner_customer_id || 0) !== ownerTransferCustomerID(item)) throw new Error(`第 ${index + 1} 行请确认本次货权转移`)
   }
   const requestItems = stockDocumentPositiveItems(form.items, (item) => (
     isOrdinaryTransfer() ? transferQuantity(item) : usesSingleQuantity(item)
@@ -780,7 +782,7 @@ function requestBody() {
         inventory_unit: item.inventory_unit || '', quantity_basis: item.quantity_basis || '',
         from_warehouse: item.from_warehouse || '', to_warehouse: item.to_warehouse || '',
         qty_g: quantity.qty_g, qty_units: quantity.qty_units,
-        batch_code: item.batch_code || '', owner_customer_id: Number(item.owner_customer_id || 0), unit_cost: isReceipt.value ? Number(item.unit_cost || 0) : 0,
+        batch_code: item.batch_code || '', owner_customer_id: Number(item.owner_customer_id || 0), target_owner_customer_id: Number(item.target_owner_customer_id || 0), unit_cost: isReceipt.value ? Number(item.unit_cost || 0) : 0,
         supplier: item.supplier || '', crop_season: item.crop_season || '', origin: item.origin || '',
         producer_flavor_description: item.producer_flavor_description || '',
       }
@@ -1093,6 +1095,10 @@ function transferItemSpecs(item) { return transferSpecs(transferChoiceRows(item)
 function selectedTransferSpec(item) { return transferItemSpecs(item).find(spec => spec.key === item.transfer_spec) }
 function transferItemBatches(item) { return transferBatches(transferChoiceRows(item), item.item_type, selectedObjectID(item), item.transfer_spec) }
 function selectedTransferBatch(item) { return transferItemBatches(item).find(row => row.batch_code === item.batch_code) }
+function ownerTransferCustomerID(item) {
+  if (item.item_type !== 'finished_product' || Number(item.bom_spec_id || 0) <= 0 || Number(item.owner_customer_id || 0) !== 0) return 0
+  return Number(warehouses.value.find(row => row.code === item.to_warehouse)?.customer_id || 0)
+}
 function transferRowAmount(row, item, available) { const spec = selectedTransferSpec(item); return row && spec ? transferAmount(row, spec, available ? 'available' : 'book').amount : 0 }
 function transferSpecBalance(item, available) {
   const spec = selectedTransferSpec(item)
@@ -1107,7 +1113,7 @@ function remainingTransferBatch(item) {
 }
 function resetTransferSelection(item) {
   resetItemObject(item)
-  item.transfer_spec = ''; item.batch_code = ''; item.quantity = 0; item.owner_customer_id = 0
+  item.transfer_spec = ''; item.batch_code = ''; item.quantity = 0; item.owner_customer_id = 0; item.target_owner_customer_id = 0
 }
 function changeTransferWarehouse(item) { resetTransferSelection(item); void ensureChoiceInventory(item.from_warehouse) }
 function selectTransferObject(item, id) {
@@ -1121,11 +1127,11 @@ function selectTransferObject(item, id) {
 }
 function changeTransferSpec(item) {
   const spec = selectedTransferSpec(item)
-  item.batch_code = ''; item.quantity = 0; item.owner_customer_id = 0
+  item.batch_code = ''; item.quantity = 0; item.owner_customer_id = 0; item.target_owner_customer_id = 0
   item.bom_spec_id = spec?.bomSpecID || 0; item.bom_variant_id = spec?.variantID || 0
   item.spec_g = spec?.specG || 0; item.inventory_unit = spec?.inventoryUnit || spec?.unit || ''
 }
-function changeTransferBatch(item) { item.quantity = 0; item.owner_customer_id = Number(selectedTransferBatch(item)?.owner_customer_id || 0) }
+function changeTransferBatch(item) { item.quantity = 0; item.owner_customer_id = Number(selectedTransferBatch(item)?.owner_customer_id || 0); item.target_owner_customer_id = 0 }
 function hydrateTransferDraft(item) {
   const specs = transferItemSpecs(item)
   const spec = specs.find(s => item.bom_spec_id > 0 ? s.bomSpecID === Number(item.bom_spec_id) && s.variantID === Number(item.bom_variant_id) : item.item_type === 'material' ? true : s.specG === Number(item.spec_g) && s.mode === (Number(item.qty_units) > 0 ? 'count' : 'loose'))

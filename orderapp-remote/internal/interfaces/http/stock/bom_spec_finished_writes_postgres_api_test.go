@@ -3,6 +3,7 @@ package stock
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,7 +13,9 @@ import (
 	"time"
 
 	stockapp "orderapp/internal/application/stock"
+	migration "orderapp/internal/infrastructure/postgres/productspecmigration"
 	postgresstock "orderapp/internal/infrastructure/postgres/stock"
+	productionhttp "orderapp/internal/interfaces/http/production"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
@@ -33,8 +36,9 @@ CREATE TABLE %[1]s.materials (
 	onhand_g BIGINT NOT NULL DEFAULT 0,onhand_units BIGINT NOT NULL DEFAULT 0,
 	min_level_g BIGINT NOT NULL DEFAULT 0,min_level_units BIGINT NOT NULL DEFAULT 0,updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE TABLE %[1]s.products (id BIGINT PRIMARY KEY,name TEXT NOT NULL,customer_id BIGINT NOT NULL DEFAULT 0);
-CREATE TABLE %[1]s.work_orders (id BIGINT PRIMARY KEY,work_order_no TEXT NOT NULL DEFAULT '');
+CREATE TABLE %[1]s.products (id BIGINT PRIMARY KEY,name TEXT NOT NULL,customer_id BIGINT NOT NULL DEFAULT 0, parent_product_id BIGINT NOT NULL DEFAULT 0,auto_derived_sku BOOLEAN NOT NULL DEFAULT false,active BOOLEAN NOT NULL DEFAULT true);
+CREATE TABLE %[1]s.work_orders (id BIGINT PRIMARY KEY,work_order_no TEXT NOT NULL DEFAULT '',product_id BIGINT NOT NULL DEFAULT 0,bom_spec_id BIGINT NOT NULL DEFAULT 0,bom_variant_id BIGINT NOT NULL DEFAULT 0,bom_version_id BIGINT NOT NULL DEFAULT 0);
+CREATE TABLE %[1]s.produce_running_items(id BIGINT PRIMARY KEY,product_id BIGINT,bom_spec_id BIGINT,bom_variant_id BIGINT);
 CREATE TABLE %[1]s.finished_inventory (
 	product_id BIGINT NOT NULL,spec_g BIGINT NOT NULL,onhand_units BIGINT NOT NULL DEFAULT 0,
 	onhand_loose_g BIGINT NOT NULL DEFAULT 0,updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),PRIMARY KEY(product_id,spec_g)
@@ -108,9 +112,25 @@ VALUES(291,42,91,'227g袋 V2','袋',true,10),(292,42,92,'454g袋 V2','袋',false
 UPDATE %[1]s.production_bom_output_bindings SET bom_version_id=42 WHERE output_type='product' AND output_id=7;
 `, schema))
 
+	if err := migration.EnsureAuthorityProjection(ctx, pool, schema); err != nil {
+		t.Fatalf("install production identity guards: %v", err)
+	}
+
 	var sourceBatch string
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT batch_code FROM %s.stock_batches WHERE item_type='finished_product' AND item_id=7 AND bom_spec_id=91 AND remaining_units>0 ORDER BY id LIMIT 1`, schema)).Scan(&sourceBatch); err != nil {
 		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, body string }{
+		{"wrong spec", fmt.Sprintf(`{"batch_code":%q,"product_id":7,"bom_spec_id":92,"unit_code":"袋","from_warehouse":"finished_goods","to_warehouse":"finished_shop","qty_units":1}`, sourceBatch)},
+		{"wrong warehouse", fmt.Sprintf(`{"batch_code":%q,"product_id":7,"bom_spec_id":91,"unit_code":"袋","from_warehouse":"finished_shop","to_warehouse":"finished_goods","qty_units":1}`, sourceBatch)},
+		{"insufficient quantity", fmt.Sprintf(`{"batch_code":%q,"product_id":7,"bom_spec_id":91,"unit_code":"袋","from_warehouse":"finished_goods","to_warehouse":"finished_shop","qty_units":13}`, sourceBatch)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bad := post("/api/stock/finished-transfers", tc.body)
+			if bad.Code == http.StatusOK {
+				t.Fatalf("accepted %s: %s", tc.name, bad.Body.String())
+			}
+		})
 	}
 	rec = post("/api/stock/finished-transfers", fmt.Sprintf(`{"batch_code":%q,"product_id":7,"bom_spec_id":91,"unit_code":"袋","from_warehouse":"finished_goods","to_warehouse":"finished_shop","qty_units":4,"note":"历史规格转仓"}`, sourceBatch))
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"bom_variant_id":191`) {
@@ -143,6 +163,21 @@ UPDATE %[1]s.production_bom_output_bindings SET bom_version_id=42 WHERE output_t
 		t.Fatalf("V2 transfer ledger/audit=%d/%d, want 2/1", transferLedgerV2, transferAuditV2)
 	}
 
+	// The historical exception must not allow forged transfers or ledger quantities.
+	for _, tc := range []struct{ name, statement string }{
+		{"wrong warehouse", `INSERT INTO %[1]s.stock_ledger_entries(item_type,item_id,bom_spec_id,bom_variant_id,spec_g,owner_customer_id,warehouse,source_doc_type,source_doc_id,source_batch_code,qty_change_units,qty_change_g) SELECT 'finished_product',7,91,191,0,0,'raw_materials','stock_entry',m.stock_entry_id,m.source_batch_code,-m.qty_units,0 FROM %[1]s.stock_entry_finished_batch_moves m LIMIT 1`},
+		{"wrong quantity", `INSERT INTO %[1]s.stock_ledger_entries(item_type,item_id,bom_spec_id,bom_variant_id,spec_g,owner_customer_id,warehouse,source_doc_type,source_doc_id,source_batch_code,qty_change_units,qty_change_g) SELECT 'finished_product',7,91,191,0,0,'finished_goods','stock_entry',m.stock_entry_id,m.source_batch_code,-m.qty_units-1,0 FROM %[1]s.stock_entry_finished_batch_moves m LIMIT 1`},
+		{"wrong owner", `INSERT INTO %[1]s.stock_ledger_entries(item_type,item_id,bom_spec_id,bom_variant_id,spec_g,owner_customer_id,warehouse,source_doc_type,source_doc_id,source_batch_code,qty_change_units,qty_change_g) SELECT 'finished_product',7,91,191,0,999,'finished_goods','stock_entry',m.stock_entry_id,m.source_batch_code,-m.qty_units,0 FROM %[1]s.stock_entry_finished_batch_moves m LIMIT 1`},
+		{"wrong target batch quantity", `INSERT INTO %[1]s.stock_batches(batch_code,item_type,item_id,bom_spec_id,bom_variant_id,spec_g,owner_customer_id,source_doc_type,source_doc_id,source_batch_id,qty_units,remaining_units) SELECT 'FAKE','finished_product',7,91,191,0,0,'stock_entry_transfer',m.id,m.source_batch_code,m.qty_units+1,m.qty_units+1 FROM %[1]s.stock_entry_finished_batch_moves m LIMIT 1`},
+	} {
+		t.Run("guard/"+tc.name, func(t *testing.T) {
+			_, err := pool.Exec(ctx, fmt.Sprintf(tc.statement, schema))
+			if err == nil || !strings.Contains(err.Error(), "bom_variant_not_current") {
+				t.Fatalf("forged historical identity accepted: %v", err)
+			}
+		})
+	}
+
 	rec = post("/api/stock/adjustments", `{"item_type":"finished_product","item_id":7,"bom_spec_id":91,"unit_code":"袋","warehouse":"finished_shop","target_units":7,"reason":"V2规格盘点"}`)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"bom_variant_id":291`) {
 		t.Fatalf("POST V2 adjustment status=%d body=%s", rec.Code, rec.Body.String())
@@ -166,6 +201,98 @@ UPDATE %[1]s.production_bom_output_bindings SET bom_version_id=42 WHERE output_t
 			t.Fatalf("stale write %s status=%d body=%s", stale.path, rec.Code, rec.Body.String())
 		}
 	}
+	var transferID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.stock_entries WHERE purpose='material_transfer' ORDER BY id DESC LIMIT 1`, schema)).Scan(&transferID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stockapp.NewService(postgresstock.NewRepository(pool, schema)).CancelStockDocument(ctx, transferID, "tester"); err != nil {
+		t.Fatalf("cancel historical transfer: %v", err)
+	}
+	var reversed, remaining int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT (SELECT remaining_units FROM %[1]s.stock_batches WHERE batch_code=$1),(SELECT onhand_units FROM %[1]s.finished_inventory WHERE product_id=7 AND bom_spec_id=91 AND warehouse='finished_shop')`, schema), sourceBatch).Scan(&reversed, &remaining); err != nil {
+		t.Fatal(err)
+	}
+	if reversed != 12 || remaining != 3 {
+		t.Fatalf("cancel must restore source and retain separately adjusted stock: source=%d target=%d", reversed, remaining)
+	}
+
+	// A company-owned historical batch may become the bound customer's stock only
+	// after the operator explicitly confirms the customer as the destination owner.
+	mustExecStockHTTPPostgres(t, ctx, pool, fmt.Sprintf(`INSERT INTO %s.warehouses(code,name,kind,active,customer_id) VALUES('customer_74','客户仓','finished',true,74)`, schema))
+	missingConfirm := post("/api/stock/finished-transfers", fmt.Sprintf(`{"batch_code":%q,"product_id":7,"bom_spec_id":91,"unit_code":"袋","from_warehouse":"finished_goods","to_warehouse":"customer_74","qty_units":4}`, sourceBatch))
+	if missingConfirm.Code == http.StatusOK {
+		t.Fatal("owner change without explicit confirmation was accepted")
+	}
+	wrongOwner := post("/api/stock/finished-transfers", fmt.Sprintf(`{"batch_code":%q,"product_id":7,"bom_spec_id":91,"unit_code":"袋","from_warehouse":"finished_goods","to_warehouse":"customer_74","target_owner_customer_id":75,"qty_units":4}`, sourceBatch))
+	if wrongOwner.Code == http.StatusOK {
+		t.Fatal("mismatched customer owner was accepted")
+	}
+	confirmed := post("/api/stock/finished-transfers", fmt.Sprintf(`{"batch_code":%q,"product_id":7,"bom_spec_id":91,"unit_code":"袋","from_warehouse":"finished_goods","to_warehouse":"customer_74","target_owner_customer_id":74,"qty_units":4}`, sourceBatch))
+	if confirmed.Code != http.StatusOK {
+		t.Fatalf("confirmed owner transfer: %d %s", confirmed.Code, confirmed.Body.String())
+	}
+	var destinationOwner, destinationUnits, sourceOwner, sourceUnits, ledgerOut, ledgerIn, auditOwner int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT (SELECT owner_customer_id FROM %[1]s.finished_inventory WHERE product_id=7 AND bom_spec_id=91 AND warehouse='customer_74'),(SELECT onhand_units FROM %[1]s.finished_inventory WHERE product_id=7 AND bom_spec_id=91 AND warehouse='customer_74'),(SELECT owner_customer_id FROM %[1]s.stock_batches WHERE batch_code=$1),(SELECT remaining_units FROM %[1]s.stock_batches WHERE batch_code=$1),(SELECT count(*) FROM %[1]s.stock_ledger_entries WHERE item_id=7 AND bom_variant_id=191 AND warehouse='finished_goods' AND owner_customer_id=0 AND qty_change_units=-4 AND source_doc_type='stock_entry'),(SELECT count(*) FROM %[1]s.stock_ledger_entries WHERE item_id=7 AND bom_variant_id=191 AND warehouse='customer_74' AND owner_customer_id=74 AND qty_change_units=4 AND source_doc_type='stock_entry'),(SELECT count(*) FROM %[1]s.audit_logs WHERE entity_type='stock_entry' AND action='submit' AND meta#>>'{transfer_lines,0,target_owner_customer_id}'='74')`, schema), sourceBatch).Scan(&destinationOwner, &destinationUnits, &sourceOwner, &sourceUnits, &ledgerOut, &ledgerIn, &auditOwner); err != nil {
+		t.Fatal(err)
+	}
+	if destinationOwner != 74 || destinationUnits != 4 || sourceOwner != 0 || sourceUnits != 8 || ledgerOut < 1 || ledgerIn != 1 || auditOwner != 1 {
+		t.Fatalf("owner transfer dest=%d/%d source=%d/%d ledgers=%d/%d audit=%d", destinationOwner, destinationUnits, sourceOwner, sourceUnits, ledgerOut, ledgerIn, auditOwner)
+	}
+	var ownerTransferID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.stock_entries WHERE purpose='material_transfer' ORDER BY id DESC LIMIT 1`, schema)).Scan(&ownerTransferID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stockapp.NewService(postgresstock.NewRepository(pool, schema)).CancelStockDocument(ctx, ownerTransferID, "tester"); err != nil {
+		t.Fatalf("cancel owner-changing transfer: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT (SELECT remaining_units FROM %[1]s.stock_batches WHERE batch_code=$1),(SELECT onhand_units FROM %[1]s.finished_inventory WHERE product_id=7 AND bom_spec_id=91 AND warehouse='customer_74')`, schema), sourceBatch).Scan(&sourceUnits, &destinationUnits); err != nil {
+		t.Fatal(err)
+	}
+	if sourceUnits != 12 || destinationUnits != 0 {
+		t.Fatalf("cancel owner transfer source=%d target=%d", sourceUnits, destinationUnits)
+	}
+
+	// Exercise the exact draft/submit/cancel HTTP flow used by the stock page.
+	page := echo.New()
+	page.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error { c.Set("employee_id", int64(1)); return next(c) }
+	})
+	productionhttp.RegisterRoutes(page, productionhttp.Dependencies{Stock: stockapp.NewService(postgresstock.NewRepository(pool, schema))})
+	pagePost := func(path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, path, bytes.NewBufferString(body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+		page.ServeHTTP(rec, req)
+		return rec
+	}
+	draft := pagePost("/api/stock-documents", fmt.Sprintf(`{"purpose":"material_transfer","items":[{"item_type":"finished_product","product_id":7,"bom_spec_id":91,"bom_variant_id":191,"inventory_unit":"袋","from_warehouse":"finished_goods","to_warehouse":"customer_74","batch_code":%q,"qty_units":4,"target_owner_customer_id":74}]}`, sourceBatch))
+	var doc struct {
+		ID    int64 `json:"id"`
+		Items []struct {
+			TargetOwner int64 `json:"target_owner_customer_id"`
+		} `json:"items"`
+	}
+	if draft.Code != http.StatusOK || json.Unmarshal(draft.Body.Bytes(), &doc) != nil || doc.ID <= 0 || len(doc.Items) != 1 || doc.Items[0].TargetOwner != 74 {
+		t.Fatalf("page draft must persist confirmed owner: %d %s", draft.Code, draft.Body.String())
+	}
+	for i := 0; i < 2; i++ {
+		submitted := pagePost(fmt.Sprintf("/api/stock-documents/%d/submit", doc.ID), `{}`)
+		if submitted.Code != http.StatusOK {
+			t.Fatalf("page submit %d: %d %s", i, submitted.Code, submitted.Body.String())
+		}
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT (SELECT remaining_units FROM %[1]s.stock_batches WHERE batch_code=$1),(SELECT onhand_units FROM %[1]s.finished_inventory WHERE product_id=7 AND bom_spec_id=91 AND warehouse='customer_74' AND owner_customer_id=74)`, schema), sourceBatch).Scan(&sourceUnits, &destinationUnits); err != nil || sourceUnits != 8 || destinationUnits != 4 {
+		t.Fatalf("page submit must be idempotent: source=%d target=%d error=%v", sourceUnits, destinationUnits, err)
+	}
+	cancelled := pagePost(fmt.Sprintf("/api/stock-documents/%d/cancel", doc.ID), `{}`)
+	if cancelled.Code != http.StatusOK {
+		t.Fatalf("page cancel: %d %s", cancelled.Code, cancelled.Body.String())
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT (SELECT remaining_units FROM %[1]s.stock_batches WHERE batch_code=$1),(SELECT onhand_units FROM %[1]s.finished_inventory WHERE product_id=7 AND bom_spec_id=91 AND warehouse='customer_74')`, schema), sourceBatch).Scan(&sourceUnits, &destinationUnits); err != nil || sourceUnits != 12 || destinationUnits != 0 {
+		t.Fatalf("page cancel must restore balances: source=%d target=%d error=%v", sourceUnits, destinationUnits, err)
+	}
+
 }
 
 func TestStandardFinishedBatchAdjustmentAPIReconcilesWarehouseInventory(t *testing.T) {

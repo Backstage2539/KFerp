@@ -495,6 +495,57 @@ BEGIN
 					  END
 				) INTO frozen_production_identity_derived;
 			END IF;
+		ELSIF TG_TABLE_NAME='stock_batches' AND to_jsonb(NEW)->>'source_doc_type'='stock_entry_transfer'
+		   AND to_regclass('%[1]s.stock_entry_finished_batch_moves') IS NOT NULL THEN
+			-- A transfer target inherits the exact source batch identity and quantity.
+			SELECT EXISTS (
+			 SELECT 1 FROM %[1]s.stock_entry_finished_batch_moves move
+			 JOIN %[1]s.stock_entries entry ON entry.id=move.stock_entry_id AND entry.purpose='material_transfer'
+			 JOIN %[1]s.stock_entry_items item ON item.id=move.stock_entry_item_id AND item.stock_entry_id=entry.id
+			 JOIN %[1]s.stock_batches source ON source.id=move.source_batch_id AND source.batch_code=move.source_batch_code
+			 WHERE move.id=COALESCE(NULLIF(to_jsonb(NEW)->>'source_doc_id','')::bigint,0)
+			   AND source.item_type='finished_product' AND source.item_id=business_product_id
+			   AND source.bom_spec_id=business_bom_spec_id AND source.bom_variant_id=business_bom_variant_id
+			   AND item.product_id=business_product_id AND item.bom_spec_id=business_bom_spec_id AND item.bom_variant_id=business_bom_variant_id
+			   AND move.bom_spec_id=business_bom_spec_id AND move.bom_variant_id=business_bom_variant_id
+			   AND COALESCE((to_jsonb(NEW)->>'owner_customer_id')::bigint,0)=COALESCE(NULLIF(item.target_owner_customer_id,0),source.owner_customer_id)
+			   AND (item.target_owner_customer_id=0 OR (source.owner_customer_id=0 AND EXISTS (SELECT 1 FROM %[1]s.warehouses destination WHERE destination.code=item.to_warehouse AND destination.customer_id=item.target_owner_customer_id)))
+			   AND item.owner_customer_id=source.owner_customer_id AND source.spec_g=move.spec_g
+			   AND COALESCE(to_jsonb(NEW)->>'source_batch_id','')=source.batch_code
+			   AND COALESCE((to_jsonb(NEW)->>'spec_g')::bigint,0)=move.spec_g
+			   AND COALESCE((to_jsonb(NEW)->>'qty_units')::bigint,0)=move.qty_units
+			   AND COALESCE((to_jsonb(NEW)->>'qty_g')::bigint,0)=move.qty_g
+			) INTO frozen_production_identity_derived;
+		ELSIF TG_TABLE_NAME='stock_ledger_entries' AND to_jsonb(NEW)->>'source_doc_type' IN ('stock_entry','stock_entry_cancel')
+		   AND to_regclass('%[1]s.stock_entry_finished_batch_moves') IS NOT NULL
+		   AND EXISTS (SELECT 1 FROM %[1]s.stock_entries transfer_entry WHERE transfer_entry.id=COALESCE(NULLIF(to_jsonb(NEW)->>'source_doc_id','')::bigint,0) AND transfer_entry.purpose='material_transfer') THEN
+			-- Outbound, inbound and reversal ledgers must follow a recorded batch move.
+			SELECT EXISTS (
+			 SELECT 1 FROM %[1]s.stock_entry_finished_batch_moves move
+			 JOIN %[1]s.stock_entries entry ON entry.id=move.stock_entry_id AND entry.purpose='material_transfer'
+			 JOIN %[1]s.stock_entry_items item ON item.id=move.stock_entry_item_id AND item.stock_entry_id=entry.id
+			 JOIN %[1]s.stock_batches source ON source.id=move.source_batch_id AND source.batch_code=move.source_batch_code
+			 JOIN %[1]s.stock_batches target ON target.id=move.target_batch_id AND target.batch_code=move.target_batch_code
+			 WHERE entry.id=COALESCE(NULLIF(to_jsonb(NEW)->>'source_doc_id','')::bigint,0)
+			   AND source.item_type='finished_product' AND source.item_id=business_product_id
+			   AND source.bom_spec_id=business_bom_spec_id AND source.bom_variant_id=business_bom_variant_id
+			   AND item.product_id=business_product_id AND item.bom_spec_id=business_bom_spec_id AND item.bom_variant_id=business_bom_variant_id
+			   AND move.bom_spec_id=business_bom_spec_id AND move.bom_variant_id=business_bom_variant_id
+			   AND item.owner_customer_id=source.owner_customer_id AND target.owner_customer_id=COALESCE(NULLIF(item.target_owner_customer_id,0),source.owner_customer_id)
+			   AND (item.target_owner_customer_id=0 OR (source.owner_customer_id=0 AND EXISTS (SELECT 1 FROM %[1]s.warehouses destination WHERE destination.code=item.to_warehouse AND destination.customer_id=item.target_owner_customer_id)))
+			   AND target.item_type='finished_product' AND target.item_id=business_product_id
+			   AND target.bom_spec_id=business_bom_spec_id AND target.bom_variant_id=business_bom_variant_id
+			   AND source.spec_g=move.spec_g AND target.spec_g=move.spec_g
+			   AND COALESCE((to_jsonb(NEW)->>'owner_customer_id')::bigint,0)=CASE WHEN to_jsonb(NEW)->>'source_batch_code'=move.source_batch_code THEN source.owner_customer_id ELSE target.owner_customer_id END
+			   AND COALESCE((to_jsonb(NEW)->>'spec_g')::bigint,0)=move.spec_g
+			   AND (CASE WHEN to_jsonb(NEW)->>'source_doc_type'='stock_entry' THEN
+			      (to_jsonb(NEW)->>'source_batch_code'=move.source_batch_code AND to_jsonb(NEW)->>'warehouse'=item.from_warehouse AND (to_jsonb(NEW)->>'qty_change_units')::bigint=-move.qty_units AND (to_jsonb(NEW)->>'qty_change_g')::bigint=-move.qty_g)
+			      OR (to_jsonb(NEW)->>'source_batch_code'=move.target_batch_code AND to_jsonb(NEW)->>'warehouse'=item.to_warehouse AND (to_jsonb(NEW)->>'qty_change_units')::bigint=move.qty_units AND (to_jsonb(NEW)->>'qty_change_g')::bigint=move.qty_g)
+			     ELSE
+			      (to_jsonb(NEW)->>'source_batch_code'=move.target_batch_code AND to_jsonb(NEW)->>'warehouse'=item.to_warehouse AND (to_jsonb(NEW)->>'qty_change_units')::bigint=-move.qty_units AND (to_jsonb(NEW)->>'qty_change_g')::bigint=-move.qty_g)
+			      OR (to_jsonb(NEW)->>'source_batch_code'=move.source_batch_code AND to_jsonb(NEW)->>'warehouse'=item.from_warehouse AND (to_jsonb(NEW)->>'qty_change_units')::bigint=move.qty_units AND (to_jsonb(NEW)->>'qty_change_g')::bigint=move.qty_g)
+			     END)
+			) INTO frozen_production_identity_derived;
 		ELSIF TG_TABLE_NAME='finished_inventory' THEN
 			-- Aggregate inventory has no source-document columns. Production receipt
 			-- code supplies a transaction-local work-order id only for the duration
@@ -513,6 +564,23 @@ BEGIN
 				  AND work_order.bom_spec_id=business_bom_spec_id
 				  AND work_order.bom_variant_id=business_bom_variant_id
 			) INTO frozen_production_identity_derived;
+			IF NOT frozen_production_identity_derived AND to_regclass('%[1]s.stock_entry_finished_batch_moves') IS NOT NULL THEN
+			 SELECT EXISTS (
+			  SELECT 1 FROM %[1]s.stock_entry_items item
+			  JOIN %[1]s.stock_entries entry ON entry.id=item.stock_entry_id AND entry.purpose='material_transfer'
+			  JOIN %[1]s.stock_batches source ON source.id=COALESCE((SELECT m.source_batch_id FROM %[1]s.stock_entry_finished_batch_moves m WHERE m.stock_entry_item_id=item.id ORDER BY m.id LIMIT 1), (SELECT b.id FROM %[1]s.stock_batches b WHERE b.batch_code=item.batch_code LIMIT 1))
+			  WHERE item.id=COALESCE(NULLIF(current_setting('kferp.stock_transfer_item_id',true),'')::bigint,0)
+			    AND item.item_type='finished_product' AND item.product_id=business_product_id
+			    AND item.bom_spec_id=business_bom_spec_id AND item.bom_variant_id=business_bom_variant_id
+			    AND source.item_type='finished_product' AND source.item_id=business_product_id
+			    AND source.bom_spec_id=business_bom_spec_id AND source.bom_variant_id=business_bom_variant_id
+			    AND item.owner_customer_id=source.owner_customer_id
+			    AND COALESCE((to_jsonb(NEW)->>'owner_customer_id')::bigint,0)=CASE WHEN to_jsonb(NEW)->>'warehouse'=item.to_warehouse THEN COALESCE(NULLIF(item.target_owner_customer_id,0),source.owner_customer_id) ELSE source.owner_customer_id END
+			    AND (item.target_owner_customer_id=0 OR (source.owner_customer_id=0 AND EXISTS (SELECT 1 FROM %[1]s.warehouses destination WHERE destination.code=item.to_warehouse AND destination.customer_id=item.target_owner_customer_id)))
+			    AND to_jsonb(NEW)->>'warehouse' IN (item.from_warehouse,item.to_warehouse)
+			    AND COALESCE((to_jsonb(NEW)->>'spec_g')::bigint,0)=source.spec_g
+			 ) INTO frozen_production_identity_derived;
+			END IF;
 		ELSIF TG_TABLE_NAME IN ('stock_batches','stock_ledger_entries') THEN
 			production_source_id := COALESCE(NULLIF(to_jsonb(NEW)->>'source_doc_id','')::bigint,0);
 			production_source_text := lower(COALESCE(to_jsonb(NEW)->>'source_doc_type',''));
@@ -574,6 +642,18 @@ BEGIN
 				  AND work_order.bom_spec_id=business_bom_spec_id
 				  AND work_order.bom_variant_id=business_bom_variant_id
 			) INTO frozen_production_identity_derived;
+			IF NOT frozen_production_identity_derived AND COALESCE(to_jsonb(NEW)->>'batch_code','')<>'' THEN
+			 SELECT EXISTS (
+			  SELECT 1 FROM %[1]s.stock_entries entry
+			  JOIN %[1]s.stock_batches source ON source.batch_code=to_jsonb(NEW)->>'batch_code'
+			  WHERE entry.id=production_source_id AND entry.purpose='material_transfer'
+			    AND source.item_type='finished_product' AND source.item_id=business_product_id
+			    AND source.bom_spec_id=business_bom_spec_id AND source.bom_variant_id=business_bom_variant_id
+			    AND source.owner_customer_id=COALESCE((to_jsonb(NEW)->>'owner_customer_id')::bigint,0)
+			    AND source.spec_g=COALESCE((to_jsonb(NEW)->>'spec_g')::bigint,0)
+			    AND COALESCE((SELECT l.warehouse FROM %[1]s.stock_ledger_entries l WHERE l.source_batch_code=source.batch_code AND l.item_type=source.item_type AND l.item_id=source.item_id AND l.bom_spec_id=source.bom_spec_id AND l.owner_customer_id=source.owner_customer_id ORDER BY l.id DESC LIMIT 1),'finished_goods')=to_jsonb(NEW)->>'from_warehouse'
+			 ) INTO frozen_production_identity_derived;
+			END IF;
 		END IF;
 		IF frozen_production_identity_derived THEN
 			RETURN NEW;

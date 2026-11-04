@@ -100,3 +100,22 @@ test('weight material converts its stock unit using existing gram rounding', asy
     assert.deepEqual(editor.transferQuantity(item), { qty_g: 454, qty_units: 0 })
   } finally { delete globalThis.transferRuntimeAPI; delete globalThis.window }
 })
+
+test('company stock into a customer warehouse requires explicit ownership confirmation', async () => {
+  let editor
+  globalThis.window = { location: { origin: 'http://localhost' }, clearTimeout, setTimeout }
+  globalThis.transferRuntimeAPI = async () => ({ rows: [{ item_type: 'finished_product', item_id: 58, item_name: '曜石', bom_spec_id: 69, bom_variant_id: 1167, spec_name: '454g', inventory_unit: '袋', batch_id: 52, batch_code: 'FP-52', owner_customer_id: 0, qty_units: 10, available_units: 10 }], has_next: false })
+  try {
+    await renderToString(createSSRApp({ setup() { editor = View.setup({ embedded: true, viewParams: {} }, { expose() {}, emit() {} }); return () => h('div') } }))
+    editor.form.purpose_key = 'material_transfer'
+    editor.warehouses.value = [{ code: 'customer74', name: '喜沁仓库', customer_id: 74 }]
+    const item = editor.form.items[0]
+    Object.assign(item, { item_type: 'finished_product', from_warehouse: 'finished_goods', to_warehouse: 'customer74' })
+    await editor.ensureChoiceInventory('finished_goods')
+    editor.selectTransferObject(item, 58)
+    item.batch_code = 'FP-52'; editor.changeTransferBatch(item); item.quantity = 10
+    assert.throws(() => editor.requestBody(), /确认.*货权/)
+    item.target_owner_customer_id = 74
+    assert.equal(editor.requestBody().items[0].target_owner_customer_id, 74)
+  } finally { delete globalThis.transferRuntimeAPI; delete globalThis.window }
+})
