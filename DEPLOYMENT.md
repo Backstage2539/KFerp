@@ -127,7 +127,15 @@ chmod +x deploy_orderapp.sh
 /Users/yiiiple-work/KFerp-miniapp-mp-weixin
 ```
 
-同步只下载构建文件，不在 Mac 执行 npm。临时跳过下载可设置
+仅发布 ERP、无需构建或导出小程序时，使用：
+
+```bash
+KFERP_ERP_ONLY=1 ./deploy_orderapp.sh production
+```
+
+此模式仍执行 ERP 的测试、构建、部署锁、健康检查和回滚；服务器在锁内保留之前的小程序包，逐文件核对 SHA-256，`RELEASE_INFO` 沿用原值，不同步本机固定目录。如果旧包缺失或不完整，发布会在切换服务前失败，不能将旧包视为本次提交生成的包。开发环境及预检同样可显式设置此开关。
+
+默认流程仍会构建并同步小程序。同步只下载构建文件，不在 Mac 执行 npm。临时仅跳过下载（服务器仍会构建小程序）可设置
 `KFERP_SKIP_MINIAPP_EXPORT=1`；开发和生产的自定义目标分别使用
 `KFERP_MINIAPP_DEVELOPMENT_EXPORT_DIR=/绝对路径/KFerp-miniapp-mp-weixin-dev` 与
 `KFERP_MINIAPP_EXPORT_DIR=/绝对路径/KFerp-miniapp-mp-weixin`。

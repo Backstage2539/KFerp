@@ -15,7 +15,7 @@ Usage: remote_orderapp_release.sh \
   --api-base https://.../app \
   --orderapp-container <container> \
   --docconvert-container <container> \
-  [--preflight]
+  [--preflight] [--erp-only]
 EOF
 }
 
@@ -27,6 +27,7 @@ API_BASE=""
 ORDERAPP_CONTAINER=""
 DOC_CONVERT_CONTAINER=""
 PREFLIGHT=0
+ERP_ONLY=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -38,6 +39,7 @@ while [ "$#" -gt 0 ]; do
     --orderapp-container ) ORDERAPP_CONTAINER="${2:-}"; shift 2 ;;
     --docconvert-container ) DOC_CONVERT_CONTAINER="${2:-}"; shift 2 ;;
     --preflight ) PREFLIGHT=1; shift ;;
+    --erp-only ) ERP_ONLY=1; shift ;;
     -h|--help ) usage; exit 0 ;;
     * ) echo "ERROR: unknown argument $1" >&2; usage >&2; exit 1 ;;
   esac
@@ -79,6 +81,14 @@ for command_name in curl flock docker go node npm tar; do
     exit 1
   fi
 done
+if [ "$ERP_ONLY" = "1" ]; then
+  for command_name in sha256sum sort cmp; do
+    if ! command -v "$command_name" >/dev/null 2>&1; then
+      echo "ERROR: required ERP-only verification command not found: $command_name" >&2
+      exit 1
+    fi
+  done
+fi
 
 exec 9>/var/lock/kferp-orderapp-deploy.lock
 if ! flock -n 9; then
@@ -281,7 +291,10 @@ echo "[1/6] Installing and building Vue shell on the server..."
   VITE_KFERP_API_BASE="$API_BASE" nice -n 10 npm run build
 )
 
-echo "[2/6] Testing, type-checking and building mp-weixin on the server..."
+if [ "$ERP_ONLY" = "1" ]; then
+  echo "[2/6] ERP-only: retaining the existing miniapp; skipping its build and export."
+else
+  echo "[2/6] Testing, type-checking and building mp-weixin on the server..."
 (
   cd "$MINIAPP_DIR"
   nice -n 10 npm ci --no-audit --no-fund
@@ -316,6 +329,7 @@ api_base=$API_BASE
 built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
 )
+fi
 
 echo "[3/6] Running Go tests with one build worker on the server..."
 (
@@ -332,6 +346,9 @@ case "$BUILD_ROOT/go-test-cache" in /tmp/kferp-orderapp-release-*/go-test-cache 
 # stay in the temporary build tree and are removed before Docker sees it.
 mkdir -p "$RELEASE_DIR/miniapp" "$RELEASE_DIR/docs/workspace"
 tar --exclude='./node_modules' -C "$MINIAPP_DIR" -cf - . | tar -C "$RELEASE_DIR/miniapp" -xf -
+if [ "$ERP_ONLY" = "1" ]; then
+  bash "$SOURCE_ROOT/scripts/retain_miniapp_artifact.sh" "$APP_DIR" "$RELEASE_DIR"
+fi
 for governance_doc in REQUIREMENTS.md ACCEPTANCE_TESTS.md HOW_TO_WORKFLOW.md DEPLOYMENT.md; do
   if [ -f "$SOURCE_ROOT/$governance_doc" ]; then
     cp "$SOURCE_ROOT/$governance_doc" "$RELEASE_DIR/docs/workspace/$governance_doc"
@@ -498,4 +515,8 @@ echo "commit=$EXPECTED_COMMIT"
 echo "app_source=$APP_DIR"
 echo "previous_source=$BACKUP"
 echo "rollback_image=$ROLLBACK_IMAGE"
-echo "miniapp_artifact=$APP_DIR/miniapp/dist/build/mp-weixin"
+if [ "$ERP_ONLY" = "1" ]; then
+  echo "miniapp_artifact_retained=$APP_DIR/miniapp/dist/build/mp-weixin (previous release; not rebuilt)"
+else
+  echo "miniapp_artifact=$APP_DIR/miniapp/dist/build/mp-weixin"
+fi
