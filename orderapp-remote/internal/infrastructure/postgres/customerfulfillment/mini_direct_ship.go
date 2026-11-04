@@ -1427,6 +1427,14 @@ func (r *Repository) SubmitPreparedMiniDirectShipOrder(ctx context.Context, prep
 		fees = &q
 		if q.Freight != nil {
 			orderCommand.FreightQuoteToken = q.Freight.Token
+			// The full receiver address remains the original text. Only copy a
+			// destination that this legacy compatibility rule actually repaired.
+			original := freightdomain.Destination{Province: cmd.Province, City: cmd.City, District: cmd.District}
+			if normalized, ok := freightdomain.NormalizeLegacyFulfillmentDestination(original); ok && q.Freight.Destination.Province == normalized.Province && q.Freight.Destination.City == normalized.City && q.Freight.Destination.District == normalized.District {
+				orderCommand.ShippingProvince = normalized.Province
+				orderCommand.ShippingCity = normalized.City
+				orderCommand.ShippingDistrict = normalized.District
+			}
 		}
 	}
 	var order app.DirectShipOrderSummary

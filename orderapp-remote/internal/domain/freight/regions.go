@@ -3,6 +3,7 @@ package freight
 import (
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/mozillazg/go-pinyin"
 	"sort"
@@ -13,6 +14,8 @@ import (
 var regionData []byte
 
 const RegionVersion = "@vant/area-data@2.2.0"
+
+var ErrDestinationAmbiguous = errors.New("收件地区无法唯一识别，请选择省市区")
 
 type Region struct {
 	Code       string `json:"code"`
@@ -113,7 +116,7 @@ func ResolveDestination(d Destination) (Destination, error) {
 			matches = append(matches, r)
 		}
 		if len(matches) != 1 {
-			return out, fmt.Errorf("收件地区无法唯一识别，请选择省市区")
+			return out, ErrDestinationAmbiguous
 		}
 		r := matches[0]
 		switch i {

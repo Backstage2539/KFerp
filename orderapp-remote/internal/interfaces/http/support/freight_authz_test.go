@@ -41,3 +41,13 @@ func TestSystemFreightDefaultRequiresSettingsPermission(t *testing.T) {
 		t.Fatal("system default must require settings.write")
 	}
 }
+
+func TestDirectShipRegionCatalogUsesStockNotOrderPermission(t *testing.T) {
+	path := "/api/customer-fulfillment/74/direct-ship/shipping-regions"
+	if !isInternalCustomerStockRequest(path) || requiredPermissionForRequest(http.MethodGet, path) != "stock.write" {
+		t.Fatalf("direct-ship region catalog guard: %s", requiredPermissionForRequest(http.MethodGet, path))
+	}
+	if requiredPermissionForRequest(http.MethodGet, "/api/order/freight/regions") != "orders.write" {
+		t.Fatal("order region permission was weakened")
+	}
+}
