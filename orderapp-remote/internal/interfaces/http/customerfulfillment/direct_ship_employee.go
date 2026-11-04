@@ -5,6 +5,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"net/http"
 	app "orderapp/internal/application/customerfulfillment"
+	freightdomain "orderapp/internal/domain/freight"
 	"orderapp/internal/interfaces/http/support"
 	"strconv"
 	"strings"
@@ -30,6 +31,12 @@ func registerEmployeeDirectShipAPI(e *echo.Echo, service Service) {
 		}
 		return svc, id, nil
 	}
+	e.GET("/api/customer-fulfillment/:customer_id/direct-ship/shipping-regions", func(c echo.Context) error {
+		if _, _, err := getService(c); err != nil {
+			return err
+		}
+		return c.JSON(http.StatusOK, map[string]any{"version": freightdomain.RegionVersion, "regions": freightdomain.Regions()})
+	})
 	e.GET("/api/customer-fulfillment/:customer_id/direct-ship/catalog", func(c echo.Context) error {
 		svc, id, err := getService(c)
 		if err != nil {

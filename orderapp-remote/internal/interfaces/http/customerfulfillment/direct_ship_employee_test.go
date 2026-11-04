@@ -44,6 +44,7 @@ func TestEmployeeDirectShipUsesScopedSharedService(t *testing.T) {
 		status             int
 	}{
 		{"GET", "/api/customer-fulfillment/74/direct-ship/catalog?fulfillment_mode=stock&customer_id=999", "", 200},
+		{"GET", "/api/customer-fulfillment/74/direct-ship/shipping-regions", "", 200},
 		{"POST", "/api/customer-fulfillment/74/direct-ship/preview", `{"customer_id":999,"fulfillment_mode":"stock","items":[{"product_id":58,"bom_spec_id":69,"qty":12}]}`, 200},
 		{"POST", "/api/customer-fulfillment/74/direct-ship/requests", `{"customer_id":999,"fulfillment_mode":"stock","idempotency_key":"request-1"}`, 201},
 	} {
