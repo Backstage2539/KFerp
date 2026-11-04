@@ -194,7 +194,7 @@ func seedReqRow(ctx context.Context, pool *pgxpool.Pool, schema string, row reqS
 	}
 	// Delivery and Van's review happen after startup. Preserve their actual
 	// progress when subsequent restarts re-run the built-in requirement seeds.
-	if row.code == "PR-748-BOM-START-CONSUMPTION" || strings.HasPrefix(row.code, "DEV-PR748-") || row.code == "PR-DIRECTSHIP-REGION-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-REGION-") {
+	if row.code == "PR-748-BOM-START-CONSUMPTION" || strings.HasPrefix(row.code, "DEV-PR748-") || row.code == "PR-DIRECTSHIP-REGION-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-REGION-") || row.code == "PR-DIRECTSHIP-HISTORICAL-STOCK-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-HISTORICAL-STOCK-") {
 		_, err := pool.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.%s(code,title,status,assignee,evidence)
 			VALUES($1,$2,$3,$4,$5) ON CONFLICT(code) DO NOTHING
@@ -279,6 +279,8 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_product", code: "PR-746-BILL-ORDER-DETAIL-SHARE", title: "已出账账单补充订单费用明细并下载分享图片", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-10-29-bill-order-detail-share.md"},
 		{table: "req_product", code: "PR-748-BOM-START-CONSUMPTION", title: "取消 BOM 逐项工序配置并按批开工扣料", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-11-04-bom-batch-start.md；开发环境演练和 Van 验收待完成"},
 		{table: "req_product", code: "PR-DIRECTSHIP-REGION-20261104", title: "代发地址行政区层级识别与人工选择", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-04-directship-region.md；隔离验证通过，待现场验收"},
+		{table: "req_product", code: "PR-DIRECTSHIP-HISTORICAL-STOCK-20261104", title: "客户代发沿用历史库存批次的冻结规格", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-04-directship-historical-stock.md；隔离验证通过，待现场验收"},
+		{table: "req_dev", code: "DEV-DIRECTSHIP-HISTORICAL-STOCK-GUARD-20261104", title: "精确核验客户库存批次与当前订单规格并保留冻结变体", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-11-04-directship-historical-stock.md；隔离 API 与守卫回归"},
 		{table: "req_dev", code: "DEV-DIRECTSHIP-REGION-COMPAT-20261104", title: "唯一且无冲突旧地址地区规范化及报价提交一致性", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-11-04-directship-region.md；两种代发模式隔离 API 回归"},
 		{table: "req_dev", code: "DEV-DIRECTSHIP-REGION-PICKER-20261104", title: "代发地址编辑省市区选择及原始地名保留", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-11-04-directship-region.md；前端测试及隔离浏览器验收"},
 		{table: "req_dev", code: "DEV-PR748-01", title: "工单策略、按批开工扣料及历史兼容", status: "done", assignee: "Codex", evidence: "started_input_flow_api_test.go; started_input_failures_api_test.go; 两批开工与兼容回滚定向验证"},

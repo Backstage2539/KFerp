@@ -1,3 +1,9 @@
+### PR-DIRECTSHIP-HISTORICAL-STOCK-20261104 代发历史批次分配
+- Branch: `codex/directship-frozen-variant-20261104`; base `origin/develop` 6566b26f。
+- 喜沁客户仓中旧 BOM 版本批次分配给新代发订单时触发 `bom_variant_not_current`；新订单使用当前版本，批次保留实际冻结版本，严格核对客户、仓库、商品规格、批次与数量。
+- 验证：真实数据库身份守卫及代发 API RED/GREEN、混合批次/幂等/事务回滚/错误身份拒绝；禁止代用户提交真实订单或修改库存。
+- 状态：真实转仓来源链隔离 RED/GREEN、双批分配与负向/并发回归完成；待合并部署及现场验收。
+
 ### PR-DIRECTSHIP-REGION-20261104 代发地址行政区识别
 - Branch: `codex/directship-region-fix-20261104`; base `origin/develop` 5d906745。
 - 生产喜沁咖啡地址簿旧数据将县级市放入市级字段；按唯一且无冲突的行政区划安全规范化，并保留实际收件地址中的地名。
