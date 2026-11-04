@@ -16,10 +16,14 @@ func (s *Service) Start(ctx context.Context, cmd StartCommand) (StartResult, err
 	}
 	plan := make([]StartNeed, 0)
 	for _, need := range needs {
-		if need.GapG <= 0 {
+		if need.GapG <= 0 && need.PlannedInventoryQty <= 0 {
 			continue
 		}
-		if cmd.Selected[startNeedKey(need.ProductID, need.SpecG)] {
+		selection := startNeedKey(need.ProductID, need.SpecG)
+		if need.BomSpecID > 0 {
+			selection = fmt.Sprintf("product:%d:bom_spec:%d", need.ProductID, need.BomSpecID)
+		}
+		if cmd.Selected[selection] || (need.SelectionID != "" && cmd.Selected[need.SelectionID]) {
 			plan = append(plan, need)
 		}
 	}

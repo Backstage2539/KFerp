@@ -111,6 +111,7 @@ func TestProductionPlanBOMSpecComponentUsesOnlySelectedSpecStockAndCreatesSpecUp
 	if submit.Code != http.StatusOK {
 		t.Fatalf("submit BOM-spec component plan status=%d body=%s", submit.Code, submit.Body.String())
 	}
+	markLegacyPlanForTest(t, ctx, pool, schema, planID)
 	assertProductionFlowCount(t, pool, schema, "work_order_dependencies",
 		"component_type='product' AND component_id=2 AND component_bom_spec_id=18001 AND component_bom_variant_id=18101 AND required_units=60", 1)
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations",

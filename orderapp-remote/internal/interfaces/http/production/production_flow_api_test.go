@@ -89,6 +89,8 @@ func TestProduceStartHandlerPersistsInputG(t *testing.T) {
 	`, schema, schema, schema, schema, schema, schema, schema, schema))
 	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-RAW-001", "卡蒂姆水洗", 1000)
 
+	seedFormalBOMFromLegacyFixture(t, ctx, pool, schema)
+
 	app := newProductionFlowTestEcho(pool, schema)
 	form := url.Values{
 		"selected":      {"1-227"},
@@ -173,6 +175,8 @@ func TestProduceStartAPIMergesSameConcreteSKUOrdersAndKeepsAllOrderNos(t *testin
 		INSERT INTO %s.material_batch_locations(material_batch_id,material_id,warehouse,qty_g)
 			VALUES (10,10,'wip',30000);
 	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+
+	seedFormalBOMFromLegacyFixture(t, ctx, pool, schema)
 
 	app := newProductionFlowTestEcho(pool, schema)
 	body := bytes.NewReader([]byte(`{"selected":["1-454"],"input_by_key":{"1-454":16600}}`))
@@ -539,6 +543,8 @@ func TestProduceFinishAPIKeepsOrderInProductionWhenOtherItemsRemainUnproduced(t 
 	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-PARTIAL-A", "半产A生豆", 1000)
 	seedProductionFlowWIPBatch(t, ctx, pool, schema, 11, 11, "MB-PARTIAL-B", "半产B生豆", 1000)
 
+	seedFormalBOMFromLegacyFixture(t, ctx, pool, schema)
+
 	app := newProductionFlowTestEcho(pool, schema)
 	startBody := bytes.NewBufferString(`{"selected":["1-227"],"input_by_key":{"1-227":600}}`)
 	startReq := httptest.NewRequest(http.MethodPost, "/api/produce/start", startBody)
@@ -548,6 +554,9 @@ func TestProduceFinishAPIKeepsOrderInProductionWhenOtherItemsRemainUnproduced(t 
 	if startRec.Code != http.StatusOK {
 		t.Fatalf("POST /api/produce/start status = %d, want 200, body=%s", startRec.Code, startRec.Body.String())
 	}
+
+	// This test exercises the legacy completion endpoint for an existing order.
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %[1]s.work_orders w SET material_consumption_policy='legacy',process_snapshot_json=p.process_route_snapshot_json FROM %[1]s.production_plan_items p WHERE w.production_plan_item_id=p.id`, schema))
 
 	var runningItemID int64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
@@ -1089,6 +1098,8 @@ func TestProduceStartFreezesMaterialSnapshotForFinishAndWorkOrder(t *testing.T) 
 	`, schema, schema, schema, schema, schema, schema, schema, schema))
 	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-SNAPSHOT-A", "孟连水洗5T批次", 1000)
 
+	seedFormalBOMFromLegacyFixture(t, ctx, pool, schema)
+
 	app := newProductionFlowTestEcho(pool, schema)
 	startBody := bytes.NewBufferString(`{"selected":["1-227"],"input_by_key":{"1-227":600}}`)
 	startReq := httptest.NewRequest(http.MethodPost, "/api/produce/start", startBody)
@@ -1103,6 +1114,9 @@ func TestProduceStartFreezesMaterialSnapshotForFinishAndWorkOrder(t *testing.T) 
 		DELETE FROM %s.product_bom_items WHERE product_id=1;
 		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,12,100.0000);
 	`, schema, schema))
+
+	// This test exercises the legacy completion endpoint for an existing order.
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %[1]s.work_orders w SET material_consumption_policy='legacy',process_snapshot_json=p.process_route_snapshot_json FROM %[1]s.production_plan_items p WHERE w.production_plan_item_id=p.id`, schema))
 
 	var runningItemID int64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.produce_running_items WHERE product_id=1 AND spec_g=227 ORDER BY id DESC LIMIT 1`, schema)).Scan(&runningItemID); err != nil {
@@ -1200,6 +1214,8 @@ func TestProduceStartAPIUsesSubmittedInputG(t *testing.T) {
 		`, schema, schema, schema, schema, schema, schema, schema, schema))
 	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-COOKIE", "曲奇拼配生豆", 3000)
 
+	seedFormalBOMFromLegacyFixture(t, ctx, pool, schema)
+
 	app := newProductionFlowTestEcho(pool, schema)
 	body := bytes.NewBufferString(`{"selected":["1-1000"],"input_by_key":{"1-1000":2000}}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/produce/start", body)
@@ -1250,6 +1266,8 @@ func TestProduceStartRepositoryRejectsStaleNeedAlreadyRunning(t *testing.T) {
 	`, schema, schema, schema, schema, schema, schema, schema, schema))
 	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-DUP-START", "重复开始生豆", 3000)
 
+	seedFormalBOMFromLegacyFixture(t, ctx, pool, schema)
+
 	repo := postgresproduction.NewRepository(pool, schema)
 	cmd := productionapp.StartExecutionCommand{
 		Needs: []productionapp.StartNeed{{
@@ -1260,6 +1278,10 @@ func TestProduceStartRepositoryRejectsStaleNeedAlreadyRunning(t *testing.T) {
 	}
 	if _, err := repo.Start(ctx, cmd); err != nil {
 		t.Fatalf("first Start: %v", err)
+	}
+	var frozenUnit string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT inventory_unit FROM %s.work_orders ORDER BY id DESC LIMIT 1`, schema)).Scan(&frozenUnit); err != nil || frozenUnit != "kg" {
+		t.Fatalf("BOM output unit was not frozen: %q, %v", frozenUnit, err)
 	}
 	_, err := repo.Start(ctx, cmd)
 	if err == nil || !strings.Contains(err.Error(), "production already started") {
@@ -2180,6 +2202,8 @@ func TestProduceStartAPIDefaultsMissingInputFromPlanWithoutBlockingWork(t *testi
 		`, schema, schema, schema, schema, schema, schema, schema, schema))
 	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-NOINPUT", "缺省投料生豆", 3000)
 
+	seedFormalBOMFromLegacyFixture(t, ctx, pool, schema)
+
 	app := newProductionFlowTestEcho(pool, schema)
 	req := httptest.NewRequest(http.MethodPost, "/api/produce/start", bytes.NewBufferString(`{"selected":["1-1000"],"input_by_key":{}}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -2682,6 +2706,26 @@ func assertProductionFlowCount(t *testing.T, pool *pgxpool.Pool, schema, table, 
 	if got != want {
 		t.Fatalf("%s count = %d, want %d", table, got, want)
 	}
+}
+
+// Existing direct-start regressions exercise their original quantity and order
+// assertions with the published BOM and route now required of new orders.
+func seedFormalBOMFromLegacyFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
+	t.Helper()
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+ INSERT INTO %[1]s.process_routes(id,name,status) VALUES(747000,'测试加工路线','active');
+ INSERT INTO %[1]s.process_route_operations(route_id,seq,operation) VALUES(747000,1,'加工');
+ INSERT INTO %[1]s.production_boms(id,code,name,output_product_id,status)
+ SELECT 747000+product_id,'PR748-'||product_id,'测试 BOM',product_id,'active' FROM %[1]s.product_bom;
+ INSERT INTO %[1]s.production_bom_versions(id,bom_id,version_no,status,yield_rate,output_qty,output_unit,published_at,process_route_id)
+ SELECT 747000+product_id,747000+product_id,'V001','published',yield_rate,1,'kg',now(),747000 FROM %[1]s.product_bom;
+ INSERT INTO %[1]s.production_bom_version_items(version_id,material_id,component_type,ratio_pct)
+ SELECT 747000+product_id,material_id,'material',ratio_pct FROM %[1]s.product_bom_items;
+ INSERT INTO %[1]s.product_production_bom_bindings(product_id,bom_id,bom_version_id,bound_by)
+ SELECT product_id,747000+product_id,747000+product_id,'test' FROM %[1]s.product_bom;
+ INSERT INTO %[1]s.product_production_configs(product_id,production_bom_id,production_bom_version_id,process_route_id,created_by,updated_by)
+ SELECT product_id,747000+product_id,747000+product_id,747000,'test','test' FROM %[1]s.product_bom;
+ `, schema))
 }
 
 func seedProductionPlanLifecycleData(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {

@@ -102,6 +102,9 @@ func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 
 func operationCompletionStockPermission(method, path string) string {
 	path = strings.TrimPrefix(path, "/app")
+ if method==http.MethodGet && strings.HasPrefix(path,"/api/job-cards/")&&strings.HasSuffix(path,"/start-preview") || method==http.MethodPost&&path=="/api/production/workstation/start/preview" {return "stock.read"}
+ if method==http.MethodPost && (path=="/api/production/workstation/start/submit" || strings.HasPrefix(path,"/api/job-cards/")&&(strings.HasSuffix(path,"/start")||strings.HasSuffix(path,"/material-adjustments")||strings.HasSuffix(path,"/start-reversal"))) {return "stock.write"}
+
 	if method == http.MethodGet && (strings.HasSuffix(path, "/completion-preview") || strings.HasSuffix(path, "/conversion-preview") || path == "/api/production/process-balances" || path == "/api/production/records") {
 		return "stock.read"
 	}

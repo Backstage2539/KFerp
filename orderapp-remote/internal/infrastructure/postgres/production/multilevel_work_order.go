@@ -376,10 +376,15 @@ func allocateFinishedProductOutputToDownstreamReservationsTx(
 	tx pgx.Tx,
 	schema string,
 	runningItemID, productID, bomSpecID, bomVariantID, specG, producedG, producedUnits int64,
+	operationEventID ...int64,
 ) error {
 	producedG, producedUnits = normalizeCustomerProcessingFinishedQuantity(specG, producedG, producedUnits)
 	if runningItemID <= 0 || productID <= 0 || (producedG <= 0 && producedUnits <= 0) {
 		return nil
+	}
+	eventID := int64(0)
+	if len(operationEventID) > 0 {
+		eventID = operationEventID[0]
 	}
 	var upstreamWorkOrderID, stockBatchID, ownerCustomerID int64
 	var batchCode, warehouse string
@@ -389,7 +394,7 @@ func allocateFinishedProductOutputToDownstreamReservationsTx(
 		       COALESCE(b.owner_customer_id,0)
 		FROM %s.work_orders wo
 		JOIN %s.stock_batches b
-		  ON b.source_doc_type='production_run' AND b.source_doc_id=wo.running_item_id
+		  ON b.source_doc_type=CASE WHEN $5::bigint>0 THEN 'production_operation_event' ELSE 'production_run' END AND b.source_doc_id=CASE WHEN $5::bigint>0 THEN $5 ELSE wo.running_item_id END
 		 AND b.item_type='finished_product' AND b.item_id=$2 AND b.bom_spec_id=$3 AND b.spec_g=$4
 		LEFT JOIN LATERAL (
 			SELECT ledger.warehouse
@@ -402,7 +407,7 @@ func allocateFinishedProductOutputToDownstreamReservationsTx(
 		WHERE wo.running_item_id=$1
 		ORDER BY b.id DESC LIMIT 1
 		FOR UPDATE OF b
-	`, schema, schema, schema), runningItemID, productID, bomSpecID, specG).Scan(&upstreamWorkOrderID, &stockBatchID, &batchCode, &warehouse, &ownerCustomerID)
+	`, schema, schema, schema), runningItemID, productID, bomSpecID, specG, eventID).Scan(&upstreamWorkOrderID, &stockBatchID, &batchCode, &warehouse, &ownerCustomerID)
 	if err == pgx.ErrNoRows {
 		return nil
 	}

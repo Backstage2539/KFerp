@@ -49,3 +49,11 @@ test('weight suggestions follow integer gram ledger across partial completions',
  assert.equal(suggestedMaterialQty({...p,planned_qty:1,completed_output_qty:3},{unit:'kg',total_qty:3.385,consumed_qty:2.539},1),.846)
  assert.equal(suggestedMaterialQty(p,{unit:'g',total_qty:3385},3),2539)
 })
+test('started batches report actual processed input and partial finish explicitly',()=>{
+ const p={...preview,material_consumption_policy:'bom_start_v1',input_qty:5,input_unit:'kg',planned_qty:4,output_unit:'kg'}
+ const d=completionDraft(p);assert.equal(d.actual_input_qty,5)
+ d.actual_input_qty=2;d.actual_output_qty=1.6;d.finish_operation=false;d.actual_minutes=12;d.difference_reason='分批处理'
+ const payload=completionPayload(p,d,'part')
+ assert.equal(payload.actual_input_qty,2);assert.equal(payload.finish_operation,false);assert.equal(payload.actual_minutes,12)
+ assert.equal('materials' in payload,false)
+})

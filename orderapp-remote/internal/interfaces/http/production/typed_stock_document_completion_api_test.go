@@ -452,6 +452,7 @@ func TestTypedProductStockDocumentFinishUnlocksDownstreamThroughCompleteFlow(t *
 	if submitPlan.Code != http.StatusOK {
 		t.Fatalf("submit typed product stock-operations plan status=%d body=%s", submitPlan.Code, submitPlan.Body.String())
 	}
+	markLegacyPlanForTest(t, ctx, pool, schema, planID)
 	var rootWorkOrderID, upstreamWorkOrderID int64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id FROM %s.work_orders WHERE production_plan_id=$1 AND output_product_id=1

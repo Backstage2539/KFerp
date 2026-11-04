@@ -88,7 +88,8 @@ export function workstationTaskRequiresSchedule(task = {}, assignment = null) {
 export function workstationPackagingGroups(tasks = []) {
   const groups = new Map()
   for (const task of tasks || []) {
-    const key = String(task?.packaging_group_key || '').trim()
+    let key = String(task?.packaging_group_key || '').trim()
+    if(key && task.material_consumption_policy==='bom_start_v1') key+=`:bom_start_v1:${['pending','ready','released'].includes(task.status)?'pending':'running'}`
     if (!key || !/包装|分装|装盒|装袋/.test(String(task?.operation || ''))) continue
     if (['completed', 'cancelled'].includes(String(task?.status || '').toLowerCase())) continue
     if (['completed', 'cancelled'].includes(String(task.work_order_status || '').toLowerCase())) continue

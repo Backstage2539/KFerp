@@ -136,7 +136,8 @@ CREATE TABLE %[1]s.finished_allocation_logs(
 );
 CREATE TABLE %[1]s.work_orders(
 	id BIGINT PRIMARY KEY,running_item_id BIGINT,status TEXT,processing_request_item_id BIGINT,completed_at TIMESTAMPTZ,
-	output_type TEXT NOT NULL DEFAULT 'product',output_material_id BIGINT NOT NULL DEFAULT 0,production_plan_id BIGINT NOT NULL DEFAULT 0
+	output_type TEXT NOT NULL DEFAULT 'product',output_material_id BIGINT NOT NULL DEFAULT 0,production_plan_id BIGINT NOT NULL DEFAULT 0,
+	material_consumption_policy TEXT NOT NULL DEFAULT 'legacy'
 );
 CREATE TABLE %[1]s.work_order_dependencies(depends_on_work_order_id BIGINT,work_order_id BIGINT,required_g BIGINT,delivered_g BIGINT,required_units BIGINT,delivered_units BIGINT);
 CREATE TABLE %[1]s.production_supply_allocations(work_order_id BIGINT,status TEXT);

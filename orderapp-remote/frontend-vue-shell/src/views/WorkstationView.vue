@@ -2,6 +2,7 @@
   <div class="page workstation-view">
 
     <ProductionReturnLink :source="viewParams.return_navigation" />
+            <OperationAdjustmentForm v-if="adjustment.open" :job-card-id="Number(adjustment.task.job_card_id)" @close="adjustment.open=false" @posted="adjusted" />
     <section v-if="lastGroupResult" class="panel group-result"><strong>合并入库完成：{{ lastGroupResult.completed_qty }} {{ lastGroupResult.output_unit }}</strong><p v-for="item in lastGroupResult.items" :key="item.job_card.id">{{ item.work_order.work_order_no }} · 入库 {{ item.completion?.output_qty || 0 }} {{ item.completion?.output_unit }} · 单据 {{ item.completion?.stock_entry_ids?.join('、') || '无' }}</p><p>{{ lastGroupResult.remaining_qty > 0 ? `剩余 ${lastGroupResult.remaining_qty} 袋继续待办` : '本组任务已完成' }}</p><button class="secondary" @click="lastGroupResult=null">收起</button></section>
     <section v-if="lastAutomaticResult" class="panel"><strong>{{ lastAutomaticResult.message }} · {{ lastAutomaticResult.output_qty }} {{ lastAutomaticResult.output_unit }}</strong><p>关联单据：{{ lastAutomaticResult.stock_entry_ids?.join('、') || '工序交接记录' }}</p><button class="secondary" @click="lastAutomaticResult=null">收起</button></section>
     <section class="toolbar">
@@ -18,6 +19,7 @@
             <option v-for="section in sections" :key="section.workstation" :value="section.workstation">{{ section.workstation }}</option>
           </select>
         </label>
+        <button class="secondary" type="button" @click="openProductionHelp">开工扣料说明</button>
         <button class="secondary" type="button" @click="openScheduling">查看生产排班</button>
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
       </div>
@@ -71,9 +73,10 @@
         </div>
         <div v-if="selectedWorkstation && packagingGroups(section).length" class="packaging-groups">
           <article v-for="group in packagingGroups(section)" :key="group.key" class="packaging-group-card">
-            <div class="packaging-group-head"><div><h4>{{ group.product_name }} · {{ group.spec_g }}g袋装 · {{ quantityText(group.remaining_output_qty) }} {{ group.inventory_unit }} · {{ group.tasks.length }}张工单</h4><p>目标仓：{{ warehouseLabel(group.target_warehouse_name || group.tasks[0]?.target_warehouse) }} · 已完成 {{ quantityText(group.completed_output_qty) }} / {{ quantityText(group.planned_output_qty) }} {{ group.inventory_unit }}</p></div><div class="packaging-group-actions"><button type="button" class="secondary" :disabled="loading || busyKey !== '' || !groupHasShortage(group)" @click="openBatchIssueForTasks(group.tasks)">补齐物料</button><button type="button" class="primary" :disabled="loading || busyKey !== ''" @click="openGroupCompletion(group)">完成并入库</button></div></div>
+            <div class="packaging-group-head"><div><h4>{{ group.product_name }} · {{ group.spec_g }}g袋装 · {{ quantityText(group.remaining_output_qty) }} {{ group.inventory_unit }} · {{ group.tasks.length }}张工单</h4><p>目标仓：{{ warehouseLabel(group.target_warehouse_name || group.tasks[0]?.target_warehouse) }} · 已完成 {{ quantityText(group.completed_output_qty) }} / {{ quantityText(group.planned_output_qty) }} {{ group.inventory_unit }}</p></div><div class="packaging-group-actions"><button type="button" class="secondary" :disabled="loading || busyKey !== '' || !groupHasShortage(group)" @click="openBatchIssueForTasks(group.tasks)">补齐物料</button><button type="button" class="primary" :disabled="loading || busyKey !== ''" @click="needsConfirmedStart(group.tasks[0])?openGroupStart(group):openGroupCompletion(group)">{{needsConfirmedStart(group.tasks[0])?'合并开工':'完成并入库'}}</button></div></div>
             <div class="group-material-table"><div class="material-row material-head"><span>物料</span><span>需求</span><span>WIP本组可用</span><span>待补</span><span>来源仓可补</span></div><div v-for="material in group.materials" :key="material.identity" class="material-row"><strong>{{ material.material_name }}</strong><span>{{ materialQuantity(material, 'required') }}</span><span>{{ materialQuantity(material, 'wip') }}</span><span :class="{ shortage: materialHasShortage(material) }">{{ materialQuantity(material, 'shortage') }}</span><span>{{ sourceAvailabilityLabel(group, material) }}</span></div></div>
-            <details class="group-source-orders"><summary>查看 {{ group.tasks.length }} 张来源工单</summary><div v-for="task in group.tasks" :key="taskKey(task)">{{ task.work_order_no }} · {{ task.customer_name || '客户未指定' }} · {{ quantityText(task.planned_output_inventory_qty) }} {{ task.inventory_unit }} <button type="button" class="text-button" @click="openExecutionHub(task, 'job_card')">查看工单</button></div></details>
+            <details class="group-source-orders"><summary>查看 {{ group.tasks.length }} 张来源工单</summary><div v-for="task in group.tasks" :key="taskKey(task)">{{ task.work_order_no }} · {{ task.customer_name || '客户未指定' }} · {{ quantityText(task.planned_output_inventory_qty) }} {{ task.inventory_unit }} <button type="button" class="text-button" @click="openExecutionHub(task, 'job_card')">查看工单</button> <button v-if="task.material_consumption_policy==='bom_start_v1'&&['running','paused'].includes(task.status)" type="button" class="text-button" @click="adjustment.task=task;adjustment.open=true">用料调整</button></div></details>
+            <OperationStartGroupForm v-if="startGroup.open&&startGroup.key===group.key" :key="`group-start-${group.key}`" :task-ids="startGroup.ids" @close="startGroup.open=false" @posted="groupStarted" />
             <WorkstationPackagingCompletionForm v-if="completionGroup.open && completionGroup.key === group.key" :key="completionGroup.key" :task-ids="completionGroup.ids" @close="completionGroup.open = false" @posted="groupCompleted" />
           </article>
         </div>
@@ -105,7 +108,8 @@
             <span class="task-staff">{{ task.assigned_to || task.roster_employee_name || '无人值班' }}<small v-if="task.pending_handover">排班已换人，待接手工位</small><small v-else-if="task.blocking_reason">待协同岗位：{{ task.next_handler || '-' }}</small></span>
             <div class="actions">
               <template v-if="isSimplifiedTask(task)">
-                <button type="button" class="primary" :disabled="Boolean(busyKey) || loading || isTaskUnattended(task)" @click="openFinishPanel(task)">工序完成</button>
+                <button v-if="needsConfirmedStart(task)" type="button" class="primary" :disabled="Boolean(busyKey) || loading || isTaskUnattended(task)" @click="openStartPanel(task)">开工</button>
+                <button v-else type="button" class="primary" :disabled="Boolean(busyKey) || loading || isTaskUnattended(task)" @click="openFinishPanel(task)">工序完成</button>
                 <small v-if="isTaskUnattended(task)" class="schedule-required">今日无人值班，请先完成排班</small>
                 <button type="button" class="secondary" @click="openExecutionHub(task, 'job_card')">查看工单</button>
               </template>
@@ -147,6 +151,12 @@
               <button class="primary" type="button" @click="submitIssue" :disabled="busyKey !== ''">提交</button>
             </div>
 
+            <div v-if="task.material_consumption_policy==='bom_start_v1'&&['running','paused'].includes(task.status)" class="task-actions">
+              <button class="secondary" @click="adjustment.task=task;adjustment.open=true">补料 / 退料 / 撤销</button>
+              <button class="secondary" @click="handleTaskAction(task,task.status==='paused'?'resume':'pause')">{{task.status==='paused'?'恢复':'暂停'}}</button>
+            </div>
+
+            <OperationStartForm v-if="startPanel.open && sameTask(startPanel.task,task)" :key="`start-${task.job_card_id}`" :job-card-id="Number(task.job_card_id)" @close="startPanel.open=false" @posted="startPosted" />
             <OperationCompletionForm v-if="isFinishPanelForTask(task)" :key="task.job_card_id" :job-card-id="Number(task.job_card_id)" :return-params="completionReturnParams(task)" @close="closeFinishPanel" @posted="automaticPosted" />
           </div>
         </div>
@@ -169,6 +179,9 @@
 
 <script setup>
 import OperationCompletionForm from '../components/OperationCompletionForm.vue'
+import OperationStartForm from '../components/OperationStartForm.vue'
+import OperationStartGroupForm from '../components/OperationStartGroupForm.vue'
+import OperationAdjustmentForm from '../components/OperationAdjustmentForm.vue'
 import WorkstationBatchIssueDrawer from '../components/WorkstationBatchIssueDrawer.vue'
 import WorkstationPackagingCompletionForm from '../components/WorkstationPackagingCompletionForm.vue'
 import { issueSelectionState, toggleIssueSelection } from '../lib/workstation-batch-issue.js'
@@ -199,6 +212,14 @@ const props = defineProps({
   actor: { type: Object, default: null },
 })
 
+const adjustment=reactive({open:false,task:null}),startGroup=reactive({open:false,key:'',ids:[]})
+async function adjusted(){adjustment.open=false;await load()}
+function openGroupStart(group){completionGroup.open=false;startGroup.key=group.key;startGroup.ids=group.tasks.map(t=>Number(t.job_card_id));startGroup.open=true}
+async function groupStarted(){startGroup.open=false;await load()}
+const startPanel=reactive({open:false,task:null})
+function needsConfirmedStart(task){return task.material_consumption_policy==='bom_start_v1' && ['pending','ready','released'].includes(task.status)}
+function openStartPanel(task){if(isTaskUnattended(task)){message.value='今日该工位无人值班，请先完成排班';return};finishPanel.open=false;startPanel.task=task;startPanel.open=true}
+async function startPosted(){startPanel.open=false;await load()}
 const selectedIssueTasks = ref([])
 const batchIssue = reactive({open: false, ids: []})
 const completionGroup = reactive({ open: false, key: '', ids: [] })
@@ -453,6 +474,7 @@ function actionLabel(action) {
   }[action] || action
 }
 
+function openProductionHelp() { window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'productionManual', returnNavigation: { key: 'workstationView', params: { ...props.viewParams }, label: '返回工位视图' } } })) }
 function openScheduling() { window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'productionSchedule', params: { work_center: selectedWorkstation.value }, returnNavigation: { key: 'workstationView', params: { ...props.viewParams }, label: '返回工位视图' } } })) }
 
 function completionReturnParams(task) {
@@ -548,6 +570,7 @@ function openExecutionHub(task, focus = 'job_card') {
 }
 
 async function handleTaskAction(task, action) {
+ if(action==='start' && needsConfirmedStart(task)){openStartPanel(task);return}
   if (action === 'report_exception' || action === 'material_call') {
     openIssue(task, action)
     return

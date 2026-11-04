@@ -1,0 +1,28 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import {readFileSync} from 'node:fs'
+import {parse,compileScript,compileTemplate} from '@vue/compiler-sfc'
+import {createSSRApp,h,reactive} from 'vue'
+import {renderToString} from '@vue/server-renderer'
+import {startDraft} from './operation-start.js'
+let sequence=0
+async function loadForm(mocks){
+ const file=new URL('../components/OperationStartForm.vue',import.meta.url),id=`pr747-start-${++sequence}`
+ const {descriptor}=parse(readFileSync(file,'utf8'),{filename:file.pathname}),script=compileScript(descriptor,{id}),template=compileTemplate({id,source:descriptor.template.content,filename:file.pathname,compilerOptions:{bindingMetadata:script.bindings}})
+ assert.deepEqual(template.errors,[]);globalThis[id]=mocks
+ let code=script.content.replace(/import \{apiGet,apiSend\} from ['"][^'"]+['"]/,`const {apiGet,apiSend}=globalThis[${JSON.stringify(id)}]`)
+ code=code.replace('export default','const component =')+'\n'+template.code.replace('export function render','function render')+'\ncomponent.render=render;export default component;'
+ code=code.replace(/from (['"])([^'"]+)\1/g,(_,q,path)=>`from ${JSON.stringify(path.startsWith('.')?new URL(/\.[a-z]+$/.test(path)?path:`${path}.js`,file).href:import.meta.resolve(path))}`)
+ const component=(await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)).default;delete globalThis[id];return component
+}
+test('start form shows batch and warehouse, then retries the same confirmation after a lost response',async()=>{
+ const writes=[],events=[];let fail=true
+ const Component=await loadForm({apiGet:async()=>{throw Error('unexpected read')},apiSend:async(url,options)=>{writes.push({url,body:options.body});if(fail){fail=false;throw new Error('connection interrupted')}return {ok:true}}})
+ const props=reactive({jobCardId:42});let state
+ await renderToString(createSSRApp({setup(){state=Component.setup(props,{expose(){},emit:(event,result)=>events.push({event,result})});return()=>h('div')}}))
+ const preview={product_name:'测试红岩',effective_bom_version_no:'V002',operation_name:'烘焙',planned_qty:4,output_unit:'kg',input_qty:5,input_unit:'kg',recipe_ratio_pct:100,version:'v1',materials:[{key:'a',name:'测试生豆',unit:'kg',qty:5,ratio_pct:100,warehouse:'wip',warehouse_name:'WIP',owner_customer_id:0,eligible_batches:[{batch_code:'PR747-BATCH',available_qty:10}]}]}
+ state.preview.value=preview;Object.assign(state.draft,startDraft(preview))
+ const html=await renderToString(createSSRApp({...Component,setup:()=>state},props));for(const label of ['V002','WIP','PR747-BATCH','确认开工并扣料'])assert.ok(html.includes(label),label)
+ await state.submit();assert.equal(state.retry.uncertain,true);assert.equal(writes.length,1)
+ await state.submit();assert.equal(writes.length,2);assert.deepEqual(writes[1].body,writes[0].body);assert.match(writes[0].body.request_id,/^[0-9a-f-]{36}$/);assert.equal(events[0].event,'posted')
+})

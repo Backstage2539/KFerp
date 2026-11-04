@@ -22,6 +22,9 @@ func (r Repository) SaveScheduleAssignment(ctx context.Context, cmd productionap
 		return productionapp.ScheduleAssignmentResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := checkBOMStartWriteTx(ctx, tx, r.schema, cmd.WorkOrderID); err != nil {
+		return productionapp.ScheduleAssignmentResult{}, err
+	}
 
 	if cmd.AssignedEmployeeID > 0 {
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`

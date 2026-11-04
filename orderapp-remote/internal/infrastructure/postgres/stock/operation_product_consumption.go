@@ -28,9 +28,13 @@ func (r Repository) consumeOperationProductTx(ctx context.Context, tx pgx.Tx, de
 	if (item.BomSpecID > 0 && beforeN < needN) || (item.BomSpecID == 0 && beforeG < needG) {
 		return fmt.Errorf("商品组件在指定来源仓的库存不足")
 	}
+	var policy string
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT material_consumption_policy FROM %s.work_orders WHERE id=$1`, r.schema), detail.WorkOrderID).Scan(&policy); err != nil {
+		return err
+	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT b.id,b.batch_code,b.remaining_g,b.remaining_units,b.unit_cost::float8 FROM %[1]s.stock_batches b
  LEFT JOIN LATERAL(SELECT warehouse FROM %[1]s.stock_ledger_entries WHERE item_type=b.item_type AND item_id=b.item_id AND source_batch_code=b.batch_code AND owner_customer_id=b.owner_customer_id ORDER BY id DESC LIMIT 1) l ON true
- WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=$2 AND b.spec_g=$3 AND b.owner_customer_id=$4 AND (b.remaining_g>0 OR b.remaining_units>0) AND b.quality_status NOT IN('hold','reject') AND COALESCE(l.warehouse,'finished_goods')=$5 ORDER BY b.created_at,b.id FOR UPDATE OF b`, r.schema), item.ProductID, item.BomSpecID, item.SpecG, item.OwnerCustomerID, item.FromWarehouse)
+ WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=$2 AND b.spec_g=$3 AND ($7='legacy' OR b.bom_variant_id=$6) AND b.owner_customer_id=$4 AND (b.remaining_g>0 OR b.remaining_units>0) AND b.quality_status NOT IN('hold','reject') AND COALESCE(l.warehouse,'finished_goods')=$5 ORDER BY b.created_at,b.id FOR UPDATE OF b`, r.schema), item.ProductID, item.BomSpecID, item.SpecG, item.OwnerCustomerID, item.FromWarehouse, item.BomVariantID, policy)
 	if err != nil {
 		return err
 	}
@@ -99,7 +103,7 @@ func (r Repository) consumeOperationProductTx(ctx context.Context, tx pgx.Tx, de
 		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.stock_batches SET remaining_g=remaining_g-$2,remaining_units=CASE WHEN $4::boolean AND spec_g>0 THEN (remaining_g-$2)/spec_g ELSE remaining_units-$3 END WHERE id=$1`, r.schema), b.id, g, n, weightOnly); err != nil {
 			return err
 		}
-		if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.stock_entry_batch_allocations(stock_entry_item_id,material_batch_id,batch_code,qty_g,qty_units,unit_cost) VALUES($1,0,$2,$3,$4,$5)`, r.schema), item.ID, b.code, g, n, b.cost); err != nil {
+		if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.stock_entry_batch_allocations(stock_entry_item_id,material_batch_id,stock_batch_id,batch_code,qty_g,qty_units,unit_cost) VALUES($1,0,$2,$3,$4,$5,$6)`, r.schema), item.ID, b.id, b.code, g, n, b.cost); err != nil {
 			return err
 		}
 		var bindingID, ownG, ownN int64

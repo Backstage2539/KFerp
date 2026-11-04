@@ -1740,8 +1740,24 @@ func reservedWIPGForMaterialTx(ctx context.Context, tx pgx.Tx, schema string, ma
 }
 
 func createMaterialReservationsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID, runningItemID int64, needs []materialConsumptionNeed) error {
-	for _, need := range aggregateMaterialConsumptionNeeds(needs) {
+	for _, need := range aggregateManufacturingConsumptionNeeds(needs) {
 		if need.Source == "finished_product" || need.ComponentType == "finished_product" {
+			componentType, componentID, componentSpecG := manufacturingNeedIdentity(need)
+			bomSpecID, bomVariantID := manufacturingNeedBOMSpecIdentity(need)
+			requiredG, requiredUnits := manufacturingNeedCanonicalQuantities(need)
+			if componentID <= 0 || (requiredG <= 0 && requiredUnits <= 0) {
+				continue
+			}
+			var existing bool
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.work_order_material_reservations WHERE work_order_id=$1 AND component_type=$2 AND component_id=$3 AND component_bom_spec_id=$4 AND component_spec_g=$5 AND status='reserved')`, schema), workOrderID, componentType, componentID, bomSpecID, componentSpecG).Scan(&existing); err != nil {
+				return err
+			}
+			if existing {
+				continue
+			}
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.work_order_material_reservations(work_order_id,running_item_id,material_id,material_name,unit,component_type,component_id,component_bom_spec_id,component_bom_variant_id,component_spec_g,required_g,required_units,reserved_g,reserved_units,status,created_at,updated_at) VALUES($1,$2,0,$3,$4,$5,$6,$7,$8,$9,$10,$11,$10,$11,'reserved',now(),now())`, schema), workOrderID, runningItemID, need.MaterialName, need.Unit, componentType, componentID, bomSpecID, bomVariantID, componentSpecG, requiredG, requiredUnits); err != nil {
+				return err
+			}
 			continue
 		}
 		if need.MaterialID <= 0 || (need.DeductG <= 0 && need.DeductUnits <= 0) {

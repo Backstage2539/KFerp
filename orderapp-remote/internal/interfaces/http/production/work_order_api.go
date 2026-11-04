@@ -491,6 +491,67 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 	e.POST("/api/produce/job-cards/:id/metrics", func(c echo.Context) error {
 		return updateJobCard(c, true)
 	})
+	e.POST("/api/production/workstation/start/preview", func(c echo.Context) error {
+		var req struct {
+			IDs []int64 `json:"job_card_ids"`
+		}
+		if c.Bind(&req) != nil {
+			return c.JSON(400, ErrorResponse{Error: "invalid request"})
+		}
+		result, err := productionSvc.PreviewOperationStartGroup(c.Request().Context(), req.IDs)
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, result)
+	})
+	e.POST("/api/production/workstation/start/submit", func(c echo.Context) error {
+		var req productionapp.OperationStartGroupCommand
+		if c.Bind(&req) != nil {
+			return c.JSON(400, ErrorResponse{Error: "invalid request"})
+		}
+		req.Operator = support.ActorOf(c)
+		req.EmployeeID = support.CurrentEmployeeID(c)
+		result, err := productionSvc.StartOperationGroup(c.Request().Context(), req)
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, result)
+	})
+	for _, route := range []string{"material-adjustments", "start-reversal"} {
+		route := route
+		e.POST("/api/job-cards/:id/"+route, func(c echo.Context) error {
+			id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+			if err != nil || id <= 0 {
+				return c.JSON(400, ErrorResponse{Error: "invalid job card"})
+			}
+			var req productionapp.OperationAdjustmentCommand
+			if c.Bind(&req) != nil {
+				return c.JSON(400, ErrorResponse{Error: "invalid request"})
+			}
+			req.ID = id
+			req.Operator = support.ActorOf(c)
+			req.EmployeeID = support.CurrentEmployeeID(c)
+			if route == "start-reversal" {
+				req.Kind = "start_reversal"
+			}
+			result, err := productionSvc.AdjustOperationMaterials(c.Request().Context(), req)
+			if err != nil {
+				return c.JSON(400, ErrorResponse{Error: err.Error()})
+			}
+			return c.JSON(200, result)
+		})
+	}
+	e.GET("/api/job-cards/:id/start-preview", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(400, ErrorResponse{Error: "invalid job card"})
+		}
+		p, err := productionSvc.PreviewOperationStart(c.Request().Context(), id)
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, p)
+	})
 	e.POST("/api/job-cards/:id/start", func(c echo.Context) error {
 		return runJobCardAction(c, "start")
 	})
@@ -510,6 +571,35 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 			return c.JSON(400, ErrorResponse{Error: "invalid job card"})
 		}
 		result, err := productionSvc.PreviewOperationCompletion(c.Request().Context(), id)
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, result)
+	})
+	e.GET("/api/production-bom-versions/:id/material-sources", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(400, ErrorResponse{Error: "invalid BOM version"})
+		}
+		variant, _ := strconv.ParseInt(c.QueryParam("variant_id"), 10, 64)
+		result, err := productionSvc.GetOperationMaterialConfig(c.Request().Context(), id, variant)
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, result)
+	})
+	e.PUT("/api/production-bom-versions/:id/material-sources", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(400, ErrorResponse{Error: "invalid BOM version"})
+		}
+		var cmd productionapp.SaveOperationMaterialConfig
+		if err = c.Bind(&cmd); err != nil {
+			return c.JSON(400, ErrorResponse{Error: "invalid request"})
+		}
+		cmd.VersionID = id
+		cmd.Actor = support.ActorOf(c)
+		result, err := productionSvc.SaveMaterialSources(c.Request().Context(), cmd)
 		if err != nil {
 			return c.JSON(400, ErrorResponse{Error: err.Error()})
 		}

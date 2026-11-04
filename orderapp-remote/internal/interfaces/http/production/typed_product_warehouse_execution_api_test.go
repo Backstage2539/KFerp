@@ -94,6 +94,7 @@ func testTypedProductWarehouseFlow(t *testing.T, legacy bool) {
 	if submit.Code != http.StatusOK {
 		t.Fatalf("submit warehouse-aware typed product plan status=%d body=%s", submit.Code, submit.Body.String())
 	}
+	markLegacyPlanForTest(t, ctx, pool, schema, planID)
 	var rootWorkOrderID, upstreamWorkOrderID int64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id FROM %s.work_orders

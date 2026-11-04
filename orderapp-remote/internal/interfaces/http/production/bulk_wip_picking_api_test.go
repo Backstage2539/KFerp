@@ -91,6 +91,7 @@ func (f bulkPickingFixture) createWorkOrder(t *testing.T, outputKG float64) int6
 	if err := f.pool.QueryRow(context.Background(), fmt.Sprintf("SELECT id FROM %s.work_orders WHERE production_plan_id=$1", f.schema), plan.ID).Scan(&id); err != nil {
 		t.Fatal(err)
 	}
+	markLegacyPlanForTest(t, context.Background(), f.pool, f.schema, plan.ID)
 	return id
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	productionapp "orderapp/internal/application/production"
@@ -269,10 +270,15 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 		return productionapp.StartResult{}, err
 	}
 	for _, group := range groups {
-		if group.NeedG <= 0 {
+		if group.NeedG <= 0 && group.PlannedInventoryQty <= 0 {
 			continue
 		}
 		for _, output := range group.Outputs {
+			// BOM-spec demand already represents the production gap. The old
+			// gram-based finished-goods allocation cannot identify that stock.
+			if output.BomSpecID > 0 {
+				continue
+			}
 			units, loose, err := finishedInventoryQtyIdentityTx(ctx, tx, r.schema, output.ProductID, 0, output.SpecG, "finished_goods")
 			if err != nil {
 				return productionapp.StartResult{}, err
@@ -305,9 +311,17 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 			}
 		}
 		plan := plannedFinishedInventoryAddition(group.SpecG, group.NeedG)
+		if group.BomSpecID > 0 || (group.PlannedInventoryQty > 0 && productionWeightUnitGrams(group.InventoryUnit) <= 0) {
+			plan.Units = int64(math.Ceil(group.PlannedInventoryQty))
+			plan.LooseG = 0
+		}
 		snapshotRun := ProduceRunRow{
 			Product:             group.ProductName,
 			ProductID:           group.ProductID,
+			BomSpecID:           group.BomSpecID,
+			BomVariantID:        group.BomVariantID,
+			OutputQty:           group.PlannedInventoryQty,
+			OutputUnit:          group.InventoryUnit,
 			SpecG:               group.SpecG,
 			NeedG:               group.NeedG,
 			InputG:              inputG,
@@ -318,7 +332,7 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 			Outputs:             group.Outputs,
 		}
 		var reservationNeeds []materialConsumptionNeed
-		if group.SpecG > 0 {
+		if group.SpecG > 0 || group.BomSpecID > 0 {
 			if strings.TrimSpace(string(materialSnapshot)) == "" || strings.TrimSpace(string(materialSnapshot)) == "[]" {
 				materialSnapshot, err = buildMaterialSnapshotForRunningItemTx(ctx, tx, r.schema, snapshotRun)
 				if err != nil {
@@ -343,7 +357,7 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 			}
 		}
 		var runningItemID int64
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.produce_running_items(batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g,material_snapshot,operation_template_id) VALUES($1,$2,$3,$4,$5,$6,'running',$7,now(),$8,$9,$10,$11,$12,$13) RETURNING id`, r.schema), batchID, group.ProductID, group.ProductName, group.SpecG, group.NeedG, group.OrderNos, cmd.Operator, inputG, 1, plan.Units, plan.LooseG, materialSnapshot, group.OperationTemplateID).Scan(&runningItemID); err != nil {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.produce_running_items(batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g,material_snapshot,operation_template_id,bom_spec_id,bom_variant_id) VALUES($1,$2,$3,$4,$5,$6,'running',$7,now(),$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`, r.schema), batchID, group.ProductID, group.ProductName, group.SpecG, group.NeedG, group.OrderNos, cmd.Operator, inputG, 1, plan.Units, plan.LooseG, materialSnapshot, group.OperationTemplateID, group.BomSpecID, group.BomVariantID).Scan(&runningItemID); err != nil {
 			return productionapp.StartResult{}, err
 		}
 		if len(group.Outputs) > 1 {
@@ -351,10 +365,16 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 				return productionapp.StartResult{}, err
 			}
 		}
+		frozenQuantity := legacyWorkOrderQuantitySnapshotFromGroup(group)
+		if planItemID > 0 {
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT bom_version_id,process_route_snapshot_json::text FROM %s.production_plan_items WHERE id=$1`, r.schema), planItemID).Scan(&frozenQuantity.BomVersionID, &frozenQuantity.FrozenRoute); err != nil {
+				return productionapp.StartResult{}, err
+			}
+		}
 		workOrderID, err := createWorkOrderForRunningItemTx(
 			ctx, tx, r.schema, runningItemID, batchID, group.ProductID, group.ProductName,
 			group.SpecG, inputG, materialSnapshot, group.OperationTemplateID,
-			legacyWorkOrderQuantitySnapshotFromGroup(group),
+			frozenQuantity,
 		)
 		if err != nil {
 			return productionapp.StartResult{}, err
@@ -390,7 +410,7 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 func ensureWIPStockForStartGroupsTx(ctx context.Context, tx pgx.Tx, schema string, groups []startRunGroup, planItemIDs map[string]int64) error {
 	allNeeds := make([]materialConsumptionNeed, 0)
 	for _, group := range groups {
-		if group.NeedG <= 0 {
+		if group.NeedG <= 0 && group.PlannedInventoryQty <= 0 {
 			continue
 		}
 		inputG := group.InputG
@@ -405,9 +425,17 @@ func ensureWIPStockForStartGroupsTx(ctx context.Context, tx pgx.Tx, schema strin
 			}
 		}
 		plan := plannedFinishedInventoryAddition(group.SpecG, group.NeedG)
+		if group.BomSpecID > 0 || (group.PlannedInventoryQty > 0 && productionWeightUnitGrams(group.InventoryUnit) <= 0) {
+			plan.Units = int64(math.Ceil(group.PlannedInventoryQty))
+			plan.LooseG = 0
+		}
 		run := ProduceRunRow{
 			Product:             group.ProductName,
 			ProductID:           group.ProductID,
+			BomSpecID:           group.BomSpecID,
+			BomVariantID:        group.BomVariantID,
+			OutputQty:           group.PlannedInventoryQty,
+			OutputUnit:          group.InventoryUnit,
 			SpecG:               group.SpecG,
 			NeedG:               group.NeedG,
 			InputG:              inputG,
@@ -417,7 +445,7 @@ func ensureWIPStockForStartGroupsTx(ctx context.Context, tx pgx.Tx, schema strin
 			OperationTemplateID: group.OperationTemplateID,
 			Outputs:             group.Outputs,
 		}
-		if group.SpecG > 0 {
+		if group.SpecG > 0 || group.BomSpecID > 0 {
 			if strings.TrimSpace(string(materialSnapshot)) == "" || strings.TrimSpace(string(materialSnapshot)) == "[]" {
 				var err error
 				materialSnapshot, err = buildMaterialSnapshotForRunningItemTx(ctx, tx, schema, run)
