@@ -192,6 +192,15 @@ func seedReqRow(ctx context.Context, pool *pgxpool.Pool, schema string, row reqS
 	if row.status == "" {
 		row.status = "todo"
 	}
+	// Delivery and Van's review happen after startup. Preserve their actual
+	// progress when subsequent restarts re-run the built-in requirement seeds.
+	if row.code == "PR-748-BOM-START-CONSUMPTION" || strings.HasPrefix(row.code, "DEV-PR748-") {
+		_, err := pool.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.%s(code,title,status,assignee,evidence)
+			VALUES($1,$2,$3,$4,$5) ON CONFLICT(code) DO NOTHING
+		`, schema, row.table), row.code, row.title, row.status, row.assignee, row.evidence)
+		return err
+	}
 	if row.table == "req_review" {
 		_, err := pool.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.req_review(code, pr_code, title, status, assignee, evidence)
