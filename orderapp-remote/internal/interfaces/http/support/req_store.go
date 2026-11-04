@@ -194,7 +194,7 @@ func seedReqRow(ctx context.Context, pool *pgxpool.Pool, schema string, row reqS
 	}
 	// Delivery and Van's review happen after startup. Preserve their actual
 	// progress when subsequent restarts re-run the built-in requirement seeds.
-	if row.code == "PR-748-BOM-START-CONSUMPTION" || strings.HasPrefix(row.code, "DEV-PR748-") || row.code == "PR-DIRECTSHIP-REGION-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-REGION-") || row.code == "PR-DIRECTSHIP-HISTORICAL-STOCK-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-HISTORICAL-STOCK-") {
+	if row.code == "PR-748-BOM-START-CONSUMPTION" || strings.HasPrefix(row.code, "DEV-PR748-") || row.code == "PR-DIRECTSHIP-REGION-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-REGION-") || row.code == "PR-DIRECTSHIP-HISTORICAL-STOCK-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-HISTORICAL-STOCK-") || row.code == "PR-ORDER-DATE-SAVE-20261104" || strings.HasPrefix(row.code, "DEV-ORDER-DATE-SAVE-") {
 		_, err := pool.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.%s(code,title,status,assignee,evidence)
 			VALUES($1,$2,$3,$4,$5) ON CONFLICT(code) DO NOTHING
@@ -280,6 +280,9 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_product", code: "PR-748-BOM-START-CONSUMPTION", title: "取消 BOM 逐项工序配置并按批开工扣料", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-11-04-bom-batch-start.md；开发环境演练和 Van 验收待完成"},
 		{table: "req_product", code: "PR-DIRECTSHIP-REGION-20261104", title: "代发地址行政区层级识别与人工选择", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-04-directship-region.md；隔离验证通过，待现场验收"},
 		{table: "req_product", code: "PR-DIRECTSHIP-HISTORICAL-STOCK-20261104", title: "客户代发沿用历史库存批次的冻结规格", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-04-directship-historical-stock.md；隔离验证通过，待现场验收"},
+		{table: "req_product", code: "PR-ORDER-DATE-SAVE-20261104", title: "留厂及代发订单修改日期正常保存", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-04-order-date-save.md；隔离验证通过，待现场验收"},
+		{table: "req_dev", code: "DEV-ORDER-DATE-SAVE-RETAINED", title: "保留已关联留厂商品明细并维护业务保护", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-11-04-order-date-save.md；真实数据库员工 API 回归"},
+		{table: "req_dev", code: "DEV-ORDER-DATE-SAVE-REGION", title: "保留未变历史代发地区和冻结运费依据", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-11-04-order-date-save.md；隔离代发编辑 API 回归"},
 		{table: "req_dev", code: "DEV-DIRECTSHIP-HISTORICAL-STOCK-GUARD-20261104", title: "精确核验客户库存批次与当前订单规格并保留冻结变体", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-11-04-directship-historical-stock.md；隔离 API 与守卫回归"},
 		{table: "req_dev", code: "DEV-DIRECTSHIP-REGION-COMPAT-20261104", title: "唯一且无冲突旧地址地区规范化及报价提交一致性", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-11-04-directship-region.md；两种代发模式隔离 API 回归"},
 		{table: "req_dev", code: "DEV-DIRECTSHIP-REGION-PICKER-20261104", title: "代发地址编辑省市区选择及原始地名保留", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-11-04-directship-region.md；前端测试及隔离浏览器验收"},
