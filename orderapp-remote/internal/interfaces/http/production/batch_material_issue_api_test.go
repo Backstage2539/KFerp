@@ -265,3 +265,46 @@ func TestBatchMaterialIssuePackagingCountAndCustomerOwner(t *testing.T) {
 	assertProductionFlowCount(t, f.pool, f.schema, "stock_entry_items", "qty_units=30 AND qty_g=0 AND owner_customer_id=77", 1)
 	assertProductionFlowCount(t, f.pool, f.schema, "work_order_material_reservations", "consumed_units>0 OR consumed_g>0", 0)
 }
+
+func TestBOMStartAfterIssuingMoreThanFrozenReservation(t *testing.T) {
+	f, ids := batchIssueFixture(t, false)
+	ctx := context.Background()
+	snapshot := `{"operations":[{"seq":1,"operation":"烘焙","execution_json":"{\"version\":1,\"node_key\":\"roast\",\"receipt_enabled\":true,\"output_unit\":\"kg\",\"receipt_warehouse\":\"wip\",\"source_warehouse\":\"raw_materials\"}"}]}`
+	mustExecProductionFlowTestSQL(t, ctx, f.pool, fmt.Sprintf(`UPDATE %s.work_orders SET material_consumption_policy='bom_start_v1', process_snapshot_json='%s'::jsonb, material_snapshot='[{"material_id":30,"material_name":"生产生豆","unit":"kg","ratio_pct":100,"source":"bom","component_type":"material","consume_unit":"ratio_pct","output_qty":1,"output_unit":"kg"}]'::jsonb WHERE id=%d`, f.schema, snapshot, f.workOrderID))
+	first := batchPreview(t, f, ids)
+	r := serveMultilevelProductionJSON(t, f.app, http.MethodPost, "/api/production/workstation/material-issue/submit", batchCommand(first, "partial-before-start", 10))
+	if r.Code != 200 || !strings.Contains(r.Body.String(), `"success_count":1`) {
+		t.Fatalf("partial issue: %d %s", r.Code, r.Body.String())
+	}
+	p := batchPreview(t, f, ids)
+	if len(p.Groups) != 1 || p.Groups[0].Remaining != 5570 || p.Groups[0].MaxQuantity < 6043 {
+		t.Fatalf("expected extra stock: %+v", p)
+	}
+	r = serveMultilevelProductionJSON(t, f.app, http.MethodPost, "/api/production/workstation/material-issue/submit", batchCommand(p, "issue-extra-start", 6.043))
+	if r.Code != 200 || !strings.Contains(r.Body.String(), `"success_count":1`) {
+		t.Fatalf("issue extra: %d %s", r.Code, r.Body.String())
+	}
+	f.quantities(t, 103957, 16043, 0, 15570)
+	res := serveMultilevelProductionJSON(t, f.app, http.MethodGet, fmt.Sprintf("/api/job-cards/%d/start-preview", ids[0]), nil)
+	var preview productionapp.OperationCompletionPreview
+	if res.Code != 200 {
+		t.Fatalf("start preview: %d %s", res.Code, res.Body.String())
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if preview.BlockedReason != "" || len(preview.Materials) != 1 || preview.Materials[0].Warehouse != "wip" || preview.Materials[0].AvailableQty != 16.043 {
+		t.Fatalf("issued extra must be available to start in WIP: %+v", preview)
+	}
+	preview.Materials[0].Qty = 16.043
+	payload := map[string]any{"actual_input_qty": 16.043, "input_unit": preview.InputUnit, "materials": preview.Materials, "expected_version": preview.Version, "request_id": "issue-extra-start-once", "difference_reason": "按实际投入补充"}
+	for i := 0; i < 2; i++ {
+		r = serveMultilevelProductionJSON(t, f.app, http.MethodPost, fmt.Sprintf("/api/job-cards/%d/start", ids[0]), payload)
+		if r.Code != 200 {
+			t.Fatalf("start attempt %d: %d %s", i, r.Code, r.Body.String())
+		}
+	}
+	assertProductionFlowCount(t, f.pool, f.schema, "job_cards", fmt.Sprintf("id=%d AND status='running'", ids[0]), 1)
+	assertProductionFlowCount(t, f.pool, f.schema, "production_started_inputs", fmt.Sprintf("job_card_id=%d AND status='posted'", ids[0]), 1)
+	assertProductionFlowCount(t, f.pool, f.schema, "stock_entries", fmt.Sprintf("job_card_id=%d AND source_type='operation_start' AND status='submitted'", ids[0]), 1)
+}

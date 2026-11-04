@@ -282,6 +282,8 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-PR748-02", title: "补退料、撤销与分次报工成本结转", status: "done", assignee: "Codex", evidence: "started_input_adjustment_api_test.go; started_input_flow_api_test.go; 原批次退料及成本验证"},
 		{table: "req_dev", code: "DEV-PR748-03", title: "BOM 和工位界面、商品创建器兼容", status: "doing", assignee: "Codex", evidence: "两套现有模板隔离全链路与 Vue 测试通过；浏览器和开发环境演练待完成"},
 		{table: "req_dev", code: "DEV-PR748-04", title: "手册、全链路验收与开发环境交付", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-11-04-bom-batch-start.md；完整回归、合并和部署待完成"},
+		{table: "req_dev", code: "DEV-PR748-WORKSTATION-REPLENISH", title: "待开工简化工序展示实际缺口并支持领料", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-11-04-workstation-start-replenishment.md；隔离验证中，正式交付待完成"},
+		{table: "req_dev", code: "DEV-PR748-OLD-SHELL-REFRESH", title: "旧页面完工提示刷新及新版本提醒", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-11-04-workstation-start-replenishment.md；隔离验证中，正式交付待完成"},
 		{table: "req_dev", code: "DEV-PR746-01", title: "账单来源明细与出账快照", status: "done", assignee: "Codex", evidence: "billing detail source and snapshot tests"},
 		{table: "req_dev", code: "DEV-PR746-02", title: "账单页面和 Excel、PDF、PNG 输出", status: "done", assignee: "Codex", evidence: "billing export and rendering tests"},
 		{table: "req_dev", code: "DEV-PR746-03", title: "手册、验收与开发环境交付", status: "in_progress", assignee: "Codex", evidence: "docs/acceptance/2026-10-29-bill-order-detail-share.md"},
