@@ -20,6 +20,7 @@ const error = ref('')
 const notice = ref('')
 const preview = ref(null)
 const recipientSelected = ref(false)
+const recipientPicker = ref(null)
 const topup = ref(null)
 const override=reactive({enabled:false,surcharge:'0.00',free:false,reason:''})
 const form = reactive({ order_date: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' }), receiver_name: '', receiver_phone: '', receiver_address: '', receiver_company: '', province: '', city: '', district: '', note: '' })
@@ -59,7 +60,9 @@ function saveDraft(customerID = props.customerId, scenario = mode.value) { if (N
 function restoreDraft() { const draft = readFormDraft(draftKey()); if (draft) { Object.assign(form, draft.form || {}); lines.value = draft.lines?.length ? draft.lines : [newLine()]; requestID.value = draft.request_id || newRequestID(); recipientSelected.value = Boolean(draft.recipient_selected) } }
 function invalidate() { previewVersion += 1; preview.value = null; saveDraft() }
 function recipientEdited() { recipientSelected.value = false; invalidate() }
-function selectRecipient(snapshot, address) { Object.assign(form, snapshot, { receiver_address: address.detail_address || '', province: address.province || '', city: address.city || '', district: address.district || '' }); recipientSelected.value = Boolean(address.id); invalidate() }
+function editRecipientRegion() { recipientPicker.value?.show() }
+function isRecipientRegionError(value) { return /收件地区无法唯一识别|请选择收件省市区/.test(String(value || '')) }
+function selectRecipient(snapshot, address) { Object.assign(form, snapshot, { receiver_address: address.detail_address || '', province: address.province || '', city: address.city || '', district: address.district || '' }); recipientSelected.value = Boolean(address.id); if (recipientSelected.value && isRecipientRegionError(error.value)) error.value = ''; invalidate() }
 async function loadCatalog() {
   const current = ++version
   if (!mode.value) { catalog.value = { product_families: [], price_tables: [] }; return }
@@ -132,7 +135,7 @@ watch(() => props.customerId, async (next, previous) => { saveDraft(previous); v
       <p v-if="mode === 'on_demand'" class="explanation">每个商品规格使用代发价格表中的唯一固定单价，任意正数量均可下单，另计代发服务费和运费。</p>
       <fieldset v-if="mode" class="entry-grid" :disabled="saving">
         <label>订单日期<input v-model="form.order_date" type="date" @change="invalidate" /></label><label v-if="mode === 'stock'">客户仓库<input :value="activeMode?.warehouse_code || '尚未绑定客户仓库'" readonly /></label>
-        <div class="wide"><CustomerRecipientPicker :customer-id="customerId" :current-recipient="form" :api-base="addressURL" :require-saved="true" @select="selectRecipient" /><p class="recipient-line" :title="recipientLine">{{ recipientSelected ? recipientLine : '请选择地址簿中的收件地址' }}</p></div>
+        <div class="wide"><CustomerRecipientPicker ref="recipientPicker" :customer-id="customerId" :current-recipient="form" :api-base="addressURL" :require-saved="true" :require-valid-region="true" :customer-portal="customerPortal" @select="selectRecipient" /><p class="recipient-line" :title="recipientLine">{{ recipientSelected ? recipientLine : '请选择地址簿中的收件地址' }}</p></div>
         <div v-for="(line,index) in lines" :key="line.key" class="line wide"><label>商品<SearchableSelect v-model="line.family_key" :options="families" :option-label="familyLabel" :option-value="familyKey" placeholder="搜索商品" @select="selectFamily(line,$event)" /></label><label>规格<select v-model="line.spec_key" @change="invalidate"><option value="">请选择规格</option><option v-for="spec in familyFor(line)?.specs || []" :key="specKey(spec)" :value="specKey(spec)">{{ specLabel(spec) }}</option></select></label><label>数量<input v-model.number="line.qty" type="number" min="1" step="1" @input="invalidate" /></label><button type="button" class="secondary" :disabled="saving" @click="lines.splice(index,1); invalidate()">删除</button><div v-if="mode === 'stock' && specFor(line)" class="supply wide"><span>累计已购买 {{ purchasedFor(line).purchased ?? '未记录' }}</span><span>累计已入库 {{ purchasedFor(line).received ?? '未记录' }}</span><span v-if="shortageFor(line) > 0" class="shortage">需补购 {{ shortageFor(line) }}</span></div></div>
         <button type="button" class="secondary" :disabled="saving" @click="lines.push(newLine()); invalidate()">新增商品</button><label class="wide">备注<textarea v-model.trim="form.note" rows="2" @input="invalidate" /></label>
         <details v-if="!props.customerPortal" class="wide"><summary>本单运费调整</summary><label><input v-model="override.enabled" type="checkbox" @change="invalidate" />本单调整附加运费／包邮</label><template v-if="override.enabled"><label>附加运费（元）<input v-model="override.surcharge" type="number" min="0" step="0.01" @input="invalidate" /></label><label><input v-model="override.free" type="checkbox" @change="invalidate" />本单包邮</label><label>调整原因<input v-model.trim="override.reason" @input="invalidate" /></label></template></details>
@@ -141,7 +144,7 @@ watch(() => props.customerId, async (next, previous) => { saveDraft(previous); v
         <div class="form-actions wide"><button v-if="customerPortal" type="button" class="secondary" :disabled="loading || saving" @click="previewForSubmit">预览费用</button><button type="button" class="primary" :disabled="loading || saving || Boolean(preview && !preview.can_submit)" @click="submit">{{ saving ? '提交中…' : '提交代发订单' }}</button></div>
       </fieldset>
     </template>
-    <p v-if="error" class="error" role="alert">{{ error }}</p><p v-if="notice" class="notice">{{ notice }}</p>
+    <p v-if="error" class="error" role="alert">{{ error }} <button v-if="isRecipientRegionError(error)" type="button" @click="editRecipientRegion">编辑地址，选择省市区</button></p><p v-if="notice" class="notice">{{ notice }}</p>
   </div>
 </template>
 

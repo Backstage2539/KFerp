@@ -44,7 +44,7 @@ func TestFreightThreeSceneAPIAndPolicyIsolation(t *testing.T) {
 		}
 		return rec.Body.Bytes()
 	}
-	template := domain.Template{Name: "PR705独立10元", Active: true, CarrierID: 705, ProductID: 705, Groups: []domain.Group{{Name: "云南", RegionCodes: []string{"530000"}, Tiers: []domain.Tier{{UpperWeightG: 2000, FeeCents: 1000}}, AdditionalWeightG: 1000, AdditionalFeeCents: 200}}}
+	template := domain.Template{Name: "PR705独立10元", Active: true, CarrierID: 705, ProductID: 705, Groups: []domain.Group{{Name: "云南", RegionCodes: []string{"530000"}, Tiers: []domain.Tier{{UpperWeightG: 2000, FeeCents: 1000}}, AdditionalWeightG: 1000, AdditionalFeeCents: 200}, {Name: "大理市特价", RegionCodes: []string{"532901"}, Tiers: []domain.Tier{{UpperWeightG: 2000, FeeCents: 2300}}, AdditionalWeightG: 1000, AdditionalFeeCents: 200}}}
 	var saved domain.Template
 	json.Unmarshal(call(http.MethodPost, "/api/settings/logistics/shipping-templates", template, 200), &saved)
 	for _, scene := range []string{"sale", "stock", "on_demand"} {
@@ -57,6 +57,24 @@ func TestFreightThreeSceneAPIAndPolicyIsolation(t *testing.T) {
 	json.Unmarshal(call(http.MethodPost, "/api/customer-fulfillment/501/freight/preview", map[string]any{"fulfillment_mode": "stock", "province": "云南", "items": []map[string]any{{"product_id": 911, "qty": 1}}}, 200), &sale)
 	if sale.Policy.Scene != "sale" || sale.EstimatedTotalCents != 2000 || sale.CurrentReceivableCents != 0 {
 		t.Fatal(sale)
+	}
+	// Legacy address-book layout must normalize before both the fee and
+	// freight snapshots are signed, including the district-specific rule.
+	for _, mode := range []string{"stock", "on_demand"} {
+		body := func(city, district string) map[string]any {
+			return map[string]any{"fulfillment_mode": mode, "province": "云南省", "city": city, "district": district, "items": []map[string]any{{"product_id": 911, "qty": 1}}}
+		}
+		var legacy, canonical app.FulfillmentFeeQuote
+		if err := json.Unmarshal(call(http.MethodPost, "/api/customer-fulfillment/501/fees/preview", body("大理市", "大理古城"), 200), &legacy); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(call(http.MethodPost, "/api/customer-fulfillment/501/fees/preview", body("大理白族自治州", "大理市"), 200), &canonical); err != nil {
+			t.Fatal(err)
+		}
+		if legacy.Freight == nil || legacy.Freight.Estimate.RegionCode != "532901" || legacy.Freight.EstimatedTotalCents != 3300 || legacy.FeeQuoteToken != canonical.FeeQuoteToken || legacy.Freight.Token != canonical.Freight.Token || legacy.City != "大理白族自治州" || legacy.District != "大理市" {
+			t.Fatalf("%s legacy=%+v canonical=%+v", mode, legacy, canonical)
+		}
+		call(http.MethodPost, "/api/customer-fulfillment/501/fees/preview", body("大理市", "大理祥云县"), 400)
 	}
 	for _, scene := range []string{"stock", "on_demand"} {
 		var q app.FulfillmentFeeQuote

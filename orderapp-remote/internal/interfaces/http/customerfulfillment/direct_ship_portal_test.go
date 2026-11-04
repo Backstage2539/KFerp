@@ -52,6 +52,7 @@ func TestPortalDirectShipAndAddressesAlwaysResolveAuthenticatedCustomer(t *testi
 	}{
 		{"GET", "/api/customer-processing/portal/direct-ship/catalog?customer_id=999&fulfillment_mode=stock", "", 200},
 		{"GET", "/api/customer-processing/portal/direct-ship/settings?customer_id=999", "", 200},
+		{"GET", "/api/customer-processing/portal/direct-ship/shipping-regions", "", 200},
 		{"POST", "/api/customer-processing/portal/direct-ship/preview", `{"usage_code":"product_order","customer_id":999,"employee_id":999,"mini_user_id":999,"fulfillment_mode":"stock"}`, 200},
 		{"POST", "/api/customer-processing/portal/direct-ship/requests", `{"usage_code":"product_order","customer_id":999,"employee_id":999,"mini_user_id":999,"fulfillment_mode":"stock"}`, 201},
 		{"GET", "/api/customer-processing/portal/recipient-addresses?customer_id=999", "", 200},
@@ -93,7 +94,7 @@ func TestPortalDirectShipRequiresLoginBindingAndCapability(t *testing.T) {
 				return func(c echo.Context) error { c.Set("employee_id", tc.employeeID); return next(c) }
 			})
 			RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, SharedProcessing: &portalAddressFake{fakeSharedProcessingService: &fakeSharedProcessingService{}}})
-			for _, path := range []string{"direct-ship/catalog", "direct-ship/settings", "recipient-addresses"} {
+			for _, path := range []string{"direct-ship/catalog", "direct-ship/settings", "direct-ship/shipping-regions", "recipient-addresses"} {
 				rec := httptest.NewRecorder()
 				e.ServeHTTP(rec, httptest.NewRequest("GET", "/api/customer-processing/portal/"+path+"?customer_id=307", nil))
 				if rec.Code != tc.want {

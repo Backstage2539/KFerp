@@ -87,6 +87,12 @@ func registerPortalDirectShipAPI(e *echo.Echo, deps Dependencies) {
 		}
 		return c.JSON(200, q.Freight)
 	})
+	e.GET("/api/customer-processing/portal/direct-ship/shipping-regions", func(c echo.Context) error {
+		if _, err := resolve(c); err != nil {
+			return err
+		}
+		return c.JSON(http.StatusOK, map[string]any{"version": freightdomain.RegionVersion, "regions": freightdomain.Regions()})
+	})
 	e.GET("/api/customer-processing/portal/direct-ship/settings", func(c echo.Context) error {
 		id, err := resolve(c)
 		if err != nil {

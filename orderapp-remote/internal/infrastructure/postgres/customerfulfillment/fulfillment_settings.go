@@ -372,7 +372,17 @@ func (r *Repository) QuoteFulfillmentFeesTx(ctx context.Context, tx pgx.Tx, c ap
 	if e != nil {
 		return out, e
 	}
-	f, e := freightpg.NewRepository(r.pool, r.schema).QuoteWithOverrideTx(ctx, tx, c.CustomerID, c.FulfillmentMode, freightdomain.Destination{Province: c.Province, City: c.City, District: c.District}, grams, c.FreightOverride, c.EmployeeAdjustment)
+	freightRepo := freightpg.NewRepository(r.pool, r.schema)
+	f, e := freightRepo.QuoteWithOverrideTx(ctx, tx, c.CustomerID, c.FulfillmentMode, freightdomain.Destination{Province: c.Province, City: c.City, District: c.District}, grams, c.FreightOverride, c.EmployeeAdjustment)
+	if e != nil && (c.FulfillmentMode == "stock" || c.FulfillmentMode == "on_demand") && errors.Is(e, freightdomain.ErrDestinationAmbiguous) {
+		if normalized, ok := freightdomain.NormalizeLegacyFulfillmentDestination(freightdomain.Destination{Province: c.Province, City: c.City, District: c.District}); ok {
+			canonical := freightdomain.Destination{Province: normalized.Province, City: normalized.City, District: normalized.District}
+			f, e = freightRepo.QuoteWithOverrideTx(ctx, tx, c.CustomerID, c.FulfillmentMode, canonical, grams, c.FreightOverride, c.EmployeeAdjustment)
+			if e == nil {
+				c.Province, c.City, c.District = normalized.Province, normalized.City, normalized.District
+			}
+		}
+	}
 	if e != nil {
 		return out, e
 	}

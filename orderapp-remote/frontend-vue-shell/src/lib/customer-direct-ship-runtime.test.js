@@ -144,6 +144,7 @@ test('从当前录单新增地址时保留省市区和详细地址，供下一�
   const pickerFilename = new URL('../components/CustomerRecipientPicker.vue', import.meta.url)
   const parsed = parse(fs.readFileSync(pickerFilename, 'utf8'), { filename: pickerFilename.pathname })
   let pickerCode = compileScript(parsed.descriptor, { id: 'recipient-picker-runtime' }).content
+  pickerCode = pickerCode.replace(/import (\w+) from ['"][^'"]+\.vue['"]/g, (_, name) => `const ${name}={render:()=>null}`)
   pickerCode = pickerCode.replace(/from (['"])([^'"]+)\1/g, (_, quote, path) => `from ${JSON.stringify(path.startsWith('.') ? new URL(/\.[a-z]+$/.test(path) ? path : `${path}.js`, pickerFilename).href : import.meta.resolve(path))}`)
   const { default: Picker } = await import(`data:text/javascript;base64,${Buffer.from(pickerCode).toString('base64')}`)
   let picker
@@ -178,4 +179,34 @@ test('同一规格不同历史版本的多行合并计算补购，并保留累�
   assert.deepEqual(editor.purchasedFor(next), { purchased: 20, received: 8 })
   assert.equal(editor.shortageFor(next), 2)
   assert.equal(editor.shortageFor(editor.lines.value[0]), 2)
+})
+
+test('地区报价失败后可打开地址簿修正，原商品及收件草稿不被清空', async () => {
+  let editor
+  await renderToString(createSSRApp({ setup() { editor = View.setup({ customerId: 307, externalMode: 'stock' }, { expose() {}, emit() {} }); return () => h('div') } }))
+  editor.form.receiver_name = '收件人'
+  editor.lines.value[0].qty = 12
+  editor.error.value = '收件地区无法唯一识别，请选择省市区'
+  let opened = 0
+  editor.recipientPicker.value = { show() { opened++ } }
+  editor.editRecipientRegion()
+  assert.equal(opened, 1)
+  assert.equal(editor.form.receiver_name, '收件人')
+  assert.equal(editor.lines.value[0].qty, 12)
+  assert.match(descriptor.template.content, /编辑地址，选择省市区/)
+})
+
+test('重新选择地址只清除旧地区错误，保留其他错误及已录商品', async () => {
+  let editor
+  await renderToString(createSSRApp({ setup() { editor = View.setup({ customerId: 307, externalMode: 'stock' }, { expose() {}, emit() {} }); return () => h('div') } }))
+  editor.lines.value[0].qty = 12
+  editor.error.value = '收件地区无法唯一识别，请选择省市区'
+  const row={id:9,province:'云南省',city:'大理白族自治州',district:'大理市',detail_address:'大理古城人民路1号'}
+  const snapshot={receiver_name:'收件人',receiver_phone:'13800000000'}
+  editor.selectRecipient(snapshot,row)
+  assert.equal(editor.error.value,'')
+  assert.equal(editor.lines.value[0].qty,12)
+  editor.error.value='商品加载失败'
+  editor.selectRecipient(snapshot,row)
+  assert.equal(editor.error.value,'商品加载失败')
 })

@@ -1,3 +1,9 @@
+### PR-DIRECTSHIP-REGION-20261104 代发地址行政区识别
+- Branch: `codex/directship-region-fix-20261104`; base `origin/develop` 5d906745。
+- 生产喜沁咖啡地址簿旧数据将县级市放入市级字段；按唯一且无冲突的行政区划安全规范化，并保留实际收件地址中的地名。
+- DEV: 旧地址兼容和报价/提交一致性、地址编辑时明确选择省市区、验证与手册；禁止代用户提交订单或更改正式地址。
+- 状态：RED/GREEN、两种代发模式隔离 API、前端全量测试及隔离浏览器验收通过；待合并部署及现场确认。
+
 ### PR-748 工位待开工补料修复
 - Branch: `codex/workstation-start-replenishment-20261104`; base `origin/develop` 66c6b929; DEV-PR748-WORKSTATION-REPLENISH、DEV-PR748-OLD-SHELL-REFRESH。
 - 为实际 WIP 缺料提供单任务补料并重新核对开工预览；旧页面提示刷新，新版提示更新；未确认领料保留原请求并重试。
