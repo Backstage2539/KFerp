@@ -322,6 +322,63 @@ type WarehouseInventoryResult struct {
 	TotalPages int                     `json:"total_pages"`
 }
 
+type TransferOptionsQuery struct {
+	Warehouse, ItemType, Q   string
+	ItemID, BomSpecID, SpecG int64
+	Limit, Offset            int
+}
+
+type TransferOptionRow struct {
+	Warehouse         string `json:"warehouse"`
+	ItemType          string `json:"item_type"`
+	ItemID            int64  `json:"item_id"`
+	ItemName          string `json:"item_name"`
+	ItemCode          string `json:"item_code"`
+	BomSpecID         int64  `json:"bom_spec_id"`
+	BomVariantID      int64  `json:"bom_variant_id"`
+	SpecG             int64  `json:"spec_g"`
+	SpecName          string `json:"spec_name"`
+	InventoryUnit     string `json:"inventory_unit"`
+	OwnerCustomerID   int64  `json:"owner_customer_id"`
+	BatchID           int64  `json:"batch_id"`
+	BatchCode         string `json:"batch_code"`
+	QtyG              int64  `json:"qty_g"`
+	QtyUnits          int64  `json:"qty_units"`
+	AvailableG        int64  `json:"available_g"`
+	AvailableUnits    int64  `json:"available_units"`
+	UnavailableReason string `json:"unavailable_reason,omitempty"`
+}
+
+type TransferOptionsResult struct {
+	Rows    []TransferOptionRow `json:"rows"`
+	Total   int                 `json:"total"`
+	Page    int                 `json:"page"`
+	Limit   int                 `json:"limit"`
+	HasNext bool                `json:"has_next"`
+}
+
+type TransferOptionsRepository interface {
+	ListTransferOptions(context.Context, TransferOptionsQuery) (TransferOptionsResult, error)
+}
+
+func (s *Service) ListTransferOptions(ctx context.Context, q TransferOptionsQuery) (TransferOptionsResult, error) {
+	q.Warehouse = normalizeWarehouse(q.Warehouse)
+	q.ItemType = strings.TrimSpace(q.ItemType)
+	q.Q = strings.TrimSpace(q.Q)
+	if q.Warehouse == "" {
+		return TransferOptionsResult{}, fmt.Errorf("请选择出库仓")
+	}
+	if q.ItemType != "" && q.ItemType != itemTypeMaterial && q.ItemType != itemTypeFinishedProduct {
+		return TransferOptionsResult{}, fmt.Errorf("无效的库存类型")
+	}
+	q.Limit, q.Offset = normalizePage(q.Limit, q.Offset, 100, 500)
+	repo, ok := s.repo.(TransferOptionsRepository)
+	if !ok {
+		return TransferOptionsResult{}, fmt.Errorf("转仓库存查询不可用")
+	}
+	return repo.ListTransferOptions(ctx, q)
+}
+
 type OutboundLogQuery struct {
 	Q      string
 	From   string
@@ -437,6 +494,7 @@ type StockTraceResult struct {
 
 type MaterialTransferCommand struct {
 	MaterialID     int64
+	BatchCode      string
 	FromWarehouse  string
 	ToWarehouse    string
 	QtyG           int64
@@ -461,6 +519,7 @@ type MaterialTransferResult struct {
 
 type FinishedProductTransferCommand struct {
 	ProductID      int64
+	BatchCode      string
 	SpecG          int64
 	BomSpecID      int64
 	BomVariantID   int64
@@ -579,31 +638,39 @@ type StockDocumentBatchAllocation struct {
 	UnitCost        float64 `json:"unit_cost"`
 }
 
+type StockDocumentFinishedBatchMove struct {
+	SourceBatchCode string `json:"source_batch_code"`
+	TargetBatchCode string `json:"target_batch_code"`
+	QtyG            int64  `json:"qty_g"`
+	QtyUnits        int64  `json:"qty_units"`
+}
+
 type StockDocumentItemRow struct {
-	FrozenPicking             bool                           `json:"frozen_picking,omitempty"`
-	ID                        int64                          `json:"id"`
-	StockEntryID              int64                          `json:"stock_entry_id"`
-	MaterialID                int64                          `json:"material_id"`
-	ProductID                 int64                          `json:"product_id"`
-	ItemType                  string                         `json:"item_type"`
-	ItemName                  string                         `json:"item_name"`
-	OwnerCustomerID           int64                          `json:"owner_customer_id,omitempty"`
-	SpecG                     int64                          `json:"spec_g"`
-	BomSpecID                 int64                          `json:"bom_spec_id,omitempty"`
-	BomVariantID              int64                          `json:"bom_variant_id,omitempty"`
-	InventoryUnit             string                         `json:"inventory_unit"`
-	FromWarehouse             string                         `json:"from_warehouse"`
-	ToWarehouse               string                         `json:"to_warehouse"`
-	QtyG                      int64                          `json:"qty_g"`
-	QtyUnits                  int64                          `json:"qty_units"`
-	BatchCode                 string                         `json:"batch_code"`
-	UnitCost                  float64                        `json:"unit_cost"`
-	TotalCost                 float64                        `json:"total_cost"`
-	Supplier                  string                         `json:"supplier"`
-	CropSeason                string                         `json:"crop_season"`
-	Origin                    string                         `json:"origin"`
-	ProducerFlavorDescription string                         `json:"producer_flavor_description"`
-	Allocations               []StockDocumentBatchAllocation `json:"allocations"`
+	FrozenPicking             bool                             `json:"frozen_picking,omitempty"`
+	ID                        int64                            `json:"id"`
+	StockEntryID              int64                            `json:"stock_entry_id"`
+	MaterialID                int64                            `json:"material_id"`
+	ProductID                 int64                            `json:"product_id"`
+	ItemType                  string                           `json:"item_type"`
+	ItemName                  string                           `json:"item_name"`
+	OwnerCustomerID           int64                            `json:"owner_customer_id,omitempty"`
+	SpecG                     int64                            `json:"spec_g"`
+	BomSpecID                 int64                            `json:"bom_spec_id,omitempty"`
+	BomVariantID              int64                            `json:"bom_variant_id,omitempty"`
+	InventoryUnit             string                           `json:"inventory_unit"`
+	FromWarehouse             string                           `json:"from_warehouse"`
+	ToWarehouse               string                           `json:"to_warehouse"`
+	QtyG                      int64                            `json:"qty_g"`
+	QtyUnits                  int64                            `json:"qty_units"`
+	BatchCode                 string                           `json:"batch_code"`
+	UnitCost                  float64                          `json:"unit_cost"`
+	TotalCost                 float64                          `json:"total_cost"`
+	Supplier                  string                           `json:"supplier"`
+	CropSeason                string                           `json:"crop_season"`
+	Origin                    string                           `json:"origin"`
+	ProducerFlavorDescription string                           `json:"producer_flavor_description"`
+	Allocations               []StockDocumentBatchAllocation   `json:"allocations"`
+	TransferBatchMoves        []StockDocumentFinishedBatchMove `json:"transfer_batch_moves,omitempty"`
 }
 
 type StockDocumentRow struct {
@@ -906,6 +973,9 @@ func normalizeStockDocumentCommand(cmd StockDocumentCommand) (StockDocumentComma
 		item.ItemName = strings.TrimSpace(item.ItemName)
 		item.InventoryUnit = strings.TrimSpace(item.InventoryUnit)
 		item.BatchCode = strings.TrimSpace(item.BatchCode)
+		if cmd.Purpose == PurposeMaterialTransfer && item.BatchCode == "" {
+			return StockDocumentCommand{}, fmt.Errorf("第 %d 行请选择来源批次", i+1)
+		}
 		item.Supplier = strings.TrimSpace(item.Supplier)
 		item.CropSeason = strings.TrimSpace(item.CropSeason)
 		item.Origin = strings.TrimSpace(item.Origin)
@@ -1292,6 +1362,10 @@ func (s *Service) TransferMaterial(ctx context.Context, cmd MaterialTransferComm
 	if cmd.QtyG <= 0 {
 		return MaterialTransferResult{}, fmt.Errorf("qty_g required")
 	}
+	cmd.BatchCode = strings.TrimSpace(cmd.BatchCode)
+	if cmd.BatchCode == "" {
+		return MaterialTransferResult{}, fmt.Errorf("请选择来源批次")
+	}
 	cmd.FromWarehouse = normalizeWarehouse(cmd.FromWarehouse)
 	cmd.ToWarehouse = normalizeWarehouse(cmd.ToWarehouse)
 	if cmd.FromWarehouse == "" {
@@ -1317,6 +1391,7 @@ func (s *Service) TransferMaterial(ctx context.Context, cmd MaterialTransferComm
 			IdempotencyKey: cmd.IdempotencyKey,
 			Items: []StockDocumentItemCommand{{
 				MaterialID:    cmd.MaterialID,
+				BatchCode:     cmd.BatchCode,
 				ItemType:      itemTypeMaterial,
 				FromWarehouse: cmd.FromWarehouse,
 				ToWarehouse:   cmd.ToWarehouse,
@@ -1345,6 +1420,10 @@ func (s *Service) TransferFinishedProduct(ctx context.Context, cmd FinishedProdu
 	if cmd.ProductID <= 0 {
 		return FinishedProductTransferResult{}, fmt.Errorf("product required")
 	}
+	cmd.BatchCode = strings.TrimSpace(cmd.BatchCode)
+	if cmd.BatchCode == "" {
+		return FinishedProductTransferResult{}, fmt.Errorf("请选择来源批次")
+	}
 	if cmd.BomSpecID > 0 {
 		if cmd.SpecG != 0 {
 			return FinishedProductTransferResult{}, fmt.Errorf("spec_g must be zero for BOM specification")
@@ -1357,6 +1436,9 @@ func (s *Service) TransferFinishedProduct(ctx context.Context, cmd FinishedProdu
 	}
 	if cmd.QtyUnits < 0 || cmd.QtyLooseG < 0 {
 		return FinishedProductTransferResult{}, fmt.Errorf("negative qty")
+	}
+	if cmd.QtyUnits > 0 && cmd.QtyLooseG > 0 {
+		return FinishedProductTransferResult{}, fmt.Errorf("每行只能转整件或散装克数")
 	}
 	if cmd.QtyUnits <= 0 && cmd.QtyLooseG <= 0 {
 		return FinishedProductTransferResult{}, fmt.Errorf("qty required")
@@ -1387,6 +1469,7 @@ func (s *Service) TransferFinishedProduct(ctx context.Context, cmd FinishedProdu
 			IdempotencyKey: cmd.IdempotencyKey,
 			Items: []StockDocumentItemCommand{{
 				ProductID:     cmd.ProductID,
+				BatchCode:     cmd.BatchCode,
 				ItemType:      itemTypeFinishedProduct,
 				SpecG:         cmd.SpecG,
 				BomSpecID:     cmd.BomSpecID,

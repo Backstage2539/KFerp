@@ -61,7 +61,17 @@ export function applyCustomerPriceRows(generated = [], seeds = [], overrides = {
       out.push(...currentRows.map(row => ({ ...row, product_name: row.customer_reference_snapshot?.customer_display_name || row.product_name })))
       continue
     }
-    const candidates=frozenSources.length ? frozenSources : sources.length?sources:[{...current,final_unit_price:0,customer_quote_missing:true}]
+    // Older customer drafts may already have had a row override migrated into
+    // the exact SKU setting. Recover it only when no published quote exists.
+    const skuID = Number(current.bom_spec_id || current.sku_id || 0)
+    const explicit = options.productOverrides?.[`sku:${skuID}`]
+    const savedParent = Number(explicit?.parent_product_id || 0)
+    const sameProduct = savedParent > 0
+      ? savedParent === Number(current.parent_product_id || current.product_id || 0)
+      : Number(explicit?.sku_id || 0) === skuID && Number(current.bom_spec_id || 0) === skuID
+    const recoveredPrice = !sources.length && current.pricing_mode === 'fixed_price' && skuID > 0 && sameProduct
+      ? Number(explicit?.fixed_unit_price || 0) : 0
+    const candidates=frozenSources.length ? frozenSources : sources.length?sources:[{...current,final_unit_price:recoveredPrice > 0 ? recoveredPrice : 0,customer_quote_missing:!(recoveredPrice > 0)}]
     for (const source of candidates) {
       const rowKey=source.row_key||current.row_key
       const edited=Number(overrides[rowKey])

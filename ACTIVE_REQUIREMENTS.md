@@ -1,3 +1,17 @@
+### PR-ORDER-COPY-AMOUNTS-20261103 付款金额口径更正
+- Branch: `codex/order-copy-paid-amount-20261103`; DEV-ORDER-COPY-PAID-20261103.
+- 未付款为零，预付款显示已收部分，已付款显示订单已付总额；沿用订单列表付款口径，不改动真实订单。
+- RED: 应用层、HTTP 复制测试在未付款和预付款场景失败。GREEN: 应用层、HTTP、小程序接口和隔离 PostgreSQL 订单快照回归。
+- 操作手册：`orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md` 等复制详情入口；生产发布及 Van 验收待完成。
+
+### PR-STOCK-TRANSFER-BATCH-SELECTION（进行中）
+- Branch: `codex/stock-transfer-batch-spec`, based on `origin/develop`.
+- DEV-STOCK-TRANSFER-BATCH-API: transfer options, selected-batch posting, ownership, quality, reservations, historical specification identity and trace.
+- DEV-STOCK-TRANSFER-BATCH-UI: source warehouse, actual specification, mandatory batch, one quantity and book/available balances; isolated browser fixture inspected.
+- DEV-STOCK-TRANSFER-BATCH-RELEASE: manual, acceptance evidence, full verification and development deployment.
+- RED/GREEN: source batch, legacy draft, historical BOM, reserved and unbound reserved stock, mismatch, duplicate lines, concurrency, and idempotency use isolated PostgreSQL. Manual: `orderapp-remote/docs/OP_MANUAL_STOCK.md`.
+- Development deployment and Van's business acceptance pending. No production business writes.
+
 ### PR-745-MINIAPP-FEES-PRICE-PHONE
 - Branch: codex/miniapp-customer-fees-login; base origin/develop a3084c508.
 - Status: implementation and targeted checks complete; development integration/deployment and developer-tool/device acceptance pending. Production and WeChat publication deferred.
@@ -334,6 +348,11 @@
 - Delivery: implementation in progress; development then main/production explicitly authorized; no business data changed yet; Van acceptance pending.
 
 # ACTIVE_REQUIREMENTS
+
+### PR-CUSTOMER-FIXED-QUOTE-RELOAD
+- Branch: `codex/customer-fixed-quote`；修复客户固定价输入在发布前恢复草稿时清空。
+- Verifier: customer-price-draft、price-table-editor-loading、相关价格表回归、发布 API 与前端构建；见 `orderapp-remote/docs/acceptance/2026-11-03-customer-fixed-quote.md`。
+- Deployment: Van 明确要求合入 main 并部署生产；生产价格表和客户报价只读核验，不代为填写或发布。
 
 ### PR-676-PRODUCT-CREATOR-BOM-SPEC-TEMPLATE
 - Implementation: PR #164 merged into `develop`; deployed integration head `892d99bc9284643f712271ae822a09793bdb0bdb` includes PR #164 and #165. Live acceptance evidence follow-up branch `codex/product-creator-v4-live-acceptance-20260930`, based on current `origin/develop`.
@@ -6395,7 +6414,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier: TDD helper, database snapshot and source association tests, API and UI checks, Excel/PDF/PNG consistency and stamp visual verification.
 - Notes: macOS awk failed to claim PR ID; recorded here and in requirement seeds.
 ### PR-747-BOM-START-CONSUMPTION
-- Branch: `codex/bom-start-consumption`; base `eba63ae30`; latest fetched develop `3ef4bce47` not integrated yet.
+- Branch: `codex/bom-start-consumption`; base `eba63ae30`; latest fetched develop `3ef4bce47` integrated into feature; revalidation pending.
 - Status: implementation and integration testing in progress; not merged or deployed. Van explicitly authorized complete feature → develop → development deployment; production release and PP-0000000018 business actions excluded.
 - DEV: DEV-PR747-01 policy/start; DEV-PR747-02 balances/adjustments/cost; DEV-PR747-03 Vue/creator; DEV-PR747-04 manuals/acceptance/development delivery. PR remains awaiting Van acceptance.
 - Implemented locally: new-order policy freeze and deterministic route defaults, single/group atomic starts, FIFO input/component cost allocations, partial reporting without consumption, original-batch returns and reversal, source-only BOM API/UI, start/adjustment/group Vue forms, old-path guards and rollback write-pause setting. These remain subject to full integration review.
@@ -6404,3 +6423,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier pending: full live PostgreSQL regression and comparison to baseline; product variant/return and rollback matrix; frontend interaction and browser; merge latest develop; compatible rollback verification; deployment and business rehearsal. Basic Go tests are not delivery acceptance.
 - Read-only template audit 2026-11-01: production template #1 咖啡烘焙豆商品 revision24/version10; #2 挂耳咖啡商品 revision27/version9 has four BOM layers. Development #2/#5 are older/different two-/three-BOM templates. Do not overwrite or upgrade either environment's templates; use isolated snapshots of the production templates for the required acceptance flow.
 - No production business writes, no original template mutations, no merge/push/deployment performed by this task yet. PR-747 absent from development requirement table on read-only check.
+
+
+## PR-STOCK-TRANSFER-SOURCE-OPTIONS（2026-11-01）
+- Branch: `codex/stock-transfer-warehouse-options`; DEV: `DEV-STOCK-TRANSFER-SOURCE-OPTIONS`.
+- 转仓商品和 BOM 规格按每条明细出库仓库存筛选；切仓清除商品；完整读取库存分页。保留过账时库存/质检校验。
+- Verifier: `node --test orderapp-remote/frontend-vue-shell/src/lib/stock-transfer-options*.test.js`; `scripts/verify_kferp.sh frontend-tests`; `scripts/verify_kferp.sh frontend-build`; `go test ./internal/interfaces/http/stock ./internal/application/stock`.
+- GREEN: frontend tests 1681/1681, frontend build, full backend, stock API, and local browser fixture. Production observed read-only; no production stock document or business data changed. Development/production deployment not performed.

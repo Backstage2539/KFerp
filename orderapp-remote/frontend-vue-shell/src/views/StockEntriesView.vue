@@ -202,6 +202,19 @@
         </div>
         <div v-else v-for="(item, index) in form.items" :key="item.local_key || item.id || index" class="item-card">
           <div class="item-grid">
+            <template v-if="isDraft && isOrdinaryTransfer()">
+              <label><span>类型</span><select v-model="item.item_type" @change="resetTransferSelection(item)"><option value="material">物料</option><option value="finished_product">商品 / SKU</option></select></label>
+              <label><span>出库仓</span><select v-model="item.from_warehouse" @change="changeTransferWarehouse(item)"><option value="">请选择</option><option v-for="warehouse in warehouses" :key="warehouse.code" :value="warehouse.code">{{ warehouse.name }}</option></select></label>
+              <label class="wide"><span>{{ item.item_type === 'material' ? '物料' : '商品 / SKU' }}</span>
+                <SearchableSelect :model-value="selectedObjectID(item)" :options="transferObjectOptions(item)" :option-label="itemOptionLabel" :max-options="100000" :empty-text="transferChoiceEmptyText(item)" placeholder="输入名称 / 编号" @focus="ensureChoiceInventory(item.from_warehouse)" @open="ensureChoiceInventory(item.from_warehouse)" @update:model-value="selectTransferObject(item, $event)" />
+                <button v-if="transferChoices[item.from_warehouse]?.error" class="secondary" type="button" @click="ensureChoiceInventory(item.from_warehouse)">重试加载库存</button>
+              </label>
+              <label><span>规格</span><select v-model="item.transfer_spec" @change="changeTransferSpec(item)"><option value="">请选择</option><option v-for="spec in transferItemSpecs(item)" :key="spec.key" :value="spec.key">{{ spec.label }}</option></select><small v-if="selectedTransferSpec(item)" class="source-balance">该规格库存 {{ transferSpecBalance(item, false) }}；可转 {{ transferSpecBalance(item, true) }}</small></label>
+              <label class="wide"><span>来源批次（必选）</span><select v-model="item.batch_code" @change="changeTransferBatch(item)"><option value="">请选择批次</option><option v-for="row in transferItemBatches(item)" :key="row.batch_id" :value="row.batch_code" :disabled="Boolean(row.unavailable_reason) || transferRowAmount(row, item, true) <= 0">{{ row.batch_code }} · 可转 {{ transferRowAmount(row, item, true) }} {{ selectedTransferSpec(item)?.unit }}{{ row.unavailable_reason ? ` · ${row.unavailable_reason}` : '' }}</option></select><small v-if="selectedTransferBatch(item)" class="source-balance">该批次库存 {{ transferRowAmount(selectedTransferBatch(item), item, false) }}；本行最多可转 {{ remainingTransferBatch(item) }} {{ selectedTransferSpec(item)?.unit }}</small></label>
+              <label><span>数量（{{ selectedTransferSpec(item)?.unit || '件' }}）</span><input v-model.number="item.quantity" type="number" min="0" :step="selectedTransferSpec(item)?.mode === 'weight' ? 'any' : 1" /><small v-if="selectedTransferSpec(item)?.mode === 'loose'" class="source-balance">当前按克计量，填写 100 即转 100 克</small><small v-else-if="selectedTransferSpec(item)?.mode === 'canonical_weight'" class="source-balance">当前按 {{ selectedTransferSpec(item)?.unit }} 计量</small></label>
+              <label><span>入库仓</span><select v-model="item.to_warehouse"><option value="">请选择</option><option v-for="warehouse in warehouses" :key="warehouse.code" :value="warehouse.code">{{ warehouse.name }}</option></select></label>
+            </template>
+            <template v-else>
             <label>
               <span>类型</span>
               <select v-model="item.item_type" :disabled="!isDraft || isBoundProductionDocument" @change="resetItemObject(item)">
@@ -214,20 +227,20 @@
               <SearchableSelect
                 v-if="isDraft && !isBoundProductionDocument"
                 :model-value="selectedObjectID(item)"
-                :options="item.item_type === 'material' ? stockEntryMaterialOptions : products"
+                :options="item.item_type === 'material' ? stockEntryMaterialOptions : productOptionsForItem(item)"
                 :option-label="itemOptionLabel"
-                :remote="item.item_type === 'finished_product'"
-                :max-options="item.item_type === 'finished_product' ? 20 : 80"
-                :empty-text="item.item_type === 'finished_product' ? (productOptionsLoading ? '正在加载产品…' : '没有匹配产品') : (baseOptionsLoading ? '正在加载物料…' : '没有匹配物料')"
+                :remote="item.item_type === 'finished_product' && !isFinishedTransfer(item)"
+                :max-options="isFinishedTransfer(item) ? 100000 : (item.item_type === 'finished_product' ? 20 : 80)"
+                :empty-text="isFinishedTransfer(item) ? transferOptionsEmptyText(item) : (item.item_type === 'finished_product' ? (productOptionsLoading ? '正在加载产品…' : '没有匹配产品') : (baseOptionsLoading ? '正在加载物料…' : '没有匹配物料'))"
                 :disabled="baseOptionsLoading && item.item_type === 'material'"
                 placeholder="输入名称 / 编号"
-                @focus="item.item_type === 'finished_product' && handleProductOptionsFocus()"
-                @open="item.item_type === 'finished_product' && handleProductOptionsFocus()"
-                @input="item.item_type === 'finished_product' && handleProductSearch($event)"
+                @focus="item.item_type === 'finished_product' && handleItemProductOptionsFocus(item)"
+                @open="item.item_type === 'finished_product' && handleItemProductOptionsFocus(item)"
+                @input="item.item_type === 'finished_product' && !isFinishedTransfer(item) && handleProductSearch($event)"
                 @update:model-value="selectItemObject(item, $event)">
                 <template #menu-footer>
-                  <div v-if="item.item_type === 'finished_product' && productOptionsLoading" class="select-loading">正在加载…</div>
-                  <button v-else-if="item.item_type === 'finished_product' && productOptionsHasNext" type="button" class="select-load-more" @mousedown.prevent @click="loadMoreProductOptions">加载更多</button>
+                  <div v-if="item.item_type === 'finished_product' && !isFinishedTransfer(item) && productOptionsLoading" class="select-loading">正在加载…</div>
+                  <button v-else-if="item.item_type === 'finished_product' && !isFinishedTransfer(item) && productOptionsHasNext" type="button" class="select-load-more" @mousedown.prevent @click="loadMoreProductOptions">加载更多</button>
                 </template>
               </SearchableSelect>
               <input v-else :value="item.item_name || '-'" disabled />
@@ -240,7 +253,7 @@
               </select>
             </label>
             <label v-else-if="item.item_type === 'finished_product'"><span>规格(g)</span><input v-model.number="item.spec_g" type="number" min="1" :disabled="!isDraft" /></label>
-            <label><span>出库仓</span><select v-model="item.from_warehouse" :disabled="!isDraft || isBoundProductionDocument"><option value="">无</option><option v-for="warehouse in warehouses" :key="warehouse.code" :value="warehouse.code">{{ warehouse.name }}</option></select><small v-if="item.from_warehouse && item.material_id" class="source-balance">来源仓账面库存 {{ item.source_balance?.book_qty || 0 }} {{ item.inventory_unit || '' }}；可用库存 {{ item.source_balance?.available_qty || 0 }} {{ item.inventory_unit || '' }}<template v-if="Number(item.source_balance?.frozen_qty || 0) > 0">；冻结库存 {{ item.source_balance.frozen_qty }} {{ item.inventory_unit || '' }}</template></small></label>
+            <label><span>出库仓</span><select v-model="item.from_warehouse" :disabled="!isDraft || isBoundProductionDocument" @change="handleSourceWarehouseChange(item)"><option value="">无</option><option v-for="warehouse in warehouses" :key="warehouse.code" :value="warehouse.code">{{ warehouse.name }}</option></select><small v-if="item.from_warehouse && item.material_id" class="source-balance">来源仓账面库存 {{ item.source_balance?.book_qty || 0 }} {{ item.inventory_unit || '' }}；可用库存 {{ item.source_balance?.available_qty || 0 }} {{ item.inventory_unit || '' }}<template v-if="Number(item.source_balance?.frozen_qty || 0) > 0">；冻结库存 {{ item.source_balance.frozen_qty }} {{ item.inventory_unit || '' }}</template></small></label>
             <label><span>入库仓</span><select v-model="item.to_warehouse" :disabled="!isDraft || isBoundProductionDocument"><option value="">无</option><option v-for="warehouse in warehouses" :key="warehouse.code" :value="warehouse.code">{{ warehouse.name }}</option></select></label>
             <label v-if="usesSingleQuantity(item)">
               <span>{{ productionQuantityLabel }}</span>
@@ -249,7 +262,8 @@
             <label v-if="usesSingleQuantity(item)"><span>库存单位</span><div class="readonly-value">{{ item.inventory_unit || '-' }}</div></label>
             <label v-if="!usesSingleQuantity(item)"><span>数量(g)</span><input v-model.number="item.qty_g" type="number" min="0" :disabled="!isDraft" /></label>
             <label v-if="!usesSingleQuantity(item)"><span>数量(件)</span><input v-model.number="item.qty_units" type="number" min="0" :disabled="!isDraft" /></label>
-            <label><span>指定批次（可选）</span><input v-model.trim="item.batch_code" :disabled="!isDraft || item.frozen_picking" placeholder="不填按 FIFO" /></label>
+            <label v-if="!isDraft && isOrdinaryTransfer()"><span>{{ item.item_type === 'finished_product' ? '目标批次' : '来源批次' }}</span><input :value="item.batch_code || '-'" disabled /></label>
+            <label v-else><span>指定批次（可选）</span><input v-model.trim="item.batch_code" :disabled="!isDraft || item.frozen_picking" placeholder="不填按 FIFO" /></label>
             <label v-if="isReceipt"><span>单位成本</span><input v-model.number="item.unit_cost" type="number" min="0" step="0.0001" :disabled="!isDraft" /></label>
             <template v-if="isReceipt && item.item_type === 'material'">
               <label><span>供应商</span><input v-model.trim="item.supplier" :disabled="!isDraft" /></label>
@@ -257,12 +271,14 @@
               <label><span>产地</span><input v-model.trim="item.origin" :disabled="!isDraft" /></label>
               <label class="wide"><span>产家风味描述</span><input v-model.trim="item.producer_flavor_description" :disabled="!isDraft" /></label>
             </template>
+            </template>
           </div>
           <div v-if="item.allocations?.length" class="allocations">
             <span v-for="allocation in item.allocations" :key="`${allocation.material_batch_id}-${allocation.batch_code}`">
               {{ allocation.batch_code }}：{{ allocationQuantityLabel(allocation, item.inventory_unit) }}
             </span>
           </div>
+          <div v-if="item.transfer_batch_moves?.length" class="allocations"><span v-for="move in item.transfer_batch_moves" :key="`${move.source_batch_code}-${move.target_batch_code}`">来源批次 {{ move.source_batch_code }} → 目标批次 {{ move.target_batch_code }}</span></div>
           <button v-if="isDraft && form.items.length > 1" class="danger-link" type="button" @click="form.items.splice(index, 1)">删除明细</button>
         </div>
         <div class="drawer-actions">
@@ -296,6 +312,8 @@ import { isSemiFinishedMaterial, selectableStockEntryMaterials } from '../lib/ma
 import { stockEntryEndpoint, stockEntryTypeLabel, stockEntryTypeOptions } from '../lib/manufacturing-execution'
 import { inventoryUnitWeightInGrams, productionStockDocumentPreviewAction, stockCanonicalQuantity, stockDocumentPositiveItems, stockQuantityUsesCount } from '../lib/production-execution-hub'
 import { customerProcessingReceiptResult } from '../lib/customer-processing-trace'
+import { loadTransferInventory, transferProductOptions, transferProductSpecs } from '../lib/stock-transfer-options'
+import { loadTransferOptions, transferSpecs, transferBatches, transferAmount, transferWeightFactor } from '../lib/stock-transfer-selector'
 import {
   buildProductSpecWriteIdentity,
   isProductBomSpecCutover,
@@ -337,6 +355,12 @@ let productSearchTimer = 0
 let productOptionsRequest = 0
 let baseOptionsRequest = null
 const productDetailRequests = new Map()
+const transferInventory = reactive({})
+const transferChoices = reactive({})
+const transferChoiceRequests = new Map()
+let transferChoiceGeneration = 0
+const transferInventoryRequests = new Map()
+let transferInventoryGeneration = 0
 
 const receiptMode = ref('final')
 const receiptInputKg = ref(0)
@@ -379,7 +403,7 @@ function emptyItem() {
     local_key: ++localKey, material_id: 0, product_id: 0, item_type: 'material', item_name: '',
     migration_state: 'legacy', bom_spec_id: 0, bom_variant_id: 0,
     spec_g: 0, inventory_unit: '', from_warehouse: 'raw_materials', to_warehouse: 'wip',
-    quantity: 0, quantity_basis: '', canonical_qty_per_unit: 0,
+    quantity: 0, quantity_basis: '', canonical_qty_per_unit: 0, transfer_spec: '',
     required_qty: 0, remaining_qty: null, remembered_qty: 0, default_qty: 0,
     qty_g: 0, qty_units: 0, batch_code: '', unit_cost: 0, supplier: '', crop_season: '',
     origin: '', producer_flavor_description: '', product_detail_ready: false, allocations: [], source_balance: { book_qty: 0, available_qty: 0, frozen_qty: 0 },
@@ -564,7 +588,11 @@ function itemUsesBomSpecs(item) {
 }
 
 function itemBomSpecs(item) {
-  return normalizeProductBomSpecs(selectedItemProduct(item) || item || {})
+  const specs = normalizeProductBomSpecs(selectedItemProduct(item) || item || {})
+  const inventory = transferInventory[item.from_warehouse]
+  return isFinishedTransfer(item) && inventory?.loaded
+    ? transferProductSpecs(specs, inventory.rows, item.product_id)
+    : specs
 }
 
 function selectItemBomSpec(item) {
@@ -588,7 +616,9 @@ function applySelectedProduct(item, selected) {
   if (!selected) return
   item.product_detail_ready = Boolean(selected.product_detail_loaded)
   item.migration_state = isProductBomSpecCutover(selected) ? 'cutover' : 'legacy'
-  item.bom_spec_id = Number(normalizeProductBomSpecs(selected).find((row) => row.is_default)?.bom_spec_id || normalizeProductBomSpecs(selected)[0]?.bom_spec_id || 0)
+  const specs = itemBomSpecs(item)
+  const current = specs.find((row) => Number(row.bom_spec_id) === Number(item.bom_spec_id))
+  item.bom_spec_id = Number(current?.bom_spec_id || specs.find((row) => row.is_default)?.bom_spec_id || specs[0]?.bom_spec_id || 0)
   item.bom_variant_id = 0
   item.item_name = selected.name || selected.Name || item.item_name || ''
   item.inventory_unit = selected.inventory_unit || selected.unit || item.inventory_unit || ''
@@ -634,7 +664,7 @@ async function ensureProductDetailForItem(item) {
 
 function selectItemObject(item, id) {
   const value = Number(id || 0)
-  const options = item.item_type === 'material' ? materials.value : products.value
+  const options = item.item_type === 'material' ? materials.value : productOptionsForItem(item)
   const selected = options.find((row) => Number(row.id || 0) === value)
   item.material_id = item.item_type === 'material' ? value : 0
   item.product_id = item.item_type === 'finished_product' ? value : 0
@@ -666,6 +696,7 @@ function addItem() {
   const item = emptyItem()
   form.items.push(item)
   applyItemDefaults(item)
+  if (isOrdinaryTransfer()) void ensureChoiceInventory(item.from_warehouse)
 }
 
 function applyItemDefaults(item) {
@@ -684,9 +715,12 @@ function applyItemDefaults(item) {
 
 function applyEntryDefaults() {
   form.items.forEach(applyItemDefaults)
+  if (isOrdinaryTransfer()) for (const item of form.items) void ensureChoiceInventory(item.from_warehouse)
 }
 
 function openNewDrawer(purpose = '') {
+  clearTransferInventory()
+  clearTransferChoices()
   completionResult.value = null
   resetForm(emptyDocument())
   if (purpose) form.purpose_key = purpose
@@ -697,6 +731,7 @@ function openNewDrawer(purpose = '') {
   Object.assign(stockPreviewState, { availability: '', message: '' })
   drawerOpen.value = true
   void loadOptions().catch(() => {})
+  if (isOrdinaryTransfer()) for (const item of form.items) void ensureChoiceInventory(item.from_warehouse)
 }
 
 function closeDrawer() {
@@ -708,11 +743,16 @@ function closeDrawer() {
 }
 
 function requestBody() {
-  if (form.items.some((item) => item.item_type === 'finished_product' && Number(item.product_id || 0) > 0 && !item.product_detail_ready)) {
+  if (!isOrdinaryTransfer() && form.items.some((item) => item.item_type === 'finished_product' && Number(item.product_id || 0) > 0 && !item.product_detail_ready)) {
     throw new Error('正在加载产品完整规格，请稍候再提交')
   }
+  if (isOrdinaryTransfer()) for (const [index, item] of form.items.entries()) {
+    if (!selectedObjectID(item) || !selectedTransferSpec(item) || !item.batch_code || !selectedTransferBatch(item)) throw new Error(`第 ${index + 1} 行请选择来源商品、规格和批次`)
+    if (!item.from_warehouse || !item.to_warehouse || item.from_warehouse === item.to_warehouse) throw new Error(`第 ${index + 1} 行请选择不同的出库仓和入库仓`)
+    if (!(Number(item.quantity) > 0) || Number(item.quantity) > remainingTransferBatch(item)) throw new Error(`第 ${index + 1} 行数量无效或超过批次可转库存`)
+  }
   const requestItems = stockDocumentPositiveItems(form.items, (item) => (
-    usesSingleQuantity(item)
+    isOrdinaryTransfer() ? transferQuantity(item) : usesSingleQuantity(item)
       ? canonicalQuantity(item)
       : { qty_g: Number(item.qty_g || 0), qty_units: Number(item.qty_units || 0) }
   ))
@@ -727,10 +767,10 @@ function requestBody() {
     return_source: form.return_source || '',
     note: form.note || '',
     items: requestItems.map(({ item, quantity }) => {
-      const identity = buildProductSpecWriteIdentity({ ...item, parent_product_id: item.product_id, qty: Number(item.quantity || quantity.qty_units || quantity.qty_g || 0), unit: item.inventory_unit })
+      const identity = isOrdinaryTransfer() ? { product_id: item.product_id, bom_spec_id: item.bom_spec_id, bom_variant_id: item.bom_variant_id, qty: item.quantity, unit: item.inventory_unit } : buildProductSpecWriteIdentity({ ...item, parent_product_id: item.product_id, qty: Number(item.quantity || quantity.qty_units || quantity.qty_g || 0), unit: item.inventory_unit })
       return {
         material_id: Number(item.material_id || 0), product_id: item.item_type === 'finished_product' ? Number(identity.product_id || 0) : 0,
-        ...(item.item_type === 'finished_product' && itemUsesBomSpecs(item) ? {
+        ...(item.item_type === 'finished_product' && (isOrdinaryTransfer() ? item.bom_spec_id > 0 : itemUsesBomSpecs(item)) ? {
           bom_spec_id: Number(identity.bom_spec_id || 0),
           bom_variant_id: Number(identity.bom_variant_id || 0),
           qty: Number(identity.qty || 0),
@@ -740,7 +780,7 @@ function requestBody() {
         inventory_unit: item.inventory_unit || '', quantity_basis: item.quantity_basis || '',
         from_warehouse: item.from_warehouse || '', to_warehouse: item.to_warehouse || '',
         qty_g: quantity.qty_g, qty_units: quantity.qty_units,
-        batch_code: item.batch_code || '', unit_cost: isReceipt.value ? Number(item.unit_cost || 0) : 0,
+        batch_code: item.batch_code || '', owner_customer_id: Number(item.owner_customer_id || 0), unit_cost: isReceipt.value ? Number(item.unit_cost || 0) : 0,
         supplier: item.supplier || '', crop_season: item.crop_season || '', origin: item.origin || '',
         producer_flavor_description: item.producer_flavor_description || '',
       }
@@ -848,6 +888,8 @@ async function cancelDocument(row) {
 }
 
 function applyDocument(data = {}, warnings = [], previewState = {}) {
+  clearTransferInventory()
+  clearTransferChoices()
   const fallbackWorkOrderNo = String(data.work_order_no || form.work_order_no || props.viewParams?.work_order_no || '').trim()
   resetForm({
     ...emptyDocument(), ...data,
@@ -860,7 +902,11 @@ function applyDocument(data = {}, warnings = [], previewState = {}) {
   Object.assign(stockPreviewState, { availability: previewState.availability || 'actionable', message: previewState.message || '' })
   drawerOpen.value = true
   for (const item of form.items) {
-    if (item.item_type === 'finished_product' && Number(item.product_id || 0) > 0) void ensureProductDetailForItem(item)
+    if (isOrdinaryTransfer()) { if (data.status === 'draft') void ensureChoiceInventory(item.from_warehouse); continue }
+    if (item.item_type === 'finished_product' && Number(item.product_id || 0) > 0) {
+      if (isFinishedTransfer(item)) void ensureTransferInventory(item.from_warehouse)
+      void ensureProductDetailForItem(item)
+    }
   }
   loadMaterialBalances()
 }
@@ -1001,6 +1047,153 @@ async function loadProductOptions(query = productSearchQuery.value, page = 1, ap
   } finally {
     if (requestID === productOptionsRequest) productOptionsLoading.value = false
   }
+}
+
+function isFinishedTransfer(item) {
+  return form.purpose_key === 'material_transfer' && item.item_type === 'finished_product'
+}
+
+function isOrdinaryTransfer() { return form.purpose_key === 'material_transfer' && !isBoundProductionDocument.value }
+function clearTransferChoices() {
+  transferChoiceGeneration += 1
+  transferChoiceRequests.clear()
+  for (const key of Object.keys(transferChoices)) delete transferChoices[key]
+}
+async function ensureChoiceInventory(warehouse) {
+  if (!warehouse || transferChoices[warehouse]?.loaded) return
+  if (transferChoiceRequests.has(warehouse)) return transferChoiceRequests.get(warehouse)
+  const generation = transferChoiceGeneration
+  transferChoices[warehouse] = { rows: [], loading: true, loaded: false, error: false }
+  const request = loadTransferOptions(warehouse, apiGet).then(rows => {
+    if (generation !== transferChoiceGeneration) return
+    transferChoices[warehouse] = { rows, loading: false, loaded: true, error: false }
+    for (const item of form.items) if (item.from_warehouse === warehouse && item.batch_code && !item.transfer_spec) hydrateTransferDraft(item)
+  }).catch(err => {
+    if (generation !== transferChoiceGeneration) return
+    transferChoices[warehouse] = { rows: [], loading: false, loaded: false, error: true }
+    drawerError.value = err.message || '来源仓库存加载失败'
+  }).finally(() => { if (transferChoiceRequests.get(warehouse) === request) transferChoiceRequests.delete(warehouse) })
+  transferChoiceRequests.set(warehouse, request)
+  return request
+}
+function transferChoiceRows(item) { return transferChoices[item.from_warehouse]?.rows || [] }
+function transferObjectOptions(item) {
+  const map = new Map()
+  for (const row of transferChoiceRows(item)) if (row.item_type === item.item_type && !map.has(row.item_id)) map.set(row.item_id, { id: row.item_id, name: row.item_name, code: row.item_code || String(row.item_id) })
+  return [...map.values()]
+}
+function transferChoiceEmptyText(item) {
+  if (!item.from_warehouse) return '请先选择出库仓'
+  const state = transferChoices[item.from_warehouse]
+  if (state?.loading) return '正在加载来源仓库存…'
+  if (state?.error) return '库存加载失败，请重试'
+  return '来源仓没有匹配库存'
+}
+function transferItemSpecs(item) { return transferSpecs(transferChoiceRows(item), item.item_type, selectedObjectID(item)) }
+function selectedTransferSpec(item) { return transferItemSpecs(item).find(spec => spec.key === item.transfer_spec) }
+function transferItemBatches(item) { return transferBatches(transferChoiceRows(item), item.item_type, selectedObjectID(item), item.transfer_spec) }
+function selectedTransferBatch(item) { return transferItemBatches(item).find(row => row.batch_code === item.batch_code) }
+function transferRowAmount(row, item, available) { const spec = selectedTransferSpec(item); return row && spec ? transferAmount(row, spec, available ? 'available' : 'book').amount : 0 }
+function transferSpecBalance(item, available) {
+  const spec = selectedTransferSpec(item)
+  if (!spec) return '-'
+  return `${numberLabel(transferItemBatches(item).reduce((sum, row) => sum + transferRowAmount(row, item, available), 0))} ${spec.unit}`
+}
+function remainingTransferBatch(item) {
+  const row = selectedTransferBatch(item)
+  if (!row) return 0
+  const used = form.items.filter(other => other !== item && other.from_warehouse === item.from_warehouse && other.item_type === item.item_type && selectedObjectID(other) === selectedObjectID(item) && other.transfer_spec === item.transfer_spec && other.batch_code === item.batch_code).reduce((sum, other) => sum + Number(other.quantity || 0), 0)
+  return Math.max(0, transferRowAmount(row, item, true) - used)
+}
+function resetTransferSelection(item) {
+  resetItemObject(item)
+  item.transfer_spec = ''; item.batch_code = ''; item.quantity = 0; item.owner_customer_id = 0
+}
+function changeTransferWarehouse(item) { resetTransferSelection(item); void ensureChoiceInventory(item.from_warehouse) }
+function selectTransferObject(item, id) {
+  const selected = transferObjectOptions(item).find(row => Number(row.id) === Number(id))
+  resetTransferSelection(item)
+  if (item.item_type === 'material') item.material_id = Number(id || 0)
+  else item.product_id = Number(id || 0)
+  item.item_name = selected?.name || ''
+  const specs = transferItemSpecs(item)
+  if (specs.length === 1) { item.transfer_spec = specs[0].key; changeTransferSpec(item) }
+}
+function changeTransferSpec(item) {
+  const spec = selectedTransferSpec(item)
+  item.batch_code = ''; item.quantity = 0; item.owner_customer_id = 0
+  item.bom_spec_id = spec?.bomSpecID || 0; item.bom_variant_id = spec?.variantID || 0
+  item.spec_g = spec?.specG || 0; item.inventory_unit = spec?.inventoryUnit || spec?.unit || ''
+}
+function changeTransferBatch(item) { item.quantity = 0; item.owner_customer_id = Number(selectedTransferBatch(item)?.owner_customer_id || 0) }
+function hydrateTransferDraft(item) {
+  const specs = transferItemSpecs(item)
+  const spec = specs.find(s => item.bom_spec_id > 0 ? s.bomSpecID === Number(item.bom_spec_id) && s.variantID === Number(item.bom_variant_id) : item.item_type === 'material' ? true : s.specG === Number(item.spec_g) && s.mode === (Number(item.qty_units) > 0 ? 'count' : 'loose'))
+  if (!spec) return
+  item.transfer_spec = spec.key
+  item.quantity = spec.mode === 'weight' ? Number(item.qty_g || 0) / transferWeightFactor(spec.unit) : spec.mode === 'loose' ? Number(item.qty_g || 0) : Number(item.qty_units || 0)
+}
+function transferQuantity(item) {
+  const spec = selectedTransferSpec(item); const quantity = Number(item.quantity || 0)
+  if (!spec || !Number.isFinite(quantity) || quantity <= 0) throw new Error('请填写有效数量')
+  if (spec.mode !== 'weight' && !Number.isInteger(quantity)) throw new Error('件数和克数必须为整数')
+  if (spec.mode === 'count' || spec.mode === 'canonical_weight') return { qty_g: 0, qty_units: quantity }
+  const grams = spec.mode === 'loose' ? quantity : quantity * transferWeightFactor(spec.unit)
+  if (Math.round(grams) <= 0) throw new Error('数量精度不能小于 1 克')
+  return { qty_g: Math.round(grams), qty_units: 0 }
+}
+
+function productOptionsForItem(item) {
+  if (!isFinishedTransfer(item)) return products.value
+  const rows = transferInventory[item.from_warehouse]?.rows || []
+  return transferProductOptions(rows).map((option) => ({
+    ...option,
+    ...(products.value.find((row) => Number(row.id) === option.id) || {}),
+  }))
+}
+
+function transferOptionsEmptyText(item) {
+  if (!item.from_warehouse) return '请先选择出库仓'
+  const state = transferInventory[item.from_warehouse]
+  if (state?.loading) return '正在加载来源仓库存…'
+  if (state?.error) return '库存加载失败，请重新打开选择框重试'
+  return '来源仓没有匹配的商品库存'
+}
+
+function clearTransferInventory() {
+  transferInventoryGeneration += 1
+  transferInventoryRequests.clear()
+  for (const warehouse of Object.keys(transferInventory)) delete transferInventory[warehouse]
+}
+
+async function ensureTransferInventory(warehouse) {
+  if (!warehouse || transferInventory[warehouse]?.loaded) return
+  if (transferInventoryRequests.has(warehouse)) return transferInventoryRequests.get(warehouse)
+  transferInventory[warehouse] = { rows: [], loading: true, loaded: false, error: false }
+  const generation = transferInventoryGeneration
+  const request = loadTransferInventory(warehouse, apiGet).then((rows) => {
+    if (generation !== transferInventoryGeneration) return
+    transferInventory[warehouse] = { rows, loading: false, loaded: true, error: false }
+  }).catch((err) => {
+    if (generation !== transferInventoryGeneration) return
+    transferInventory[warehouse] = { rows: [], loading: false, loaded: false, error: true }
+    drawerError.value = err.message || '来源仓库存加载失败'
+  }).finally(() => {
+    if (transferInventoryRequests.get(warehouse) === request) transferInventoryRequests.delete(warehouse)
+  })
+  transferInventoryRequests.set(warehouse, request)
+  return request
+}
+
+function handleItemProductOptionsFocus(item) {
+  if (isFinishedTransfer(item)) void ensureTransferInventory(item.from_warehouse)
+  else handleProductOptionsFocus()
+}
+
+function handleSourceWarehouseChange(item) {
+  if (!isFinishedTransfer(item)) return
+  resetItemObject(item)
+  void ensureTransferInventory(item.from_warehouse)
 }
 
 function handleProductOptionsFocus() {

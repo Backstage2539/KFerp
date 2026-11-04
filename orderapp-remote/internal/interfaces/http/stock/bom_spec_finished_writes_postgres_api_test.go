@@ -108,8 +108,12 @@ VALUES(291,42,91,'227g袋 V2','袋',true,10),(292,42,92,'454g袋 V2','袋',false
 UPDATE %[1]s.production_bom_output_bindings SET bom_version_id=42 WHERE output_type='product' AND output_id=7;
 `, schema))
 
-	rec = post("/api/stock/finished-transfers", `{"product_id":7,"bom_spec_id":91,"unit_code":"袋","from_warehouse":"finished_goods","to_warehouse":"finished_shop","qty_units":4,"note":"V2规格转仓"}`)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"bom_variant_id":291`) {
+	var sourceBatch string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT batch_code FROM %s.stock_batches WHERE item_type='finished_product' AND item_id=7 AND bom_spec_id=91 AND remaining_units>0 ORDER BY id LIMIT 1`, schema)).Scan(&sourceBatch); err != nil {
+		t.Fatal(err)
+	}
+	rec = post("/api/stock/finished-transfers", fmt.Sprintf(`{"batch_code":%q,"product_id":7,"bom_spec_id":91,"unit_code":"袋","from_warehouse":"finished_goods","to_warehouse":"finished_shop","qty_units":4,"note":"历史规格转仓"}`, sourceBatch))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"bom_variant_id":191`) {
 		t.Fatalf("POST V2 transfer status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	var source91, source92, target91, entryVariant int64
@@ -125,14 +129,14 @@ UPDATE %[1]s.production_bom_output_bindings SET bom_version_id=42 WHERE output_t
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT bom_variant_id FROM %s.stock_entry_items ORDER BY id DESC LIMIT 1`, schema)).Scan(&entryVariant); err != nil {
 		t.Fatal(err)
 	}
-	if source91 != 8 || source92 != 5 || target91 != 4 || entryVariant != 291 {
+	if source91 != 8 || source92 != 5 || target91 != 4 || entryVariant != 191 {
 		t.Fatalf("V2 transfer inventory source91/source92/target91=%d/%d/%d entry_variant=%d", source91, source92, target91, entryVariant)
 	}
 	var transferLedgerV2, transferAuditV2 int64
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_ledger_entries WHERE item_id=7 AND bom_spec_id=91 AND source_doc_type='stock_entry' AND bom_variant_id=291`, schema)).Scan(&transferLedgerV2); err != nil {
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_ledger_entries WHERE item_id=7 AND bom_spec_id=91 AND source_doc_type='stock_entry' AND bom_variant_id=191`, schema)).Scan(&transferLedgerV2); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.audit_logs WHERE entity_type='stock_entry' AND action='submit' AND meta->>'bom_spec_id'='91' AND meta->>'bom_variant_id'='291'`, schema)).Scan(&transferAuditV2); err != nil {
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.audit_logs WHERE entity_type='stock_entry' AND action='submit' AND meta->>'bom_spec_id'='91' AND meta->>'bom_variant_id'='191'`, schema)).Scan(&transferAuditV2); err != nil {
 		t.Fatal(err)
 	}
 	if transferLedgerV2 != 2 || transferAuditV2 != 1 {
@@ -155,7 +159,6 @@ UPDATE %[1]s.production_bom_output_bindings SET bom_version_id=42 WHERE output_t
 	}
 
 	for _, stale := range []struct{ path, body string }{
-		{"/api/stock/finished-transfers", `{"product_id":7,"bom_spec_id":91,"bom_variant_id":191,"unit_code":"袋","from_warehouse":"finished_goods","to_warehouse":"finished_shop","qty_units":1}`},
 		{"/api/stock/adjustments", `{"item_type":"finished_product","item_id":7,"bom_spec_id":91,"bom_variant_id":191,"unit_code":"袋","warehouse":"finished_shop","target_units":8,"reason":"过期版本"}`},
 	} {
 		rec = post(stale.path, stale.body)

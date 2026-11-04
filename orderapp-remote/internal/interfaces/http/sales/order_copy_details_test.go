@@ -25,15 +25,17 @@ func (r *orderCopyRepo) LoadOrderCopySnapshot(context.Context, int64) (*salesapp
 	return &s, nil
 }
 func TestOrderCopyDetailsAPIRefreshAndCustomerIsolation(t *testing.T) {
-	repo := &orderCopyRepo{snapshot: salesapp.OrderCopySnapshot{CustomerName: "棵凡咖啡", PaymentMethod: "银行转账", PayStatus: "未付款", Order: salesapp.OrderEditData{ID: 1, CustomerID: 1, OrderNo: "SO-1", Items: []salesapp.OrderEditItem{{Product: "豆", Spec: "454g", Qty: "2", Unit: "袋"}}}}}
+	repo := &orderCopyRepo{snapshot: salesapp.OrderCopySnapshot{CustomerName: "棵凡咖啡", PaymentMethod: "银行转账", PayStatus: "未付款", Order: salesapp.OrderEditData{ID: 1, CustomerID: 1, OrderNo: "SO-1", TotalAmount: "100.00", ShippingAmount: "12.00", GrandTotal: "107.00", Items: []salesapp.OrderEditItem{{Product: "豆", Spec: "454g", Qty: "2", Unit: "袋"}}}}}
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error { c.Set("employee_id", int64(1)); return next(c) }
 	})
 	registerOrderAPI(e, salesapp.NewService(repo), nil, accountScopeStub{customer: 1})
 	for _, path := range []string{"/api/orders/1/copy-details", accountPrefix + "/orders/1/copy-details"} {
-		for _, status := range []string{"未付款", "已付款"} {
+		for _, tc := range []struct{ status, prepaid, paid string }{{"未付款", "0", "0.00"}, {"预付款（付款未完成）", "20.50", "20.50"}, {"已付款", "0", "107.00"}} {
+			status := tc.status
 			repo.snapshot.PayStatus = status
+			repo.snapshot.Order.PrepaymentAmount = tc.prepaid
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
 			if rec.Code != 200 {
@@ -42,7 +44,7 @@ func TestOrderCopyDetailsAPIRefreshAndCustomerIsolation(t *testing.T) {
 			var body map[string]any
 			json.Unmarshal(rec.Body.Bytes(), &body)
 			text, ok := body["text"].(string)
-			if len(body) != 2 || body["order_id"] != float64(1) || !ok || !strings.Contains(text, "付款状态："+status) || !strings.Contains(text, "客户名称：棵凡咖啡") || !strings.Contains(text, "付款方式：银行转账") {
+			if len(body) != 2 || body["order_id"] != float64(1) || !ok || !strings.Contains(text, "付款状态："+status) || !strings.Contains(text, "客户名称：棵凡咖啡") || !strings.Contains(text, "付款方式：银行转账") || !strings.Contains(text, "货款：100.00元\n运费：12.00元\n合计付款："+tc.paid+"元") {
 				t.Fatal(body)
 			}
 			if rec.Header().Get("Cache-Control") != "no-store" {
@@ -67,7 +69,7 @@ func TestOrderCopyDetailsPostgresSavedAddressAndSnapshots(t *testing.T) {
 	ctx := context.Background()
 	seedOrderAPITestData(t, ctx, pool, s)
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
-		 INSERT INTO %[1]s.orders(id,order_no,customer_id,order_date,document_date,pay_status_id,payment_method,receiver_name,receiver_phone,receiver_address) VALUES(9001,'SO-COPY',3,'2026-10-18','2026-10-17',1,'银行转账','','','');
+		 INSERT INTO %[1]s.orders(id,order_no,customer_id,order_date,document_date,pay_status_id,payment_method,receiver_name,receiver_phone,receiver_address,total_amount,shipping_amount,discount_amount,grand_total) VALUES(9001,'SO-COPY',3,'2026-10-18','2026-10-17',1,'银行转账','','','',100,12,5,107);
  INSERT INTO %[1]s.order_items(order_id,line_no,item_name,product_name_snapshot,customer_product_display_name_snapshot,spec,qty,unit,price_source_json) VALUES
  (9001,1,'旧名','快照名称','客户名称','454',1.25,'袋','{}'),(9001,2,'挂耳','','','10袋/盒',3,'盒','{}');
  UPDATE %[1]s.customers SET contact='当前联系人',address='当前地址',phone='9999' WHERE id=3;
@@ -82,7 +84,7 @@ func TestOrderCopyDetailsPostgresSavedAddressAndSnapshots(t *testing.T) {
 		Text string `json:"text"`
 	}
 	json.Unmarshal(rec.Body.Bytes(), &body)
-	for _, want := range []string{"客户名称：测试客户", "付款方式：银行转账", "客户名称｜454g｜1.25 袋", "2. 挂耳｜10袋/盒｜3 盒", "收件地址：当前地址", "收件人：当前联系人", "电话：9999"} {
+	for _, want := range []string{"客户名称：测试客户", "付款方式：银行转账", "货款：100.00元\n运费：12.00元\n合计付款：0.00元", "客户名称｜454g｜1.25 袋", "2. 挂耳｜10袋/盒｜3 盒", "收件地址：当前地址", "收件人：当前联系人", "电话：9999"} {
 		if !strings.Contains(body.Text, want) {
 			t.Fatalf("missing %s: %s", want, body.Text)
 		}
@@ -92,6 +94,45 @@ func TestOrderCopyDetailsPostgresSavedAddressAndSnapshots(t *testing.T) {
 			t.Fatal(body.Text)
 		}
 	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS prepayment_amount numeric DEFAULT 0; INSERT INTO %[1]s.pay_statuses(id,name) VALUES (30,'预付款（付款未完成）'); UPDATE %[1]s.orders SET pay_status_id=30,prepayment_amount=20.50 WHERE id=9001`, s))
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest("GET", "/api/orders/9001/copy-details", nil))
+	if rec.Code != 200 {
+		t.Fatal(rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body.Text, "合计付款：20.50元") {
+		t.Fatal(body.Text)
+	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %[1]s.order_freight_snapshots(order_id bigint PRIMARY KEY, snapshot_json jsonb); INSERT INTO %[1]s.order_freight_snapshots(order_id,snapshot_json) VALUES (9001,'{"charge_mode":"deferred"}') ON CONFLICT(order_id) DO UPDATE SET snapshot_json=EXCLUDED.snapshot_json; UPDATE %[1]s.orders SET shipping_amount=0,grand_total=95,pay_status_id=2 WHERE id=9001`, s))
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest("GET", "/api/orders/9001/copy-details", nil))
+	if rec.Code != 200 {
+		t.Fatal(rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"运费：0.00元（实际运费另行结算）", "合计付款：95.00元（不含另行结算运费）"} {
+		if !strings.Contains(body.Text, want) {
+			t.Fatalf("missing %s: %s", want, body.Text)
+		}
+	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %s.order_freight_snapshots SET snapshot_json='{"status":"pending_actual"}' WHERE order_id=9001`, s))
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest("GET", "/api/orders/9001/copy-details", nil))
+	if rec.Code != 200 {
+		t.Fatal(rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body.Text, "实际运费另行结算") {
+		t.Fatal(body.Text)
+	}
+
 }
 
 func TestOrderCopyDetailsPostgresRecipientSources(t *testing.T) {

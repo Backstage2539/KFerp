@@ -80,7 +80,7 @@ func TestCreateStockDocumentNormalizesLegacyFinishedTransferPurpose(t *testing.T
 	if _, err := svc.CreateStockDocumentDraft(context.Background(), StockDocumentCommand{
 		Purpose: "finished_transfer",
 		Items: []StockDocumentItemCommand{{
-			ProductID: 9, ItemType: itemTypeFinishedProduct, SpecG: 1000, QtyUnits: 2,
+			ProductID: 9, ItemType: itemTypeFinishedProduct, SpecG: 1000, QtyUnits: 2, BatchCode: "FP-1",
 			FromWarehouse: "finished_goods", ToWarehouse: "sales",
 		}},
 	}); err != nil {
@@ -124,7 +124,7 @@ func TestStockDocumentLifecycleDelegatesWithoutSubmittingDraft(t *testing.T) {
 	draft, err := svc.CreateStockDocumentDraft(context.Background(), StockDocumentCommand{
 		Purpose: PurposeMaterialTransfer,
 		Items: []StockDocumentItemCommand{{
-			MaterialID: 1, QtyG: 1000, FromWarehouse: "raw_materials", ToWarehouse: "wip",
+			MaterialID: 1, QtyG: 1000, BatchCode: "MB-1", FromWarehouse: "raw_materials", ToWarehouse: "wip",
 		}},
 	})
 	if err != nil {
@@ -201,7 +201,7 @@ func TestStockDocumentAllowsNormal60KgMaterialTransfer(t *testing.T) {
 	_, err := NewService(repo).CreateStockDocumentDraft(context.Background(), StockDocumentCommand{
 		Purpose: PurposeMaterialTransfer,
 		Items: []StockDocumentItemCommand{{
-			MaterialID: 1, QtyG: 60000,
+			MaterialID: 1, QtyG: 60000, BatchCode: "MB-1",
 			FromWarehouse: "raw_materials", ToWarehouse: "wip",
 		}},
 	})

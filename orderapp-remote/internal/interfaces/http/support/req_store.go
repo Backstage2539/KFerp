@@ -252,6 +252,14 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-CUSTOMER-FIXED-QUOTE-RELOAD", title: "客户价格表固定报价在发布和草稿恢复时保持不变", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-03-customer-fixed-quote.md"},
+		{table: "req_dev", code: "DEV-CUSTOMER-FIXED-QUOTE-RELOAD", title: "隔离客户手工报价与公共价格迁移并保留规格价格", status: "done", assignee: "Codex", evidence: "frontend-vue-shell/src/lib/customer-price-draft.test.js; price-table-editor-loading.test.js"},
+		{table: "req_product", code: "PR-STOCK-TRANSFER-BATCH-SELECTION", title: "库存转仓按实际规格和必选批次填写数量", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-11-01-stock-transfer-batch-selection.md"},
+		{table: "req_dev", code: "DEV-STOCK-TRANSFER-BATCH-API", title: "转仓规格批次可用库存和指定批次过账", status: "done", assignee: "Codex", evidence: "transfer_options.go; transfer_availability.go; transfer_source_batch_test.go"},
+		{table: "req_dev", code: "DEV-STOCK-TRANSFER-BATCH-UI", title: "转仓规格批次下拉及数量库存显示", status: "done", assignee: "Codex", evidence: "StockEntriesView.vue; stock-transfer-selector.test.js"},
+		{table: "req_dev", code: "DEV-STOCK-TRANSFER-BATCH-RELEASE", title: "转仓手册、回归验证和开发环境部署", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-11-01-stock-transfer-batch-selection.md"},
+		{table: "req_product", code: "PR-STOCK-TRANSFER-SOURCE-OPTIONS", title: "库存转仓按出库仓库存选择商品及规格", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-11-01-stock-transfer-source-options.md"},
+		{table: "req_dev", code: "DEV-STOCK-TRANSFER-SOURCE-OPTIONS", title: "转仓商品选项按来源仓库存加载与规格匹配", status: "done", assignee: "Codex", evidence: "StockEntriesView.vue; stock-transfer-options.test.js"},
 		{table: "req_product", code: "PR-ORDER-COMBINED-PAYMENT", title: "同一客户订单合并付款和收款记录", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-10-30-order-combined-payment.md; 业务验收待完成"},
 		{table: "req_dev", code: "DEV-ORDER-COMBINED-PAYMENT-01", title: "合并收款事务、订单分配、幂等与审计", status: "doing", assignee: "Codex", evidence: "combined_payment.go; combined_payment_test.go; 验证待汇总"},
 		{table: "req_dev", code: "DEV-ORDER-COMBINED-PAYMENT-02", title: "批量状态合并付款界面、收款记录与手册", status: "doing", assignee: "Codex", evidence: "OrderBatchStatusDialog.vue; OrderCombinedPaymentRecords.vue; OP_MANUAL_ORDER_SALES.md"},
@@ -269,6 +277,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-FULFILLMENT-BILL-PAYMENT-01", title: "账单收款与安全撤销、订单收款联动和审计", status: "done", assignee: "Codex", evidence: "billing_payment_test.go; real PostgreSQL mixed billing, concurrency, reversal and HTTP tests"},
 		{table: "req_dev", code: "DEV-FULFILLMENT-BILL-PAYMENT-02", title: "履约页面账单收款操作及库存关联订单状态", status: "done", assignee: "Codex", evidence: "customer-billing.test.js; fulfillment-inventory-orders-dom.test.js; PostgreSQL inventory sources"},
 		{table: "req_dev", code: "DEV-FULFILLMENT-BILL-PAYMENT-03", title: "手册、验收和部署核验", status: "doing", assignee: "Codex", evidence: "docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md; docs/acceptance/2026-10-29-fulfillment-bill-payment.md"},
+		{table: "req_product", code: "PR-ORDER-COPY-AMOUNTS-20261103", title: "复制订单详情增加货款、运费和合计付款", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-03-order-copy-amounts.md"},
+		{table: "req_dev", code: "DEV-ORDER-COPY-PAID-20261103", title: "复制合计付款按实际已付口径，未付款为零", status: "done", assignee: "Codex", evidence: "TestOrderCopyDetailsPaidAmount; TestOrderCopyDetailsPostgresSavedAddressAndSnapshots; docs/acceptance/2026-11-03-order-copy-amounts.md"},
+		{table: "req_dev", code: "DEV-ORDER-COPY-AMOUNTS-20261103", title: "复制详情读取已保存订单金额并标注另行结算运费", status: "done", assignee: "Codex", evidence: "order_copy_details.go; docs/acceptance/2026-11-03-order-copy-amounts.md"},
+		{table: "req_unit", code: "UT-ORDER-COPY-AMOUNTS-20261103", title: "金额格式、优惠合计和延后运费", status: "done", assignee: "Codex", evidence: "TestOrderCopyDetailsTextSavedFields; TestOrderCopyDetailsDeferredFreight"},
+		{table: "req_api", code: "API-ORDER-COPY-AMOUNTS-20261103", title: "订单快照及网页和小程序复制接口验证", status: "done", assignee: "Codex", evidence: "TestOrderCopyDetailsPostgresSavedAddressAndSnapshots; TestMiniOrderCopyDetails"},
+		{table: "req_review", code: "REV-ORDER-COPY-AMOUNTS-20261103", prCode: "PR-ORDER-COPY-AMOUNTS-20261103", title: "验收复制详情金额与运费提示", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-03-order-copy-amounts.md; docs/OP_MANUAL_ORDER_SALES.md"},
 		{table: "req_product", code: "PR-740-CUSTOMER-FEES-BILLING-LEDGER", title: "客户费用以未出账流水和已出账账单管理，支持确认出账及账单Excel/PDF公章导出", status: "review", assignee: "Van", evidence: "develop a1f775455be672d13b9f333ef4a1327ffe3b8793 deployed; authenticated development browser verified fee totals and unbilled ledger; docs/acceptance/2026-10-27-customer-fees-billing.md"},
 		{table: "req_dev", code: "DEV-PR740-01", title: "费用流水分页筛选、三类金额汇总及历史账单读取", status: "done", assignee: "Codex", evidence: "billing API/PostgreSQL tests; customer-billing.test.js"},
 		{table: "req_dev", code: "DEV-PR740-02", title: "费用预览和正式出账事务、来源快照、幂等及旧草稿释放", status: "done", assignee: "Codex", evidence: "TestIssueBilling*; TestReleaseLegacyBillingDraftsPreservesSnapshotsAndSkipsProcessingRuns; stale-preview rollback"},

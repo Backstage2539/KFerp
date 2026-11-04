@@ -2,6 +2,8 @@
 
 PR-745：客户小程序订单费用、客户价格表和手机号登录，参见[客户履约手册](OP_MANUAL_CUSTOMER_FULFILLMENT.md)及[价格表中心手册](OP_MANUAL_BEAN_LIST_CENTER.md)。
 
+库存转仓按来源仓实际规格、批次和可转数量操作，参见[库存作业手册](OP_MANUAL_STOCK.md#库存单据)。
+
 PR-744：客户和内部共用履约界面、留厂购货未付款及库存代发累计购买/入库，参见[客户履约手册](OP_MANUAL_CUSTOMER_FULFILLMENT.md)和[客户购货寄存与代发](OP_MANUAL_CUSTOMER_STOCK_DROPSHIP.md)。
 
 PR-715：规格模板差异下发并直接发布 BOM，原价格表继续按稳定规格报价；参见[商品规格与录单](OP_MANUAL_BOM_ORDER_PRICING.md)。

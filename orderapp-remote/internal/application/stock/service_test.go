@@ -187,6 +187,7 @@ func TestTransferMaterialNormalizesWarehouseAndDefaultsOperator(t *testing.T) {
 	svc := NewService(repo)
 
 	_, err := svc.TransferMaterial(context.Background(), MaterialTransferCommand{
+		BatchCode:     "MB-1",
 		MaterialID:    1,
 		FromWarehouse: " raw_materials ",
 		ToWarehouse:   " wip ",
@@ -211,6 +212,7 @@ func TestTransferMaterialNormalizesWarehouseAndDefaultsOperator(t *testing.T) {
 func TestTransferMaterialRejectsSameWarehouse(t *testing.T) {
 	svc := NewService(&fakeRepo{})
 	_, err := svc.TransferMaterial(context.Background(), MaterialTransferCommand{
+		BatchCode:     "MB-1",
 		MaterialID:    1,
 		FromWarehouse: "wip",
 		ToWarehouse:   "wip",
@@ -226,12 +228,13 @@ func TestTransferFinishedProductNormalizesWarehouseAndDefaultsOperator(t *testin
 	svc := NewService(repo)
 
 	_, err := svc.TransferFinishedProduct(context.Background(), FinishedProductTransferCommand{
+		BatchCode:     "FP-1",
 		ProductID:     9,
 		SpecG:         454,
 		FromWarehouse: " finished_goods ",
 		ToWarehouse:   " finished_shop ",
 		QtyUnits:      3,
-		QtyLooseG:     10,
+		QtyLooseG:     0,
 		Note:          " 门店备货 ",
 	})
 	if err != nil {
@@ -253,6 +256,7 @@ func TestTransferFinishedProductPreservesLooseGramRequest(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
 	if _, err := svc.TransferFinishedProduct(context.Background(), FinishedProductTransferCommand{
+		BatchCode: "FP-1",
 		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_shop", ToWarehouse: "finished_goods",
 		QtyLooseG: 1000, Operator: "qa",
 	}); err != nil {
@@ -266,6 +270,7 @@ func TestTransferFinishedProductPreservesLooseGramRequest(t *testing.T) {
 func TestTransferFinishedProductRejectsSameWarehouseAndZeroQuantity(t *testing.T) {
 	svc := NewService(&fakeRepo{})
 	_, err := svc.TransferFinishedProduct(context.Background(), FinishedProductTransferCommand{
+		BatchCode:     "FP-1",
 		ProductID:     9,
 		SpecG:         454,
 		FromWarehouse: "finished_goods",
@@ -276,6 +281,7 @@ func TestTransferFinishedProductRejectsSameWarehouseAndZeroQuantity(t *testing.T
 		t.Fatal("expected same warehouse validation error")
 	}
 	_, err = svc.TransferFinishedProduct(context.Background(), FinishedProductTransferCommand{
+		BatchCode:     "FP-1",
 		ProductID:     9,
 		SpecG:         454,
 		FromWarehouse: "finished_goods",
@@ -291,6 +297,7 @@ func TestTransferFinishedProductAllowsRepositoryToResolveCurrentBOMVariant(t *te
 	svc := NewService(repo)
 
 	_, err := svc.TransferFinishedProduct(context.Background(), FinishedProductTransferCommand{
+		BatchCode: "FP-1",
 		ProductID: 7, BomSpecID: 91,
 		FromWarehouse: "finished_goods", ToWarehouse: "finished_shop", QtyUnits: 2,
 	})
