@@ -571,6 +571,7 @@ func TestOperationCompletionAPIProductComponentDirectWarehouse(t *testing.T) {
 	assertProductionFlowCount(t, pool, schema, "finished_inventory", "product_id=90001 AND warehouse='finished_goods' AND onhand_units=7 AND onhand_loose_g=300", 1)
 	assertProductionFlowCount(t, pool, schema, "stock_batches", "id=90001 AND remaining_g=7300 AND remaining_units=7", 1)
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", fmt.Sprintf("work_order_id=%d AND component_id=90001 AND consumed_g=22700", woID), 1)
+	assertProductionFlowCount(t, pool, schema, "stock_entry_batch_allocations", "stock_batch_id=90001 AND qty_g=22700", 1)
 }
 
 func TestOperationCompletionAPIDirectCompleteWithoutStarting(t *testing.T) {

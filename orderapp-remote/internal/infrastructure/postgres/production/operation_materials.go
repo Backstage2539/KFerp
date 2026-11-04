@@ -78,6 +78,13 @@ func (r Repository) operationMaterialConfigTx(ctx context.Context, tx pgx.Tx, id
 	return out, err
 }
 func (r Repository) SaveOperationMaterialConfig(ctx context.Context, c app.SaveOperationMaterialConfig) (app.OperationMaterialConfig, error) {
+	return r.saveOperationMaterialConfig(ctx, c, false)
+}
+func (r Repository) SaveMaterialSources(ctx context.Context, c app.SaveOperationMaterialConfig) (app.OperationMaterialConfig, error) {
+	return r.saveOperationMaterialConfig(ctx, c, true)
+}
+func (r Repository) saveOperationMaterialConfig(ctx context.Context, c app.SaveOperationMaterialConfig, sourcesOnly bool) (app.OperationMaterialConfig, error) {
+
 	var out app.OperationMaterialConfig
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -94,6 +101,19 @@ func (r Repository) SaveOperationMaterialConfig(ctx context.Context, c app.SaveO
 	if out.Version != c.ExpectedVersion {
 		return out, fmt.Errorf("BOM或工艺路线已变化，请刷新")
 	}
+	originalBindings := map[string]app.OperationMaterialBinding{}
+	if sourcesOnly {
+		var raw []byte
+		err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT bindings FROM %s.production_bom_operation_bindings WHERE bom_version_id=$1 AND bom_variant_id=$2`, r.schema), c.VersionID, c.VariantID).Scan(&raw)
+		if err != nil && err != pgx.ErrNoRows {
+			return out, err
+		}
+		if len(raw) > 0 {
+			if err = json.Unmarshal(raw, &originalBindings); err != nil {
+				return out, err
+			}
+		}
+	}
 	nodes := map[string]bool{}
 	for _, n := range out.Nodes {
 		nodes[n.Key] = true
@@ -101,8 +121,12 @@ func (r Repository) SaveOperationMaterialConfig(ctx context.Context, c app.SaveO
 	seen := map[string]bool{}
 	for _, row := range out.Rows {
 		b, ok := c.Bindings[row.Key]
-		if !ok || !nodes[b.NodeKey] {
+		if !ok || !sourcesOnly && !nodes[b.NodeKey] {
 			return out, fmt.Errorf("请指定 %s 的使用工序", row.Name)
+		}
+		if sourcesOnly {
+			b.NodeKey = originalBindings[row.Key].NodeKey
+			c.Bindings[row.Key] = b
 		}
 		seen[row.Key] = true
 		if b.SourceWarehouse != "" {
@@ -127,7 +151,11 @@ func (r Repository) SaveOperationMaterialConfig(ctx context.Context, c app.SaveO
 	if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_operation_bindings(bom_version_id,bom_variant_id,bindings,updated_by) VALUES($1,$4,$2::jsonb,$3) ON CONFLICT(bom_version_id,bom_variant_id) DO UPDATE SET bindings=EXCLUDED.bindings,updated_by=EXCLUDED.updated_by,updated_at=now()`, r.schema), c.VersionID, string(raw), c.Actor, c.VariantID); err != nil {
 		return out, err
 	}
-	if err = infra.AuditInsertTx(ctx, tx, r.schema, c.Actor, "production_bom_version", &c.VersionID, "operation_materials", nil, nil, nil, infra.AuditMeta{"old": out.Rows, "new": c.Bindings}); err != nil {
+	action := "operation_materials"
+	if sourcesOnly {
+		action = "material_sources"
+	}
+	if err = infra.AuditInsertTx(ctx, tx, r.schema, c.Actor, "production_bom_version", &c.VersionID, action, nil, nil, nil, infra.AuditMeta{"old": out.Rows, "new": c.Bindings}); err != nil {
 		return out, err
 	}
 	out, err = r.operationMaterialConfigTx(ctx, tx, c.VersionID, c.VariantID)
@@ -138,6 +166,13 @@ func (r Repository) SaveOperationMaterialConfig(ctx context.Context, c app.SaveO
 }
 
 func validateFrozenOperationBindingsTx(ctx context.Context, tx pgx.Tx, schema string, workID int64) error {
+	var policy string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT material_consumption_policy FROM %s.work_orders WHERE id=$1`, schema), workID).Scan(&policy); err != nil {
+		return err
+	}
+	if policy == "bom_start_v1" {
+		return nil
+	}
 	var snapshot, raw string
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT process_snapshot_json::text,operation_material_bindings::text FROM %s.work_orders WHERE id=$1`, schema), workID).Scan(&snapshot, &raw); err != nil {
 		return err

@@ -144,6 +144,11 @@ func (r Repository) ScheduleBatch(ctx context.Context, cmd app.ScheduleBatchComm
 	originals := map[int64]app.ScheduleTask{}
 	ids := []int64{}
 	for _, patch := range items {
+		if !preview {
+			if err := checkBOMStartWriteTx(ctx, tx, r.schema, patch.WorkOrderID); err != nil {
+				return app.ScheduleBatchResult{}, err
+			}
+		}
 		rows, err := loadScheduleTasks(ctx, tx, r.schema, " WHERE jc.id=$1 AND jc.work_order_id=$2 FOR UPDATE OF jc,wo", patch.JobCardID, patch.WorkOrderID)
 		if err != nil {
 			return app.ScheduleBatchResult{}, err

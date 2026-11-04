@@ -114,13 +114,14 @@ func TestDev479ManufacturingPhase2ExecutionContracts(t *testing.T) {
 		}
 	}
 	completionForm := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "components", "OperationCompletionForm.vue")))
-	for _, forbidden := range []string{"actual_minutes", "actual_input_qty", "本单用料", "保存进度", "difference_reason"} {
+	for _, forbidden := range []string{"本单用料", "保存进度"} {
 		if strings.Contains(completionForm, forbidden) {
 			t.Fatalf("OperationCompletionForm must omit simplified input %q", forbidden)
 		}
 	}
 
-	workOrders := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "WorkOrdersView.vue")))
+	if !strings.Contains(completionForm,"preview.material_consumption_policy === 'bom_start_v1'"){t.Fatal("new input reporting must be policy-specific")}
+ workOrders := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "WorkOrdersView.vue")))
 	workOrderTemplate := workOrders
 	if idx := strings.Index(workOrderTemplate, "<script setup>"); idx >= 0 {
 		workOrderTemplate = workOrderTemplate[:idx]

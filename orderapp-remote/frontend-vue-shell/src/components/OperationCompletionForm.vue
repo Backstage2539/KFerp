@@ -9,14 +9,22 @@
         <p>{{ preview.blocked_reason }}</p>
         <button v-if="preview.blocked_code === 'bom_incomplete' && preview.bom_id" type="button" @click="openBom">去 BOM 补齐配料</button>
       </div>
-      <p v-if="preview.bom_refresh_pending" class="hint" role="status">本工单尚无实际耗料，将在首次完成时接入已发布的完整配方（{{ preview.effective_bom_version_no }}；原冻结 {{ preview.original_bom_version_no }}）。</p>
+      <p v-if="preview.bom_refresh_pending" class="hint" role="status">本工单尚无实际耗料，将在首次{{ preview.material_consumption_policy === 'bom_start_v1' ? '开工' : '完成' }}时接入已发布的完整配方（{{ preview.effective_bom_version_no }}；原冻结 {{ preview.original_bom_version_no }}）。</p>
       <fieldset :disabled="busy || retry.uncertain || !!success || !!preview.blocked_reason">
         <label>{{ completionQuantityLabel(preview.output_unit) }}
           <input v-model="draft.actual_output_qty" type="number" min="0" :step="weightUnit(preview.output_unit) ? 'any' : '1'" />
           <small>本批参考 {{ preview.planned_qty }} {{ preview.output_unit }} · 已完成 {{ preview.completed_output_qty || 0 }} {{ preview.output_unit }}</small>
         </label>
+        <template v-if="preview.material_consumption_policy === 'bom_start_v1'">
+          <label>本次实际处理投入（{{ preview.input_unit }}）<input v-model="draft.actual_input_qty" type="number" min="0" :step="weightUnit(preview.input_unit) ? 'any' : '1'" /><small>本批剩余可处理 {{ preview.input_qty }} {{ preview.input_unit }}</small></label>
+          <label>实际工时（分钟）<input v-model="draft.actual_minutes" type="number" min="0" step="1" /></label>
+          <label><span><input v-model="draft.finish_operation" type="checkbox" /> 本批全部处理结束</span></label>
+          <label>数量差异或损耗原因<textarea v-model.trim="draft.difference_reason" rows="2" /></label>
+          <details v-if="preview.started_materials?.length"><summary>已扣用料</summary><p v-for="m in preview.started_materials" :key="m.key">{{ m.name }}：{{ m.qty }} {{ m.unit }} · {{ m.warehouse_name || m.warehouse }}</p></details>
+        </template>
       </fieldset>
-      <p class="hint">系统按冻结的本批投料和 BOM 自动计算用料，完成后自动扣料并{{ preview.execution?.receipt_enabled ? '入库' : '交接' }}。</p>
+      <p v-if="preview.material_consumption_policy === 'bom_start_v1'" class="hint">本次报工结转已确认投入的成本，不再扣原料。结束批次前须处理剩余投入。</p>
+      <p v-else class="hint">系统按冻结的本批投料和 BOM 自动计算用料，完成后自动扣料并{{ preview.execution?.receipt_enabled ? '入库' : '交接' }}。</p>
       <div class="actions"><button v-if="!success" class="primary" type="button" :disabled="busy || !!preview.blocked_reason" @click="complete">{{ busy ? '处理中…' : retry.uncertain ? '重试本次完成' : '确认工序完成' }}</button></div>
       <details v-if="result?.stock_entry_ids?.length"><summary>关联单据</summary><p v-for="id in result.stock_entry_ids" :key="id">库存单据 #{{ id }}</p></details>
     </template>

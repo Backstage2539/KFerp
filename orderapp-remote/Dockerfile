@@ -17,6 +17,7 @@ RUN CGO_ENABLED=0 /usr/local/go/bin/go build -o /out/orderapp ./ && \
     CGO_ENABLED=0 /usr/local/go/bin/go build -o /out/product-creator-material-repair ./cmd/product-creator-material-repair
 
 FROM docker.m.daocloud.io/library/alpine:3.20
+LABEL io.kferp.bom-start-aware="1"
 RUN sed -i 's|dl-cdn.alpinelinux.org|mirrors.aliyun.com|g' /etc/apk/repositories && \
     apk add --no-cache poppler-utils
 WORKDIR /app

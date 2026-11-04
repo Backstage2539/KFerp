@@ -33,6 +33,9 @@ func (r Repository) operationConversionContextTx(ctx context.Context, tx pgx.Tx,
 	if err != nil {
 		return p, wo, err
 	}
+	if err := requireLegacyExecutionTx(ctx, tx, r.schema, id); err != nil {
+		return p, wo, err
+	}
 	if review.ReviewBlockedReason == "本单仍有未完成工序，请先核对执行中的工序" {
 		p.ReviewBlockedReason = ""
 	}

@@ -7,6 +7,7 @@ import (
 	"math"
 	stockapp "orderapp/internal/application/stock"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -181,7 +182,7 @@ func (r Repository) CancelStockDocument(ctx context.Context, id int64, actor str
 	if err := lockStockDocumentWorkOrderAndFinishedIdentitiesTx(ctx, tx, r.schema, detail); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
-	if detail.SourceType == "operation_completion" || detail.SourceType == "operation_correction" {
+	if detail.SourceType == "operation_completion" || detail.SourceType == "operation_correction" || detail.SourceType == "operation_start" || detail.SourceType == "operation_material_add" {
 		return stockapp.StockDocumentDetail{}, fmt.Errorf("此单据属于工序完成记录，请从生产记录统一更正")
 	}
 	materialIDs := make([]int64, 0, len(detail.Items))
@@ -1053,6 +1054,21 @@ func (r Repository) validateStockDocumentWorkOrderTx(ctx context.Context, tx pgx
 			}
 		}
 	}
+	if has, e := stockSchemaColumnExistsTx(ctx, tx, r.schema, "work_orders", "material_consumption_policy"); e != nil {
+		return e
+	} else if has {
+		var policy string
+		if e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT material_consumption_policy FROM %s.work_orders WHERE id=$1`, r.schema), detail.WorkOrderID).Scan(&policy); e != nil {
+			return e
+		}
+		if policy == "bom_start_v1" && os.Getenv("KFERP_BOM_START_READ_ONLY") == "1" {
+			return fmt.Errorf("新策略工单已暂停写入，请待开工扣料版本恢复后继续")
+		}
+		if policy == "bom_start_v1" && !isOperationConsumption(ctx, detail.WorkOrderID) && (detail.Purpose == stockapp.PurposeMaterialConsumption || detail.Purpose == stockapp.PurposeMaterialIssue || detail.Purpose == stockapp.PurposeManufacture) {
+			return fmt.Errorf("请先确认用料并开工；请在工位报工或用料调整中记账")
+		}
+	}
+
 	expectedItemType := itemTypeMaterial
 	var manufactureOutput typedStockManufactureOutput
 	hasTypedManufactureOutput := false

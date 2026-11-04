@@ -70,7 +70,7 @@ func (r Repository) receiveOperationOutputTx(ctx context.Context, tx pgx.Tx, wo 
 	if err = allocateCustomerProcessingOutputReservationsTx(ctx, tx, r.schema, run.ID, run.ProductID, run.BomSpecID, run.BomVariantID, run.SpecG, add.Units, batch, receipt.Warehouse, actor); err != nil {
 		return 0, err
 	}
-	if err = allocateFinishedProductOutputToDownstreamReservationsTx(ctx, tx, r.schema, run.ID, run.ProductID, run.BomSpecID, run.BomVariantID, run.SpecG, grams, add.Units); err != nil {
+	if err = allocateFinishedProductOutputToDownstreamReservationsTx(ctx, tx, r.schema, run.ID, run.ProductID, run.BomSpecID, run.BomVariantID, run.SpecG, grams, add.Units, receipt.EventID); err != nil {
 		return 0, err
 	}
 	no, err := nextCompletionNoForRunningItemTx(ctx, tx, r.schema, run.ID)

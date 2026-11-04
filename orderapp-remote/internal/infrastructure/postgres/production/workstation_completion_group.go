@@ -86,6 +86,7 @@ func (r Repository) operationCompletionGroupContextTx(ctx context.Context, tx pg
 	sharedFree := map[string]float64{}
 	seenOwnReservations := map[string]bool{}
 	out.GroupKey = fmt.Sprintf("packaging:%x", sha256.Sum256([]byte(groupIdentity)))
+	out.MaterialConsumptionPolicy = sources[0].p.MaterialConsumptionPolicy
 	out.OutputUnit = sources[0].p.OutputUnit
 	out.WarehouseName = sources[0].p.WarehouseName
 	out.MaxOutputQty = 0
@@ -94,7 +95,7 @@ func (r Repository) operationCompletionGroupContextTx(ctx context.Context, tx pg
 			return out, nil, fmt.Errorf("所选工序的商品、规格、物料货主或目标仓不同，不能合并")
 		}
 		versionParts = append(versionParts, []any{src.cardID, src.p.Version, src.p.PlannedQty, src.p.CompletedOutputQty})
-		item := app.OperationCompletionGroupItem{JobCardID: src.cardID, WorkOrderID: src.workID, WorkOrderNo: src.no, ProductName: src.p.ProductName, SpecG: src.p.OutputSpecG, PlannedQty: src.p.TotalPlannedQty, CompletedQty: src.p.CompletedOutputQty, RemainingQty: src.p.PlannedQty, Unit: src.p.OutputUnit, Warehouse: src.p.Warehouse, WarehouseName: src.p.WarehouseName, Version: src.p.Version}
+		item := app.OperationCompletionGroupItem{InputQty: src.p.InputQty, InputUnit: src.p.InputUnit, JobCardID: src.cardID, WorkOrderID: src.workID, WorkOrderNo: src.no, ProductName: src.p.ProductName, SpecG: src.p.OutputSpecG, PlannedQty: src.p.TotalPlannedQty, CompletedQty: src.p.CompletedOutputQty, RemainingQty: src.p.PlannedQty, Unit: src.p.OutputUnit, Warehouse: src.p.Warehouse, WarehouseName: src.p.WarehouseName, Version: src.p.Version}
 		out.Items = append(out.Items, item)
 		out.PlannedQty += src.p.TotalPlannedQty
 		out.CompletedQty += src.p.CompletedOutputQty
@@ -132,7 +133,13 @@ func (r Repository) operationCompletionGroupContextTx(ctx context.Context, tx pg
 		material.ShortageQty = math.Max(0, material.RequiredQty-material.AvailableQty)
 		out.Materials = append(out.Materials, *material)
 	}
-	out.MaxOutputQty = app.OperationGroupMaxOutputQty(out.RemainingQty, out.OutputUnit, out.Materials)
+	if out.MaterialConsumptionPolicy == "bom_start_v1" {
+		// Stock was already consumed at start; reporting uses each source's input balance.
+		out.MaxOutputQty = out.RemainingQty
+		out.Materials = nil
+	} else {
+		out.MaxOutputQty = app.OperationGroupMaxOutputQty(out.RemainingQty, out.OutputUnit, out.Materials)
+	}
 	sort.Slice(out.Materials, func(i, j int) bool { return out.Materials[i].Name < out.Materials[j].Name })
 	raw, _ := json.Marshal(versionParts)
 	out.Version = fmt.Sprintf("%x", sha256.Sum256(raw))
@@ -153,7 +160,7 @@ func completionGroupIdentity(src completionGroupSource) string {
 	if productID <= 0 {
 		productID = src.wo.ProductID
 	}
-	return fmt.Sprintf("%d:%s:%d:%s:%s:%s:%d:%s:%s:%s", productID, src.p.ProductName, src.p.OutputSpecG, src.p.OutputUnit, src.p.Warehouse, src.p.Execution.ReceiptWarehouse, src.seq, strings.TrimSpace(src.operation), strings.TrimSpace(src.station), strings.Join(materials, ";"))
+	return src.p.MaterialConsumptionPolicy + ":" + fmt.Sprintf("%d:%s:%d:%s:%s:%s:%d:%s:%s:%s", productID, src.p.ProductName, src.p.OutputSpecG, src.p.OutputUnit, src.p.Warehouse, src.p.Execution.ReceiptWarehouse, src.seq, strings.TrimSpace(src.operation), strings.TrimSpace(src.station), strings.Join(materials, ";"))
 }
 
 func taskOperationForCard(ctx context.Context, tx pgx.Tx, schema string, id int64) string {
@@ -225,7 +232,7 @@ func (r Repository) completeOperationGroupOnce(ctx context.Context, cmd app.Oper
 	if cmd.FinishGroup && cmd.ActualOutputQty < preview.RemainingQty-1e-8 && strings.TrimSpace(cmd.DifferenceReason) == "" {
 		return out, fmt.Errorf("少产结束整组工序时请填写原因")
 	}
-	if cmd.Materials != nil && len(cmd.Materials) != countGroupMaterialRows(sources) {
+	if preview.MaterialConsumptionPolicy != "bom_start_v1" && cmd.Materials != nil && len(cmd.Materials) != countGroupMaterialRows(sources) {
 		return out, fmt.Errorf("合并用料清单已变化，请刷新")
 	}
 	remainingByOrder := make([]float64, len(sources))
@@ -272,6 +279,14 @@ func (r Repository) completeOperationGroupOnce(ctx context.Context, cmd app.Oper
 			if factor := app.OperationUnitFactor(material.Unit); factor > 0 {
 				actualInput += material.Qty * factor
 			}
+		}
+		if preview.MaterialConsumptionPolicy == "bom_start_v1" {
+			value, ok := cmd.ProcessedInputs[src.cardID]
+			if !ok {
+				return out, fmt.Errorf("请逐项确认来源任务的实际处理投入")
+			}
+			actualInput = value
+			childMaterials = nil
 		}
 		minutes := minutesByOrder[i]
 		finishFlag := finish

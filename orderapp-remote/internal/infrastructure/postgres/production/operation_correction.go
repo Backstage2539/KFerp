@@ -56,7 +56,7 @@ func (r Repository) correctOperationOutputOnce(ctx context.Context, c app.Correc
 			return out, fmt.Errorf("本工序有多批完成记录，请从生产记录中选择具体批次更正")
 		}
 	}
-	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT e.id,e.output_qty::float8,e.planned_qty::float8,e.input_qty::float8,e.output_unit,e.input_unit,e.warehouse,e.final_output,e.receipt_enabled,e.estimated_cost,e.material_cost::float8+e.operation_cost::float8+COALESCE((SELECT SUM(cost)::float8 FROM %[1]s.production_operation_movements WHERE event_id=e.id),0)+COALESCE((SELECT SUM(operation_cost)::float8 FROM %[1]s.production_operation_events WHERE reversal_of=e.id),0),j.cost_method,j.piece_rate::float8,j.sequence_no FROM %[1]s.production_operation_events e JOIN %[1]s.job_cards j ON j.id=e.job_card_id WHERE e.job_card_id=$1 AND ($2::bigint=0 OR e.id=$2) AND e.kind='complete' AND e.status='posted' FOR UPDATE OF e,j`, r.schema), c.ID, c.EventID).Scan(&original, &previous, &planned, &input, &unit, &inputUnit, &warehouse, &final, &receiptEnabled, &estimated, &totalCost, &method, &pieceRate, &seq); err != nil {
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT e.id,e.output_qty::float8,e.planned_qty::float8,e.input_qty::float8,e.output_unit,e.input_unit,e.warehouse,e.final_output,e.receipt_enabled,e.estimated_cost,e.material_cost::float8+e.operation_cost::float8+COALESCE((SELECT SUM(cost)::float8 FROM %[1]s.production_started_input_allocations WHERE event_id=e.id),0)+COALESCE((SELECT SUM(cost)::float8 FROM %[1]s.production_operation_movements WHERE event_id=e.id),0)+COALESCE((SELECT SUM(operation_cost)::float8 FROM %[1]s.production_operation_events WHERE reversal_of=e.id),0),j.cost_method,j.piece_rate::float8,j.sequence_no FROM %[1]s.production_operation_events e JOIN %[1]s.job_cards j ON j.id=e.job_card_id WHERE e.job_card_id=$1 AND ($2::bigint=0 OR e.id=$2) AND e.kind='complete' AND e.status='posted' FOR UPDATE OF e,j`, r.schema), c.ID, c.EventID).Scan(&original, &previous, &planned, &input, &unit, &inputUnit, &warehouse, &final, &receiptEnabled, &estimated, &totalCost, &method, &pieceRate, &seq); err != nil {
 		return out, err
 	}
 	c.EventID = original
@@ -171,7 +171,7 @@ func (r Repository) correctOperationOutputOnce(ctx context.Context, c app.Correc
 		}
 	} else {
 		var used float64
-		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(qty),0)::float8 FROM %[1]s.production_operation_movements WHERE source_balance_id IN(SELECT id FROM %[1]s.production_operation_balances WHERE event_id=$1)`, r.schema), original).Scan(&used); err != nil {
+		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT (COALESCE((SELECT SUM(qty) FROM %[1]s.production_operation_movements WHERE source_balance_id IN(SELECT id FROM %[1]s.production_operation_balances WHERE event_id=$1)),0)+COALESCE((SELECT SUM(remaining_qty) FROM %[1]s.production_started_handoffs WHERE source_balance_id IN(SELECT id FROM %[1]s.production_operation_balances WHERE event_id=$1) AND status='posted'),0))::float8`, r.schema), original).Scan(&used); err != nil {
 			return out, err
 		}
 		if used > 0 {

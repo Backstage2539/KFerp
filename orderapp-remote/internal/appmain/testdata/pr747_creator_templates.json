@@ -1,0 +1,503 @@
+[
+  {
+    "id": 1,
+    "name": "咖啡烘焙豆商品",
+    "revision": 24,
+    "version": 10,
+    "workflow": {
+      "edges": [
+        {
+          "id": "06383cdc-674c-4e4e-b36b-10507a040be5",
+          "kind": "data",
+          "label": "工艺路线 → 工艺路线",
+          "source": "e2d541a3-c07e-4a26-a160-625828fa8a1e",
+          "target": "c6bfe285-75ab-4958-a2cf-95e2ae1c459b",
+          "source_handle": "route",
+          "target_handle": "route"
+        },
+        {
+          "id": "a48353dc-afe3-4bea-ad24-968bab0b23bd",
+          "kind": "data",
+          "label": "物料对象 → 配方物料或商品规格",
+          "source": "499eff60-931f-4de2-bca6-1e818ae90d1d",
+          "target": "c6bfe285-75ab-4958-a2cf-95e2ae1c459b",
+          "source_handle": "material",
+          "target_handle": "components"
+        },
+        {
+          "id": "e95a40f1-34b0-44c4-9733-50793278597c",
+          "kind": "data",
+          "label": "BOM产出 → BOM产出",
+          "source": "c6bfe285-75ab-4958-a2cf-95e2ae1c459b",
+          "target": "1d4390f1-7f5b-4f9c-b911-5cedc5f2f902",
+          "source_handle": "assembly",
+          "target_handle": "from_bom"
+        },
+        {
+          "id": "2415853f-ac68-4df5-a9bc-bff513b58ae1",
+          "kind": "data",
+          "label": "工艺路线 → 工艺路线",
+          "source": "85dd2fcd-8b28-446b-8e7c-a95efc325edc",
+          "target": "9cd5dbac-ad61-42bb-a9c1-49308b33057d",
+          "source_handle": "route",
+          "target_handle": "route"
+        },
+        {
+          "id": "8c514fdd-1534-410b-bc38-06c77e2bd324",
+          "kind": "data",
+          "label": "物料对象 → 配方物料或商品规格",
+          "source": "1d4390f1-7f5b-4f9c-b911-5cedc5f2f902",
+          "target": "9cd5dbac-ad61-42bb-a9c1-49308b33057d",
+          "source_handle": "material",
+          "target_handle": "components"
+        },
+        {
+          "id": "f3d42221-a937-4db4-8ab6-f38f1f7cd2a0",
+          "kind": "data",
+          "label": "BOM产出 → BOM产出",
+          "source": "9cd5dbac-ad61-42bb-a9c1-49308b33057d",
+          "target": "ae14132c-92d2-4848-9ef1-5203676a3c6b",
+          "source_handle": "assembly",
+          "target_handle": "from_bom"
+        }
+      ],
+      "nodes": [
+        {
+          "x": 29,
+          "y": 244,
+          "id": "499eff60-931f-4de2-bca6-1e818ae90d1d",
+          "kind": "material",
+          "name": "生豆原料",
+          "config": {
+            "data_role": "input",
+            "supply_mode": "purchase"
+          }
+        },
+        {
+          "x": 16,
+          "y": 8,
+          "id": "e2d541a3-c07e-4a26-a160-625828fa8a1e",
+          "kind": "process",
+          "name": "烘焙工艺",
+          "config": {
+            "route_id": 5
+          }
+        },
+        {
+          "x": 484,
+          "y": 106,
+          "id": "c6bfe285-75ab-4958-a2cf-95e2ae1c459b",
+          "kind": "bom",
+          "name": "烘焙半成品BOM",
+          "config": {
+            "route_id": 0,
+            "components": [
+              {
+                "unit": "ratio_pct",
+                "row_id": "a2ff0c68-78b4-4e68-9cc7-056a5fed545f",
+                "edge_id": "a48353dc-afe3-4bea-ad24-968bab0b23bd",
+                "quantity": "",
+                "loss_rate": 0,
+                "source_handle": "material",
+                "source_node_id": "499eff60-931f-4de2-bca6-1e818ae90d1d",
+                "variant_row_id": ""
+              }
+            ],
+            "output_qty": 1,
+            "output_type": "material",
+            "output_unit": "kg",
+            "material_loss_rate": 0.2
+          }
+        },
+        {
+          "x": 58,
+          "y": 598,
+          "id": "1d4390f1-7f5b-4f9c-b911-5cedc5f2f902",
+          "kind": "material",
+          "name": "烘焙半成品物料",
+          "config": {
+            "data_role": "output",
+            "name_parts": [
+              {
+                "type": "variable",
+                "variable_id": "bfceff1c-bc42-4284-acb6-d68554a78950"
+              },
+              {
+                "type": "text",
+                "value": "_咖啡豆-半成品"
+              }
+            ],
+            "supply_mode": "manufacture"
+          }
+        },
+        {
+          "x": 733,
+          "y": 840,
+          "id": "ae14132c-92d2-4848-9ef1-5203676a3c6b",
+          "kind": "product",
+          "name": "商品",
+          "config": {
+            "owner": "factory",
+            "action": "create",
+            "data_role": "output",
+            "name_parts": [
+              {
+                "type": "variable",
+                "variable_id": "bfceff1c-bc42-4284-acb6-d68554a78950"
+              }
+            ],
+            "object_action": "create"
+          }
+        },
+        {
+          "x": 745,
+          "y": 598,
+          "id": "9cd5dbac-ad61-42bb-a9c1-49308b33057d",
+          "kind": "bom",
+          "name": "咖啡豆包装BOM",
+          "config": {
+            "components": [],
+            "output_type": "product",
+            "spec_template_version_id": 19
+          }
+        },
+        {
+          "x": 71,
+          "y": 458,
+          "id": "85dd2fcd-8b28-446b-8e7c-a95efc325edc",
+          "kind": "process",
+          "name": "咖啡豆包装工艺",
+          "config": {
+            "route_id": 7
+          }
+        }
+      ],
+      "version": 8,
+      "variables": [
+        {
+          "id": "bfceff1c-bc42-4284-acb6-d68554a78950",
+          "name": "商品名称"
+        }
+      ]
+    }
+  },
+  {
+    "id": 2,
+    "name": "挂耳咖啡商品",
+    "revision": 27,
+    "version": 9,
+    "workflow": {
+      "edges": [
+        {
+          "id": "06383cdc-674c-4e4e-b36b-10507a040be5",
+          "kind": "data",
+          "label": "工艺路线 → 工艺路线",
+          "source": "e2d541a3-c07e-4a26-a160-625828fa8a1e",
+          "target": "c6bfe285-75ab-4958-a2cf-95e2ae1c459b",
+          "source_handle": "route",
+          "target_handle": "route"
+        },
+        {
+          "id": "a48353dc-afe3-4bea-ad24-968bab0b23bd",
+          "kind": "data",
+          "label": "物料对象 → 配方物料或商品规格",
+          "source": "499eff60-931f-4de2-bca6-1e818ae90d1d",
+          "target": "c6bfe285-75ab-4958-a2cf-95e2ae1c459b",
+          "source_handle": "material",
+          "target_handle": "components"
+        },
+        {
+          "id": "e95a40f1-34b0-44c4-9733-50793278597c",
+          "kind": "data",
+          "label": "BOM产出 → BOM产出",
+          "source": "c6bfe285-75ab-4958-a2cf-95e2ae1c459b",
+          "target": "1d4390f1-7f5b-4f9c-b911-5cedc5f2f902",
+          "source_handle": "assembly",
+          "target_handle": "from_bom"
+        },
+        {
+          "id": "2415853f-ac68-4df5-a9bc-bff513b58ae1",
+          "kind": "data",
+          "label": "工艺路线 → 工艺路线",
+          "source": "85dd2fcd-8b28-446b-8e7c-a95efc325edc",
+          "target": "9cd5dbac-ad61-42bb-a9c1-49308b33057d",
+          "source_handle": "route",
+          "target_handle": "route"
+        },
+        {
+          "id": "8c514fdd-1534-410b-bc38-06c77e2bd324",
+          "kind": "data",
+          "label": "物料对象 → 配方物料或商品规格",
+          "source": "1d4390f1-7f5b-4f9c-b911-5cedc5f2f902",
+          "target": "9cd5dbac-ad61-42bb-a9c1-49308b33057d",
+          "source_handle": "material",
+          "target_handle": "components"
+        },
+        {
+          "id": "ff92f3c3-145e-4f3c-9acc-972a94768c13",
+          "kind": "data",
+          "label": "BOM产出 → BOM产出",
+          "source": "9cd5dbac-ad61-42bb-a9c1-49308b33057d",
+          "target": "c7458ba8-280d-4fcf-ac6f-7413faba4077",
+          "source_handle": "assembly",
+          "target_handle": "from_bom"
+        },
+        {
+          "id": "f083e16d-e5dd-46e1-965d-10bb8b0e18e5",
+          "kind": "data",
+          "label": "物料对象 → 配方物料或商品规格",
+          "source": "c7458ba8-280d-4fcf-ac6f-7413faba4077",
+          "target": "c394c95c-0e92-4d78-b324-1142d954a0f7",
+          "source_handle": "material",
+          "target_handle": "components"
+        },
+        {
+          "id": "656e5d69-c78a-4aa1-b873-a4986ccd50c1",
+          "kind": "data",
+          "label": "工艺路线 → 工艺路线",
+          "source": "85cc5bcd-820c-4b96-85f5-d62b596a0fbe",
+          "target": "c394c95c-0e92-4d78-b324-1142d954a0f7",
+          "source_handle": "route",
+          "target_handle": "route"
+        },
+        {
+          "id": "b3d51353-803b-4ba2-aed0-56bf2b6b68d9",
+          "kind": "data",
+          "label": "BOM产出 → BOM产出",
+          "source": "c394c95c-0e92-4d78-b324-1142d954a0f7",
+          "target": "05256ed7-a1b3-4b23-aed3-eed90875ed7b",
+          "source_handle": "assembly",
+          "target_handle": "from_bom"
+        },
+        {
+          "id": "6e85205e-8cea-44b6-9834-1b06b489587a",
+          "kind": "data",
+          "label": "商品规格 → 配方物料或商品规格",
+          "source": "05256ed7-a1b3-4b23-aed3-eed90875ed7b",
+          "target": "2ecd4680-8742-4fcd-bd1a-551d0affc7df",
+          "source_handle": "specs",
+          "target_handle": "components"
+        },
+        {
+          "id": "c85ac9d1-c9ea-44f3-9e3f-00c534dbd42d",
+          "kind": "data",
+          "label": "BOM产出 → BOM产出",
+          "source": "2ecd4680-8742-4fcd-bd1a-551d0affc7df",
+          "target": "a88ed68c-2bcd-4886-a037-4fcffb6300d7",
+          "source_handle": "assembly",
+          "target_handle": "from_bom"
+        }
+      ],
+      "nodes": [
+        {
+          "x": 29,
+          "y": 244,
+          "id": "499eff60-931f-4de2-bca6-1e818ae90d1d",
+          "kind": "material",
+          "name": "生豆原料",
+          "config": {
+            "data_role": "input",
+            "supply_mode": "purchase"
+          }
+        },
+        {
+          "x": 16,
+          "y": 8,
+          "id": "e2d541a3-c07e-4a26-a160-625828fa8a1e",
+          "kind": "process",
+          "name": "烘焙工艺",
+          "config": {
+            "route_id": 5
+          }
+        },
+        {
+          "x": 484,
+          "y": 106,
+          "id": "c6bfe285-75ab-4958-a2cf-95e2ae1c459b",
+          "kind": "bom",
+          "name": "烘焙半成品BOM",
+          "config": {
+            "route_id": 0,
+            "components": [
+              {
+                "unit": "ratio_pct",
+                "row_id": "a2ff0c68-78b4-4e68-9cc7-056a5fed545f",
+                "edge_id": "a48353dc-afe3-4bea-ad24-968bab0b23bd",
+                "quantity": "",
+                "loss_rate": 0,
+                "source_handle": "material",
+                "source_node_id": "499eff60-931f-4de2-bca6-1e818ae90d1d",
+                "variant_row_id": ""
+              }
+            ],
+            "output_qty": 1,
+            "output_type": "material",
+            "output_unit": "kg",
+            "material_loss_rate": 0.2
+          }
+        },
+        {
+          "x": 58,
+          "y": 598,
+          "id": "1d4390f1-7f5b-4f9c-b911-5cedc5f2f902",
+          "kind": "material",
+          "name": "烘焙半成品物料",
+          "config": {
+            "data_role": "output",
+            "name_parts": [
+              {
+                "type": "variable",
+                "variable_id": "bfceff1c-bc42-4284-acb6-d68554a78950"
+              },
+              {
+                "type": "text",
+                "value": "_咖啡豆-半成品"
+              }
+            ],
+            "supply_mode": "manufacture"
+          }
+        },
+        {
+          "x": 745,
+          "y": 598,
+          "id": "9cd5dbac-ad61-42bb-a9c1-49308b33057d",
+          "kind": "bom",
+          "name": "咖啡豆磨粉BOM",
+          "config": {
+            "route_id": 0,
+            "variants": [],
+            "components": [],
+            "output_qty": 1,
+            "output_type": "material",
+            "output_unit": "kg",
+            "material_loss_rate": 0
+          }
+        },
+        {
+          "x": 71,
+          "y": 458,
+          "id": "85dd2fcd-8b28-446b-8e7c-a95efc325edc",
+          "kind": "process",
+          "name": "咖啡豆磨粉工艺",
+          "config": {
+            "route_id": 9
+          }
+        },
+        {
+          "x": 804,
+          "y": 930,
+          "id": "c7458ba8-280d-4fcf-ac6f-7413faba4077",
+          "kind": "material",
+          "name": "咖啡粉半成品",
+          "config": {
+            "data_role": "output",
+            "name_parts": [
+              {
+                "type": "text",
+                "value": "咖啡粉_"
+              },
+              {
+                "type": "variable",
+                "variable_id": "bfceff1c-bc42-4284-acb6-d68554a78950"
+              },
+              {
+                "type": "text",
+                "value": "-半成品"
+              }
+            ],
+            "supply_mode": "manufacture"
+          }
+        },
+        {
+          "x": 1300,
+          "y": 863,
+          "id": "c394c95c-0e92-4d78-b324-1142d954a0f7",
+          "kind": "bom",
+          "name": "挂耳生产BOM",
+          "config": {
+            "output_type": "product",
+            "spec_template_version_id": 22
+          }
+        },
+        {
+          "x": 1290,
+          "y": 676,
+          "id": "85cc5bcd-820c-4b96-85f5-d62b596a0fbe",
+          "kind": "process",
+          "name": "挂耳生产",
+          "config": {
+            "route_id": 8
+          }
+        },
+        {
+          "x": 1322,
+          "y": 1042,
+          "id": "05256ed7-a1b3-4b23-aed3-eed90875ed7b",
+          "kind": "product",
+          "name": "商品",
+          "config": {
+            "owner": "factory",
+            "action": "create",
+            "data_role": "output",
+            "name_parts": [
+              {
+                "type": "text",
+                "value": "挂耳-"
+              },
+              {
+                "type": "variable",
+                "variable_id": "bfceff1c-bc42-4284-acb6-d68554a78950"
+              },
+              {
+                "type": "text",
+                "value": "-10g袋装"
+              }
+            ],
+            "object_action": "create"
+          }
+        },
+        {
+          "x": 1835,
+          "y": 1209,
+          "id": "a88ed68c-2bcd-4886-a037-4fcffb6300d7",
+          "kind": "product",
+          "name": "商品",
+          "config": {
+            "owner": "factory",
+            "action": "create",
+            "data_role": "output",
+            "name_parts": [
+              {
+                "type": "variable",
+                "variable_id": "bfceff1c-bc42-4284-acb6-d68554a78950"
+              },
+              {
+                "type": "text",
+                "value": "挂耳-盒装"
+              }
+            ],
+            "object_action": "create"
+          }
+        },
+        {
+          "x": 1823,
+          "y": 961,
+          "id": "2ecd4680-8742-4fcd-bd1a-551d0affc7df",
+          "kind": "bom",
+          "name": "挂耳装盒",
+          "config": {
+            "output_type": "product",
+            "spec_template_version_id": 21
+          }
+        }
+      ],
+      "version": 8,
+      "variables": [
+        {
+          "id": "bfceff1c-bc42-4284-acb6-d68554a78950",
+          "name": "商品名称"
+        }
+      ]
+    }
+  }
+]

@@ -18,11 +18,11 @@ func isOperationConsumption(ctx context.Context, workOrderID int64) bool {
 }
 
 func (r Repository) ConsumeOperationMaterialsTx(ctx context.Context, tx pgx.Tx, cmd app.StockDocumentCommand) (app.StockDocumentDetail, error) {
-	if cmd.WorkOrderID <= 0 || cmd.JobCardID <= 0 || cmd.SourceID <= 0 || cmd.SourceType != "operation_completion" || cmd.Purpose != app.PurposeMaterialConsumption || cmd.IsReturn {
+	if cmd.WorkOrderID <= 0 || cmd.JobCardID <= 0 || cmd.SourceID <= 0 || (cmd.SourceType != "operation_completion" && cmd.SourceType != "operation_start" && cmd.SourceType != "operation_material_add") || cmd.Purpose != app.PurposeMaterialConsumption || cmd.IsReturn {
 		return app.StockDocumentDetail{}, fmt.Errorf("invalid operation consumption")
 	}
 	var authorized bool
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.production_operation_events WHERE id=$1 AND work_order_id=$2 AND job_card_id=$3 AND status='posting')`, r.schema), cmd.SourceID, cmd.WorkOrderID, cmd.JobCardID).Scan(&authorized); err != nil {
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.production_operation_events WHERE id=$1 AND work_order_id=$2 AND job_card_id=$3 AND status='posting' AND kind=$4)`, r.schema), cmd.SourceID, cmd.WorkOrderID, cmd.JobCardID, map[string]string{"operation_completion": "complete", "operation_start": "start", "operation_material_add": "material_add"}[cmd.SourceType]).Scan(&authorized); err != nil {
 		return app.StockDocumentDetail{}, err
 	}
 	if !authorized {

@@ -17,6 +17,9 @@ import (
 
 // All quantity-changing paths acquire this lock before work-order/card row locks.
 func lockReceiptWorkOrderTx(ctx context.Context, tx pgx.Tx, schema string, id int64) error {
+	if err := checkBOMStartWriteTx(ctx, tx, schema, id); err != nil {
+		return err
+	}
 	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, fmt.Sprintf("%s:finished-receipt:%d", schema, id))
 	return err
 }
@@ -38,16 +41,11 @@ func (r Repository) EnrichFinishedReceiptTask(ctx context.Context, previous app.
 }
 
 func isCountReceipt(unit string) bool {
-	switch strings.ToLower(strings.TrimSpace(unit)) {
-	case "g", "克", "kg", "千克", "公斤":
-		return false
-	}
-	return true
+	return productionWeightUnitGrams(unit) == 0
 }
 func receiptWeightQuantity(g float64, unit string) float64 {
-	switch strings.ToLower(strings.TrimSpace(unit)) {
-	case "kg", "千克", "公斤":
-		return g / 1000
+	if factor := productionWeightUnitGrams(unit); factor > 0 {
+		return g / factor
 	}
 	return g
 }

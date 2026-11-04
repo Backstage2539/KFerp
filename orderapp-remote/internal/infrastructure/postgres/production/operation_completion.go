@@ -25,6 +25,13 @@ func (r Repository) completeOperationOnce(ctx context.Context, cmd app.JobCardAc
 		return out, fmt.Errorf("请先绑定员工")
 	}
 	if strings.TrimSpace(cmd.RequestID) == "" || strings.TrimSpace(cmd.ExpectedVersion) == "" {
+		var policy, status string
+		if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT w.material_consumption_policy,j.status FROM %[1]s.job_cards j JOIN %[1]s.work_orders w ON w.id=j.work_order_id WHERE j.id=$1`, r.schema), cmd.ID).Scan(&policy, &status); err != nil {
+			return out, err
+		}
+		if policy == "bom_start_v1" && (status == "pending" || status == "ready") {
+			return out, fmt.Errorf("请先确认用料并开工")
+		}
 		return out, fmt.Errorf("请刷新完成建议后提交")
 	}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
@@ -80,6 +87,10 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT status,workstation,workstation_id,sequence_no,cost_method,hourly_rate::float8,piece_rate::float8,planned_minutes,planned_operation_cost::float8 FROM %s.job_cards WHERE id=$1 FOR UPDATE`, r.schema), cmd.ID).Scan(&status, &station, &stationID, &seq, &costMethod, &rate, &pieceRate, &plannedMinutes, &plannedCost); err != nil {
 		return out, err
 	}
+	startPolicy := p.MaterialConsumptionPolicy == "bom_start_v1"
+	if startPolicy && status != "running" && status != "paused" {
+		return out, fmt.Errorf("请先确认用料并开工")
+	}
 	if status == "completed" || status == "cancelled" {
 		return out, fmt.Errorf("本工序已结束，请从记录更正")
 	}
@@ -111,10 +122,10 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 			return out, err
 		}
 	}
-	if !p.PredecessorRequired && cmd.ActualInputQty <= 0 && p.InputQty > 0 {
+	if !startPolicy && !p.PredecessorRequired && cmd.ActualInputQty <= 0 && p.InputQty > 0 {
 		cmd.ActualInputQty = p.InputQty
 	}
-	if p.PredecessorRequired && cmd.ActualOutputQty > 0 && cmd.ActualInputQty <= 0 {
+	if !startPolicy && p.PredecessorRequired && cmd.ActualOutputQty > 0 && cmd.ActualInputQty <= 0 {
 		if app.OperationUnitFactor(p.OutputUnit) > 0 && app.OperationUnitFactor(p.InputUnit) > 0 {
 			cmd.ActualInputQty = cmd.ActualOutputQty * app.OperationUnitFactor(p.OutputUnit) / app.OperationUnitFactor(p.InputUnit)
 		} else if p.OutputSpecG > 0 && app.OperationUnitFactor(p.InputUnit) > 0 {
@@ -123,7 +134,7 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 			cmd.ActualInputQty = cmd.ActualOutputQty
 		}
 	}
-	if strings.TrimSpace(cmd.DifferenceReason) == "" && (cmd.ActualOutputQty > p.PlannedQty+1e-8 || (cmd.FinishOperation == nil || *cmd.FinishOperation) && math.Abs(cmd.ActualOutputQty-p.PlannedQty) > 1e-8) {
+	if !startPolicy && strings.TrimSpace(cmd.DifferenceReason) == "" && (cmd.ActualOutputQty > p.PlannedQty+1e-8 || (cmd.FinishOperation == nil || *cmd.FinishOperation) && math.Abs(cmd.ActualOutputQty-p.PlannedQty) > 1e-8) {
 		cmd.DifferenceReason = "现场按实际产出数量完成"
 	}
 	if err = app.ValidateOperationQuantity(cmd.ActualInputQty, cmd.InputUnit); err != nil {
@@ -144,6 +155,9 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 		}
 	}
 	if runID <= 0 {
+		if startPolicy {
+			return out, fmt.Errorf("开工状态异常，请刷新并重新确认用料")
+		}
 		started, e := r.startWorkOrderTx(ctx, tx, app.WorkOrderStartCommand{ID: wo.ID, Operator: cmd.Operator}, false, isRoastingOperationName(p.OperationName))
 		if e != nil {
 			return out, e
@@ -152,29 +166,46 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 		wo = started.WorkOrder
 	}
 	var materials []app.OperationMaterialUse
-	if isRoastingOperationName(p.OperationName) {
-		materials, err = app.ResolveRoastingMaterialUses(p.Materials, cmd.ActualInputQty, cmd.InputUnit)
+	if startPolicy {
+		materials = p.StartedMaterials
+		cmd.Materials = nil
+		if cmd.ActualOutputQty > 0 && cmd.ActualInputQty <= 0 {
+			return out, fmt.Errorf("请填写本次实际处理投入")
+		}
+		{
+			if cmd.ActualInputQty > p.StartedInputQty+1e-8 {
+				return out, fmt.Errorf("实际处理投入超过已确认投入余额")
+			}
+			if plan.CloseOperation && math.Abs(cmd.ActualInputQty-p.StartedInputQty) > 1e-8 {
+				return out, fmt.Errorf("结束批次前请处理剩余投入：报工、退料或确认实际损耗")
+			}
+		}
 	} else {
-		materials, err = resolveOperationMaterialUses(p.Materials, nil, cmd.ActualOutputQty, p.PlannedQty, p.TotalPlannedQty, p.CompletedOutputQty)
-	}
-	if err != nil {
-		return out, err
-	}
-	if p.BomRefreshPending {
-		materials, err = r.refreshRoastingBOMBeforeFirstConsumptionTx(ctx, tx, wo, p, materials, cmd.Operator, cmd.RequestID)
+
+		if isRoastingOperationName(p.OperationName) {
+			materials, err = app.ResolveRoastingMaterialUses(p.Materials, cmd.ActualInputQty, cmd.InputUnit)
+		} else {
+			materials, err = resolveOperationMaterialUses(p.Materials, nil, cmd.ActualOutputQty, p.PlannedQty, p.TotalPlannedQty, p.CompletedOutputQty)
+		}
 		if err != nil {
 			return out, err
 		}
-		wo.BomVersionID = p.EffectiveBomVersionID
-	} else if isRoastingOperationName(p.OperationName) {
-		if err = r.ensureRoastingBatchMaterialReservationsTx(ctx, tx, wo, p, materials, cmd.Operator, cmd.RequestID); err != nil {
-			return out, err
+		if p.BomRefreshPending {
+			materials, err = r.refreshRoastingBOMBeforeFirstConsumptionTx(ctx, tx, wo, p, materials, cmd.Operator, cmd.RequestID)
+			if err != nil {
+				return out, err
+			}
+			wo.BomVersionID = p.EffectiveBomVersionID
+		} else if isRoastingOperationName(p.OperationName) {
+			if err = r.ensureRoastingBatchMaterialReservationsTx(ctx, tx, wo, p, materials, cmd.Operator, cmd.RequestID); err != nil {
+				return out, err
+			}
 		}
+		// Persist the material quantities actually applied by this completion event.
+		// The next partial completion preview uses these event rows to avoid
+		// suggesting the already-consumed portion again.
+		cmd.Materials = materials
 	}
-	// Persist the material quantities actually applied by this completion event.
-	// The next partial completion preview uses these event rows to avoid
-	// suggesting the already-consumed portion again.
-	cmd.Materials = materials
 	var timerMinutes int
 	var timed bool
 	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT started_at IS NOT NULL,CEIL((COALESCE((metrics_json->>'timer_elapsed_seconds')::numeric,0)+CASE WHEN status='running' THEN GREATEST(0,EXTRACT(EPOCH FROM now()-COALESCE(resumed_at,started_at,now()))) ELSE 0 END)/60)::int FROM %s.job_cards WHERE id=$1`, r.schema), cmd.ID).Scan(&timed, &timerMinutes); err != nil {
@@ -236,7 +267,7 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 		stockCmd.Items = append(stockCmd.Items, item)
 	}
 	materialCost := 0.0
-	if len(stockCmd.Items) > 0 {
+	if !startPolicy && len(stockCmd.Items) > 0 {
 		doc, e := stockrepo.NewRepository(r.pool, r.schema).ConsumeOperationMaterialsTx(ctx, tx, stockCmd)
 		if e != nil {
 			return out, e
@@ -248,6 +279,12 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 		}
 	}
 	carriedCost := 0.0
+	if startPolicy && !p.PredecessorRequired {
+		carriedCost, err = r.allocateStartedInputTx(ctx, tx, cmd.ID, receipt.EventID, cmd.ActualInputQty)
+		if err != nil {
+			return out, err
+		}
+	}
 	for _, a := range handoffs {
 		tag, e := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_operation_balances SET remaining_qty=remaining_qty-$2,remaining_cost=remaining_cost-$3 WHERE id=$1 AND remaining_qty>=$2`, r.schema), a.BatchID, a.Qty, a.Cost)
 		if e != nil {
@@ -258,6 +295,15 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 		}
 		if _, e = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.production_operation_movements(event_id,source_balance_id,qty,unit,warehouse,cost) VALUES($1,$2,$3,$4,$5,$6)`, r.schema), receipt.EventID, a.BatchID, a.Qty, a.Unit, a.Warehouse, a.Cost); e != nil {
 			return out, e
+		}
+		if startPolicy {
+			tag, e := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_started_handoffs SET remaining_qty=remaining_qty-$3 WHERE job_card_id=$1 AND source_balance_id=$2 AND status='posted' AND remaining_qty>=$3`, r.schema), cmd.ID, a.BatchID, a.Qty)
+			if e != nil {
+				return out, e
+			}
+			if tag.RowsAffected() != 1 {
+				return out, fmt.Errorf("本批已确认前序投入不足，请刷新")
+			}
 		}
 		carriedCost += a.Cost
 	}
@@ -360,7 +406,7 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 			return out, e
 		}
 		var currentCost float64
-		if e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(material_cost+operation_cost),0)::float8 FROM %s.production_operation_events WHERE work_order_id=$1 AND kind='complete' AND status IN('posting','posted')`, r.schema), wo.ID).Scan(&currentCost); e != nil {
+		if e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(material_cost+operation_cost),0)::float8 FROM %s.production_operation_events WHERE work_order_id=$1 AND kind IN('complete','start','material_add','material_return','start_reversal') AND status IN('posting','posted')`, r.schema), wo.ID).Scan(&currentCost); e != nil {
 			return out, e
 		}
 		if _, e = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET status='partially_completed',actual_cost=$2,operation_summary_json=$3::jsonb WHERE id=$1`, r.schema), wo.ID, currentCost, summary); e != nil {

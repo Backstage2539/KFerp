@@ -108,6 +108,10 @@ func TestAutoPickingCombinesWarehousesWithoutMovingOrReservingDraftStock(t *test
 		t.Fatalf("fully picked start %d %s", start.Code, start.Body.String())
 	}
 	assertProductionFlowCount(t, pool, schema, "material_batch_locations", "material_batch_id=1030 AND warehouse='wip' AND qty_g=21000", 1)
+	// The remainder characterizes the historical direct-consumption workflow.
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.work_orders w SET material_consumption_policy='legacy',process_snapshot_json=p.process_route_snapshot_json FROM %[1]s.production_plan_items p WHERE w.production_plan_item_id=p.id AND w.id=$1`, schema), woID); err != nil {
+		t.Fatal(err)
+	}
 	_, err := stockService.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{Purpose: stockapp.PurposeMaterialConsumption, WorkOrderID: woID, Operator: "操作员", Items: []stockapp.StockDocumentItemCommand{{ItemType: "material", MaterialID: 30, InventoryUnit: "kg", QtyG: 1000, FromWarehouse: "raw_materials", BatchCode: "AUTO-GREEN"}}})
 	if err == nil || !strings.Contains(err.Error(), "WIP") {
 		t.Fatalf("non-WIP consumption must be rejected: %v", err)

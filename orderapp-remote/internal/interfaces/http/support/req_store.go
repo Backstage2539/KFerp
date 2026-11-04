@@ -192,6 +192,15 @@ func seedReqRow(ctx context.Context, pool *pgxpool.Pool, schema string, row reqS
 	if row.status == "" {
 		row.status = "todo"
 	}
+	// Delivery and Van's review happen after startup. Preserve their actual
+	// progress when subsequent restarts re-run the built-in requirement seeds.
+	if row.code == "PR-748-BOM-START-CONSUMPTION" || strings.HasPrefix(row.code, "DEV-PR748-") {
+		_, err := pool.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.%s(code,title,status,assignee,evidence)
+			VALUES($1,$2,$3,$4,$5) ON CONFLICT(code) DO NOTHING
+		`, schema, row.table), row.code, row.title, row.status, row.assignee, row.evidence)
+		return err
+	}
 	if row.table == "req_review" {
 		_, err := pool.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.req_review(code, pr_code, title, status, assignee, evidence)
@@ -268,6 +277,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-ORDER-COMBINED-PAYMENT-02", title: "批量状态合并付款界面、收款记录与手册", status: "doing", assignee: "Codex", evidence: "OrderBatchStatusDialog.vue; OrderCombinedPaymentRecords.vue; OP_MANUAL_ORDER_SALES.md"},
 		{table: "req_dev", code: "DEV-ORDER-COMBINED-PAYMENT-03", title: "合并付款技术验证与开发交付", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-10-30-order-combined-payment.md; 部署待完成"},
 		{table: "req_product", code: "PR-746-BILL-ORDER-DETAIL-SHARE", title: "已出账账单补充订单费用明细并下载分享图片", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-10-29-bill-order-detail-share.md"},
+		{table: "req_product", code: "PR-748-BOM-START-CONSUMPTION", title: "取消 BOM 逐项工序配置并按批开工扣料", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-11-04-bom-batch-start.md；开发环境演练和 Van 验收待完成"},
+		{table: "req_dev", code: "DEV-PR748-01", title: "工单策略、按批开工扣料及历史兼容", status: "done", assignee: "Codex", evidence: "started_input_flow_api_test.go; started_input_failures_api_test.go; 两批开工与兼容回滚定向验证"},
+		{table: "req_dev", code: "DEV-PR748-02", title: "补退料、撤销与分次报工成本结转", status: "done", assignee: "Codex", evidence: "started_input_adjustment_api_test.go; started_input_flow_api_test.go; 原批次退料及成本验证"},
+		{table: "req_dev", code: "DEV-PR748-03", title: "BOM 和工位界面、商品创建器兼容", status: "doing", assignee: "Codex", evidence: "两套现有模板隔离全链路与 Vue 测试通过；浏览器和开发环境演练待完成"},
+		{table: "req_dev", code: "DEV-PR748-04", title: "手册、全链路验收与开发环境交付", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-11-04-bom-batch-start.md；完整回归、合并和部署待完成"},
 		{table: "req_dev", code: "DEV-PR746-01", title: "账单来源明细与出账快照", status: "done", assignee: "Codex", evidence: "billing detail source and snapshot tests"},
 		{table: "req_dev", code: "DEV-PR746-02", title: "账单页面和 Excel、PDF、PNG 输出", status: "done", assignee: "Codex", evidence: "billing export and rendering tests"},
 		{table: "req_dev", code: "DEV-PR746-03", title: "手册、验收与开发环境交付", status: "in_progress", assignee: "Codex", evidence: "docs/acceptance/2026-10-29-bill-order-detail-share.md"},

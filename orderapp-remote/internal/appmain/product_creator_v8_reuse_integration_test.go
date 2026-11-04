@@ -23,7 +23,8 @@ func verifyV8ReuseDownstream(t *testing.T, ctx context.Context, pool *pgxpool.Po
 			if kind == creatorapp.ModuleProduct {
 				qty = 10
 			}
-			variants := []bomapp.ProductionBomSpecTemplateVariant{{SpecKey: "box", Name: "10件盒装", InventoryUnit: "盒", IsDefault: true, ProcessRouteID: routeID, Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{IsMainInput: true, ProductionBomDraftItem: bomapp.ProductionBomDraftItem{ComponentType: "material", ConsumeUnit: "main_input_unit", QtyPerUnit: qty}}}}}
+			logisticsWeight := 250.0
+			variants := []bomapp.ProductionBomSpecTemplateVariant{{LogisticsWeightG: &logisticsWeight, SpecKey: "box", Name: "10件盒装", InventoryUnit: "盒", IsDefault: true, ProcessRouteID: routeID, Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{IsMainInput: true, ProductionBomDraftItem: bomapp.ProductionBomDraftItem{ComponentType: "material", ConsumeUnit: "main_input_unit", QtyPerUnit: qty}}}}}
 			if _, err = bomSvc.UpdateProductionBomSpecTemplateVersionDraft(ctx, bomapp.UpdateProductionBomSpecTemplateVersionDraftCommand{VersionID: versionID, Actor: "integration-test", Variants: variants}); err != nil {
 				t.Fatal(err)
 			}
@@ -126,8 +127,8 @@ func verifyV8ReuseDownstream(t *testing.T, ctx context.Context, pool *pgxpool.Po
 					t.Fatal(steps)
 				}
 			}
-			if _, err = svc.CommitConfiguration(ctx, run.ID, run.Revision, "v8-reuse-"+string(kind), "integration-test"); err == nil {
-				t.Fatal("stale duplicate accepted")
+			if _, err = svc.CommitConfiguration(ctx, run.ID, run.Revision, "v8-reuse-"+string(kind), "integration-test"); err != nil {
+				t.Fatalf("same request must return its original result: %v", err)
 			}
 			afterRetry, _ := productCreatorBusinessCounts(ctx, pool, schema)
 			if afterRetry != after {

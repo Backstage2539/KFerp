@@ -142,6 +142,23 @@ func TestPR657ProductionRosterPostgresLifecycle(t *testing.T) {
 	if audits != 2 {
 		t.Fatalf("audit count=%d", audits)
 	}
+	// Compatible rollback keeps historical work available for handover but
+	// must not alter a running batch using the new consumption policy.
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+ UPDATE %[1]s.job_cards SET assigned_employee_id=6571,assigned_to='排班主负责人' WHERE id=65702;
+ INSERT INTO %[1]s.work_orders(id,work_order_no,status,product_name,material_consumption_policy) VALUES(65704,'WO-PR748-PAUSED','running','新策略','bom_start_v1');
+ INSERT INTO %[1]s.job_cards(id,work_order_id,sequence_no,operation,workstation_id,workstation,status,planned_input_qty,assigned_employee_id,assigned_to)
+ VALUES(65703,65704,1,'新策略工序',%[2]d,'PR657隔离工位','running',1,6571,'排班主负责人');
+ `, schema, station.ID))
+	t.Setenv("KFERP_BOM_START_READ_ONLY", "1")
+	handover = post("/api/production-roster/handover", productionapp.HandoverWorkstationCommand{WorkstationID: station.ID, WorkDate: time.Now().In(location).Format("2006-01-02"), EmployeeID: 6572, ExpectedVersion: 1, RequestID: "pr748-rollback-handover"})
+	if handover.Code != http.StatusOK {
+		t.Fatalf("legacy handover during rollback: %d %s", handover.Code, handover.Body.String())
+	}
+	var oldOwner, newOwner int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT (SELECT assigned_employee_id FROM %[1]s.job_cards WHERE id=65702),(SELECT assigned_employee_id FROM %[1]s.job_cards WHERE id=65703)`, schema)).Scan(&oldOwner, &newOwner); err != nil || oldOwner != 6572 || newOwner != 6571 {
+		t.Fatalf("rollback handover changed wrong policy: legacy=%d new=%d err=%v", oldOwner, newOwner, err)
+	}
 }
 
 func TestPR658RosterReliefAndManualReplacementAPI(t *testing.T) {

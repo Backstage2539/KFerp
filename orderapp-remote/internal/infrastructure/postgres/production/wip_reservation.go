@@ -177,7 +177,7 @@ func (r Repository) GetWorkOrderWIPCoverage(ctx context.Context, workOrderID int
 		if need.ComponentType == "" {
 			need.ComponentType = "material"
 		}
-		if need.MaterialID > 0 && need.Source != "reservation" {
+		if need.MaterialID > 0 && need.Source != "reservation" && need.Source != "finished_product" && need.ComponentType != "finished_product" {
 			if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(owner_customer_id,0) FROM %s.materials WHERE id=$1`, r.schema), need.MaterialID).Scan(&need.OwnerCustomerID); err != nil {
 				return productionapp.ProductionWIPStatus{}, err
 			}
@@ -272,6 +272,52 @@ func (r Repository) GetWorkOrderWIPCoverage(ctx context.Context, workOrderID int
 		status.ReservedG += row.ReservedG
 		status.ConsumedG += row.ConsumedG
 		status.RemainingG += row.RemainingReservedG
+		status.AvailableG += row.AvailableG
+		status.AvailableUnits += row.AvailableUnits
+		status.ShortageG += row.ShortageG
+		status.ShortageUnits += row.ShortageUnits
+		status.Materials = append(status.Materials, row)
+	}
+	// Product components are not material IDs. Project their actual eligible
+	// stock separately, preserving the BOM specification and variant identity.
+	for _, need := range needs {
+		if need.Source != "finished_product" && need.ComponentType != "finished_product" {
+			continue
+		}
+		productID := need.ComponentProductID
+		if productID == 0 {
+			productID = need.MaterialID
+		}
+		m := productionapp.OperationMaterialUse{ProductID: productID, BomSpecID: need.ComponentBomSpecID, BomVariantID: need.ComponentBomVariantID, SpecG: need.ComponentSpecG, OwnerCustomerID: need.OwnerCustomerID, Warehouse: need.Warehouse, Unit: need.Unit}
+		batches, err := startedMaterialBatchesTx(ctx, tx, r.schema, wo.ID, m)
+		if err != nil {
+			return productionapp.ProductionWIPStatus{}, err
+		}
+		available := float64(0)
+		for _, batch := range batches {
+			available += batch.AvailableQty
+		}
+		row := productionapp.WIPReservationRow{WorkOrderID: wo.ID, WorkOrderNo: wo.WorkOrderNo, RunningItemID: wo.RunningItemID, ProductName: wo.ProductName, ItemType: "product", ItemID: productID, BomSpecID: need.ComponentBomSpecID, BomVariantID: need.ComponentBomVariantID, SpecG: need.ComponentSpecG, OwnerCustomerID: need.OwnerCustomerID, SourceWarehouse: need.Warehouse, MaterialName: need.MaterialName, Unit: need.Unit, InventoryUnit: need.Unit, RequiredG: need.DeductG, RequiredUnits: need.DeductUnits, Status: "projected"}
+		if factor := productionapp.OperationUnitFactor(need.Unit); factor > 0 {
+			row.QuantityBasis = "weight"
+			row.AvailableG = int64(math.Round(available * factor))
+			row.ShortageG = maxInt64(0, row.RequiredG-row.AvailableG)
+			row.RequiredQty = float64(row.RequiredG) / factor
+			row.AvailableQty = available
+			row.ShortageQty = float64(row.ShortageG) / factor
+		} else {
+			row.QuantityBasis = "count"
+			row.AvailableUnits = int64(math.Floor(available))
+			row.ShortageUnits = maxInt64(0, row.RequiredUnits-row.AvailableUnits)
+			row.RequiredQty = float64(row.RequiredUnits)
+			row.AvailableQty = available
+			row.ShortageQty = float64(row.ShortageUnits)
+		}
+		if row.SourceWarehouse == "wip" {
+			row.WIPG, row.WIPUnits = row.AvailableG, row.AvailableUnits
+		}
+		status.RequiredG += row.RequiredG
+		status.RequiredUnits += row.RequiredUnits
 		status.AvailableG += row.AvailableG
 		status.AvailableUnits += row.AvailableUnits
 		status.ShortageG += row.ShortageG

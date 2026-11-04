@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -555,7 +556,11 @@ func (r Repository) HandoverWorkstation(ctx context.Context, cmd app.HandoverWor
 	if assignment.EmployeeID != cmd.EmployeeID {
 		return app.HandoverWorkstationResult{}, fmt.Errorf("接班人必须是当天该工位负责人")
 	}
-	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT jc.id,COALESCE(jc.assigned_employee_id,0),COALESCE(jc.assigned_to,'') FROM %s.job_cards jc JOIN %s.work_orders wo ON wo.id=jc.work_order_id WHERE wo.status NOT IN ('completed','cancelled') AND jc.status IN ('running','paused') AND (jc.workstation_id=$1 OR (jc.workstation_id=0 AND TRIM(jc.workstation)=TRIM($2))) FOR UPDATE OF jc`, r.schema, r.schema), cmd.WorkstationID, assignment.Workstation)
+	policyFilter := ""
+	if os.Getenv("KFERP_BOM_START_READ_ONLY") == "1" {
+		policyFilter = " AND wo.material_consumption_policy <> 'bom_start_v1'"
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT jc.id,COALESCE(jc.assigned_employee_id,0),COALESCE(jc.assigned_to,'') FROM %s.job_cards jc JOIN %s.work_orders wo ON wo.id=jc.work_order_id WHERE wo.status NOT IN ('completed','cancelled') AND jc.status IN ('running','paused') AND (jc.workstation_id=$1 OR (jc.workstation_id=0 AND TRIM(jc.workstation)=TRIM($2)))%s FOR UPDATE OF jc`, r.schema, r.schema, policyFilter), cmd.WorkstationID, assignment.Workstation)
 	if err != nil {
 		return app.HandoverWorkstationResult{}, err
 	}
