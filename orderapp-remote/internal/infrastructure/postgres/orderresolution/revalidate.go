@@ -16,6 +16,29 @@ func (r Repository) revalidatePlan(ctx context.Context, tx pgx.Tx, orderID, requ
 		return err
 	}
 	current.Paused = original.Paused // The request's own pause is not a new business fact.
+	record, err := r.result(ctx, tx, requestID)
+	if err != nil {
+		return err
+	}
+	for _, d := range cmd.Dispositions {
+		if d.Kind != "direct_ship" || d.Choice != "replace_supply" {
+			continue
+		}
+		for _, step := range record.Steps {
+			if step.Kind != d.Kind || step.SourceID != d.ID || step.Choice != d.Choice || step.Status != "completed" {
+				continue
+			}
+			if err = r.verifyCompletedSupply(ctx, tx, orderID, original, d); err != nil {
+				return err
+			}
+			for n := range current.Dependencies {
+				dep := &current.Dependencies[n]
+				if dep.Kind == d.Kind && dep.ID == d.ID && dep.Relation == "supply" && dep.Quantity == 0 {
+					dep.Status = "released"
+				}
+			}
+		}
+	}
 	if current.ExternalVersion != original.ExternalVersion && (current.Invoiced || original.Invoiced) {
 		return fmt.Errorf("%w：开票记录已变化，请重新核实对应凭据", ErrStale)
 	}
@@ -32,10 +55,6 @@ func (r Repository) revalidatePlan(ctx context.Context, tx pgx.Tx, orderID, requ
 	}
 	if fresh.Status != plan.Status || fresh.CreditCents != plan.CreditCents || !reflect.DeepEqual(fresh.Lines, plan.Lines) || !reflect.DeepEqual(fresh.Fees, plan.Fees) {
 		return ErrStale
-	}
-	record, err := r.result(ctx, tx, requestID)
-	if err != nil {
-		return err
 	}
 	for _, task := range fresh.Tasks {
 		found := false

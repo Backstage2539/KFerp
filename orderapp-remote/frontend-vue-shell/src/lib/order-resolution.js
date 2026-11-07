@@ -5,8 +5,13 @@ export function resolutionPayload(form, version, key, {draft=false}={}) {
    if(!draft&&!d.supplies?.length)throw new Error('请逐笔选择替代货源和数量')
    d.supplies=(d.supplies || []).map(s=>{
     const target=Number(s.target_id),quantity=Number(s.quantity)
-    if(!Number.isSafeInteger(target)||target<0||!Number.isSafeInteger(quantity)||quantity<0||(!draft&&(target===0||quantity===0)))throw new Error('请明确选择替代货源并填写预订数量')
-    return {reservation_id:Number(s.reservation_id),target_id:target,quantity}
+    if(!Number.isSafeInteger(target)||target<0||!Number.isSafeInteger(quantity)||quantity<0||(!draft&&!s.converted_only&&(target===0||quantity===0)))throw new Error('请明确选择替代货源并填写预订数量')
+    const out={reservation_id:Number(s.reservation_id),target_id:target,quantity}
+    if(Number(s.converted_quantity)>0||s.physical_version){
+     if(!draft&&s.physical_choice!=='keep_reserved')throw new Error('请明确选择已入库部分保留原批次预留')
+     out.physical_choice=s.physical_choice||'';out.physical_version=s.physical_version||''
+    }
+    return out
    })
   }else delete d.supplies
   if(d.kind==='fee'&&['partial_waiver','negotiated'].includes(d.choice)){
