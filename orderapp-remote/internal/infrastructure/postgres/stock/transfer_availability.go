@@ -107,6 +107,14 @@ WHERE b.%[2]s=$1 AND b.warehouse=$2 AND b.owner_customer_id=$3 AND b.status='res
 	if err != nil {
 		return 0, 0, err
 	}
+	if product {
+		sg, sn, _, err := transferSalesReservedTx(ctx, tx, schema, batchID)
+		if err != nil {
+			return 0, 0, err
+		}
+		g += sg
+		n += sn
+	}
 	return g + pg, n + pn, nil
 }
 
@@ -207,7 +215,11 @@ FROM %s.customer_processing_material_reservations WHERE (finished_stock_batch_id
 	for _, weight := range byWorkOrder {
 		total += weight
 	}
-	return total, nil
+	_, _, salesWeight, err := transferSalesReservedTx(ctx, tx, schema, batchID)
+	if err != nil {
+		return 0, err
+	}
+	return total + salesWeight, nil
 }
 
 func finishedTransferBalancesMatchTx(ctx context.Context, tx pgx.Tx, schema string, productID, specID, specG, owner int64, warehouse string) (bool, error) {

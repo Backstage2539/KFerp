@@ -51,6 +51,17 @@ func (r Repository) completeStep(ctx context.Context, orderID, requestID, stepID
 		return out, err
 	}
 	defer tx.Rollback(ctx)
+	var commandRaw []byte
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT command_json FROM %s.order_resolution_requests WHERE id=$1 AND order_id=$2`, r.schema), requestID, orderID).Scan(&commandRaw); err != nil {
+		return out, err
+	}
+	var originalCommand domain.Command
+	if err = json.Unmarshal(commandRaw, &originalCommand); err != nil {
+		return out, err
+	}
+	if err = r.lockCompanyTargets(ctx, tx, orderID, originalCommand); err != nil {
+		return out, err
+	}
 	if err = r.lock(ctx, tx, orderID); err != nil {
 		return out, err
 	}
@@ -139,6 +150,11 @@ func (r Repository) completeStep(ctx context.Context, orderID, requestID, stepID
 	case "production":
 		if cmd.Choice != step.Choice || strings.TrimSpace(cmd.Note) == "" {
 			return out, fmt.Errorf("请确认原预览的生产处置并填写说明")
+		}
+		if cmd.Choice == "allocate" {
+			// Post the reservation atomically with the final order adjustment.
+			err = r.revalidatePlan(ctx, tx, orderID, requestID, original, out.Command, out.Plan)
+			break
 		}
 		if cmd.Choice == "continue_company" {
 			err = r.confirmCompanyProduction(ctx, tx, orderID, requestID, step.SourceID, cmd.Note, actor)

@@ -11,6 +11,19 @@ code=code.replace(/^import (OrderResolution(?:Step|Policy|Balance)) from .+$/gm,
 code=code.replace(/from (['"])([^'"]+)\1/g,(_,q,path)=>`from ${JSON.stringify(path.startsWith('.')?new URL(/\.[a-z]+$/.test(path)?path:`${path}.js`,filename).href:import.meta.resolve(path))}`)
 const {default:View}=await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
 async function setup(){let editor;await renderToString(createSSRApp({...View,setup(p,c){editor=View.setup(p,c);return editor},render(){return h('div')}},{orderId:7}));return editor}
+test('company stock assignment has no automatic batch target or quantity',async t=>{
+ const previous=globalThis.fetch;t.after(()=>globalThis.fetch=previous)
+ const dep={kind:'production',id:19,status:'completed',company_stock:[{batch_id:301,available_quantity:3,targets:[{order_item_id:401,order_id:40,remaining_quantity:2}]}]}
+ globalThis.fetch=async()=>({ok:true,json:async()=>({context:{version:'v1',lines:[],dependencies:[dep]},options:{production:[{value:'allocate'}]},permissions:{'orders.resolve':true},history:[]})})
+ const editor=await setup();await editor.load(true)
+ const d=editor.form.dispositions[0];assert.equal(d.choice,'');assert.deepEqual(d.stock_selections,[])
+ d.choice='allocate';assert.throws(()=>editor.body(),/批次|分配/)
+ d.stock_selections=[{batch_id:301,target_item_id:0,quantity:''}];assert.throws(()=>editor.body(),/目标|数量/)
+ d.stock_selections[0].target_item_id=401;d.stock_selections[0].quantity='2'
+ assert.deepEqual(editor.body().dispositions[0].stock_selections,[{batch_id:301,target_item_id:401,quantity:2}])
+ d.choice='keep_company_stock';assert.equal(editor.body().dispositions[0].stock_selections,undefined)
+ assert.equal(editor.choices({...dep,company_stock:[]})[0].disabled,true)
+})
 test('pending resolution refresh keeps explicit selections and leaves new dependencies unselected',async t=>{
  const previous=globalThis.fetch;t.after(()=>globalThis.fetch=previous)
  const writes=[]

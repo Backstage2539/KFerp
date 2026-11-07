@@ -17,6 +17,11 @@ func (r Repository) ListTransferOptions(ctx context.Context, q stockapp.Transfer
 		return stockapp.TransferOptionsResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	return r.ListTransferOptionsTx(ctx, tx, q)
+}
+
+// ListTransferOptionsTx reuses the physical stock checks inside the caller transaction.
+func (r Repository) ListTransferOptionsTx(ctx context.Context, tx pgx.Tx, q stockapp.TransferOptionsQuery) (stockapp.TransferOptionsResult, error) {
 	type candidate struct {
 		row             stockapp.TransferOptionRow
 		quality, status string

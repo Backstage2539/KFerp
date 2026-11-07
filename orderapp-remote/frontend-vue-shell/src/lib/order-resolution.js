@@ -14,6 +14,14 @@ export function resolutionPayload(form, version, key, {draft=false}={}) {
     return out
    })
   }else delete d.supplies
+  if(d.kind==='production'&&d.choice==='allocate'){
+   if(!draft&&!d.stock_selections?.length)throw new Error('请选择公司成品的原批次、目标订单和分配数量')
+   d.stock_selections=(d.stock_selections||[]).map(s=>{
+    const batch=Number(s.batch_id),target=Number(s.target_item_id),quantity=Number(s.quantity)
+    if(![batch,target,quantity].every(v=>Number.isSafeInteger(v)&&v>=0)||(!draft&&[batch,target,quantity].some(v=>v===0)))throw new Error('请明确选择成品批次、目标订单并填写分配数量')
+    return {batch_id:batch,target_item_id:target,quantity}
+   })
+  }else delete d.stock_selections
   if(d.kind==='fee'&&['partial_waiver','negotiated'].includes(d.choice)){
    const raw=String(d.amount??(d.amount_specified?Number(d.amount_cents)/100:'')).trim()
    if(draft&&!raw){d.amount_specified=false;d.amount_cents=0;delete d.amount;return d}

@@ -15,6 +15,9 @@ func (r Repository) revalidatePlan(ctx context.Context, tx pgx.Tx, orderID, requ
 	if err != nil {
 		return err
 	}
+	if err = verifyCompanySelectionIdentity(original, current, cmd); err != nil {
+		return err
+	}
 	current.Paused = original.Paused // The request's own pause is not a new business fact.
 	record, err := r.result(ctx, tx, requestID)
 	if err != nil {
