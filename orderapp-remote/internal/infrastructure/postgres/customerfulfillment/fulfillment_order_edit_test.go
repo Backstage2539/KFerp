@@ -750,7 +750,7 @@ func TestFulfillmentOrderEditCancellationAndReceiptCannotRaceReservations(t *tes
 		t.Fatal(e)
 	}
 	c.PreviewToken = p.PreviewToken
-	if _, e = f.svc.CancelMiniDirectShipRequest(ctx, 501, v.RequestID, "employee:703"); e != nil {
+	if _, e = cancelDirectShipResolutionFixture(ctx, f.pool, f.schema, 501, v.RequestID, "customer_cancel", "employee:703"); e != nil {
 		t.Fatal(e)
 	}
 	if _, e = f.svc.UpdateFulfillmentOrder(ctx, c); e == nil {

@@ -107,11 +107,11 @@
       <div v-if="shippingError" class="notice error">{{ shippingError }}</div>
       <div class="bulk-order-bar">
         <button class="secondary" type="button" @click="openBatchStatus" :disabled="!selectedOrderIDs.length">批量修改状态（{{ selectedOrderIDs.length }}）</button>
-        <span>批量失效已选 {{ selectedVoidableOrderIDs.length }} 个</span>
+        <span>订单处理已选 {{ selectedVoidableOrderIDs.length }} 个</span>
         <button class="danger-action" type="button" @click="voidSelectedOrders" :disabled="bulkVoiding || !selectedVoidableOrderIDs.length">
-          {{ bulkVoiding ? '失效中' : '批量失效' }}
+          订单处理
         </button>
-        <small>表头复选框点一次全选当前页正常订单，再点一次取消全选；部分选择时显示横杆。失效后不可恢复，需要重建时从“已失效”订单点“复制”。</small>
+        <small>表头复选框点一次全选当前页正常订单，再点一次取消全选；部分选择时显示横杆。逐单选择原因及处置后预览；取消、关闭和退款分别记录。</small>
       </div>
       <div class="combined-document-bar">
         <div class="combined-document-status">
@@ -125,6 +125,7 @@
           <button class="primary" type="button" @click="openCombinedDeliveryNoteDrawer" :disabled="!canGenerateCombinedDocuments || !allSelectedDocumentsShipped">组合出库单</button>
         </div>
       </div>
+      <section v-if="bulkResolutionOpen" class="panel"><h3>逐单确认处理方式</h3><div v-for="id in selectedOrderIDs" :key="id"><span>{{ rows.find(v => Number(v.id) === Number(id))?.order_no }}</span> <OrderResolutionButton :order-id="Number(id)" @changed="load" /></div></section>
       <div class="table-wrap">
         <table>
           <thead>
@@ -205,6 +206,7 @@
               </td>
               <td>
                 <div class="status-stack">
+                  <strong v-if="row.resolution_status !== 'open' || row.fulfillment_paused">{{ resolutionStatus(row.resolution_status, row.fulfillment_paused) }}</strong>
                   <OrderPaymentSummary :order="row" />
                   <span>收款：{{ row.pay_status || '-' }}{{ row.payment_method ? ' / ' + row.payment_method : '' }}</span>
                   <span v-if="isCustomerStockOrder(row)">履约：{{ customerStockProgressLabel(row) }}</span>
@@ -223,15 +225,7 @@
                 <a class="text-link" href="#" @click.prevent="openInvoiceDrawer(row)">发票</a>
                 <a class="text-link" :href="`/orders/${row.id}/audit`">审计</a>
                 <button class="text-button" type="button" @click.prevent="copyOrder(row)">复制</button>
-                <button v-if="row.is_void" class="voided-action-button" type="button" disabled>已失效</button>
-                <DirectShipCancelButton v-else-if="row.fulfillment_mode" :customer-id="Number(row.customer_id)" :order-id="Number(row.id)" @cancelled="onDirectShipCancelled" />
-                <button
-                  v-else
-                  class="text-button danger-text"
-                  type="button"
-                  @click.prevent="voidOrder(row)"
-                  :disabled="voidingOrderID === Number(row.id)"
-                >失效</button>
+                <OrderResolutionButton :order-id="Number(row.id)" @changed="load" />
               </td>
             </tr>
             <tr v-if="inlineDetail.id === Number(row.id)" class="inline-detail-row">
@@ -406,9 +400,7 @@
             <button class="secondary" type="button" @click="openInvoiceDrawer(activeOrderDetail)">发票</button>
             <OrderDetailsCopyButton :order-id="activeOrderDetail.id" :customer-id="filters.customer_id" />
             <button class="secondary" type="button" @click="copyOrder(activeOrderDetail)">复制订单</button>
-            <button v-if="activeOrderDetail.is_void" class="voided-action-button" type="button" disabled>已失效</button>
-            <DirectShipCancelButton v-else-if="activeOrderDetail.fulfillment_mode" :customer-id="Number(activeOrderDetail.customer_id)" :order-id="Number(activeOrderDetail.id)" @cancelled="onDirectShipCancelled" />
-            <button v-else class="secondary danger-text" type="button" @click="voidOrder(activeOrderDetail)" :disabled="voidingOrderID === Number(activeOrderDetail.id)">失效订单</button>
+            <OrderResolutionButton :order-id="Number(activeOrderDetail.id)" @changed="load" />
           </div>
           <section v-if="!activeOrderDetail.confirmation_required" class="drawer-section order-edit-panel">
             <OrderEntryView
@@ -482,8 +474,9 @@ import PaginationControls from '../components/PaginationControls.vue'
 import { combinedDocumentSelectionSummary, selectedOrdersShareSameCustomer } from '../lib/combined-order-documents'
 import { customerFulfillmentOrderFees } from '../lib/customer-fulfillment'
 import { isShipped, orderRowClass as getOrderRowClass } from '../lib/order-row-state.js'
-import { ordinaryOrderVoidable, isCustomerStockOrder, customerStockProgressLabel, orderProgressLabel } from '../lib/customer-stock-entry'
-import DirectShipCancelButton from '../components/DirectShipCancelButton.vue'
+import { isCustomerStockOrder, customerStockProgressLabel, orderProgressLabel } from '../lib/customer-stock-entry'
+import OrderResolutionButton from '../components/OrderResolutionButton.vue'
+import { resolutionStatus } from '../lib/order-resolution'
 import { invoiceStatusLabel, invoiceStatusTone } from '../lib/order-invoice'
 import { productKindLabel, orderQuoteSourceSummary } from '../lib/order-entry'
 import { orderListSelectionState, selectableOrderIDs, toggleOrderPageSelection } from '../lib/order-list-selection'
@@ -591,7 +584,7 @@ function openBatchStatus() {
 }
 const pageSelectionState = computed(() => orderListSelectionState(rows.value, selectedOrderIDs.value))
 const selectedVoidableOrderIDs = computed(() => selectedRows.value
-  .filter(ordinaryOrderVoidable)
+  .filter(row => !row.is_void)
   .map((row) => Number(row.id))
   .filter(Boolean))
 const selectedShipReadyOrderIDs = computed(() => selectedRows.value
@@ -993,50 +986,8 @@ async function applyShipReadyPreset() {
   await loadPage(1)
 }
 
-async function voidOrder(row) {
-  const id = Number(row?.id || 0)
-  if (!id || !ordinaryOrderVoidable(row)) return
-  const label = orderDisplayName(row)
-  if (!window.confirm(`确认失效订单 ${label}？失效后不可恢复，ERP 默认列表、履约客户订单和小程序订单都不展示；如需重建，请从“已失效”订单复制。`)) return
-  voidingOrderID.value = id
-  shippingError.value = ''
-  shippingMessage.value = ''
-  try {
-    await apiSend(`/api/orders/${id}/void`, { body: { reason: 'ERP订单列表失效' } })
-    selectedOrderIDs.value = selectedOrderIDs.value.filter((item) => item !== id)
-    delete orderSenderIDs[id]
-    shippingMessage.value = `订单 ${label} 已失效`
-    await load()
-    if (filters.void === 'normal' && Number(activeOrderDetail.value?.id || 0) === id) closeOrderDetailDrawer()
-  } catch (err) {
-    shippingError.value = err.message || '订单失效失败'
-  } finally {
-    voidingOrderID.value = 0
-  }
-}
-
-async function onDirectShipCancelled(orderID) { if (Number(activeOrderDetail.value?.id) === Number(orderID)) closeOrderDetailDrawer(); shippingMessage.value = '代发已取消，预订与未结算费用已释放'; await load() }
-
-async function voidSelectedOrders() {
-  const ids = selectedVoidableOrderIDs.value
-  if (!ids.length) return
-  if (!window.confirm(`确认批量失效 ${ids.length} 个订单？失效后不可恢复；ERP 默认列表、履约客户订单和小程序订单都不展示。`)) return
-  bulkVoiding.value = true
-  shippingError.value = ''
-  shippingMessage.value = ''
-  try {
-    const data = await apiSend(`/api/orders/void`, { body: { order_ids: ids, reason: 'ERP订单列表批量失效' } })
-    selectedOrderIDs.value = selectedOrderIDs.value.filter((item) => !ids.includes(item))
-    for (const id of ids) delete orderSenderIDs[id]
-    shippingMessage.value = `已批量失效 ${Number(data.voided || ids.length)} 个订单`
-    await load()
-    if (filters.void === 'normal' && ids.includes(Number(activeOrderDetail.value?.id || 0))) closeOrderDetailDrawer()
-  } catch (err) {
-    shippingError.value = err.message || '批量失效失败'
-  } finally {
-    bulkVoiding.value = false
-  }
-}
+const bulkResolutionOpen = ref(false)
+async function voidSelectedOrders() { bulkResolutionOpen.value = true }
 
 function copyOrder(row) {
   const id = Number(row?.id || 0)

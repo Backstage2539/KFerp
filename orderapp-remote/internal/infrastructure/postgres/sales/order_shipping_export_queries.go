@@ -58,13 +58,13 @@ func (r Repository) LoadOrderShippingExportData(ctx context.Context, orderID int
 			COALESCE(oi.line_no, 0),
 			COALESCE(NULLIF(oi.item_name,''), p.name, ''),
 			COALESCE(oi.spec,''),
-			COALESCE(oi.qty::text,''),
+			(GREATEST(0,COALESCE(oi.qty,0)-COALESCE((to_jsonb(oi)->>'resolution_closed_qty')::numeric,0)))::text,
 			COALESCE(oi.unit,'件'),
 			COALESCE(oi.unit_price::text,'0'),
 			COALESCE(oi.line_total::text,'0')
 		FROM %s.order_items oi
 		LEFT JOIN %s.products p ON p.id=oi.product_id
-		WHERE oi.order_id=$1 AND oi.qty>0
+		WHERE oi.order_id=$1 AND oi.qty>COALESCE((to_jsonb(oi)->>'resolution_closed_qty')::numeric,0)
 		ORDER BY oi.line_no, oi.id
 	`, r.schema, r.schema)
 	rows, err := r.pool.Query(ctx, itemsQ, orderID)

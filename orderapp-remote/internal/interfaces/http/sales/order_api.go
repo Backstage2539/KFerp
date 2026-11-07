@@ -77,6 +77,7 @@ type orderFormAPIResponse struct {
 }
 
 type orderSaveAPIRequest struct {
+	AmendmentID                     int64                   `json:"amendment_id"`
 	FreightOverride                 *freightdomain.Override `json:"freight_override,omitempty"`
 	FreightProtocol                 string                  `json:"freight_protocol"`
 	ExpectedFreightToken            string                  `json:"expected_freight_token"`
@@ -576,9 +577,18 @@ func (h orderAPIHandler) save(c echo.Context) error {
 			return c.JSON(http.StatusForbidden, map[string]string{"error": "customer scope mismatch"})
 		}
 	}
+	if req.AmendmentID > 0 {
+		if actor.AccountType == support.AccountTypeChannelCustomer || !actor.Can("orders.resolve") {
+			return c.JSON(403, map[string]string{"error": "没有订单修订权限"})
+		}
+		if req.EditID > 0 {
+			return c.JSON(400, map[string]string{"error": "修订必须生成新单"})
+		}
+		cmd.AmendmentID = req.AmendmentID
+	}
 	cmd.SelectedPriceTableIDs = req.SelectedPriceTableIDs
 	cmd.ExpectedEditRevision = req.EditRevision
-	cmd.RequireConfirmation = c.Path() == "/api/fulfillment/order" || strings.HasPrefix(c.Path(), "/api/customer-processing/portal/")
+	cmd.RequireConfirmation = req.AmendmentID > 0 || c.Path() == "/api/fulfillment/order" || strings.HasPrefix(c.Path(), "/api/customer-processing/portal/")
 	if c.Path() == "/api/fulfillment/order" {
 		if support.CustomerFulfillmentOrderScopeLimited(c) {
 			return c.JSON(403, map[string]string{"error": "请从客户履约录单入口保存"})

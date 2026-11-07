@@ -43,9 +43,10 @@ function isSelectable(row) {
   return row?.confirmation_status !== 'pending_billing' && (amount === undefined || Number(amount) > 0)
 }
 
-// A recorded payment must be reversed before another can be made. A legacy
-// paid bill has no safe reversal record and must be reconciled separately.
+// An approved resolution may reopen a receivable without reversing cash
+// already received. Legacy paid bills still require separate reconciliation.
 export function billPaymentAction(bill) {
+  if (bill?.payment_additional_allowed && Number(bill?.current_due_amount_cents || 0) > 0 && bill?.status === 'paid' && bill?.payment_reversible) return 'pay'
   if (bill?.payment_reversible) return 'reverse'
   if (bill?.status === 'confirmed' && Number(bill?.current_due_amount_cents || 0) > 0) return 'pay'
   return ''

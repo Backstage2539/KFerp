@@ -1177,7 +1177,7 @@ func orderHasRemainingProductionGapTx(ctx context.Context, tx pgx.Tx, schema, or
      BOOL_OR(COALESCE(d.decision,'')='produce') AS force_produce
    FROM %[1]s.orders o JOIN %[1]s.order_items oi ON oi.order_id=o.id
    LEFT JOIN %[1]s.order_stock_decisions d ON d.order_id=o.id
-   WHERE o.order_no=$1 AND NOT o.is_void AND COALESCE(oi.bom_spec_id,0)>0
+   WHERE o.order_no=$1 AND NOT o.is_void AND COALESCE(to_jsonb(o)->>'resolution_status','open') NOT IN('closed','cancelled') AND NOT COALESCE((to_jsonb(o)->>'fulfillment_paused')::boolean,false) AND COALESCE(oi.bom_spec_id,0)>0
    GROUP BY oi.product_id,oi.bom_spec_id
  ), produced AS (
    SELECT p.product_id,p.bom_spec_id,SUM(p.finished_units::numeric * n.units / NULLIF(peers.units,0)) AS units
@@ -1185,7 +1185,7 @@ func orderHasRemainingProductionGapTx(ctx context.Context, tx pgx.Tx, schema, or
    CROSS JOIN LATERAL (
      SELECT SUM(i.qty) AS units FROM %[1]s.orders o JOIN %[1]s.order_items i ON i.order_id=o.id
      WHERE o.order_no=ANY(string_to_array(replace(p.order_nos,' ',''),','))
-       AND NOT o.is_void AND i.product_id=p.product_id AND i.bom_spec_id=p.bom_spec_id
+       AND NOT o.is_void AND COALESCE(to_jsonb(o)->>'resolution_status','open') NOT IN('closed','cancelled') AND NOT COALESCE((to_jsonb(o)->>'fulfillment_paused')::boolean,false) AND i.product_id=p.product_id AND i.bom_spec_id=p.bom_spec_id
    ) peers
    WHERE $1=ANY(string_to_array(replace(p.order_nos,' ',''),','))
    GROUP BY p.product_id,p.bom_spec_id
@@ -1213,7 +1213,7 @@ func orderHasRemainingProductionGapTx(ctx context.Context, tx pgx.Tx, schema, or
 			SELECT
 				oi.product_id,
 				spec.spec_g,
-				(SUM(COALESCE(oi.qty,0))::bigint * spec.spec_g)::bigint AS need_g,
+				(SUM(GREATEST(0,COALESCE(oi.qty,0)-COALESCE((to_jsonb(oi)->>'resolution_closed_qty')::numeric,0)))::bigint * spec.spec_g)::bigint AS need_g,
 				BOOL_OR(COALESCE(osd.decision,'') = 'produce') AS force_produce
 			FROM %[1]s.order_items oi
 			JOIN target_order o ON o.id=oi.order_id
@@ -1224,7 +1224,7 @@ func orderHasRemainingProductionGapTx(ctx context.Context, tx pgx.Tx, schema, or
 			WHERE COALESCE(oi.product_id,0) > 0
 			  AND spec.spec_g > 0
 			  AND COALESCE(oi.bom_spec_id,0) = 0
-			  AND COALESCE(oi.qty,0) > 0
+			  AND GREATEST(0,COALESCE(oi.qty,0)-COALESCE((to_jsonb(oi)->>'resolution_closed_qty')::numeric,0)) > 0
 			GROUP BY oi.product_id, spec.spec_g
 		),
 		produced AS (

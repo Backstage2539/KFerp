@@ -25,7 +25,7 @@ func (r *Repository) fulfillmentOperations(ctx context.Context, id int64) (app.F
 	// either to the unassigned balance or its settlement, never both.
 	err = r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT
   (SELECT count(*) FROM %[1]s.customer_fee_items WHERE customer_id=$1 AND settlement_batch_id=0 AND status='unsettled'),
-  (SELECT round(coalesce(sum(amount),0)*100)::bigint FROM %[1]s.customer_fee_items WHERE customer_id=$1 AND settlement_batch_id=0 AND status='unsettled'),
+  (SELECT round(coalesce(sum(amount-COALESCE((to_jsonb(f)->>'resolution_credit_cents')::numeric,0)/100),0)*100)::bigint FROM %[1]s.customer_fee_items f WHERE customer_id=$1 AND settlement_batch_id=0 AND status='unsettled'),
   round(coalesce(sum(total_amount) FILTER(WHERE status='draft'),0)*100)::bigint,
   round(coalesce(sum(total_amount) FILTER(WHERE status='confirmed'),0)*100)::bigint,
   round(coalesce(sum(total_amount) FILTER(WHERE status='paid'),0)*100)::bigint

@@ -23,6 +23,7 @@ export const menuGroups = [
       { key: 'miniappEmployeeManual', label: '员工小程序手册', title: '员工小程序 ERP 手册' },
       { key: 'contracts', label: '合同盖章', title: '合同盖章' },
       { key: 'orderSalesManual', label: '订单销售手册', title: '订单销售手册' },
+      { key: 'orderResolutionManual', label: '订单处理手册', title: '订单处理手册' },
     ],
   },
   {

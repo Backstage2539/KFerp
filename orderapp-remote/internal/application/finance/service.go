@@ -330,6 +330,11 @@ func (s *Service) CloseMonth(ctx context.Context, cmd CloseMonthCommand) (domain
 	if err := validateMonth(cmd.Month); err != nil {
 		return domain.MonthlyReport{}, err
 	}
+	if atomic, ok := s.repo.(interface {
+		CloseMonthAtomic(context.Context, CloseMonthCommand) (domain.MonthlyReport, error)
+	}); ok {
+		return atomic.CloseMonthAtomic(ctx, cmd)
+	}
 	report, err := s.DraftReport(ctx, ReportFilter{Month: cmd.Month})
 	if err != nil {
 		return domain.MonthlyReport{}, err

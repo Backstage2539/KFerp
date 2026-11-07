@@ -2362,8 +2362,16 @@ func (r Repository) CancelProductionPlan(ctx context.Context, cmd productionapp.
 	if err != nil {
 		return productionapp.ProductionPlanDetail{}, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer tx.Rollback(ctx)
+	out, err := r.CancelProductionPlanTx(ctx, tx, cmd)
+	if err != nil {
+		return out, err
+	}
+	return out, tx.Commit(ctx)
+}
 
+// CancelProductionPlanTx shares the caller's transaction for atomic order dispositions.
+func (r Repository) CancelProductionPlanTx(ctx context.Context, tx pgx.Tx, cmd productionapp.CancelProductionPlanCommand) (productionapp.ProductionPlanDetail, error) {
 	var planNo, status string
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT plan_no,status
@@ -2381,9 +2389,6 @@ func (r Repository) CancelProductionPlan(ctx context.Context, cmd productionapp.
 		if err != nil {
 			return productionapp.ProductionPlanDetail{}, err
 		}
-		if err := tx.Commit(ctx); err != nil {
-			return productionapp.ProductionPlanDetail{}, err
-		}
 		return detail, nil
 	}
 	if status == "submitted" {
@@ -2396,9 +2401,6 @@ func (r Repository) CancelProductionPlan(ctx context.Context, cmd productionapp.
 		}
 		detail, err := cancelSubmittedUnstartedProductionPlanTx(ctx, tx, r.schema, cmd, planNo)
 		if err != nil {
-			return productionapp.ProductionPlanDetail{}, err
-		}
-		if err := tx.Commit(ctx); err != nil {
 			return productionapp.ProductionPlanDetail{}, err
 		}
 		return detail, nil
@@ -2459,9 +2461,6 @@ func (r Repository) CancelProductionPlan(ctx context.Context, cmd productionapp.
 	}
 	detail, err := loadProductionPlanDetailTx(ctx, tx, r.schema, cmd.ID)
 	if err != nil {
-		return productionapp.ProductionPlanDetail{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
 		return productionapp.ProductionPlanDetail{}, err
 	}
 	return detail, nil

@@ -15,6 +15,24 @@ func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			path := strings.TrimPrefix(c.Request().URL.Path, "/app")
+			if isOrderResolutionRequest(c.Request().Method, path) {
+				actor, ok, err := CurrentActor(c, authz)
+				if err != nil || !ok {
+					return permissionJSONError(c, 401, map[string]string{"error": "请先登录"})
+				}
+				if actor.AccountType == AccountTypeChannelCustomer {
+					return permissionJSONError(c, 403, map[string]string{"error": "订单处理仅供内部员工使用"})
+				}
+				allowed := actor.Can("orders.resolve")
+				if c.Request().Method == http.MethodGet || strings.Contains(path, "/steps/") || strings.HasSuffix(path, "/resolution/balance") {
+					allowed = allowed || actor.Can("orders.read") || actor.Can("production.resolve") || actor.Can("stock.resolve") || actor.Can("finance.resolve")
+				}
+				if !allowed {
+					return permissionJSONError(c, 403, map[string]string{"error": "没有订单处理权限"})
+				}
+				// The handler additionally checks the stored step's role and ownership.
+				return next(c)
+			}
 			if isInternalCustomerStockRequest(path) {
 				actor, ok, err := CurrentActor(c, authz)
 				if err != nil || !ok {
@@ -102,8 +120,12 @@ func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 
 func operationCompletionStockPermission(method, path string) string {
 	path = strings.TrimPrefix(path, "/app")
- if method==http.MethodGet && strings.HasPrefix(path,"/api/job-cards/")&&strings.HasSuffix(path,"/start-preview") || method==http.MethodPost&&path=="/api/production/workstation/start/preview" {return "stock.read"}
- if method==http.MethodPost && (path=="/api/production/workstation/start/submit" || strings.HasPrefix(path,"/api/job-cards/")&&(strings.HasSuffix(path,"/start")||strings.HasSuffix(path,"/material-adjustments")||strings.HasSuffix(path,"/start-reversal"))) {return "stock.write"}
+	if method == http.MethodGet && strings.HasPrefix(path, "/api/job-cards/") && strings.HasSuffix(path, "/start-preview") || method == http.MethodPost && path == "/api/production/workstation/start/preview" {
+		return "stock.read"
+	}
+	if method == http.MethodPost && (path == "/api/production/workstation/start/submit" || strings.HasPrefix(path, "/api/job-cards/") && (strings.HasSuffix(path, "/start") || strings.HasSuffix(path, "/material-adjustments") || strings.HasSuffix(path, "/start-reversal"))) {
+		return "stock.write"
+	}
 
 	if method == http.MethodGet && (strings.HasSuffix(path, "/completion-preview") || strings.HasSuffix(path, "/conversion-preview") || path == "/api/production/process-balances" || path == "/api/production/records") {
 		return "stock.read"
@@ -607,4 +629,34 @@ func isInternalCustomerStockRequest(path string) bool {
 		strings.HasPrefix(path, "/api/stock/virtual-warehouses") ||
 		strings.HasPrefix(path, "/api/settings/logistics/") ||
 		strings.HasPrefix(path, "/api/customer-fulfillment/")
+}
+
+func isOrderResolutionRequest(method, path string) bool {
+	parts := strings.Split(strings.TrimPrefix(path, "/api/orders/"), "/")
+	if !strings.HasPrefix(path, "/api/orders/") || len(parts) < 2 || parts[1] != "resolution" {
+		return false
+	}
+	id, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || id <= 0 {
+		return false
+	}
+	if method == http.MethodGet {
+		return len(parts) == 2 || len(parts) == 3 && parts[2] == "targets"
+	}
+	if method != http.MethodPost {
+		return false
+	}
+	if len(parts) == 3 {
+		return parts[2] == "preview" || parts[2] == "submit" || parts[2] == "draft" || parts[2] == "balance"
+	}
+	if len(parts) == 4 && (parts[3] == "withdraw" || parts[3] == "refresh") {
+		n, e := strconv.ParseInt(parts[2], 10, 64)
+		return e == nil && n > 0
+	}
+	if len(parts) == 5 && parts[3] == "steps" {
+		a, e := strconv.ParseInt(parts[2], 10, 64)
+		b, f := strconv.ParseInt(parts[4], 10, 64)
+		return e == nil && f == nil && a > 0 && b > 0
+	}
+	return false
 }

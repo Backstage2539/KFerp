@@ -19,6 +19,7 @@ var (
 )
 
 type SaveOrderCommand struct {
+	AmendmentID                       int64
 	DeliveryMode                      string
 	DeliveryWarehouseCode             string
 	FulfillmentMode                   string
@@ -673,6 +674,8 @@ type OrderRow struct {
 	CreatedByEmployee     string                   `json:"created_by_employee"`
 	Notes                 string                   `json:"notes"`
 	IsVoid                bool                     `json:"is_void"`
+	ResolutionStatus      string                   `json:"resolution_status"`
+	FulfillmentPaused     bool                     `json:"fulfillment_paused"`
 	InvoiceStatus         string                   `json:"invoice_status"`
 	InvoiceFilename       string                   `json:"invoice_filename"`
 	InvoiceFileURL        string                   `json:"invoice_file_url"`

@@ -50,3 +50,7 @@ test('unpaid shipped orders remain red; only fully paid shipped orders are green
   assert.equal(customerBillingRowClass({ pay_status: '已付款' }, false), '')
   assert.equal(customerBillingRowClass({ pay_status: '已付款' }, true), 'order-row-complete')
 })
+
+test('approved resolution allows collecting reopened receivable while preserving old payment', () => {
+ assert.equal(billPaymentAction({status:'paid',current_due_amount_cents:6000,payment_reversible:true,payment_additional_allowed:true}),'pay')
+})

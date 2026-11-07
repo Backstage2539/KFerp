@@ -117,5 +117,8 @@ END $$;
 		}
 	}
 	_, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.finance_settings(id) VALUES(1) ON CONFLICT(id) DO NOTHING`, schema))
-	return err
+	if err != nil {
+		return err
+	}
+	return EnsurePeriodProtection(ctx, pool, schema)
 }

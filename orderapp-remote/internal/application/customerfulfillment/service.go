@@ -125,6 +125,8 @@ type BillingTotals struct {
 }
 
 type BillingBill struct {
+	PaymentAdditionalAllowed bool  `json:"payment_additional_allowed"`
+	AdjustmentCents          int64 `json:"adjustment_cents"`
 	SettlementResult
 	CustomerName      string `json:"customer_name"`
 	Status            string `json:"status"`
@@ -557,6 +559,7 @@ type SettlementResult struct {
 }
 
 type SettlementLineSummary struct {
+	AdjustmentCents     int64              `json:"adjustment_cents,omitempty"`
 	Detail              *BillingLineDetail `json:"detail,omitempty"`
 	ID                  int64              `json:"id,omitempty"`
 	ChargeType          string             `json:"charge_type"`

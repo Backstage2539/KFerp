@@ -120,3 +120,5 @@ flowchart TD
 
 - 订单履约状态：ERP、客户/员工小程序统一显示生产与入库、库存是否可发货；寄件回传手册新增“入库后重新匹配”，仅更新候选。
 PR-746：已出账账单按订单查看费用明细、下载 Excel/PDF 和分享图片，见[客户履约手册](OP_MANUAL_CUSTOMER_FULFILLMENT.md)。
+
+- `OP_MANUAL_ORDER_RESOLUTION.md`：订单暂停、关闭、取消与修订，分岗位处置、资金登记及历史追溯（PR-749 开发中）。

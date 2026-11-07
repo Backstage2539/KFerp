@@ -266,11 +266,11 @@ func TestPR703RetainedSaleReservesConvertsAndBlocksShipment(t *testing.T) {
 	if e = pool.QueryRow(ctx, fmt.Sprintf(`SELECT delivery_status FROM %s.orders WHERE id=$1`, schema), sale.OrderID).Scan(&deliveryStatus); e != nil || deliveryStatus != "received" {
 		t.Fatalf("source delivery=%s err=%v", deliveryStatus, e)
 	}
-	if _, e = svc.CancelMiniDirectShipRequest(ctx, 501, second.ID, "employee:703"); e != nil {
+	if _, e = cancelDirectShipResolutionFixture(ctx, pool, schema, 501, second.ID, "customer_cancel", "employee:703"); e != nil {
 		t.Fatal(e)
 	}
 	var secondFee float64
-	if e = pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(amount),0) FROM %s.customer_fee_items WHERE source_type='order' AND source_id=$1`, schema), second.OrderID).Scan(&secondFee); e != nil || secondFee != 0 {
+	if e = pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(amount-resolution_credit_cents::numeric/100),0) FROM %s.customer_fee_items WHERE source_type='order' AND source_id=$1`, schema), second.OrderID).Scan(&secondFee); e != nil || secondFee != 0 {
 		t.Fatalf("cancelled service fee=%v err=%v", secondFee, e)
 	}
 	assets, e = repo.ListCustomerAssetInventory(ctx, app.CustomerAssetInventoryQuery{CustomerID: 501, InventoryType: "finished_product"})
@@ -410,10 +410,10 @@ func TestPR703ConfiguredModeCancellationAndSourceDependencyGuards(t *testing.T) 
 	if _, e = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET notes='正常状态更新' WHERE id=70301`, schema)); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = repo.CancelMiniDirectShipRequest(ctx, 501, request.ID, "employee"); e != nil {
+	if _, e = cancelDirectShipResolutionFixture(ctx, pool, schema, 501, request.ID, "customer_cancel", "employee"); e != nil {
 		t.Fatal(e)
 	}
-	if e = postgressales.NewRepository(pool, schema).Void(ctx, 70301, "employee", "取消未生产购货"); e != nil {
+	if e = cancelOrderResolutionFixture(ctx, pool, schema, 70301, "customer_cancel", "employee"); e != nil {
 		t.Fatal(e)
 	}
 	var active int
@@ -524,7 +524,7 @@ func TestPR703FutureEntitlementConcurrentSubmitCannotOversubscribe(t *testing.T)
 	if e := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(reserved_qty-converted_qty-released_qty),0) FROM %s.customer_stock_supply_reservations`, schema)).Scan(&reserved); e != nil || reserved != 8 {
 		t.Fatalf("reserved=%d err=%v", reserved, e)
 	}
-	if _, e := svc.CancelMiniDirectShipRequest(ctx, 501, winner.ID, "employee:703"); e != nil {
+	if _, e := cancelDirectShipResolutionFixture(ctx, pool, schema, 501, winner.ID, "customer_cancel", "employee:703"); e != nil {
 		t.Fatal(e)
 	}
 	if e := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(reserved_qty-converted_qty-released_qty),0) FROM %s.customer_stock_supply_reservations`, schema)).Scan(&reserved); e != nil || reserved != 0 {

@@ -3024,6 +3024,8 @@ async function save(options = {}) {
   const saveVersion = editorLoadVersion
   try {
     const payload = buildOrderPayload({ form, rows: rows.value })
+    const amendmentID = Number(new URL(window.location.href).searchParams.get('amendment_id') || 0)
+    if (amendmentID > 0 && copyMode.value) payload.amendment_id = amendmentID
     if (newRetainedPurchase.value) Object.assign(payload, { pay_status_id: 0, payment_method: '', payment_goods_amount: '', payment_shipping_amount: '', payment_voucher_asset_id: 0, prepayment_amount: '0' })
     if (form.delivery_mode!=='customer_stock' && !orderFreight.value?.edit_locked && (!form.edit_id || !props.customerPortal)) {
       const q=await freightEstimator.value?.preview();if(!q&&!form.freight_state?.preserveExisting){error.value='请完善收件地区及运费配置后重试';return}
