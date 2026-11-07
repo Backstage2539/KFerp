@@ -275,9 +275,6 @@ func (r Repository) load(ctx context.Context, q querier, id int64) (domain.Conte
 			if int64(num(reservation, "request_id")) != d.ID {
 				continue
 			}
-			if num(reservation, "converted_qty") > 0 {
-				d.ReplacementIssue = "关联代发已有实物入库，须先核对实物与待入库数量；混合货源处置尚未开放"
-			}
 			unreleased += max(float64(0), num(reservation, "reserved_qty")-num(reservation, "released_qty"))
 			d.Quantity += max(float64(0), num(reservation, "reserved_qty")-num(reservation, "released_qty")-num(reservation, "converted_qty"))
 		}
