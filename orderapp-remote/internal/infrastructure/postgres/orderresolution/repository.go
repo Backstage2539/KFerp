@@ -260,6 +260,32 @@ func (r Repository) load(ctx context.Context, q querier, id int64) (domain.Conte
 		d.Quantity = max(float64(0), num(reservation, "reserved_qty")-num(reservation, "released_qty")-num(reservation, "converted_qty"))
 		c.Dependencies = append(c.Dependencies, d)
 	}
+	for n := range c.Dependencies {
+		d := &c.Dependencies[n]
+		if d.Kind != "direct_ship" || d.Relation != "supply" || d.Status == "cancelled" {
+			continue
+		}
+		d.Quantity = 0
+		unreleased := float64(0)
+		for _, reservation := range snap.Reservations {
+			if int64(num(reservation, "request_id")) != d.ID {
+				continue
+			}
+			if num(reservation, "converted_qty") > 0 {
+				d.ReplacementIssue = "关联代发已有实物入库，须先核对实物与待入库数量；混合货源处置尚未开放"
+			}
+			unreleased += max(float64(0), num(reservation, "reserved_qty")-num(reservation, "released_qty"))
+			d.Quantity += max(float64(0), num(reservation, "reserved_qty")-num(reservation, "released_qty")-num(reservation, "converted_qty"))
+		}
+		switch {
+		case d.Quantity > 0:
+			d.Status = "reserved"
+		case unreleased > 0:
+			d.Status = "converted"
+		default:
+			d.Status = "released"
+		}
+	}
 	reservationDeps, reservationIssue := reservationDependencies(snap.Items, snap.Allocated, snap.Stock)
 	c.Dependencies = append(c.Dependencies, reservationDeps...)
 	if reservationIssue != "" {
@@ -270,6 +296,9 @@ func (r Repository) load(ctx context.Context, q querier, id int64) (domain.Conte
 			continue
 		}
 		c.Dependencies = append(c.Dependencies, domain.Dependency{Kind: "fee", ID: int64(num(f, "id")), Label: str(f, "fee_type"), Status: str(f, "status"), AmountCents: cents(num(f, "amount")) - int64(num(f, "resolution_credit_cents")), PaidCents: int64(num(f, "paid_cents"))})
+	}
+	if err = r.replacementSources(ctx, q, &c); err != nil {
+		return c, err
 	}
 	return c, nil
 }

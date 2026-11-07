@@ -48,6 +48,10 @@ async function load(restore = false) {
    if (!form.lines.length) form.lines = data.context.lines.map(v => ({ item_id: v.id, quantity: 0 }))
    for (const v of data.context.dependencies.filter(v => !['cancelled', 'released'].includes(v.status))) {
     if (!form.dispositions.some(d => d.kind === v.kind && Number(d.id) === Number(v.id))) form.dispositions.push({ kind: v.kind, id: v.id, choice: '', target_id: 0, amount_cents: 0, reference: '' })
+    const d=disposition(v)
+    if(v.supply_reservations?.length){
+     d.supplies=v.supply_reservations.map(s=>{const prior=d.supplies?.find(choice=>Number(choice.reservation_id)===Number(s.id));return prior?{...prior,quantity:prior.quantity || ''}:{reservation_id:s.id,target_id:0,quantity:''}})
+    }
    }
   }
  } catch (e) { if (g === generation) error.value = e.message }
@@ -56,6 +60,7 @@ async function load(restore = false) {
 async function show() { previousFocus = document.activeElement; previousOverflow = document.body.style.overflow; document.body.style.overflow = 'hidden'; open.value = true; notice.value = ''; preview.value = null; await nextTick(); drawer.value?.focus(); load(true) }
 function close() { if (busy.value) return; generation++; open.value = false; restorePage() }
 function disposition(dep) { return form.dispositions.find(v => v.kind === dep.kind && Number(v.id) === Number(dep.id)) }
+function supplyChoice(dep,source) { return disposition(dep)?.supplies?.find(v=>Number(v.reservation_id)===Number(source.id)) }
 function choices(dep) {
  return (options.value[dep.kind] || []).map(v => {
   let reason = v.disabled ? v.reason : ''
@@ -65,11 +70,14 @@ function choices(dep) {
   if (!reason && dep.kind==='production' && dep.status!=='completed' && ['keep_company_stock','allocate','scrap'].includes(v.value)) reason='请先明确未完成生产的处置'
   if (!reason && dep.kind==='fee' && dep.id>0 && dep.paid_cents>0 && !['keep','defer'].includes(v.value)) reason='该费用已有收款，须先核对费用退款'
   if (!reason && dep.kind==='direct_ship' && dep.relation==='package' && v.value!=='cancel') reason='当前包裹须整单处理，其他包裹分别选择'
+  if (!reason && dep.kind==='direct_ship' && v.value==='replace_supply' && dep.replacement_issue) reason=dep.replacement_issue
+  if (!reason && dep.kind==='direct_ship' && v.value==='replace_supply' && !dep.supply_reservations?.length) reason='没有可切换的待入库预订'
+  if (!reason && v.value==='replace_supply' && dep.supply_reservations?.some(s=>!s.targets?.length)) reason='尚无客户、商品、冻结规格和仓库均匹配的替代货源'
   return {...v,disabled:Boolean(v.disabled || reason),reason}
  })
 }
-function body() { return resolutionPayload(toRaw(form), current.value?.version || '', key) }
-async function saveDraft() { busy.value = true; error.value = ''; try { await apiSend(`/api/orders/${props.orderId}/resolution/draft`, { body: body() }); notice.value = '处理草稿已保存，订单尚未变更' } catch (e) { error.value = e.message } finally { busy.value = false } }
+function body(draft=false) { return resolutionPayload(toRaw(form), current.value?.version || '', key, {draft}) }
+async function saveDraft() { busy.value = true; error.value = ''; try { await apiSend(`/api/orders/${props.orderId}/resolution/draft`, { body: body(true) }); notice.value = '处理草稿已保存，订单尚未变更' } catch (e) { error.value = e.message } finally { busy.value = false } }
 async function review() { busy.value = true; error.value = ''; try { const out = await apiSend(`/api/orders/${props.orderId}/resolution/preview`, { body: body() }); preview.value = out; key = crypto.randomUUID() } catch (e) { preview.value = null; error.value = e.message } finally { busy.value = false } }
 async function submit() {
  if (!preview.value || busy.value || !editable.value) return
@@ -124,7 +132,13 @@ const money = cents => (Number(cents || 0) / 100).toFixed(2)
        <div><strong>{{ dep.label }}{{ dep.kind === 'fee' ? ` · ¥${money(dep.amount_cents)}` : '' }}</strong><span>{{ resolutionDependencyStatus(dep.status) }}{{ dep.shared ? ' · 共享生产' : '' }}</span></div>
        <p v-if="dep.orders?.length" class="related-orders"><button v-for="order in dep.orders" :key="order.id" type="button" @click="relatedOrder(order)">{{ order.number || `订单 #${order.id}` }} · {{ resolutionDependencyStatus(order.status) }}{{ Number(order.id) === Number(orderId) ? '（当前订单）' : '' }}</button></p>
        <span v-if="['cancelled', 'released'].includes(dep.status)" class="hint">已取消或已释放，保留历史记录</span>
-       <template v-else-if="disposition(dep)"><select v-model="disposition(dep).choice" :aria-label="`${dep.label}处置`"><option value="">请选择处置</option><option v-for="v in choices(dep)" :key="v.value" :value="v.value" :disabled="v.disabled">{{ v.label }}{{ v.disabled ? `（${v.reason}）` : '' }}</option></select><label v-if="dep.kind === 'fee' && ['partial_waiver','negotiated'].includes(disposition(dep).choice)">{{ disposition(dep).choice === 'negotiated' ? '协商后保留收费（元）' : '本次减免金额（元）' }}<input v-model="disposition(dep).amount" inputmode="decimal" placeholder="请明确填写金额" /></label><label v-if="dep.kind === 'stock_reservation' && disposition(dep).choice === 'release'">本批释放数量（{{ dep.unit }}）<input v-model.number="disposition(dep).quantity" type="number" min="0" :max="dep.quantity" step="any" placeholder="明确填写本批释放数量" /></label><p v-if="['replace_supply','allocate','reassign'].includes(disposition(dep).choice)" class="hint">提交前须选择具体目标并核验可用数量。</p></template>
+       <template v-else-if="disposition(dep)"><select v-model="disposition(dep).choice" :aria-label="`${dep.label}处置`"><option value="">请选择处置</option><option v-for="v in choices(dep)" :key="v.value" :value="v.value" :disabled="v.disabled">{{ v.label }}{{ v.disabled ? `（${v.reason}）` : '' }}</option></select><label v-if="dep.kind === 'fee' && ['partial_waiver','negotiated'].includes(disposition(dep).choice)">{{ disposition(dep).choice === 'negotiated' ? '协商后保留收费（元）' : '本次减免金额（元）' }}<input v-model="disposition(dep).amount" inputmode="decimal" placeholder="请明确填写金额" /></label><label v-if="dep.kind === 'stock_reservation' && disposition(dep).choice === 'release'">本批释放数量（{{ dep.unit }}）<input v-model.number="disposition(dep).quantity" type="number" min="0" :max="dep.quantity" step="any" placeholder="明确填写本批释放数量" /></label>
+        <template v-if="disposition(dep).choice === 'replace_supply'">
+         <p class="hint">逐笔选择同客户、同商品、同冻结规格及同仓库的替代购货权益。仓库确认并建立新预订后，才会释放原预订。</p>
+         <fieldset v-for="source in dep.supply_reservations" :key="source.id" class="supply-choice"><legend>{{ source.label }}</legend><template v-if="supplyChoice(dep,source)"><p>待入库预订 {{ source.quantity }} {{ source.unit }}</p><label>替代货源<select v-model.number="supplyChoice(dep,source).target_id"><option :value="0">请选择明确的替代货源</option><option v-for="target in source.targets" :key="target.id" :value="target.id">{{ target.label }} · 可用 {{ target.available_qty }} {{ source.unit }}</option></select></label><label>本笔替换数量<input v-model="supplyChoice(dep,source).quantity" type="number" min="1" step="1" :max="source.quantity" placeholder="明确填写本笔待入库预订数量" /></label></template></fieldset>
+        </template>
+        <p v-if="['allocate','reassign'].includes(disposition(dep).choice)" class="hint">提交前须选择具体目标并核验可用数量。</p>
+       </template>
       </div>
      </fieldset>
      <fieldset v-if="!simple" :disabled="busy || !editable">

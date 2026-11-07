@@ -28,6 +28,8 @@ INSERT INTO %[1]s.production_plan_items(id,production_plan_id,product_id,product
 VALUES(78001,78001,911,'shared',1000,36000,'SAFE-VOID-SOURCE,SAFE-VOID-OTHER');
 INSERT INTO %[1]s.work_orders(id,work_order_no,production_plan_id,production_plan_item_id,product_id,product_name,spec_g,planned_g,order_nos,status)
 VALUES(78001,'SAFE-VOID-WORK',78001,78001,911,'shared',1000,36000,'SAFE-VOID-SOURCE,SAFE-VOID-OTHER','completed');
+UPDATE %[1]s.production_plan_items SET customer_id=501,target_warehouse='finished_goods' WHERE id=78001;
+UPDATE %[1]s.work_orders SET customer_id=501,target_warehouse='finished_goods' WHERE id=78001;
 INSERT INTO %[1]s.customer_stock_supply_reservations(entitlement_id,customer_id,request_id,request_item_id,order_id,order_item_id,reserved_qty,released_qty,status)
 SELECT id,501,78001,78001,78002,78002,12,12,'released' FROM %[1]s.customer_stock_entitlements WHERE source_order_id=78001;
 `, schema))

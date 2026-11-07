@@ -287,3 +287,22 @@ func TestNegotiatedFeeRequiresExplicitAmountEvenForZero(t *testing.T) {
 		t.Fatal("omitted negotiation amount waived fee")
 	}
 }
+
+func TestOptionsExplainCompletedProductionAndNothingToReopen(t *testing.T) {
+	c, _ := fixture()
+	c.Dependencies = []Dependency{{Kind: "production", ID: 19, Status: "completed", Shared: true}}
+	for _, o := range OptionsFor(c)["action"] {
+		if oneOf(o.Value, "cancel", "amend", "reopen") && (!o.Disabled || o.Reason == "") {
+			t.Errorf("unavailable action offered without reason: %+v", o)
+		}
+		if o.Value == "close" && o.Disabled {
+			t.Errorf("close remaining must remain available: %+v", o)
+		}
+	}
+	c.Lines[0].Closed = 1
+	for _, o := range OptionsFor(c)["action"] {
+		if o.Value == "reopen" && o.Disabled {
+			t.Errorf("closed quantity cannot reopen: %+v", o)
+		}
+	}
+}

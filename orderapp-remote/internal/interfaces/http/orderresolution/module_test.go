@@ -14,9 +14,10 @@ import (
 
 type fakeBackend struct {
 	Backend
-	id    int64
-	actor string
-	cmd   domain.Command
+	id             int64
+	actor          string
+	cmd            domain.Command
+	stepPermission string
 }
 
 func (f *fakeBackend) Context(context.Context, int64) (domain.Context, error) {
@@ -80,32 +81,40 @@ func (f fakeAuth) ActorByEmployeeID(context.Context, int64) (authzapp.Actor, err
 	return authzapp.Actor{EmployeeID: 7, Permissions: f.permissions}, nil
 }
 func (f *fakeBackend) History(context.Context, int64) ([]repo.Result, error) {
-	return []repo.Result{{ID: 10, Steps: []repo.Step{{ID: 11, Task: domain.Task{Kind: "funds", Permission: "finance.resolve"}}}}}, nil
+	permission := f.stepPermission
+	if permission == "" {
+		permission = "finance.resolve"
+	}
+	return []repo.Result{{ID: 10, Steps: []repo.Step{{ID: 11, Task: domain.Task{Kind: "funds", Permission: permission}}}}}, nil
 }
 func (f *fakeBackend) CompleteStep(_ context.Context, order, request, step int64, cmd repo.StepCommand, actor string) (repo.Result, error) {
 	f.id = order
 	return repo.Result{ID: request, Status: "completed"}, nil
 }
 func TestResolutionStepEnforcesRequiredRole(t *testing.T) {
-	for _, allowed := range []bool{false, true} {
-		f := &fakeBackend{}
-		permissions := []string{"orders.resolve"}
-		if allowed {
-			permissions = []string{"finance.resolve"}
-		}
-		e := echo.New()
-		e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-			return func(c echo.Context) error { c.Set("employee_id", int64(7)); return next(c) }
+	for _, role := range []string{"finance.resolve", "stock.resolve", "production.resolve"} {
+		t.Run(role, func(t *testing.T) {
+			for _, allowed := range []bool{false, true} {
+				f := &fakeBackend{stepPermission: role}
+				permissions := []string{"orders.resolve"}
+				if allowed {
+					permissions = []string{role}
+				}
+				e := echo.New()
+				e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+					return func(c echo.Context) error { c.Set("employee_id", int64(7)); return next(c) }
+				})
+				e.Use(support.AuthorizationMiddleware(fakeAuth{permissions: permissions}))
+				RegisterRoutes(e, f, fakeAuth{permissions: permissions})
+				req := httptest.NewRequest("POST", "/api/orders/7/resolution/10/steps/11", strings.NewReader(`{"choice":"refund"}`))
+				req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+				rec := httptest.NewRecorder()
+				e.ServeHTTP(rec, req)
+				if allowed && rec.Code != 200 || !allowed && (rec.Code != 403 || f.id != 0) {
+					t.Fatalf("allowed=%v status=%d write=%d body=%s", allowed, rec.Code, f.id, rec.Body.String())
+				}
+			}
 		})
-		e.Use(support.AuthorizationMiddleware(fakeAuth{permissions: permissions}))
-		RegisterRoutes(e, f, fakeAuth{permissions: permissions})
-		req := httptest.NewRequest("POST", "/api/orders/7/resolution/10/steps/11", strings.NewReader(`{"choice":"refund"}`))
-		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-		rec := httptest.NewRecorder()
-		e.ServeHTTP(rec, req)
-		if allowed && rec.Code != 200 || !allowed && (rec.Code != 403 || f.id != 0) {
-			t.Fatalf("allowed=%v status=%d write=%d body=%s", allowed, rec.Code, f.id, rec.Body.String())
-		}
 	}
 }
 

@@ -99,6 +99,14 @@ func (r Repository) Refresh(ctx context.Context, orderID, requestID int64, cmd d
 			if task.Kind == "external" && step.Status == "completed" && current.ExternalVersion != original.ExternalVersion {
 				continue
 			}
+			// A pending confirmation describes the exact displayed disposition.
+			// Changing its quantity or destination requires a new confirmation.
+			if task.Kind != "funds" && (step.Label != task.Label || !reflect.DeepEqual(dispositionFor(out.Command, task.Kind, task.SourceID), dispositionFor(cmd, task.Kind, task.SourceID))) {
+				continue
+			}
+			if task.Kind == "approval" && !sameApprovalCommand(out.Command, cmd) {
+				continue
+			}
 			if step.Kind == task.Kind && step.SourceID == task.SourceID && step.Permission == task.Permission && (step.Choice == task.Choice || task.Kind == "funds" || (task.Kind == "external" && step.Status == "completed" && current.ExternalVersion == original.ExternalVersion)) {
 				kept[step.ID] = true
 				matched = true
@@ -155,4 +163,18 @@ func (r Repository) Refresh(ctx context.Context, orderID, requestID int64, cmd d
 		return out, err
 	}
 	return out, tx.Commit(ctx)
+}
+
+func dispositionFor(cmd domain.Command, kind string, id int64) *domain.Disposition {
+	for _, d := range cmd.Dispositions {
+		if d.Kind == kind && d.ID == id {
+			return &d
+		}
+	}
+	return nil
+}
+func sameApprovalCommand(before, after domain.Command) bool {
+	before.Version, after.Version = "", ""
+	before.IdempotencyKey, after.IdempotencyKey = "", ""
+	return reflect.DeepEqual(before, after)
 }
