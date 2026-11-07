@@ -6,6 +6,7 @@ import (
 	"log"
 	"orderapp/internal/infrastructure/postgres/orderconfirmation"
 	progresspg "orderapp/internal/infrastructure/postgres/orderprogress"
+	resolutionpg "orderapp/internal/infrastructure/postgres/orderresolution"
 	"strconv"
 	"strings"
 	"time"
@@ -183,10 +184,10 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 			COALESCE(o.ship_status_id,0) AS ship_status_id,
 			COALESCE(o.process_status_id,0) AS process_status_id,
 			COALESCE(o.notes,'') AS notes,
-			o.is_void,
+			o.is_void,COALESCE(to_jsonb(o)->>'resolution_status','open'),COALESCE((to_jsonb(o)->>'fulfillment_paused')::boolean,false),
 			COALESCE(oi.status,'') AS invoice_status,
 			COALESCE(ia.filename,'') AS invoice_filename,
-			COALESCE(ia.object_key,'') AS invoice_object_key, COALESCE(to_jsonb(o)->>'confirmation_status','accepted'), COALESCE((to_jsonb(o)->>'confirmation_required')::boolean,false)
+			COALESCE(ia.object_key,'') AS invoice_object_key, COALESCE(to_jsonb(o)->>'confirmation_status','accepted'), COALESCE((to_jsonb(o)->>'confirmation_required')::boolean,false), (`+resolutionpg.SettledAmountSQL("o", "ps.name")+`)::float8
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id = o.customer_id
 		LEFT JOIN %s.order_types ot ON ot.id = o.order_type_id
@@ -219,12 +220,12 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 	for dbRows.Next() {
 		var r salesapp.OrderRow
 		var invoiceObjectKey string
-		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.DocumentDate, &r.OrderDate, &r.CustomerID, &r.Customer, &r.ResponsibleType, &r.ResponsibleID, &r.ResponsibleName, &r.TotalAmount, &r.ShippingAmount, &r.DiscountAmount, &r.GrandTotal, &r.ExpressFee, &r.OutsourceMaterialFee, &r.OutsourceRoastFee, &r.OutsourcePackagingFee, &r.OutsourceManualFee, &r.OutsourceTaxFee, &r.OutsourceOtherFee, &r.OutsourceTotalFee, &r.OrderType, &r.PayStatus, &r.SettlementReason, &r.PaymentMethod, &r.PrepaymentAmount, &r.ShipStatus, &r.ShipTrackingNo, &r.ShipMethod, &r.ReceiverName, &r.ReceiverPhone, &r.ReceiverAddress, &r.ReceiverCompany, &r.PortalServiceCode, &r.SourceWarehouse, &r.DeliveryMode, &r.DeliveryWarehouseCode, &r.DeliveryStatus, &r.FulfillmentMode, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.ProductKindSummary, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey, &r.ConfirmationStatus, &r.ConfirmationRequired); err != nil {
+		var settled float64
+		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.DocumentDate, &r.OrderDate, &r.CustomerID, &r.Customer, &r.ResponsibleType, &r.ResponsibleID, &r.ResponsibleName, &r.TotalAmount, &r.ShippingAmount, &r.DiscountAmount, &r.GrandTotal, &r.ExpressFee, &r.OutsourceMaterialFee, &r.OutsourceRoastFee, &r.OutsourcePackagingFee, &r.OutsourceManualFee, &r.OutsourceTaxFee, &r.OutsourceOtherFee, &r.OutsourceTotalFee, &r.OrderType, &r.PayStatus, &r.SettlementReason, &r.PaymentMethod, &r.PrepaymentAmount, &r.ShipStatus, &r.ShipTrackingNo, &r.ShipMethod, &r.ReceiverName, &r.ReceiverPhone, &r.ReceiverAddress, &r.ReceiverCompany, &r.PortalServiceCode, &r.SourceWarehouse, &r.DeliveryMode, &r.DeliveryWarehouseCode, &r.DeliveryStatus, &r.FulfillmentMode, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.ProductKindSummary, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.ResolutionStatus, &r.FulfillmentPaused, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey, &r.ConfirmationStatus, &r.ConfirmationRequired, &settled); err != nil {
 			return nil, false, err
 		}
-		prepayment, _ := strconv.ParseFloat(r.PrepaymentAmount, 64)
 		grand, _ := strconv.ParseFloat(r.GrandTotal, 64)
-		r.PaidAmount, r.UnpaidAmount = salesdomain.OrderPaymentAmounts(r.PayStatus, prepayment, grand)
+		r.PaidAmount, r.UnpaidAmount = salesdomain.OrderPaymentAmounts("", settled, grand)
 		r.InvoiceFileURL = salesOrderAssetURL(invoiceObjectKey)
 		out = append(out, r)
 	}
@@ -318,13 +319,13 @@ func fetchOrdersSummary(ctx context.Context, pool *pgxpool.Pool, schema string, 
 		SELECT count(*)::int AS orders,
 		       count(distinct o.customer_id)::int AS customers,
 		       COALESCE(to_char(COALESCE(SUM(%s),0), 'FM999999999999990.00'), '0.00') AS total_amount,
-		       COALESCE(to_char(COALESCE(SUM(CASE WHEN COALESCE(ps.name,'') ~ '(已付款|已收款|已支付)' THEN %s ELSE COALESCE((to_jsonb(o)->>'prepayment_amount')::numeric,0) END),0), 'FM999999999999990.00'), '0.00') AS paid_amount,
-		       COALESCE(to_char(COALESCE(SUM(CASE WHEN COALESCE(ps.name,'') ~ '(已付款|已收款|已支付)' THEN 0 ELSE GREATEST(0,%s-COALESCE((to_jsonb(o)->>'prepayment_amount')::numeric,0)) END),0), 'FM999999999999990.00'), '0.00') AS pending_settlement_amount
+		       COALESCE(to_char(COALESCE(SUM(%s),0), 'FM999999999999990.00'), '0.00') AS paid_amount,
+		       COALESCE(to_char(COALESCE(SUM(%s),0), 'FM999999999999990.00'), '0.00') AS pending_settlement_amount
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id = o.customer_id
 		LEFT JOIN %s.pay_statuses ps ON ps.id=o.pay_status_id
 		%s
-	`, orderReceivableSQL("o"), orderReceivableSQL("o"), orderReceivableSQL("o"), schema, schema, schema, wsql)
+	`, orderReceivableSQL("o"), resolutionpg.SettledAmountSQL("o", "ps.name"), resolutionpg.DueAmountSQL("o", "ps.name"), schema, schema, schema, wsql)
 
 	var s salesapp.OrdersSummary
 	if err := pool.QueryRow(ctx, sql, args...).Scan(&s.Orders, &s.Customers, &s.TotalAmount, &s.PaidAmount, &s.PendingSettlementAmount); err != nil {

@@ -2453,112 +2453,21 @@ func (r *Repository) loadMiniDirectShipTrackingEvents(ctx context.Context, q min
 	return out, nil
 }
 
+// Legacy callers cannot choose the required production, fee and money
+// dispositions. Keep completed cancellation replays readable, but route new
+// cancellations through the explicitly previewed order-resolution workflow.
 func (r *Repository) CancelMiniDirectShipRequest(ctx context.Context, customerID, requestID int64, actor string) (app.MiniDirectShipRequest, error) {
-	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	request, err := r.GetMiniDirectShipRequest(ctx, customerID, requestID)
 	if err != nil {
 		return app.MiniDirectShipRequest{}, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, fmt.Sprintf("mini-direct-ship:%d", customerID)); err != nil {
-		return app.MiniDirectShipRequest{}, err
+	if request.Status == "cancelled" {
+		return request, nil
 	}
-	var status string
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT status FROM %s.customer_direct_ship_requests
-		WHERE id=$1 AND customer_id=$2 FOR UPDATE
-	`, r.schema), requestID, customerID).Scan(&status); errors.Is(err, pgx.ErrNoRows) {
-		return app.MiniDirectShipRequest{}, app.ErrMiniDirectShipRequestNotFound
-	} else if err != nil {
-		return app.MiniDirectShipRequest{}, err
-	}
-	if status == "cancelled" {
-		return r.loadMiniDirectShipRequest(ctx, tx, customerID, requestID)
-	}
-	if !miniDirectShipCancellationAllowed(status) {
+	if !miniDirectShipCancellationAllowed(request.Status) {
 		return app.MiniDirectShipRequest{}, app.ErrMiniDirectShipCannotCancel
 	}
-	if relationExists(ctx, tx, fmt.Sprintf("%s.order_stock_deductions", r.schema)) {
-		var deducted bool
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT EXISTS(
-				SELECT 1 FROM %s.order_stock_deductions d
-				JOIN %s.customer_direct_ship_request_orders ro ON ro.order_id=d.order_id
-				WHERE ro.request_id=$1
-			)
-		`, r.schema, r.schema), requestID).Scan(&deducted); err != nil {
-			return app.MiniDirectShipRequest{}, err
-		}
-		if deducted {
-			return app.MiniDirectShipRequest{}, app.ErrMiniDirectShipCannotCancel
-		}
-	}
-	orderRows, e := tx.Query(ctx, fmt.Sprintf("SELECT order_id FROM %s.customer_direct_ship_request_orders WHERE request_id=$1 ORDER BY order_id", r.schema), requestID)
-	if e != nil {
-		return app.MiniDirectShipRequest{}, e
-	}
-	cancelOrders := []int64{}
-	for orderRows.Next() {
-		var id int64
-		if e = orderRows.Scan(&id); e != nil {
-			orderRows.Close()
-			return app.MiniDirectShipRequest{}, e
-		}
-		cancelOrders = append(cancelOrders, id)
-	}
-	orderRows.Close()
-	if orderRows.Err() != nil {
-		return app.MiniDirectShipRequest{}, orderRows.Err()
-	}
-	for _, id := range cancelOrders {
-		if e = r.ReverseFulfillmentOrderFeesTx(ctx, tx, customerID, id, actor); e != nil {
-			return app.MiniDirectShipRequest{}, e
-		}
-	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.order_stock_batch_allocations WHERE request_id=$1`, r.schema), requestID); err != nil {
-		return app.MiniDirectShipRequest{}, err
-	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		UPDATE %s.customer_direct_ship_request_allocations SET status='released'
-		WHERE request_id=$1 AND status='reserved'
-	`, r.schema), requestID); err != nil {
-		return app.MiniDirectShipRequest{}, err
-	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		UPDATE %s.customer_processing_output_reservations
-		SET released_qty=GREATEST(released_qty,reserved_qty-converted_qty),status='released',updated_at=now()
-		WHERE request_id=$1 AND status IN ('reserved','partially_converted')
-	`, r.schema), requestID); err != nil {
-		return app.MiniDirectShipRequest{}, err
-	}
-	if relationExists(ctx, tx, r.schema+".customer_stock_supply_reservations") {
-		if _, err := tx.Exec(ctx, fmt.Sprintf("UPDATE %s.customer_stock_supply_reservations SET released_qty=reserved_qty-converted_qty,status='released',updated_at=now() WHERE request_id=$1 AND status IN('reserved','partially_converted')", r.schema), requestID); err != nil {
-			return app.MiniDirectShipRequest{}, err
-		}
-	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		UPDATE %s.orders SET is_void=true,voided_at=now(),void_reason='客户取消发货申请'
-		WHERE id IN (SELECT order_id FROM %s.customer_direct_ship_request_orders WHERE request_id=$1)
-	`, r.schema, r.schema), requestID); err != nil {
-		return app.MiniDirectShipRequest{}, err
-	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_direct_ship_request_orders SET status='cancelled',updated_at=now() WHERE request_id=$1`, r.schema), requestID); err != nil {
-		return app.MiniDirectShipRequest{}, err
-	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		UPDATE %s.customer_direct_ship_requests
-		SET status='cancelled',cancelled_at=now(),updated_at=now() WHERE id=$1
-	`, r.schema), requestID); err != nil {
-		return app.MiniDirectShipRequest{}, err
-	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "customer_direct_ship_request", &requestID, "cancel", postgresinfra.StrPtr("status"), postgresinfra.StrPtr(status), postgresinfra.StrPtr("cancelled"), postgresinfra.AuditMeta{
-		"customer_id": customerID, "released_reservations": true,
-	}); err != nil {
-		return app.MiniDirectShipRequest{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return app.MiniDirectShipRequest{}, err
-	}
-	return r.GetMiniDirectShipRequest(ctx, customerID, requestID)
+	return app.MiniDirectShipRequest{}, fmt.Errorf("请由有权限的人员在 ERP 的“订单处理”中选择取消原因、包裹、费用和资金处置后提交；本次未取消")
 }
 
 func miniDirectShipCancellationAllowed(status string) bool {

@@ -37,6 +37,7 @@ import (
 	postgresmanufacturing "orderapp/internal/infrastructure/postgres/manufacturing"
 	postgresmaterials "orderapp/internal/infrastructure/postgres/materials"
 	postgresmessagecenter "orderapp/internal/infrastructure/postgres/messagecenter"
+	resolutionpg "orderapp/internal/infrastructure/postgres/orderresolution"
 	postgresproductcreator "orderapp/internal/infrastructure/postgres/productcreator"
 	postgresproduction "orderapp/internal/infrastructure/postgres/production"
 	postgresproductspecmigration "orderapp/internal/infrastructure/postgres/productspecmigration"
@@ -59,6 +60,7 @@ import (
 	materialshttp "orderapp/internal/interfaces/http/materials"
 	messagecenterhttp "orderapp/internal/interfaces/http/messagecenter"
 	officialaccounthttp "orderapp/internal/interfaces/http/officialaccount"
+	resolutionhttp "orderapp/internal/interfaces/http/orderresolution"
 	pageentryhttp "orderapp/internal/interfaces/http/pageentry"
 	productcreatorhttp "orderapp/internal/interfaces/http/productcreator"
 	productionhttp "orderapp/internal/interfaces/http/production"
@@ -115,6 +117,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
 	messagecenterhttp.RegisterRoutes(e, messagecenterhttp.Dependencies{MessageCenter: messageCenterSvc})
 	customerportalhttp.RegisterRoutes(e, customerportalhttp.Dependencies{CustomerPortal: customerPortalSvc, CustomerFulfillment: customerFulfillmentSvc, Authz: authzSvc, MessageCenter: messageCenterSvc, SalesDocuments: salesSvc, EmployeeSales: salesSvc, CustomerMaintenance: customerSvc, EmployeeShareSettings: supporthttp.NewAppConfigStore(pool, schema), AssetDir: assetDir})
 	freighthttp.RegisterRoutes(e, pool, schema, customerFulfillmentSvc)
+	resolutionhttp.RegisterRoutes(e, resolutionpg.NewRepository(pool, schema), authzSvc)
 	customerfulfillmenthttp.RegisterRoutes(e, customerfulfillmenthttp.Dependencies{CustomerFulfillment: customerFulfillmentSvc, Customers: customerSvc, MessageCenter: messageCenterSvc, Sales: salesSvc, SharedProcessing: customerPortalSvc, AssetDir: assetDir})
 	cataloghttp.RegisterRoutes(e, cataloghttp.Dependencies{Catalog: catalogSvc})
 	materialshttp.RegisterRoutes(e, materialshttp.Dependencies{Materials: materialsSvc})

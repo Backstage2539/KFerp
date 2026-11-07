@@ -34,24 +34,22 @@ func TestDev288OrderSoftVoidSharedBackboneSources(t *testing.T) {
 	}
 	for _, want := range []string{
 		"失效",
-		"批量失效",
+		"订单处理",
 		"复制",
-		"voidOrder(row)",
+		"OrderResolutionButton",
 		"voidSelectedOrders",
 		"togglePageOrderSelection",
 		"pageSelectionState",
 		"selectedVoidableOrderIDs",
 		"当前页正常订单全选",
 		"copyOrder(row)",
-		"`/api/orders/${id}/void`",
-		"`/api/orders/void`",
-		"失效后不可恢复",
+		"逐单确认处理方式",
 	} {
 		if !strings.Contains(ordersView, want) {
 			t.Fatalf("OrdersView.vue missing soft void marker %q", want)
 		}
 	}
-	for _, forbidden := range []string{"restoreOrder", "unvoid"} {
+	for _, forbidden := range []string{"restoreOrder", "unvoid", "`/api/orders/${id}/void`", "`/api/orders/void`"} {
 		if strings.Contains(ordersView, forbidden) {
 			t.Fatalf("OrdersView.vue must not expose restore marker %q", forbidden)
 		}

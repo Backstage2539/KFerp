@@ -251,13 +251,13 @@ func createProduceBatchFromOrders(ctx context.Context, pool *pgxpool.Pool, schem
 	qItems := fmt.Sprintf(`
 SELECT oi.id, oi.order_id, oi.product_id, COALESCE(p.name,''),
        COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint AS spec_g,
-       COALESCE(oi.qty,0)::bigint AS total_units,
+       GREATEST(0,COALESCE(oi.qty,0)-COALESCE((to_jsonb(oi)->>'resolution_closed_qty')::numeric,0))::bigint AS total_units,
        COALESCE((SELECT SUM(a.allocated_units) FROM %s.produce_batch_allocations a WHERE a.order_item_id=oi.id),0)::bigint AS allocated_units
 FROM %s.order_items oi
 JOIN %s.orders o ON o.id=oi.order_id
 LEFT JOIN %s.products p ON p.id=oi.product_id
 WHERE oi.order_id = ANY($1)
-  AND o.is_void=false AND COALESCE(to_jsonb(o)->>'confirmation_status','accepted')='accepted'
+  AND o.is_void=false AND COALESCE(to_jsonb(o)->>'resolution_status','open') NOT IN('closed','cancelled') AND NOT COALESCE((to_jsonb(o)->>'fulfillment_paused')::boolean,false) AND COALESCE(to_jsonb(o)->>'confirmation_status','accepted')='accepted'
   AND COALESCE(o.process_status_id,0) IN (0,1,2)
 FOR UPDATE OF oi
 `, schema, schema, schema, schema)

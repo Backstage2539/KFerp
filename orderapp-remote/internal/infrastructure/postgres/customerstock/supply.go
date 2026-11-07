@@ -32,7 +32,7 @@ func ListPurchaseTotals(ctx context.Context, q Querier, schema string, customerI
 	if !exists {
 		return nil, nil
 	}
-	rows, err := q.Query(ctx, fmt.Sprintf(`SELECT e.product_id,e.bom_spec_id,MAX(e.bom_variant_id),e.spec_g,e.warehouse_code,SUM(e.promised_qty)::bigint,SUM(e.received_qty)::bigint,COALESCE(p.name,''),COALESCE(s.name,''),COALESCE(s.spec_key,''),COALESCE(s.inventory_unit,''),COALESCE(NULLIF(s.code,''),p.sku_code,''), NOT EXISTS(
+	rows, err := q.Query(ctx, fmt.Sprintf(`SELECT e.product_id,e.bom_spec_id,MAX(e.bom_variant_id),e.spec_g,e.warehouse_code,SUM(e.promised_qty-COALESCE((to_jsonb(e)->>'closed_qty')::bigint,0))::bigint,SUM(e.received_qty)::bigint,COALESCE(p.name,''),COALESCE(s.name,''),COALESCE(s.spec_key,''),COALESCE(s.inventory_unit,''),COALESCE(NULLIF(s.code,''),p.sku_code,''), NOT EXISTS(
  SELECT 1 FROM %[1]s.orders old_order JOIN %[1]s.order_items old_item ON old_item.order_id=old_order.id
  WHERE old_order.customer_id=$1 AND old_order.delivery_mode='customer_stock' AND old_order.delivery_warehouse_code=e.warehouse_code
  AND NOT old_order.is_void AND COALESCE(to_jsonb(old_order)->>'confirmation_status','accepted')='accepted' AND old_item.product_id=e.product_id
@@ -71,13 +71,13 @@ func ListSupply(ctx context.Context, q Querier, schema string, customerID int64,
 		suffix = " FOR UPDATE OF e FOR SHARE OF o"
 	}
 	rows, err := q.Query(ctx, fmt.Sprintf(`SELECT e.id,e.source_order_id,e.source_order_item_id,e.customer_id,e.product_id,e.bom_spec_id,e.bom_variant_id,e.spec_g,e.warehouse_code,
- GREATEST(0,e.promised_qty-e.received_qty),COALESCE(r.qty,0),GREATEST(0,e.promised_qty-e.received_qty-COALESCE(r.qty,0)),COALESCE(p.name,''),
+ GREATEST(0,e.promised_qty-COALESCE((to_jsonb(e)->>'closed_qty')::bigint,0)-e.received_qty),COALESCE(r.qty,0),GREATEST(0,e.promised_qty-COALESCE((to_jsonb(e)->>'closed_qty')::bigint,0)-e.received_qty-COALESCE(r.qty,0)),COALESCE(p.name,''),
  COALESCE(s.name,''),COALESCE(s.spec_key,''),COALESCE(s.inventory_unit,''),COALESCE(NULLIF(s.code,''),p.sku_code,'')
  FROM %[1]s.customer_stock_entitlements e JOIN %[1]s.orders o ON o.id=e.source_order_id JOIN %[1]s.products p ON p.id=e.product_id AND p.active=true
  LEFT JOIN %[1]s.production_bom_specs s ON s.id=e.bom_spec_id
  LEFT JOIN LATERAL(SELECT SUM(reserved_qty-converted_qty-released_qty)::bigint qty FROM %[1]s.customer_stock_supply_reservations WHERE entitlement_id=e.id AND status IN('reserved','partially_converted'))r ON true
- WHERE e.customer_id=$1 AND ($2='' OR e.warehouse_code=$2) AND e.status='active' AND NOT o.is_void AND COALESCE(to_jsonb(o)->>'confirmation_status','accepted')='accepted'
- AND e.promised_qty>e.received_qty ORDER BY e.created_at,e.id%[2]s`, schema, suffix), customerID, warehouse)
+ WHERE e.customer_id=$1 AND ($2='' OR e.warehouse_code=$2) AND e.status='active' AND NOT o.is_void AND COALESCE(to_jsonb(o)->>'resolution_status','open') NOT IN('closed','cancelled') AND NOT COALESCE((to_jsonb(o)->>'fulfillment_paused')::boolean,false) AND COALESCE(to_jsonb(o)->>'confirmation_status','accepted')='accepted'
+ AND e.promised_qty-COALESCE((to_jsonb(e)->>'closed_qty')::bigint,0)>e.received_qty ORDER BY e.created_at,e.id%[2]s`, schema, suffix), customerID, warehouse)
 	if err != nil {
 		return nil, err
 	}
@@ -95,8 +95,8 @@ func ListSupply(ctx context.Context, q Querier, schema string, customerID int64,
 
 func ReserveTx(ctx context.Context, tx pgx.Tx, schema string, supplyID, customerID, requestID, requestItemID, orderID, orderItemID, qty int64) error {
 	var available int64
-	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT e.promised_qty-e.received_qty-COALESCE((SELECT SUM(r.reserved_qty-r.converted_qty-r.released_qty) FROM %[1]s.customer_stock_supply_reservations r WHERE r.entitlement_id=e.id AND r.status IN('reserved','partially_converted')),0)
- FROM %[1]s.customer_stock_entitlements e JOIN %[1]s.orders o ON o.id=e.source_order_id WHERE e.id=$1 AND e.customer_id=$2 AND e.status='active' AND NOT o.is_void AND COALESCE(to_jsonb(o)->>'confirmation_status','accepted')='accepted' FOR UPDATE OF e FOR SHARE OF o`, schema), supplyID, customerID).Scan(&available)
+	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT e.promised_qty-COALESCE((to_jsonb(e)->>'closed_qty')::bigint,0)-e.received_qty-COALESCE((SELECT SUM(r.reserved_qty-r.converted_qty-r.released_qty) FROM %[1]s.customer_stock_supply_reservations r WHERE r.entitlement_id=e.id AND r.status IN('reserved','partially_converted')),0)
+ FROM %[1]s.customer_stock_entitlements e JOIN %[1]s.orders o ON o.id=e.source_order_id WHERE e.id=$1 AND e.customer_id=$2 AND e.status='active' AND NOT o.is_void AND COALESCE(to_jsonb(o)->>'resolution_status','open') NOT IN('closed','cancelled') AND NOT COALESCE((to_jsonb(o)->>'fulfillment_paused')::boolean,false) AND COALESCE(to_jsonb(o)->>'confirmation_status','accepted')='accepted' FOR UPDATE OF e FOR SHARE OF o`, schema), supplyID, customerID).Scan(&available)
 	if err != nil {
 		return err
 	}
@@ -127,7 +127,7 @@ func ReceiveProductionTx(ctx context.Context, tx pgx.Tx, schema string, runningI
 	if prior > 0 {
 		return nil
 	}
-	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT e.id,e.customer_id,e.source_order_id,e.promised_qty-e.received_qty,e.bom_variant_id FROM %[1]s.customer_stock_entitlements e JOIN %[1]s.orders o ON o.id=e.source_order_id WHERE e.status='active' AND NOT o.is_void AND e.product_id=$1 AND e.bom_spec_id=$2 AND e.spec_g=$3 AND e.warehouse_code=$4 AND o.order_no=ANY(string_to_array(replace($5,' ',''),',')) AND e.promised_qty>e.received_qty ORDER BY e.created_at,e.id FOR UPDATE OF e`, schema), productID, bomSpecID, specG, warehouse, orderNos)
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT e.id,e.customer_id,e.source_order_id,e.promised_qty-COALESCE((to_jsonb(e)->>'closed_qty')::bigint,0)-e.received_qty,e.bom_variant_id FROM %[1]s.customer_stock_entitlements e JOIN %[1]s.orders o ON o.id=e.source_order_id WHERE e.status='active' AND NOT o.is_void AND COALESCE(to_jsonb(o)->>'resolution_status','open') NOT IN('closed','cancelled') AND NOT COALESCE((to_jsonb(o)->>'fulfillment_paused')::boolean,false) AND e.product_id=$1 AND e.bom_spec_id=$2 AND e.spec_g=$3 AND e.warehouse_code=$4 AND o.order_no=ANY(string_to_array(replace($5,' ',''),',')) AND e.promised_qty-COALESCE((to_jsonb(e)->>'closed_qty')::bigint,0)>e.received_qty ORDER BY e.created_at,e.id FOR UPDATE OF e`, schema), productID, bomSpecID, specG, warehouse, orderNos)
 	if err != nil {
 		return err
 	}
@@ -178,7 +178,7 @@ func ReceiveProductionTx(ctx context.Context, tx pgx.Tx, schema string, runningI
 		if err = convertReservationsTx(ctx, tx, schema, s.id, s.customer, productID, bomSpecID, bomVariantID, specG, take, batchID, batchCode, warehouse, actor); err != nil {
 			return err
 		}
-		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.orders o SET delivery_status=CASE WHEN NOT EXISTS(SELECT 1 FROM %[1]s.customer_stock_entitlements e WHERE e.source_order_id=o.id AND e.status='active' AND e.received_qty<e.promised_qty) THEN 'received' ELSE 'partially_received' END WHERE id=$1`, schema), s.order); err != nil {
+		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.orders o SET delivery_status=CASE WHEN NOT EXISTS(SELECT 1 FROM %[1]s.customer_stock_entitlements e WHERE e.source_order_id=o.id AND e.status='active' AND e.received_qty<e.promised_qty-COALESCE((to_jsonb(e)->>'closed_qty')::bigint,0)) THEN 'received' ELSE 'partially_received' END WHERE id=$1`, schema), s.order); err != nil {
 			return err
 		}
 		if err = postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "customer_stock_entitlement", &s.id, "production_receive", nil, nil, nil, postgresinfra.AuditMeta{"source_order_id": s.order, "quantity": take, "receipt_key": receiptKey, "batch_code": batchCode}); err != nil {

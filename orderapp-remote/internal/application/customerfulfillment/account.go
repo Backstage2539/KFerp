@@ -31,33 +31,40 @@ type AccountQuery struct {
 	Limit          int
 }
 type AccountOrder struct {
-	Freight              *freightdomain.OrderView `json:"freight,omitempty"`
-	ConfirmationStatus   string                   `json:"confirmation_status"`
-	ConfirmationRequired bool                     `json:"confirmation_required"`
-	AcceptedRevision     int64                    `json:"accepted_revision"`
-	ProcessStatus        string                   `json:"process_status"`
-	ID                   int64                    `json:"id"`
-	OrderNo              string                   `json:"order_no"`
-	OrderDate            string                   `json:"order_date"`
-	ReceiverName         string                   `json:"receiver_name"`
-	ReceiverPhone        string                   `json:"receiver_phone"`
-	ReceiverAddress      string                   `json:"receiver_address"`
-	ShipStatus           string                   `json:"ship_status"`
-	TrackingNo           string                   `json:"ship_tracking_no"`
-	PayStatus            string                   `json:"pay_status"`
-	PaymentStatus        string                   `json:"payment_status"`
-	Service              string                   `json:"portal_service_code"`
-	IsVoid               bool                     `json:"is_void"`
-	GoodsCents           int64                    `json:"goods_cents"`
-	ShippingCents        int64                    `json:"shipping_cents"`
-	DiscountCents        int64                    `json:"discount_cents"`
-	TotalCents           int64                    `json:"total_cents"`
-	PrepaymentCents      int64                    `json:"prepayment_cents"`
-	PaidCents            int64                    `json:"paid_cents"`
-	DueCents             int64                    `json:"due_cents"`
-	Items                []AccountOrderItem       `json:"items,omitempty"`
-	InPeriod             bool                     `json:"in_period,omitempty"`
-	HasOrderShippingFee  bool                     `json:"-"`
+	PaymentGoodsCents         int64                    `json:"payment_goods_cents"`
+	PaymentShippingCents      int64                    `json:"payment_shipping_cents"`
+	ResolutionPaymentTracked  bool                     `json:"-"`
+	ResolutionLegacyCashCents int64                    `json:"-"`
+	ResolutionCreditCents     int64                    `json:"resolution_credit_cents"`
+	ResolutionOffsetCents     int64                    `json:"resolution_offset_cents"`
+	ResolutionSettledOutCents int64                    `json:"resolution_settled_out_cents"`
+	Freight                   *freightdomain.OrderView `json:"freight,omitempty"`
+	ConfirmationStatus        string                   `json:"confirmation_status"`
+	ConfirmationRequired      bool                     `json:"confirmation_required"`
+	AcceptedRevision          int64                    `json:"accepted_revision"`
+	ProcessStatus             string                   `json:"process_status"`
+	ID                        int64                    `json:"id"`
+	OrderNo                   string                   `json:"order_no"`
+	OrderDate                 string                   `json:"order_date"`
+	ReceiverName              string                   `json:"receiver_name"`
+	ReceiverPhone             string                   `json:"receiver_phone"`
+	ReceiverAddress           string                   `json:"receiver_address"`
+	ShipStatus                string                   `json:"ship_status"`
+	TrackingNo                string                   `json:"ship_tracking_no"`
+	PayStatus                 string                   `json:"pay_status"`
+	PaymentStatus             string                   `json:"payment_status"`
+	Service                   string                   `json:"portal_service_code"`
+	IsVoid                    bool                     `json:"is_void"`
+	GoodsCents                int64                    `json:"goods_cents"`
+	ShippingCents             int64                    `json:"shipping_cents"`
+	DiscountCents             int64                    `json:"discount_cents"`
+	TotalCents                int64                    `json:"total_cents"`
+	PrepaymentCents           int64                    `json:"prepayment_cents"`
+	PaidCents                 int64                    `json:"paid_cents"`
+	DueCents                  int64                    `json:"due_cents"`
+	Items                     []AccountOrderItem       `json:"items,omitempty"`
+	InPeriod                  bool                     `json:"in_period,omitempty"`
+	HasOrderShippingFee       bool                     `json:"-"`
 }
 type AccountOrderItem struct {
 	Name                 string  `json:"item_name"`
@@ -74,10 +81,11 @@ type AccountOrderItem struct {
 }
 
 func (o *AccountOrder) SetPayment() {
-	o.PaidCents = o.PrepaymentCents
-	if salesdomain.IsFullyPaid(o.PayStatus) {
-		o.PaidCents = o.TotalCents
+	o.PaidCents = max(o.PrepaymentCents, o.PaymentGoodsCents+o.PaymentShippingCents)
+	if !o.ResolutionPaymentTracked && salesdomain.IsFullyPaid(o.PayStatus) {
+		o.PaidCents = max(o.PaidCents, o.TotalCents+o.ResolutionCreditCents)
 	}
+	o.PaidCents = max(int64(0), o.PaidCents+o.ResolutionLegacyCashCents+o.ResolutionOffsetCents-o.ResolutionSettledOutCents)
 	o.DueCents = max(int64(0), o.TotalCents-o.PaidCents)
 	o.PaymentStatus = "unpaid"
 	if o.DueCents == 0 {

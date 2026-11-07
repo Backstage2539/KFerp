@@ -161,7 +161,8 @@ CREATE TABLE IF NOT EXISTS %[1]s.customer_settlement_payments (
 	reversed_at TIMESTAMPTZ,
 	reversed_by TEXT NOT NULL DEFAULT ''
 );
-CREATE UNIQUE INDEX IF NOT EXISTS customer_settlement_payments_active_uq ON %[1]s.customer_settlement_payments(settlement_batch_id) WHERE reversed_at IS NULL;
+DROP INDEX IF EXISTS %[1]s.customer_settlement_payments_active_uq;
+CREATE INDEX IF NOT EXISTS customer_settlement_payments_active_idx ON %[1]s.customer_settlement_payments(settlement_batch_id,id DESC) WHERE reversed_at IS NULL;
 CREATE TABLE IF NOT EXISTS %[1]s.customer_settlement_payment_keys (
 	customer_id BIGINT NOT NULL REFERENCES %[1]s.customers(id),
 	settlement_batch_id BIGINT NOT NULL REFERENCES %[1]s.customer_settlement_batches(id),
@@ -432,6 +433,7 @@ ALTER TABLE %[1]s.mall_products ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT 
 ALTER TABLE %[1]s.mall_products ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.mall_products ADD COLUMN IF NOT EXISTS spec_name TEXT NOT NULL DEFAULT '';
 ALTER TABLE %[1]s.mall_products ADD COLUMN IF NOT EXISTS inventory_unit TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.customer_fee_items ADD COLUMN IF NOT EXISTS resolution_credit_cents BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE IF EXISTS %[1]s.order_items ADD COLUMN IF NOT EXISTS material_unit_weight_g NUMERIC(20,6);
 ALTER TABLE IF EXISTS %[1]s.order_items ADD COLUMN IF NOT EXISTS material_item_weight_g NUMERIC(20,6);
 ALTER TABLE IF EXISTS %[1]s.order_items ADD COLUMN IF NOT EXISTS logistics_unit_weight_g NUMERIC(20,6);

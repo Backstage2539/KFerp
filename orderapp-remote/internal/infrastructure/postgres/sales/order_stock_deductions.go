@@ -90,9 +90,9 @@ func (r Repository) lockOrdersFinishedIdentitiesTx(ctx context.Context, tx pgx.T
 		       CASE WHEN COALESCE(oi.bom_spec_id,0)>0 THEN 0
 		            ELSE COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint
 		       END AS spec_g,
-		       SUM(COALESCE(oi.qty,0))::bigint AS units
+		       SUM(GREATEST(0,COALESCE(oi.qty,0)-COALESCE((to_jsonb(oi)->>'resolution_closed_qty')::numeric,0)))::bigint AS units
 		FROM %s.order_items oi
-		WHERE oi.order_id=ANY($1::bigint[]) AND oi.qty>0 AND oi.product_id>0
+		WHERE oi.order_id=ANY($1::bigint[]) AND oi.qty>COALESCE((to_jsonb(oi)->>'resolution_closed_qty')::numeric,0) AND oi.product_id>0
 		GROUP BY oi.order_id,oi.product_id,oi.bom_spec_id,
 		         CASE WHEN COALESCE(oi.bom_spec_id,0)>0 THEN 0
 		              ELSE COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint
@@ -560,10 +560,10 @@ func (r Repository) deductOrderSourceWarehouseItemsTx(ctx context.Context, tx pg
 		       CASE WHEN COALESCE(oi.bom_spec_id,0)>0 THEN 0
 		            ELSE COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint
 		       END AS spec_g,
-		       SUM(COALESCE(oi.qty,0))::bigint AS units
+		       SUM(GREATEST(0,COALESCE(oi.qty,0)-COALESCE((to_jsonb(oi)->>'resolution_closed_qty')::numeric,0)))::bigint AS units
 		FROM %s.order_items oi
 		LEFT JOIN %s.products p ON p.id=oi.product_id
-		WHERE oi.order_id=$1 AND oi.qty>0
+		WHERE oi.order_id=$1 AND oi.qty>COALESCE((to_jsonb(oi)->>'resolution_closed_qty')::numeric,0)
 		GROUP BY oi.product_id, oi.bom_spec_id, oi.item_name, p.name,
 		         CASE WHEN COALESCE(oi.bom_spec_id,0)>0 THEN 0
 		              ELSE COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint

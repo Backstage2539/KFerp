@@ -24,3 +24,9 @@ test('viewNavigationURL clears stale view params when opening a new entry view',
   assert.equal(next.searchParams.has('scope'), false)
   assert.equal(next.searchParams.has('highlight_order_id'), false)
 })
+
+test('leaving amendment entry clears its source and amendment identifiers',()=>{
+ const url=new URL('http://localhost/app/vue-shell?view=order&copy_id=7&amendment_id=8')
+ const next=viewNavigationURL(url,'orders');assert.equal(next.searchParams.has('copy_id'),false);assert.equal(next.searchParams.has('amendment_id'),false)
+ const entry=viewNavigationURL(next,'order',{copy_id:7,amendment_id:8});assert.equal(entry.searchParams.get('amendment_id'),'8')
+})
