@@ -151,6 +151,13 @@ func (r Repository) MonthlySourceTotals(ctx context.Context, filter appfinance.R
 		return out, nil, err
 	}
 	out.RevenueTaxInclusive += adjustment
+	feeDetails, err := r.feeRevenueDetails(ctx, filter)
+	if err != nil {
+		return out, nil, err
+	}
+	for _, fee := range feeDetails {
+		out.RevenueTaxInclusive += fee.Amount
+	}
 	var productionCost, mainCostExpense, periodExpense, inputVAT, nonDeductibleVAT domain.Money
 	_ = r.query().QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(SUM(total_cost),0)::float8
@@ -410,6 +417,11 @@ func (r Repository) FinanceSourceDetails(ctx context.Context, filter appfinance.
 		return nil, err
 	}
 	out = append(out, adjustment...)
+	fees, err := r.feeRevenueDetails(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, fees...)
 	return out, nil
 }
 

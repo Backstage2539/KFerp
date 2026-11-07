@@ -262,7 +262,7 @@
                   ><span v-else>未关联订单</span>
                 </td>
                 <td>{{ accountFeeType(fee.fee_type) }}</td>
-                <td>{{ money(fee.amount_cents) }} {{ fee.currency }}</td>
+                <td>{{ money(fee.amount_cents) }} {{ fee.currency }}<small v-if="fee.adjustment_cents">原费用 {{ money(fee.original_amount_cents) }} · 冲减 {{ money(fee.adjustment_cents) }}<br />原收款 {{ money(fee.cash_received_cents) }} · 资金已处置 {{ money(fee.settled_out_cents) }}</small></td>
                 <td>
                   {{ fee.settlement_no || "未入结算"
                   }}<small>{{ accountStatus(fee.settlement_status) }}</small>

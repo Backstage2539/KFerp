@@ -51,3 +51,30 @@ test('replacement supply starts with blank warehouse choices and explicit quanti
  choice.supplies[0].target_id=41;choice.supplies[0].quantity='3'
  assert.deepEqual(editor.body().dispositions[0].supplies,[{reservation_id:31,target_id:41,quantity:3}])
 })
+
+test('confirmed paid fees allow explicit negotiated credit without choosing a refund',async t=>{
+ const previous=globalThis.fetch;t.after(()=>globalThis.fetch=previous)
+ const fee={kind:'fee',id:91,status:'settled',amount_cents:1000,paid_cents:1000}
+ globalThis.fetch=async()=>({ok:true,json:async()=>({context:{version:'paid-fee',lines:[],dependencies:[fee]},options:{fee:[{value:'keep'},{value:'partial_waiver'},{value:'waive'}]},permissions:{'orders.resolve':true},history:[]})})
+ const editor=await setup();await editor.load(true)
+ assert.equal(editor.form.dispositions[0].choice,'')
+ assert.equal(editor.choices(fee).find(v=>v.value==='partial_waiver').disabled,false)
+ assert.equal(editor.form.dispositions.some(v=>v.kind==='funds'),false)
+})
+
+test('fee-only scope explicitly excludes fulfillment choices and keeps cash dispositions blank',async t=>{
+ const previous=globalThis.fetch;t.after(()=>globalThis.fetch=previous)
+ const production={kind:'production',id:19,status:'completed',shared:true}, fee={kind:'fee',id:91,status:'settled',amount_cents:500,paid_cents:1000,settled_out_cents:500}
+ globalThis.fetch=async()=>({ok:true,json:async()=>({context:{version:'closed-fee',status:'closed',lines:[{id:3,closed:2}],dependencies:[production,fee]},options:{scope:[{value:'all'},{value:'fees_only'}],timing:[{value:'stop_first'},{value:'settle_first'}],fee:[{value:'keep'},{value:'waive'}]},permissions:{'orders.resolve':true},history:[]})})
+ const editor=await setup();await editor.load(true)
+ assert.equal(editor.form.scope,'');editor.form.action='credit';editor.form.scope='fees_only'
+ assert.deepEqual(editor.visibleDependencies.value.map(v=>v.kind),['fee'])
+ assert.deepEqual(editor.timingOptions.value.map(v=>v.value),['settle_first'])
+ assert.equal(editor.form.timing,'');assert.equal(editor.form.dispositions[1].choice,'')
+ editor.form.dispositions[1].choice='waive'
+ assert.deepEqual(editor.body().dispositions.map(v=>v.kind),['fee'])
+ assert.equal(editor.body().lines.length,0)
+ const unknown={...fee,paid_cents:0,cash_issue:'历史结算尚无可核对收款'}
+ assert.equal(editor.choices(unknown).find(v=>v.value==='waive').disabled,true)
+ assert.equal(editor.choices({...fee,amount_cents:-100}).find(v=>v.value==='waive').disabled,true)
+})

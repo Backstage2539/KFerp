@@ -63,8 +63,12 @@ func (r Repository) Context(ctx context.Context, id int64) (domain.Context, erro
 }
 func (r Repository) load(ctx context.Context, q querier, id int64) (domain.Context, error) {
 	c := domain.Context{Lines: []domain.Line{}, Dependencies: []domain.Dependency{}, Unavailable: unavailableCapabilities()}
+	feePredicate, err := r.feeOrderPredicate(ctx, q)
+	if err != nil {
+		return c, err
+	}
 	var raw []byte
-	err := q.QueryRow(ctx, fmt.Sprintf(`SELECT jsonb_build_object(
+	err = q.QueryRow(ctx, fmt.Sprintf(`SELECT jsonb_build_object(
  'order',to_jsonb(o),'items',COALESCE((SELECT jsonb_agg(to_jsonb(i) ORDER BY i.id) FROM %[1]s.order_items i WHERE i.order_id=o.id),'[]'),
  'entitlements',COALESCE((SELECT jsonb_agg(to_jsonb(e) ORDER BY e.id) FROM %[1]s.customer_stock_entitlements e WHERE e.source_order_id=o.id),'[]'),
  'reservations',COALESCE((SELECT jsonb_agg(to_jsonb(s) ORDER BY s.id) FROM %[1]s.customer_stock_supply_reservations s JOIN %[1]s.customer_stock_entitlements e ON e.id=s.entitlement_id WHERE e.source_order_id=o.id),'[]'),
@@ -75,8 +79,8 @@ func (r Repository) load(ctx context.Context, q querier, id int64) (domain.Conte
  'plan_items',COALESCE((SELECT jsonb_agg(to_jsonb(i)ORDER BY i.id)FROM %[1]s.production_plan_items i WHERE i.production_plan_id IN(SELECT x.production_plan_id FROM %[1]s.production_plan_items x WHERE o.order_no=ANY(string_to_array(replace(x.order_nos,' ',''),',')))),'[]'),
  'plans',COALESCE((SELECT jsonb_agg(to_jsonb(p) ORDER BY p.id) FROM %[1]s.production_plans p WHERE EXISTS(SELECT 1 FROM %[1]s.production_plan_items i WHERE i.production_plan_id=p.id AND o.order_no=ANY(string_to_array(replace(i.order_nos,' ',''),',')))),'[]'),
  'invoice',(SELECT to_jsonb(i) FROM %[1]s.order_invoices i WHERE i.order_id=o.id),
- 'billing',COALESCE((SELECT jsonb_agg(to_jsonb(l)||jsonb_build_object('bill_status',b.status) ORDER BY l.id) FROM %[1]s.customer_settlement_lines l JOIN %[1]s.customer_settlement_batches b ON b.id=l.settlement_batch_id AND b.customer_id=l.customer_id WHERE ((l.source_type='order' AND l.source_id=o.id) OR (l.source_type='customer_fee_item' AND l.source_id IN(SELECT f.id FROM %[1]s.customer_fee_items f WHERE f.source_type IN('order','direct_ship_order')AND f.source_id=o.id))) AND l.reversed_at IS NULL AND b.status IN('confirmed','paid','settled') AND COALESCE(b.processing_billing_run_id,0)=0),'[]'),
- 'fees',COALESCE((SELECT jsonb_agg(to_jsonb(f)||jsonb_build_object('paid_cents',CASE WHEN b.status IN('paid','settled') THEN round((f.amount-f.resolution_credit_cents/100.0)*100)::bigint ELSE 0 END,'bill_status',COALESCE(b.status,'')) ORDER BY f.id) FROM %[1]s.customer_fee_items f LEFT JOIN %[1]s.customer_settlement_batches b ON b.id=f.settlement_batch_id AND b.customer_id=f.customer_id WHERE f.source_type IN('order','direct_ship_order') AND f.source_id=o.id),'[]'),
+ 'billing',COALESCE((SELECT jsonb_agg(to_jsonb(l)||jsonb_build_object('bill_status',b.status) ORDER BY l.id) FROM %[1]s.customer_settlement_lines l JOIN %[1]s.customer_settlement_batches b ON b.id=l.settlement_batch_id AND b.customer_id=l.customer_id WHERE ((l.source_type='order' AND l.source_id=o.id) OR (l.source_type='customer_fee_item' AND l.source_id IN(SELECT f.id FROM %[1]s.customer_fee_items f WHERE %[2]s))) AND l.reversed_at IS NULL AND b.status IN('confirmed','paid','settled') AND COALESCE(b.processing_billing_run_id,0)=0),'[]'),
+ 'fees',COALESCE((SELECT jsonb_agg(to_jsonb(f)||jsonb_build_object('paid_cents',CASE WHEN f.resolution_cash_tracked THEN f.resolution_cash_received_cents WHEN b.status='paid' THEN round((f.amount-f.resolution_credit_cents/100.0)*100)::bigint ELSE 0 END,'bill_status',COALESCE(b.status,'')) ORDER BY f.id) FROM %[1]s.customer_fee_items f LEFT JOIN %[1]s.customer_settlement_batches b ON b.id=f.settlement_batch_id AND b.customer_id=f.customer_id WHERE %[2]s),'[]'),
  'stock',COALESCE((SELECT jsonb_agg(to_jsonb(d) ORDER BY d.id) FROM %[1]s.order_stock_deductions d WHERE d.order_id=o.id),'[]'),
  'allocated',COALESCE((SELECT jsonb_agg(to_jsonb(a) ORDER BY a.id) FROM %[1]s.order_stock_batch_allocations a WHERE a.order_id=o.id),'[]'),
  'fee_events',COALESCE((SELECT jsonb_agg(to_jsonb(f) ORDER BY f.id) FROM %[1]s.order_resolution_fee_events f WHERE f.order_id=o.id),'[]'),
@@ -84,7 +88,7 @@ func (r Repository) load(ctx context.Context, q querier, id int64) (domain.Conte
  'policy',(SELECT to_jsonb(p) FROM %[1]s.order_resolution_policy p WHERE p.id=1),
  'pay_status',COALESCE((SELECT name FROM %[1]s.pay_statuses WHERE id=o.pay_status_id),''),
  'ship_status',COALESCE((SELECT name FROM %[1]s.ship_statuses WHERE id=o.ship_status_id),'')
- ) FROM %[1]s.orders o WHERE o.id=$1`, r.schema), id).Scan(&raw)
+ ) FROM %[1]s.orders o WHERE o.id=$1`, r.schema, feePredicate), id).Scan(&raw)
 	if err != nil {
 		return c, err
 	}
@@ -150,7 +154,7 @@ func (r Repository) load(ctx context.Context, q querier, id int64) (domain.Conte
 	c.Invoiced = len(snap.Invoice) > 0 && string(snap.Invoice) != "null"
 	c.Billed = len(snap.Billing) > 0
 	for _, f := range snap.Financial {
-		if one(str(f, "kind"), "refund", "customer_credit", "offset") {
+		if num(f, "source_fee_id") == 0 && one(str(f, "kind"), "refund", "customer_credit", "offset") {
 			c.CreditUsedCents += int64(num(f, "amount_cents"))
 		}
 	}
@@ -292,10 +296,14 @@ func (r Repository) load(ctx context.Context, q querier, id int64) (domain.Conte
 		c.FulfillmentIssue = reservationIssue
 	}
 	for _, f := range snap.Fees {
+		cashIssue := ""
+		if (str(f, "bill_status") == "settled" || (str(f, "bill_status") == "" && str(f, "status") == "settled")) && int64(num(f, "paid_cents")) == 0 {
+			cashIssue = "费用仅有历史结算标记，尚无可核对的收款金额，请先由财务核对收款来源"
+		}
 		if one(str(f, "status"), "reversed", "cancelled") {
 			continue
 		}
-		c.Dependencies = append(c.Dependencies, domain.Dependency{Kind: "fee", ID: int64(num(f, "id")), Label: str(f, "fee_type"), Status: str(f, "status"), AmountCents: cents(num(f, "amount")) - int64(num(f, "resolution_credit_cents")), PaidCents: int64(num(f, "paid_cents"))})
+		c.Dependencies = append(c.Dependencies, domain.Dependency{Kind: "fee", ID: int64(num(f, "id")), Label: feeLabel(str(f, "fee_type")), CashIssue: cashIssue, Status: str(f, "status"), AmountCents: cents(num(f, "amount")) - int64(num(f, "resolution_credit_cents")), PaidCents: int64(num(f, "paid_cents")), SettledOutCents: int64(num(f, "resolution_settled_out_cents"))})
 	}
 	if err = r.replacementSources(ctx, q, &c); err != nil {
 		return c, err
@@ -429,7 +437,7 @@ func (r Repository) Submit(ctx context.Context, id int64, cmd domain.Command, ac
 		if err = r.apply(ctx, tx, id, out.ID, current, cmd, plan, actor); err != nil {
 			return out, err
 		}
-	} else {
+	} else if cmd.Scope != "fees_only" {
 		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET fulfillment_paused=true WHERE id=$1`, r.schema), id); err != nil {
 			return out, err
 		}
@@ -487,6 +495,10 @@ func (r Repository) apply(ctx context.Context, tx pgx.Tx, id, requestID int64, c
 			return err
 		}
 	}
+	feePredicate, err := r.feeOrderPredicate(ctx, tx)
+	if err != nil {
+		return err
+	}
 	for _, fee := range p.Fees {
 		if fee.SourceID == -1 {
 			if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET resolution_shipping_credit_cents=resolution_shipping_credit_cents+$2 WHERE id=$1`, r.schema), id, fee.CreditCents); err != nil {
@@ -494,7 +506,13 @@ func (r Repository) apply(ctx context.Context, tx pgx.Tx, id, requestID int64, c
 			}
 		}
 		if fee.SourceID > 0 && fee.CreditCents > 0 {
-			tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.customer_fee_items f SET resolution_credit_cents=resolution_credit_cents+$2 WHERE id=$1 AND customer_id=$3 AND source_type IN('order','direct_ship_order')AND source_id=$4 AND round(amount*100)::bigint-resolution_credit_cents >= $2 AND NOT EXISTS(SELECT 1 FROM %[1]s.customer_settlement_batches b WHERE b.id=f.settlement_batch_id AND b.status IN('paid','settled'))`, r.schema), fee.SourceID, fee.CreditCents, current.CustomerID, id)
+			paid := int64(0)
+			for _, dep := range current.Dependencies {
+				if dep.Kind == "fee" && dep.ID == fee.SourceID {
+					paid = dep.PaidCents
+				}
+			}
+			tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.customer_fee_items f SET resolution_credit_cents=resolution_credit_cents+$2,resolution_cash_tracked=resolution_cash_tracked OR $5>0,resolution_cash_received_cents=CASE WHEN resolution_cash_tracked THEN resolution_cash_received_cents ELSE $5 END WHERE id=$1 AND customer_id=$3 AND EXISTS(SELECT 1 FROM %[1]s.orders o WHERE o.id=$4 AND %[2]s) AND round(amount*100)::bigint-resolution_credit_cents >= $2 AND NOT EXISTS(SELECT 1 FROM %[1]s.customer_settlement_batches b WHERE b.id=f.settlement_batch_id AND b.status='settled' AND NOT f.resolution_cash_tracked)`, r.schema, feePredicate), fee.SourceID, fee.CreditCents, current.CustomerID, id, paid)
 			if err != nil {
 				return err
 			}
@@ -522,7 +540,7 @@ func (r Repository) apply(ctx context.Context, tx pgx.Tx, id, requestID int64, c
 			return err
 		}
 	}
-	_, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET resolution_status=$2,fulfillment_paused=false,resolution_credit_cents=resolution_credit_cents+$3,is_void=CASE WHEN $2='cancelled' THEN true ELSE is_void END WHERE id=$1`, r.schema), id, p.Status, p.CreditCents)
+	_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET resolution_status=$2,fulfillment_paused=CASE WHEN $4 THEN fulfillment_paused ELSE false END,resolution_credit_cents=resolution_credit_cents+$3,is_void=CASE WHEN $2='cancelled' THEN true ELSE is_void END WHERE id=$1`, r.schema), id, p.Status, p.CreditCents, cmd.Scope == "fees_only")
 	if err != nil {
 		return err
 	}

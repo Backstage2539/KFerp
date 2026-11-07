@@ -112,23 +112,27 @@ type AccountSummary struct {
 	PayableCents           int64 `json:"payable_cents"`
 }
 type AccountFee struct {
-	ID               int64  `json:"id"`
-	OrderID          int64  `json:"order_id"`
-	OrderNo          string `json:"order_no"`
-	FeeType          string `json:"fee_type"`
-	AmountCents      int64  `json:"amount_cents"`
-	Currency         string `json:"currency"`
-	OccurredAt       string `json:"occurred_at"`
-	SettlementID     int64  `json:"settlement_id"`
-	SettlementNo     string `json:"settlement_no"`
-	SettlementStatus string `json:"settlement_status"`
-	PaymentStatus    string `json:"payment_status"`
-	SourceType       string `json:"source_type"`
-	SourceID         int64  `json:"source_id"`
-	FeeName          string `json:"fee_name"`
-	IncludedInOrder  bool   `json:"included_in_order"`
-	ShipmentID       int64  `json:"shipment_id,omitempty"`
-	TrackingNo       string `json:"tracking_no,omitempty"`
+	OriginalAmountCents int64  `json:"original_amount_cents"`
+	AdjustmentCents     int64  `json:"adjustment_cents"`
+	CashReceivedCents   int64  `json:"cash_received_cents"`
+	SettledOutCents     int64  `json:"settled_out_cents"`
+	ID                  int64  `json:"id"`
+	OrderID             int64  `json:"order_id"`
+	OrderNo             string `json:"order_no"`
+	FeeType             string `json:"fee_type"`
+	AmountCents         int64  `json:"amount_cents"`
+	Currency            string `json:"currency"`
+	OccurredAt          string `json:"occurred_at"`
+	SettlementID        int64  `json:"settlement_id"`
+	SettlementNo        string `json:"settlement_no"`
+	SettlementStatus    string `json:"settlement_status"`
+	PaymentStatus       string `json:"payment_status"`
+	SourceType          string `json:"source_type"`
+	SourceID            int64  `json:"source_id"`
+	FeeName             string `json:"fee_name"`
+	IncludedInOrder     bool   `json:"included_in_order"`
+	ShipmentID          int64  `json:"shipment_id,omitempty"`
+	TrackingNo          string `json:"tracking_no,omitempty"`
 }
 
 type AccountShipment struct {
