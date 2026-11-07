@@ -54,6 +54,7 @@ async function load(restore = false) {
    for (const v of data.context.dependencies.filter(v => !['cancelled', 'released'].includes(v.status))) {
     if (!form.dispositions.some(d => d.kind === v.kind && Number(d.id) === Number(v.id))) form.dispositions.push({ kind: v.kind, id: v.id, choice: '', target_id: 0, amount_cents: 0, reference: '' })
     const d=disposition(v)
+    if(v.kind==='production') d.stock_selections ||= []
     if(v.supply_reservations?.length){
      d.supplies=v.supply_reservations.map(s=>{
       const prior=d.supplies?.find(choice=>Number(choice.reservation_id)===Number(s.id))
@@ -73,11 +74,14 @@ async function show() { previousFocus = document.activeElement; previousOverflow
 function close() { if (busy.value) return; generation++; open.value = false; restorePage() }
 function disposition(dep) { return form.dispositions.find(v => v.kind === dep.kind && Number(v.id) === Number(dep.id)) }
 function supplyChoice(dep,source) { return disposition(dep)?.supplies?.find(v=>Number(v.reservation_id)===Number(source.id)) }
+function stockSource(dep,selection) { return dep.company_stock?.find(v=>Number(v.batch_id)===Number(selection.batch_id)) }
+function addStockSelection(dep) { disposition(dep).stock_selections.push({batch_id:0,target_item_id:0,quantity:''}) }
 function choices(dep) {
  return (options.value[dep.kind] || []).map(v => {
   let reason = v.disabled ? v.reason : ''
   if (!reason && dep.kind==='fee' && dep.amount_cents<0 && !['keep','defer'].includes(v.value)) reason='该项是已有负数费用调整，请保留原记录'
   if (!reason && dep.kind==='fee' && dep.cash_issue && !['keep','defer'].includes(v.value)) reason=dep.cash_issue
+  if (!reason && dep.kind==='production' && v.value==='allocate' && (dep.ownership_issue || !dep.company_stock?.some(s=>s.available_quantity>0&&s.targets?.length))) reason=dep.ownership_issue || '尚无可核对的公司成品与匹配目标；请核对原批次、预留、库存单位及仓库'
   if (!reason && dep.kind==='production' && dep.ownership_issue && ['keep_company_stock','continue_company'].includes(v.value)) reason=dep.ownership_issue
   if (!reason && dep.kind === 'production' && dep.status === 'completed' && !['keep_company_stock','allocate','scrap','defer'].includes(v.value)) reason='已完成生产须保留'
   if (!reason && dep.shared && ['cancel_unstarted','stop'].includes(v.value)) reason='共享生产不能影响其他订单'
@@ -151,7 +155,19 @@ const money = cents => (Number(cents || 0) / 100).toFixed(2)
          <p class="hint">逐笔选择同客户、同商品、同冻结规格及同仓库的替代购货权益。仓库确认并建立新预订后，才会释放原预订。</p>
          <fieldset v-for="source in dep.supply_reservations" :key="source.id" class="supply-choice"><legend>{{ source.label }}</legend><template v-if="supplyChoice(dep,source)"><p>待入库预订 {{ source.quantity }} {{ source.unit }}</p><p v-if="source.converted_quantity>0">已入库原批次：{{ source.physical_batches }}</p><label v-if="source.converted_quantity>0">已入库 {{ source.converted_quantity }} {{ source.unit }} 的处置<select v-model="supplyChoice(dep,source).physical_choice"><option value="">请选择已入库部分的处置</option><option value="keep_reserved">保留原批次预留，继续用于本笔代发</option></select></label><p v-if="source.physical_issue" class="error">{{ source.physical_issue }}</p><label v-if="source.quantity>0">替代货源<select v-model.number="supplyChoice(dep,source).target_id"><option :value="0">请选择明确的替代货源</option><option v-for="target in source.targets" :key="target.id" :value="target.id">{{ target.label }} · 可用 {{ target.available_qty }} {{ source.unit }}</option></select></label><label v-if="source.quantity>0">本笔替换数量<input v-model="supplyChoice(dep,source).quantity" type="number" min="1" step="1" :max="source.quantity" placeholder="明确填写本笔待入库预订数量" /></label></template></fieldset>
         </template>
-        <p v-if="['allocate','reassign'].includes(disposition(dep).choice)" class="hint">提交前须选择具体目标并核验可用数量。</p>
+        <template v-if="dep.kind==='production' && disposition(dep).choice==='allocate'">
+         <p class="hint">明确选择原批次、普通销售订单及数量。仓库确认后建立目标预留；保留共享生产、批次和成本记录，不产生出库或转仓。目标已有生产、商品冻结规格或库存单位不同的订单须先核对。</p>
+         <fieldset v-for="(selection,index) in disposition(dep).stock_selections" :key="index" class="supply-choice">
+          <legend>成品分配 {{ index+1 }}</legend>
+          <label>原成品批次<select v-model.number="selection.batch_id" @change="selection.target_item_id=0"><option :value="0">请选择原成品批次</option><option v-for="source in dep.company_stock" :key="source.batch_id" :value="source.batch_id">{{ source.label }} · 最多可分配 {{ source.available_quantity }}</option></select></label>
+          <p v-if="stockSource(dep,selection)?.releases?.length" class="hint">本批有原订单预留；请在对应预留项目明确选择释放并填写数量，转配与释放同时生效。</p>
+          <label>目标订单<select v-model.number="selection.target_item_id"><option :value="0">请选择明确的目标订单</option><option v-for="target in stockSource(dep,selection)?.targets || []" :key="target.order_item_id" :value="target.order_item_id">{{ target.label }} · 未预留需求 {{ target.remaining_quantity }}</option></select></label>
+          <label>本次分配数量<input v-model="selection.quantity" type="number" min="1" step="1" :max="stockSource(dep,selection)?.available_quantity" placeholder="明确填写数量" /></label>
+          <button type="button" @click="disposition(dep).stock_selections.splice(index,1)">移除此项</button>
+         </fieldset>
+         <button type="button" @click="addStockSelection(dep)">添加成品分配</button>
+        </template>
+        <p v-if="disposition(dep).choice==='reassign'" class="hint">提交前须选择具体目标并核验可用数量。</p>
        </template>
       </div>
      </fieldset>

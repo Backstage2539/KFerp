@@ -21,24 +21,26 @@ type Line struct {
 	ClosedCents   int64   `json:"closed_cents"`
 }
 type Dependency struct {
-	CashIssue          string              `json:"cash_issue,omitempty"`
-	SettledOutCents    int64               `json:"settled_out_cents"`
-	ReplacementIssue   string              `json:"replacement_issue,omitempty"`
-	SupplyReservations []SupplyReservation `json:"supply_reservations,omitempty"`
-	OwnershipIssue     string              `json:"ownership_issue,omitempty"`
-	ItemID             int64               `json:"item_id,omitempty"`
-	Version            string              `json:"version,omitempty"`
-	Unit               string              `json:"unit,omitempty"`
-	Relation           string              `json:"relation,omitempty"`
-	Orders             []LinkedOrder       `json:"orders,omitempty"`
-	AmountCents        int64               `json:"amount_cents"`
-	PaidCents          int64               `json:"paid_cents"`
-	Kind               string              `json:"kind"`
-	ID                 int64               `json:"id"`
-	Label              string              `json:"label"`
-	Status             string              `json:"status"`
-	Shared             bool                `json:"shared"`
-	Quantity           float64             `json:"quantity"`
+	BatchID            int64                `json:"batch_id,omitempty"`
+	CompanyStock       []CompanyStockSource `json:"company_stock,omitempty"`
+	CashIssue          string               `json:"cash_issue,omitempty"`
+	SettledOutCents    int64                `json:"settled_out_cents"`
+	ReplacementIssue   string               `json:"replacement_issue,omitempty"`
+	SupplyReservations []SupplyReservation  `json:"supply_reservations,omitempty"`
+	OwnershipIssue     string               `json:"ownership_issue,omitempty"`
+	ItemID             int64                `json:"item_id,omitempty"`
+	Version            string               `json:"version,omitempty"`
+	Unit               string               `json:"unit,omitempty"`
+	Relation           string               `json:"relation,omitempty"`
+	Orders             []LinkedOrder        `json:"orders,omitempty"`
+	AmountCents        int64                `json:"amount_cents"`
+	PaidCents          int64                `json:"paid_cents"`
+	Kind               string               `json:"kind"`
+	ID                 int64                `json:"id"`
+	Label              string               `json:"label"`
+	Status             string               `json:"status"`
+	Shared             bool                 `json:"shared"`
+	Quantity           float64              `json:"quantity"`
 }
 type LinkedOrder struct {
 	ID     int64  `json:"id"`
@@ -75,6 +77,7 @@ type Selection struct {
 	Quantity float64 `json:"quantity"`
 }
 type Disposition struct {
+	StockSelections []StockSelection    `json:"stock_selections,omitempty"`
 	SourceFeeID     int64               `json:"source_fee_id,omitempty"`
 	Supplies        []SupplyReplacement `json:"supplies,omitempty"`
 	AmountSpecified bool                `json:"amount_specified"`
@@ -266,7 +269,7 @@ func preview(c Context, cmd Command) (Plan, error) {
 		if !AllowedChoice(d.Kind, d.Choice) {
 			return fail("处置选项无效")
 		}
-		if oneOf(d.Choice, "allocate", "reassign", "offset") && d.TargetID <= 0 {
+		if oneOf(d.Choice, "allocate", "reassign", "offset") && d.TargetID <= 0 && !(d.Kind == "production" && d.Choice == "allocate") {
 			return fail("请选择明确的替代货源或目标单据")
 		}
 		if d.SourceFeeID < 0 || (d.SourceFeeID > 0 && d.Kind != "funds") || d.AmountCents < 0 || math.IsNaN(d.Quantity) || math.IsInf(d.Quantity, 0) || d.Quantity < 0 {
@@ -274,6 +277,7 @@ func preview(c Context, cmd Command) (Plan, error) {
 		}
 		choices[key] = d
 	}
+	companyUsage := &companyAllocationUsage{map[int64]int64{}, map[int64]int64{}, map[int64]int64{}, map[string]bool{}}
 	reserved := map[int64]float64{}
 	feeFunds := map[int64]int64{}
 	for _, d := range c.Dependencies {
@@ -325,6 +329,13 @@ func preview(c Context, cmd Command) (Plan, error) {
 		}
 		if d.Kind == "production" && oneOf(choice.Choice, "keep_company_stock", "continue_company") && d.OwnershipIssue != "" {
 			return fail(d.OwnershipIssue)
+		}
+		if d.Kind == "production" && choice.Choice == "allocate" {
+			label, err := validateCompanyAllocation(d, choice, p.Lines, companyUsage, c.Dependencies, cmd.Dispositions)
+			if err != nil {
+				return Plan{}, err
+			}
+			d.Label += label
 		}
 		if d.Kind == "production" && (cmd.Action == "cancel" || cmd.Action == "amend") && d.Status == "completed" {
 			return fail("已完成生产必须保留，请选择关闭剩余履约")
@@ -390,6 +401,9 @@ func preview(c Context, cmd Command) (Plan, error) {
 			}
 		case "production":
 			permission = "production.resolve"
+			if choice.Choice == "allocate" {
+				permission = "stock.resolve"
+			}
 		case "customer_stock", "stock", "stock_reservation":
 			permission = "stock.resolve"
 		case "fee", "invoice", "billing":

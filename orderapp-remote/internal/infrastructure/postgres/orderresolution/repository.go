@@ -305,6 +305,9 @@ func (r Repository) load(ctx context.Context, q querier, id int64) (domain.Conte
 	if err = r.replacementSources(ctx, q, &c); err != nil {
 		return c, err
 	}
+	if err = r.companyStockSources(ctx, q, &c, snap.Items); err != nil {
+		return c, err
+	}
 	return c, nil
 }
 func str(m map[string]json.RawMessage, k string) string {
@@ -352,16 +355,10 @@ func (r Repository) Submit(ctx context.Context, id int64, cmd domain.Command, ac
 		return out, err
 	}
 	defer tx.Rollback(ctx)
-	var customerID int64
-	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(customer_id,0) FROM %s.orders WHERE id=$1`, r.schema), id).Scan(&customerID); err != nil {
+	if err = r.lockCompanyTargets(ctx, tx, id, cmd); err != nil {
 		return out, err
 	}
-	for _, key := range []string{fmt.Sprintf("mini-direct-ship:%d", customerID), r.schema + ":finance-period", fmt.Sprintf("order-resolution:%d", id)} {
-		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, key); err != nil {
-			return out, err
-		}
-	}
-	if _, err = tx.Exec(ctx, fmt.Sprintf(`SELECT id FROM %s.orders WHERE id=$1 FOR UPDATE`, r.schema), id); err != nil {
+	if err = r.lock(ctx, tx, id); err != nil {
 		return out, err
 	}
 	var priorID int64
@@ -469,6 +466,9 @@ func (r Repository) checkPeriod(ctx context.Context, q querier, date string) err
 	return nil
 }
 func (r Repository) apply(ctx context.Context, tx pgx.Tx, id, requestID int64, current domain.Context, cmd domain.Command, p domain.Plan, actor string) error {
+	if err := r.lockCompanyStockIdentities(ctx, tx, cmd); err != nil {
+		return err
+	}
 	if err := r.revalidatePlan(ctx, tx, id, requestID, current, cmd, p); err != nil {
 		return err
 	}
@@ -483,6 +483,9 @@ func (r Repository) apply(ctx context.Context, tx pgx.Tx, id, requestID int64, c
 		return err
 	}
 	if err := r.releaseReservations(ctx, tx, id, requestID, current, cmd, actor); err != nil {
+		return err
+	}
+	if err := r.applyCompanyAllocations(ctx, tx, id, requestID, cmd, actor); err != nil {
 		return err
 	}
 	if cmd.Action == "amend" {
