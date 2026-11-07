@@ -101,3 +101,27 @@
 - 真实 Chrome 使用浏览器内隔离样本检查：初始原因/金额/去向留空；选择仅调整费用后不要求生产处置；处理时点仍须明确选；部分减免留空提示必须填写金额；原收款与已处置金额分别展示。未连接业务数据库，未提交真实业务。
 - 发布回滚保护：镜像声明支持费用资金来源；若已有费用资金待办或费用独立处理记录，不允许自动回退到不能识别这些来源的旧镜像。`...rollback-red.log` → `...rollback-green.log`；ERP-only 保留小程序发布检查 `...erp-only-gate.log` 通过。
 - 完整需求仍未完成：停工余料/在制品、生产转供、库存分配/报损、客户货权及实物退回、混合已入库与待入库货源切换仍未开放。不能将本批资金交付当作完整方案完成。
+
+
+## 第三批集成进度与混合货源候选（2026-11-08）
+
+- 费用功能提交 `4d6370fb5a7976c826ea06394106aeb742c89892`，develop `2b4d132e65af6a169a7e9040e60aff175fa886b6`、main `fceb9cb511717511a2a5db48d6d301c57e775146` 均已推送；main 与已验证 develop 的业务文件完全相同。
+- 开发 ERP-only 部署成功：备份 `/opt/stacks/erp/orderapp.backup.deploy-20261108001908-2b4d132e65af`；镜像 `sha256:1ff924be1b9239d2d82dda6b21598bee1fc42bb62e294effc003aaede2dc57d9`；入口 main-BLaaflQV.js 与服务文件一致，代码 SHA256 f8453d53dc8ce97473e3fdd2f7fe59f31ff98fa41ebdef64e7357d7c7bfd86d2 匹配发布提交。未登录 API 401、登录后页面/接口/手册/PR 标记 200。正式部署正在进行，不能将 main 推送当作正式运行完成。
+- 后续混合货源候选使用真实留厂购货、待入库代发预订及生产入库转换作为隔离样本；新目标和已有目标两种场景均验证。保留已入库部分须明确选择，原批次及数量展示，待入库数量和目标也不预选；实物状态变化后重新预览必须重新选择。
+- 实际库存、原批次货权及冻结规格、两份预留和入库历史纳入检查与版本；旧实物不重建、不释放。目标新预订与旧待入库释放原子提交；原转换数量保留。确认后原销售只关闭尚未交付数量，已交付应收保留。替代货源入库后数量与原预留正确合并，原批次不再次转换。
+- RED：`/tmp/kferp-resolution-20261108-mixed-domain-red.log`、`...mixed-pg-red.log`（样本排序字段修正后有效失败）、`...mixed-ui-red.log`、`...mixed-stock-red.log`、`...mixed-preview-red.log`、`...mixed-rollback-red.log`。GREEN：`...mixed-stock-green.log`（4.749s，含目标不足、原库存不足、过期实物、日志失败回滚、重放/并发和后续入库）；`...mixed-broad-pg.log`（59.655s，追加库存守卫前的订单处理/留厂/PR703）；最终回归另见 `...mixed-final-pg.log`。
+- 完整 Go：`...mixed-backend.log` 通过，未配置数据库的旧集成按规则跳过。Vue 1749/1749 通过；首次构建发现本次新增 option 闭合标签错误，已修正，`...mixed-build-green.log` 构建通过（1.86s）。真实 Chrome 隔离页面展示已入库 1 袋/待入库 2 袋和原批次，处置/货源/数量初始留空；未选已入库处置时拒绝预览。样本不连接业务数据库。
+- 回滚保护增加混合货源版本声明；已有显式实物保留记录时不能回退到无法处理该记录的旧版本。`...mixed-rollback-green.log` 和 `...mixed-erp-only.log` 通过。原小程序包继续保留。
+- 本候选尚未发布；在制停工、生产转供、库存重新分配/报损、客户货权及实物退回仍未开放，完整需求未完成。
+
+
+## 第三批正式发布回执（2026-11-08）
+
+- main `fceb9cb511717511a2a5db48d6d301c57e775146` 已正式运行；备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20261108003403-fceb9cb51171`；回滚镜像 `kferp-orderapp-rollback:production-20261108003403-fceb9cb51171`。原小程序产物保留。
+- 正式镜像 `sha256:f5625e4e4dc702c19e6f4919befdf27b04b7d1f7a6bac83e0bff5e3315116621`；公开页面 main-BLaaflQV.js 与服务文件相同；仓储源码校验 f8453d53dc8ce97473e3fdd2f7fe59f31ff98fa41ebdef64e7357d7c7bfd86d2 与 main 相同。未登录页面/API 401，登录后页面、处理/策略/需求接口、手册 200，容器运行。
+- 证据 `/tmp/kferp-resolution-20261108-phase3-{development,production}-smoke.json`、`...phase3-deploy-{development,production}.log`。Chrome 再次只读展开 SO-20261031-0003，关闭可选、取消/修订因已完成生产禁用，共享 PP-19 可保留公司库存，PP-18 和 DSR-16/17 取消记录保留。所有处置仍留空，未点击预览、保存或提交。
+- 目标订单正常/未暂停/未取消，2160 元未收款、冲减 0，两行各 24 袋未交付未关闭，处理历史 0。没有以生产业务写入测试费用或取消功能。
+- 混合货源候选补充覆盖同一代发的“全已入库预订 + 另一笔待入库预订”：前者也必须明确确认保留，不要求无意义的新货源/数量。补充 RED/GREEN：`...mixed-full-red.log`、`...mixed-full-pg-red.log`、`...mixed-full-ui-red.log` → `...mixed-full-green.log`（5.688s）、`...mixed-full-ui-green.log`（16/16）、`...mixed-full-build.log`（2.11s）。
+- 已完成仓库处置后，替代货源可以在财务后续确认之前实际入库；原先要求整个库存永远不变会把后续确认卡住，`...mixed-later-receipt-red.log` 已复现。最终校验改为核对已执行的旧待入库解除、原转换数量及包裹身份，仓库执行前仍要求实物预留版本一致。最终数据库回归见 `...mixed-all-final.log`。该候选尚未合入或部署。
+
+- 混合货源最终候选：`...mixed-all-final.log` 领域/HTTP/订单处理与留厂数据库回归通过（51.389s）；`...mixed-final-backend.log` 完整 Go 通过；`...mixed-final-frontend.log` 1750/1750 与构建（2.30s）通过。第三批正式数据库健康、Caddy/应用运行、费用版本标签为 1，近五分钟无 panic/fatal/ERROR；磁盘剩余 5.5 GB，证据 `...phase3-service-check.log`。

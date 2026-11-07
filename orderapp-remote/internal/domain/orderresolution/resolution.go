@@ -298,6 +298,9 @@ func preview(c Context, cmd Command) (Plan, error) {
 					if source.ID != selected.ReservationID {
 						continue
 					}
+					if source.ConvertedQuantity > 0 {
+						d.Label += fmt.Sprintf("；已入库 %d %s，批次 %s 保留原预留", source.ConvertedQuantity, source.Unit, source.PhysicalBatches)
+					}
 					for _, target := range source.Targets {
 						if target.ID == selected.TargetID {
 							d.Label += fmt.Sprintf("；%s → %s，%d %s", source.Label, target.Label, selected.Quantity, source.Unit)

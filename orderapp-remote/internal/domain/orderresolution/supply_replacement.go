@@ -8,19 +8,25 @@ type SupplyTarget struct {
 	AvailableQty int64  `json:"available_qty"`
 }
 type SupplyReservation struct {
-	ID            int64          `json:"id"`
-	EntitlementID int64          `json:"entitlement_id"`
-	OrderID       int64          `json:"order_id"`
-	OrderItemID   int64          `json:"order_item_id"`
-	Label         string         `json:"label"`
-	Unit          string         `json:"unit"`
-	Quantity      int64          `json:"quantity"`
-	Targets       []SupplyTarget `json:"targets"`
+	ConvertedQuantity int64          `json:"converted_quantity,omitempty"`
+	PhysicalVersion   string         `json:"physical_version,omitempty"`
+	PhysicalIssue     string         `json:"physical_issue,omitempty"`
+	PhysicalBatches   string         `json:"physical_batches,omitempty"`
+	ID                int64          `json:"id"`
+	EntitlementID     int64          `json:"entitlement_id"`
+	OrderID           int64          `json:"order_id"`
+	OrderItemID       int64          `json:"order_item_id"`
+	Label             string         `json:"label"`
+	Unit              string         `json:"unit"`
+	Quantity          int64          `json:"quantity"`
+	Targets           []SupplyTarget `json:"targets"`
 }
 type SupplyReplacement struct {
-	ReservationID int64 `json:"reservation_id"`
-	TargetID      int64 `json:"target_id"`
-	Quantity      int64 `json:"quantity"`
+	PhysicalChoice  string `json:"physical_choice,omitempty"`
+	PhysicalVersion string `json:"physical_version,omitempty"`
+	ReservationID   int64  `json:"reservation_id"`
+	TargetID        int64  `json:"target_id"`
+	Quantity        int64  `json:"quantity"`
 }
 
 func ValidateSupplyReplacement(dependency Dependency, disposition Disposition) error {
@@ -39,11 +45,14 @@ func ValidateSupplyReplacement(dependency Dependency, disposition Disposition) e
 	for _, source := range dependency.SupplyReservations {
 		sourceQuantity += source.Quantity
 	}
+	if sourceQuantity <= 0 {
+		return fmt.Errorf("没有可切换的待入库预订")
+	}
 	if dependency.Quantity > 0 && float64(sourceQuantity) != dependency.Quantity {
 		return fmt.Errorf("关联预订的商品、包裹或货权身份不完整，请先核对")
 	}
 	for _, choice := range disposition.Supplies {
-		if _, exists := selected[choice.ReservationID]; exists || choice.Quantity <= 0 || choice.TargetID <= 0 {
+		if _, exists := selected[choice.ReservationID]; exists || choice.Quantity < 0 || choice.TargetID < 0 || (choice.Quantity > 0 && choice.TargetID == 0) {
 			return fmt.Errorf("替代货源、数量未选择或预订重复")
 		}
 		selected[choice.ReservationID] = choice
@@ -52,6 +61,25 @@ func ValidateSupplyReplacement(dependency Dependency, disposition Disposition) e
 		choice, ok := selected[source.ID]
 		if !ok || choice.Quantity != source.Quantity {
 			return fmt.Errorf("替换数量必须与本笔未入库预订一致，请重新核对")
+		}
+		if source.ConvertedQuantity > 0 {
+			if source.PhysicalIssue != "" {
+				return fmt.Errorf("%s", source.PhysicalIssue)
+			}
+			if choice.PhysicalChoice != "keep_reserved" {
+				return fmt.Errorf("请明确选择已入库部分保留原批次预留，再替换待入库货源")
+			}
+			if source.PhysicalVersion == "" || choice.PhysicalVersion != source.PhysicalVersion {
+				return fmt.Errorf("已入库预留发生变化，请重新预览并确认实物处置")
+			}
+		} else if choice.PhysicalChoice != "" || choice.PhysicalVersion != "" {
+			return fmt.Errorf("已入库预留信息已变化，请重新预览")
+		}
+		if source.Quantity == 0 {
+			if source.ConvertedQuantity <= 0 || choice.TargetID != 0 {
+				return fmt.Errorf("已全部入库的预订仅确认保留原预留，不选择新货源")
+			}
+			continue
 		}
 		found := false
 		for _, target := range source.Targets {

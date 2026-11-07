@@ -26,9 +26,9 @@ func (r Repository) replacementSources(ctx context.Context, q querier, c *domain
 	if err != nil {
 		return err
 	}
-	rows, err := q.Query(ctx, fmt.Sprintf(`SELECT s.id,s.request_id,s.entitlement_id,s.order_id,s.order_item_id,s.reserved_qty-s.converted_qty-s.released_qty,e.product_id,e.bom_spec_id,e.bom_variant_id,e.spec_g,e.warehouse_code,COALESCE(i.item_name,''),COALESCE(i.unit,''),o.order_no
+	rows, err := q.Query(ctx, fmt.Sprintf(`SELECT s.id,s.request_id,s.entitlement_id,s.order_id,s.order_item_id,s.reserved_qty-s.converted_qty-s.released_qty,s.converted_qty,e.product_id,e.bom_spec_id,e.bom_variant_id,e.spec_g,e.warehouse_code,COALESCE(i.item_name,''),COALESCE(i.unit,''),o.order_no,COALESCE((SELECT string_agg(DISTINCT x.batch_code,'、' ORDER BY x.batch_code) FROM %[1]s.customer_stock_entitlement_receipts x WHERE x.entitlement_id=e.id AND EXISTS(SELECT 1 FROM %[1]s.order_stock_batch_allocations a WHERE a.order_id=s.order_id AND a.order_item_id=s.order_item_id AND a.batch_id=x.stock_batch_id AND (a.allocated_units>0 OR a.allocated_g>0))),'')
  FROM %[1]s.customer_stock_supply_reservations s JOIN %[1]s.customer_stock_entitlements e ON e.id=s.entitlement_id JOIN %[1]s.order_items i ON i.id=s.order_item_id JOIN %[1]s.orders o ON o.id=s.order_id
- WHERE e.source_order_id=$1 AND s.status IN('reserved','partially_converted') AND s.reserved_qty>s.converted_qty+s.released_qty
+ WHERE e.source_order_id=$1 AND s.status IN('reserved','partially_converted','converted','released') AND (s.reserved_qty>s.converted_qty+s.released_qty OR s.converted_qty>0)
  AND s.customer_id=$2 AND e.customer_id=$2 AND o.customer_id=$2 AND i.order_id=o.id AND i.product_id=e.product_id AND COALESCE(i.bom_spec_id,0)=e.bom_spec_id AND COALESCE(i.bom_variant_id,0)=e.bom_variant_id
  ORDER BY s.id`, r.schema), c.OrderID, c.CustomerID)
 	if err != nil {
@@ -39,12 +39,15 @@ func (r Repository) replacementSources(ctx context.Context, q querier, c *domain
 		var source domain.SupplyReservation
 		var request, product, spec, variant, grams int64
 		var warehouse, name, number string
-		if err = rows.Scan(&source.ID, &request, &source.EntitlementID, &source.OrderID, &source.OrderItemID, &source.Quantity, &product, &spec, &variant, &grams, &warehouse, &name, &source.Unit, &number); err != nil {
+		if err = rows.Scan(&source.ID, &request, &source.EntitlementID, &source.OrderID, &source.OrderItemID, &source.Quantity, &source.ConvertedQuantity, &product, &spec, &variant, &grams, &warehouse, &name, &source.Unit, &number, &source.PhysicalBatches); err != nil {
 			return err
 		}
 		source.Label = fmt.Sprintf("%s · %s · %s · 预订 #%d", number, name, warehouse, source.ID)
 		source.Targets = []domain.SupplyTarget{}
 		for _, supply := range supplies {
+			if source.Quantity == 0 {
+				break
+			}
 			if supply.OrderID == c.OrderID || supply.ProductID != product || supply.BomSpecID != spec || supply.BomVariantID != variant || supply.SpecG != grams || supply.Warehouse != warehouse || supply.AvailableQty <= 0 {
 				continue
 			}
@@ -59,6 +62,23 @@ func (r Repository) replacementSources(ctx context.Context, q querier, c *domain
 	}
 	if err = rows.Err(); err != nil {
 		return err
+	}
+	rows.Close()
+	for n := range c.Dependencies {
+		d := &c.Dependencies[n]
+		for j := range d.SupplyReservations {
+			source := &d.SupplyReservations[j]
+			if source.ConvertedQuantity == 0 {
+				continue
+			}
+			_, source.PhysicalVersion, source.PhysicalIssue, err = r.convertedSupplyFacts(ctx, q, c.OrderID, source.ID)
+			if err != nil {
+				return err
+			}
+			if source.PhysicalIssue != "" {
+				d.ReplacementIssue = source.PhysicalIssue
+			}
+		}
 	}
 	raw, err := json.Marshal(c.Dependencies)
 	if err != nil {
@@ -105,6 +125,9 @@ func (r Repository) replaceSupply(ctx context.Context, tx pgx.Tx, orderID, resol
 		if unavailable {
 			return fmt.Errorf("代发包裹已暂停、处理中或已有发货，请先核对包裹")
 		}
+		if selected.Quantity == 0 {
+			continue
+		} // Explicitly retained physical reservation; no mutation.
 		targetBefore, targetAfter, err := r.reserveReplacementTarget(ctx, tx, selected.TargetID, customer, requestID, requestItem, packageOrder, packageItem, selected.Quantity)
 		if err != nil {
 			return err

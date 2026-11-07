@@ -62,6 +62,31 @@ test('confirmed paid fees allow explicit negotiated credit without choosing a re
  assert.equal(editor.form.dispositions.some(v=>v.kind==='funds'),false)
 })
 
+test('mixed supply requires a blank physical retention choice and preserves its version in payload',async t=>{
+ const previous=globalThis.fetch;t.after(()=>globalThis.fetch=previous)
+ const source={id:31,quantity:2,converted_quantity:1,physical_version:'physical-v1',targets:[{id:41,available_qty:5}]}
+ globalThis.fetch=async()=>({ok:true,json:async()=>({context:{version:'v1',lines:[],dependencies:[{kind:'direct_ship',id:16,relation:'supply',status:'reserved',supply_reservations:[source]}]},options:{direct_ship:[{value:'replace_supply'}]},permissions:{'orders.resolve':true},history:[]})})
+ const editor=await setup();await editor.load(true)
+ const d=editor.form.dispositions[0];d.choice='replace_supply'
+ assert.equal(d.supplies[0].physical_choice,'')
+ d.supplies[0].target_id=41;d.supplies[0].quantity='2'
+ assert.throws(()=>editor.body(),/已入库|实物/)
+ d.supplies[0].physical_choice='keep_reserved'
+ assert.deepEqual(editor.body().dispositions[0].supplies,[{reservation_id:31,target_id:41,quantity:2,physical_choice:'keep_reserved',physical_version:'physical-v1'}])
+})
+
+test('fully converted reservation requires retention but no replacement target or quantity',async t=>{
+ const previous=globalThis.fetch;t.after(()=>globalThis.fetch=previous)
+ const dep={kind:'direct_ship',id:16,relation:'supply',status:'reserved',supply_reservations:[{id:31,quantity:0,converted_quantity:3,physical_version:'full-v1',targets:[]},{id:32,quantity:2,targets:[{id:41,available_qty:5}]}]}
+ globalThis.fetch=async()=>({ok:true,json:async()=>({context:{version:'v1',lines:[],dependencies:[dep]},options:{direct_ship:[{value:'replace_supply'}]},permissions:{'orders.resolve':true},history:[]})})
+ const editor=await setup();await editor.load(true)
+ assert.equal(editor.choices(dep)[0].disabled,false)
+ const d=editor.form.dispositions[0];d.choice='replace_supply';d.supplies[1].target_id=41;d.supplies[1].quantity='2'
+ assert.throws(()=>editor.body(),/已入库|实物/)
+ d.supplies[0].physical_choice='keep_reserved'
+ assert.deepEqual(editor.body().dispositions[0].supplies[0],{reservation_id:31,target_id:0,quantity:0,physical_choice:'keep_reserved',physical_version:'full-v1'})
+})
+
 test('fee-only scope explicitly excludes fulfillment choices and keeps cash dispositions blank',async t=>{
  const previous=globalThis.fetch;t.after(()=>globalThis.fetch=previous)
  const production={kind:'production',id:19,status:'completed',shared:true}, fee={kind:'fee',id:91,status:'settled',amount_cents:500,paid_cents:1000,settled_out_cents:500}
