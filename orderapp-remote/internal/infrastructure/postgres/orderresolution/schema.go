@@ -10,6 +10,9 @@ import (
 func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	_, err := pool.Exec(ctx, fmt.Sprintf(`
  ALTER TABLE %[1]s.customer_fee_items ADD COLUMN IF NOT EXISTS resolution_credit_cents BIGINT NOT NULL DEFAULT 0;
+ ALTER TABLE %[1]s.customer_fee_items ADD COLUMN IF NOT EXISTS resolution_cash_tracked BOOLEAN NOT NULL DEFAULT false;
+ ALTER TABLE %[1]s.customer_fee_items ADD COLUMN IF NOT EXISTS resolution_cash_received_cents BIGINT NOT NULL DEFAULT 0;
+ ALTER TABLE %[1]s.customer_fee_items ADD COLUMN IF NOT EXISTS resolution_settled_out_cents BIGINT NOT NULL DEFAULT 0;
  ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS resolution_shipping_credit_cents BIGINT NOT NULL DEFAULT 0;
  ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS resolution_payment_tracked BOOLEAN NOT NULL DEFAULT false;
  ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS resolution_legacy_cash_cents BIGINT NOT NULL DEFAULT 0;
@@ -80,7 +83,10 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
  id BIGSERIAL PRIMARY KEY,request_id BIGINT NOT NULL REFERENCES %[1]s.order_resolution_requests(id),
  order_id BIGINT NOT NULL REFERENCES %[1]s.orders(id),customer_id BIGINT NOT NULL,posting_date DATE NOT NULL,
  kind TEXT NOT NULL,amount_cents BIGINT NOT NULL,reference TEXT NOT NULL DEFAULT '',
- actor TEXT NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT now(),UNIQUE(request_id,kind,reference));
+ actor TEXT NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+ ALTER TABLE %[1]s.order_resolution_financial_entries ADD COLUMN IF NOT EXISTS source_fee_id BIGINT NOT NULL DEFAULT 0;
+ ALTER TABLE %[1]s.order_resolution_financial_entries DROP CONSTRAINT IF EXISTS order_resolution_financial_entrie_request_id_kind_reference_key;
+ CREATE UNIQUE INDEX IF NOT EXISTS order_resolution_financial_source_reference ON %[1]s.order_resolution_financial_entries(request_id,source_fee_id,kind,reference);
  ALTER TABLE %[1]s.order_resolution_financial_entries ADD COLUMN IF NOT EXISTS account TEXT NOT NULL DEFAULT '';
  ALTER TABLE %[1]s.order_resolution_financial_entries ADD COLUMN IF NOT EXISTS target_order_id BIGINT NOT NULL DEFAULT 0;
  CREATE TABLE IF NOT EXISTS %[1]s.order_resolution_balance_uses(

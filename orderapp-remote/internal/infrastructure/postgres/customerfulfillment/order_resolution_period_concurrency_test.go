@@ -32,6 +32,7 @@ func TestOrderResolutionMonthLockCoversLegacySourceWrites(t *testing.T) {
 	}
 	for _, query := range []string{
 		`UPDATE %s.orders SET total_amount=60 WHERE id=78270`,
+		`INSERT INTO %s.customer_fee_items(customer_id,source_type,source_id,fee_type,amount,occurred_at)VALUES(501,'order',78270,'direct_ship_service',10,'2026-10-01')`,
 		`INSERT INTO %s.finance_expenses(expense_date,month,category,amount)VALUES('2026-10-01','2026-10','测试费用',10)`,
 		`INSERT INTO %s.finance_tax_ledger(month,kind,total_amount)VALUES('2026-10','input',10)`,
 	} {
@@ -64,6 +65,10 @@ func TestOrderResolutionMonthLockCoversLegacySourceWrites(t *testing.T) {
 	if _, err = pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.finance_expenses(expense_date,month,category,amount)VALUES('2026-10-01','2026-10','过期提交',10)`, schema)); err == nil {
 		t.Fatal("old expense submit passed after month became strongly locked")
 	}
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_fee_items(customer_id,source_type,source_id,fee_type,amount,occurred_at)VALUES(501,'order',78270,'direct_ship_service',10,'2026-10-01')`, schema)); err == nil {
+		t.Fatal("fee writer changed closed period")
+	}
+
 	if _, err = pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.finance_expenses(expense_date,month,category,amount)VALUES('2026-11-01','2026-11','开放账期',10)`, schema)); err != nil {
 		t.Fatalf("open month blocked: %v", err)
 	}

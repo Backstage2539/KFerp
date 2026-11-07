@@ -135,7 +135,7 @@ func (r Repository) completeStep(ctx context.Context, orderID, requestID, stepID
 				return out, fmt.Errorf("请先完成生产、库存、费用及账务处置，再处理资金")
 			}
 		}
-		completed, err = r.applyFunds(ctx, tx, orderID, requestID, stepID, applied, out.Plan, cmd, actor)
+		completed, err = r.applyFunds(ctx, tx, orderID, requestID, stepID, step.SourceID, applied, out.Plan, cmd, actor)
 	case "production":
 		if cmd.Choice != step.Choice || strings.TrimSpace(cmd.Note) == "" {
 			return out, fmt.Errorf("请确认原预览的生产处置并填写说明")
@@ -252,7 +252,7 @@ func (r Repository) lock(ctx context.Context, tx pgx.Tx, id int64) error {
 	_, err := tx.Exec(ctx, fmt.Sprintf(`SELECT id FROM %s.orders WHERE id=$1 FOR UPDATE`, r.schema), id)
 	return err
 }
-func (r Repository) applyFunds(ctx context.Context, tx pgx.Tx, orderID, requestID, stepID int64, applied bool, p domain.Plan, cmd StepCommand, actor string) (bool, error) {
+func (r Repository) applyFunds(ctx context.Context, tx pgx.Tx, orderID, requestID, stepID, feeID int64, applied bool, p domain.Plan, cmd StepCommand, actor string) (bool, error) {
 	if !domain.AllowedChoice("funds", cmd.Choice) || cmd.AmountCents <= 0 {
 		return false, fmt.Errorf("请选择资金去向并填写正数金额")
 	}
@@ -285,10 +285,31 @@ func (r Repository) applyFunds(ctx context.Context, tx pgx.Tx, orderID, requestI
 	if !applied {
 		credit += p.CreditCents
 	}
-	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(sum(amount_cents),0)FROM %s.order_resolution_financial_entries WHERE order_id=$1 AND kind IN('refund','customer_credit','offset')`, r.schema), orderID).Scan(&used); err != nil {
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(sum(amount_cents),0)FROM %s.order_resolution_financial_entries WHERE order_id=$1 AND source_fee_id=$2 AND kind IN('refund','customer_credit','offset')`, r.schema), orderID, feeID).Scan(&used); err != nil {
 		return false, err
 	}
 	available := max(int64(0), received+current.OffsetCents-max(int64(0), total-credit)) - used
+	if feeID > 0 {
+		found := false
+		for _, fee := range current.Dependencies {
+			if fee.Kind != "fee" || fee.ID != feeID {
+				continue
+			}
+			found = true
+			net := fee.AmountCents
+			if !applied {
+				for _, effect := range p.Fees {
+					if effect.SourceID == feeID {
+						net -= effect.CreditCents
+					}
+				}
+			}
+			available = max(int64(0), fee.PaidCents-max(int64(0), net)) - used
+		}
+		if !found {
+			return false, fmt.Errorf("费用资金来源已变化，请重新核对")
+		}
+	}
 	if cmd.AmountCents > available {
 		return false, fmt.Errorf("处理金额超过当前可退余额 ¥%.2f", float64(max(int64(0), available))/100)
 	}
@@ -326,10 +347,14 @@ func (r Repository) applyFunds(ctx context.Context, tx pgx.Tx, orderID, requestI
 			return false, err
 		}
 	}
-	if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.order_resolution_financial_entries(request_id,order_id,customer_id,posting_date,kind,amount_cents,reference,actor,account,target_order_id)VALUES($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10)`, r.schema), requestID, orderID, customer, cmd.PostingDate, cmd.Choice, cmd.AmountCents, reference, actor, cmd.Account, cmd.TargetID); err != nil {
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.order_resolution_financial_entries(request_id,order_id,customer_id,posting_date,kind,amount_cents,reference,actor,account,target_order_id,source_fee_id)VALUES($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,$11)`, r.schema), requestID, orderID, customer, cmd.PostingDate, cmd.Choice, cmd.AmountCents, reference, actor, cmd.Account, cmd.TargetID, feeID); err != nil {
 		return false, err
 	}
-	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET resolution_settled_out_cents=resolution_settled_out_cents+$2 WHERE id=$1`, r.schema), orderID, cmd.AmountCents); err != nil {
+	table, source := "orders", orderID
+	if feeID > 0 {
+		table, source = "customer_fee_items", feeID
+	}
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.%s SET resolution_settled_out_cents=resolution_settled_out_cents+$2 WHERE id=$1`, r.schema, table), source, cmd.AmountCents); err != nil {
 		return false, err
 	}
 	return cmd.AmountCents == available, nil

@@ -21,6 +21,8 @@ type Line struct {
 	ClosedCents   int64   `json:"closed_cents"`
 }
 type Dependency struct {
+	CashIssue          string              `json:"cash_issue,omitempty"`
+	SettledOutCents    int64               `json:"settled_out_cents"`
 	ReplacementIssue   string              `json:"replacement_issue,omitempty"`
 	SupplyReservations []SupplyReservation `json:"supply_reservations,omitempty"`
 	OwnershipIssue     string              `json:"ownership_issue,omitempty"`
@@ -73,6 +75,7 @@ type Selection struct {
 	Quantity float64 `json:"quantity"`
 }
 type Disposition struct {
+	SourceFeeID     int64               `json:"source_fee_id,omitempty"`
 	Supplies        []SupplyReplacement `json:"supplies,omitempty"`
 	AmountSpecified bool                `json:"amount_specified"`
 	Kind            string              `json:"kind"`
@@ -152,8 +155,15 @@ func preview(c Context, cmd Command) (Plan, error) {
 	if c.FulfillmentIssue != "" {
 		return fail(c.FulfillmentIssue)
 	}
-	if !oneOf(cmd.Scope, "all", "selected") {
+	feesOnly := cmd.Scope == "fees_only"
+	if feesOnly && cmd.Action != "credit" {
+		return fail("仅调整费用只适用于金额冲减")
+	}
+	if !oneOf(cmd.Scope, "all", "selected", "fees_only") {
 		return fail("请选择全部剩余或指定商品数量")
+	}
+	if feesOnly && cmd.Timing != "settle_first" {
+		return fail("仅调整费用请先完成费用确认和资金清算，不停止商品履约")
 	}
 	if !oneOf(cmd.Timing, "stop_first", "settle_first") {
 		return fail("请选择处理时点")
@@ -182,6 +192,9 @@ func preview(c Context, cmd Command) (Plan, error) {
 	}
 	remaining, stillClosed := 0.0, 0.0
 	for _, v := range c.Lines {
+		if feesOnly {
+			continue
+		}
 		if !positive(v.Quantity) || v.AmountCents < 0 {
 			return fail("原单商品数量或金额异常，请先核对原单")
 		}
@@ -235,7 +248,7 @@ func preview(c Context, cmd Command) (Plan, error) {
 	if len(selected) > 0 {
 		return fail("所选商品不属于本订单")
 	}
-	if len(p.Lines) == 0 {
+	if len(p.Lines) == 0 && !feesOnly {
 		return fail("没有可处理的数量")
 	}
 	if p.CreditCents > 0 && p.CreditCents > c.TotalCents-c.CreditCents {
@@ -256,13 +269,17 @@ func preview(c Context, cmd Command) (Plan, error) {
 		if oneOf(d.Choice, "allocate", "reassign", "offset") && d.TargetID <= 0 {
 			return fail("请选择明确的替代货源或目标单据")
 		}
-		if d.AmountCents < 0 || math.IsNaN(d.Quantity) || math.IsInf(d.Quantity, 0) || d.Quantity < 0 {
+		if d.SourceFeeID < 0 || (d.SourceFeeID > 0 && d.Kind != "funds") || d.AmountCents < 0 || math.IsNaN(d.Quantity) || math.IsInf(d.Quantity, 0) || d.Quantity < 0 {
 			return fail("处置金额或数量无效")
 		}
 		choices[key] = d
 	}
 	reserved := map[int64]float64{}
+	feeFunds := map[int64]int64{}
 	for _, d := range c.Dependencies {
+		if feesOnly && d.Kind != "fee" {
+			continue
+		}
 		key := fmt.Sprintf("%s:%d", d.Kind, d.ID)
 		choice, ok := choices[key]
 		delete(choices, key)
@@ -340,11 +357,18 @@ func preview(c Context, cmd Command) (Plan, error) {
 				}
 				credit = d.AmountCents - choice.AmountCents
 			}
-			if credit < 0 || credit > d.AmountCents {
+			if credit > 0 && d.CashIssue != "" {
+				return fail(d.CashIssue)
+			}
+			if credit < 0 || credit > max(int64(0), d.AmountCents) {
 				return fail("协商金额须在当前费用范围内")
 			}
-			if d.ID > 0 && credit > 0 && d.PaidCents > 0 {
-				return fail("该费用已有收款，请先完成费用退款核对")
+			if d.ID > 0 {
+				available := max(int64(0), d.PaidCents-max(int64(0), d.AmountCents-credit)-d.SettledOutCents)
+				feeFunds[d.ID] = available
+				if available > 0 {
+					p.Tasks = append(p.Tasks, Task{Kind: "funds", SourceID: d.ID, Label: fmt.Sprintf("费用 #%d · %s · 本次待处置合计 ¥%.2f（可分次登记）", d.ID, d.Label, float64(available)/100), Permission: "finance.resolve"})
+				}
 			}
 			if d.ID < 0 && (cmd.Action == "cancel" || cmd.Action == "amend") && credit != d.AmountCents {
 				return fail("订单仍保留费用应收，请选择关闭剩余履约")
@@ -372,6 +396,15 @@ func preview(c Context, cmd Command) (Plan, error) {
 			p.Tasks = append(p.Tasks, Task{Kind: d.Kind, SourceID: d.ID, Choice: choice.Choice, Label: d.Label, Permission: permission})
 		}
 	}
+	if feesOnly {
+		changed := false
+		for _, f := range p.Fees {
+			changed = changed || f.CreditCents > 0
+		}
+		if !changed {
+			return fail("请选择需要减免或协商的费用")
+		}
+	}
 	for itemID, quantity := range reserved {
 		for _, line := range c.Lines {
 			if line.ID != itemID {
@@ -391,7 +424,7 @@ func preview(c Context, cmd Command) (Plan, error) {
 	if p.CreditCents > c.TotalCents-c.CreditCents {
 		return fail("累计冲减超过订单冻结的应收金额")
 	}
-	var allocatedFunds int64
+	allocatedFunds := map[int64]int64{}
 	availableFunds := max(int64(0), c.PaidCents+c.OffsetCents-max(int64(0), c.TotalCents-c.CreditCents-p.CreditCents)-c.CreditUsedCents)
 	for _, d := range choices {
 		if d.Kind != "funds" {
@@ -400,15 +433,19 @@ func preview(c Context, cmd Command) (Plan, error) {
 		if d.AmountCents <= 0 {
 			return fail("请填写资金处置金额")
 		}
-		if d.AmountCents > availableFunds-allocatedFunds {
+		budget := availableFunds
+		if d.SourceFeeID != 0 {
+			budget = feeFunds[d.SourceFeeID]
+		}
+		if d.AmountCents > budget-allocatedFunds[d.SourceFeeID] {
 			return fail("资金分配超过当前可退金额")
 		}
-		allocatedFunds += d.AmountCents
+		allocatedFunds[d.SourceFeeID] += d.AmountCents
 		if d.Choice == "refund" {
 			p.RefundCents += d.AmountCents
 		}
-		if !planHasTask(p, "funds") {
-			p.Tasks = append(p.Tasks, Task{Kind: "funds", Label: "资金处置（可拆分登记）", Permission: "finance.resolve"})
+		if !planHasTaskSource(p, "funds", d.SourceFeeID) {
+			p.Tasks = append(p.Tasks, Task{Kind: "funds", SourceID: d.SourceFeeID, Label: "资金处置（可拆分登记）", Permission: "finance.resolve"})
 		}
 	}
 	if cmd.ExternalStatus != "none" || c.Invoiced {
@@ -420,7 +457,7 @@ func preview(c Context, cmd Command) (Plan, error) {
 	if c.Billed {
 		p.Tasks = append(p.Tasks, Task{Kind: "billing", Choice: "adjust", Label: "已出账金额更正", Permission: "finance.resolve"})
 	}
-	if cmd.Action != "reopen" && max(int64(0), c.PaidCents+c.OffsetCents-max(int64(0), c.TotalCents-c.CreditCents-p.CreditCents))-c.CreditUsedCents > 0 && !planHasTask(p, "funds") {
+	if cmd.Action != "reopen" && max(int64(0), c.PaidCents+c.OffsetCents-max(int64(0), c.TotalCents-c.CreditCents-p.CreditCents))-c.CreditUsedCents > 0 && !planHasTaskSource(p, "funds", 0) {
 		p.Tasks = append(p.Tasks, Task{Kind: "funds", Label: "请选择可退金额去向", Permission: "finance.resolve"})
 	}
 	if cmd.Action == "return" {
@@ -497,7 +534,7 @@ func Options() map[string][]Option {
 	}
 	add("action", "hold", "暂停履约", "resume", "恢复履约", "close", "关闭剩余履约", "reopen", "重新开启", "cancel", "取消原单", "amend", "取消并修订", "return", "退货", "credit", "金额冲减")
 	add("reason", "customer_cancel", "客户取消", "entry_error", "录单错误", "duplicate", "重复订单", "other", "其他")
-	add("scope", "all", "全部可处理数量", "selected", "指定商品和数量")
+	add("scope", "all", "全部可处理数量", "selected", "指定商品和数量", "fees_only", "仅调整费用（商品履约保持原状）")
 	add("timing", "stop_first", "先停止新增履约，后完成清算", "settle_first", "完成处置和清算后最终关闭")
 	add("external_status", "none", "未开票且无外部入账", "recorded", "已开票或已外部入账", "unknown", "待核实")
 	add("posting_mode", "open_period", "开放账期调整", "historical_correction", "申请历史账期更正")
@@ -510,4 +547,13 @@ func Options() map[string][]Option {
 	add("funds", "refund", "登记实际退款", "customer_credit", "保留客户余额", "offset", "抵扣指定应收")
 	add("billing", "adjust", "保留原账单并登记本次调整")
 	return out
+}
+
+func planHasTaskSource(p Plan, kind string, id int64) bool {
+	for _, t := range p.Tasks {
+		if t.Kind == kind && t.SourceID == id {
+			return true
+		}
+	}
+	return false
 }
