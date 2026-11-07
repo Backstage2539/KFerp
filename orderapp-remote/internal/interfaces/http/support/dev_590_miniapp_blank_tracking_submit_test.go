@@ -49,7 +49,7 @@ func TestDev590MiniappBlankTrackingSubmitContracts(t *testing.T) {
 		"notNullText(req.Notes)":      1,
 		"notNullText(req.ExpressFee)": 1,
 		"notNullText(req.ShipMethod)": 1,
-		"notNullText(reason)":         1,
+		"notNullText(reason)":         0, // Legacy void no longer writes without a resolution preview.
 		"nextNotesPtr := &nextNotes":  1,
 		"notNullTextPtr(it.unit)":     1,
 		"notNullTextPtr(it.spec)":     1,

@@ -216,7 +216,7 @@
           <div class="panel-head"><div><h4>确认出账</h4><p>{{ billingPreview.customer_name }} · {{ billingPreview.period_from }} 至 {{ billingPreview.period_to }} · {{ billingPreview.fee_items }} 笔</p></div><strong>合计 ¥{{ moneyFromCents(billingPreview.total_amount_cents) }}</strong></div>
           <div class="billing-category-totals"><span v-for="item in billingPreviewCategories" :key="item.type">{{ chargeTypeLabel(item.type) }}：¥{{ moneyFromCents(item.amount_cents) }}</span></div>
           <div class="table-scroll"><table class="billing-table"><thead><tr><th>发生日期</th><th>类型</th><th>来源单号</th><th>费用明细</th><th>应收</th><th>出账前已收</th><th>本次出账</th></tr></thead><tbody>
-            <tr v-for="line in billingPreview.lines" :key="`${line.charge_type}-${line.source_type}-${line.source_id}`"><td>{{ line.occurred_at }}</td><td>{{ chargeTypeLabel(line.charge_type) }}</td><td>{{ line.source_no || line.source_id }}</td><td>{{ line.description }}</td><td>{{ moneyFromCents(line.receivable_cents) }}</td><td>{{ moneyFromCents(line.issued_received_cents || line.received_cents) }}</td><td>{{ moneyFromCents(line.amount_cents) }}</td></tr>
+            <tr v-for="line in billingPreview.lines" :key="`${line.charge_type}-${line.source_type}-${line.source_id}`"><td>{{ line.occurred_at }}</td><td>{{ chargeTypeLabel(line.charge_type) }}</td><td>{{ line.source_no || line.source_id }}</td><td>{{ line.description }}<small v-if="line.adjustment_cents"> · 订单处理调整 ¥{{ moneyFromCents(-line.adjustment_cents) }}</small></td><td>{{ moneyFromCents(line.receivable_cents) }}</td><td>{{ moneyFromCents(line.issued_received_cents || line.received_cents) }}</td><td>{{ moneyFromCents(line.amount_cents) }}</td></tr>
           </tbody></table></div>
           <div class="head-actions"><button class="secondary" type="button" :disabled="billingExportLoading" @click="exportBillingPreview">{{ billingExportLoading ? '导出中…' : '导出预览 Excel' }}</button><button class="secondary" type="button" :disabled="billingIssueLoading" @click="billingPreview = null">取消</button><button class="primary" type="button" :disabled="billingIssueLoading" @click="confirmBillingIssue">{{ billingIssueLoading ? '出账中…' : '确认出账' }}</button></div>
         </div>
@@ -331,7 +331,7 @@
           <section class="drawer-section">
             <div class="drawer-actions">
               <OrderDetailsCopyButton :customer-portal="customerAccountActor" :order-id="activeOrderSummary.id" :customer-id="customerId" />
-              <DirectShipCancelButton v-if="canInternal('stock.write') && activeOrderSummary.fulfillment_mode && !activeOrderSummary.is_void" :customer-id="Number(customerId)" :order-id="Number(activeOrderSummary.id)" @cancelled="onDirectShipCancelled" />
+              <OrderResolutionButton v-if="!customerAccountActor" :order-id="Number(activeOrderSummary.id)" @changed="loadAll" />
               <button class="secondary" type="button" @click="openSalesOrderDrawer(activeOrderSummary)">销售单</button>
               <button v-if="!customerAccountActor && !isCustomerStockOrder(activeOrderDetail || activeOrderSummary)" class="secondary" type="button" @click="openDeliveryNoteDrawer(activeOrderSummary)" :disabled="!isShipped(activeOrderSummary)">出库单</button>
             </div>
@@ -366,7 +366,7 @@
     <div v-if="activeBill" class="sales-order-drawer-mask billing-bill-mask" @click.self="activeBill = null">
       <aside class="sales-order-drawer billing-bill-drawer" aria-label="已出账费用明细">
         <header class="panel-head"><div><h3>{{ activeBill.settlement_no }}</h3><p>{{ activeBill.period_from }} 至 {{ activeBill.period_to }} · {{ activeBill.customer_name }}</p></div><button class="secondary" type="button" @click="activeBill = null">关闭</button></header>
-        <div class="billing-bill-summary"><span>出账 ¥{{ moneyFromCents(activeBill.total_amount_cents) }}</span><span>已收 ¥{{ moneyFromCents(activeBill.current_received_cents) }}</span><span>未收 ¥{{ moneyFromCents(activeBill.current_due_amount_cents) }}</span><span>{{ activeBill.issued_at }}</span></div>
+        <div class="billing-bill-summary"><span>原出账 ¥{{ moneyFromCents(activeBill.total_amount_cents) }}</span><span v-if="activeBill.adjustment_cents">订单处理调整 ¥{{ moneyFromCents(-activeBill.adjustment_cents) }}</span><span>已收 ¥{{ moneyFromCents(activeBill.current_received_cents) }}</span><span>未收 ¥{{ moneyFromCents(activeBill.current_due_amount_cents) }}</span><span>{{ activeBill.issued_at }}</span></div>
         <div class="head-actions"><button v-if="canInternal('stock.write') && billPaymentAction(activeBill)" class="primary" type="button" :disabled="billPaymentLoading || billPaymentNeedsRefresh" @click="requestBillPayment(activeBill)">{{ billPaymentLoading ? '处理中…' : billPaymentAction(activeBill) === 'pay' ? '标记已收清' : '撤销收款' }}</button><button class="secondary" type="button" :disabled="billingExportLoading" @click="downloadBillFile('xlsx')">导出费用 Excel</button><button class="secondary" type="button" :disabled="billPdfLoading" @click="downloadStampedBillPDF">{{ billPdfLoading ? '生成中…' : '下载费用 PDF' }}</button><button class="secondary" type="button" :disabled="billPdfLoading" @click="downloadBillImage">下载分享图片</button></div><p class="muted">商品、运费和服务费对应明细见下方；PDF 和图片使用已保存的公章设置。操作说明见客户履约手册。</p>
         <p v-if="billPaymentError" class="error" role="alert">{{ billPaymentError }}</p>
         <p v-if="billPaymentNotice" class="ok" role="status">{{ billPaymentNotice }}</p>
@@ -435,7 +435,7 @@ import DeliveryNoteView from './DeliveryNoteView.vue'
 import SalesOrderView from './SalesOrderView.vue'
 import CustomerDirectShipForm from '../components/CustomerDirectShipForm.vue'
 import FulfillmentFeeAdjustment from '../components/FulfillmentFeeAdjustment.vue'
-import DirectShipCancelButton from '../components/DirectShipCancelButton.vue'
+import OrderResolutionButton from '../components/OrderResolutionButton.vue'
 import {
   adjustCustomerFulfillmentCustodyInventory,
   fetchCustomerFulfillmentCustomers,

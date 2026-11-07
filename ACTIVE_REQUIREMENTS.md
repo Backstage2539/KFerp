@@ -1,3 +1,16 @@
+### PR-749-ORDER-RESOLUTION 订单取消、关闭与更正
+- Branch: `codex/order-resolution-20261106`；基线 `origin/main` 2d0fe0d46，2026-11-07 已核对远端 develop/main。
+- 已确认范围：普通销售、留厂购货、代发；显式选择暂停/恢复、关闭/重开、取消/修订、退货/冲减/退款。生产、库存、关联代发、费用、资金及账期均由有权限人员选择，不做隐式处置。
+- DEV-PR749-FOUNDATION：处理单、预览、版本、幂等、原子日志、草稿、旧入口保护（进行中）。
+- DEV-PR749-INVENTORY：部分数量、公司备货、逐包裹取消、逐批预留释放已做隔离验证；在制停工、换来源和货权/实物退回待完成。
+- DEV-PR749-FINANCE：独立未收费用、账单更正、退款／余额／抵扣、历史审批与月结重算已做隔离验证；已收独立费用及完整并发链路待完成。
+- DEV-PR749-UI：统一 Vue 抽屉、状态与手册、权限和策略设置（进行中）。
+- DEV-PR749-DELIVERY：测试、API、真实 PostgreSQL、页面与构建、develop/main/ERP 部署（待完成）。
+- 已有 RED/GREEN：显式选择、部分数量尾差、共享生产保护；关闭/重开/修订草稿、幂等、日志失败回滚；最终执行重新核查、过期方案更新；拆分资金、运费单独处置；策略与岗位审批；HTTP/Vue 定向验证。
+- 第一批候选验证：`orderapp-remote/docs/acceptance/2026-11-07-order-resolution.md`；完整 Go、Vue 1745/1745、构建、空库/重复初始化通过；订单处理、留厂、代发、账单、账款和编辑的隔离 PostgreSQL 回归通过。新增日期保存、旧应收、历史库存、追加收款撤销、月结及配置并发保护已 RED/GREEN。完整 PostgreSQL 受影响包仍有 HEAD 可复现的旧样本失败，未记全绿。
+- 验证入口：`go test ./internal/domain/orderresolution ./internal/interfaces/http/orderresolution`；隔离 PostgreSQL `go test ./internal/infrastructure/postgres/customerfulfillment -run 'TestOrderResolution|TestRetainedClose' -count=1`。
+- 正式订单 SO-20261031-0003 未修改；代码未合并/未部署；Van 产品验收待进行。
+
 ### PR-ORDER-DATE-SAVE-20261104 留厂及代发订单日期保存
 - Branch: `codex/order-date-save-20261104`; base `origin/main` 873ab8a41。
 - 留厂销售已有代发、生产或入库关联时，保存未更改的商品明细；历史代发地址与冻结运费地区一致时，修改日期沿用原有费用依据。

@@ -473,8 +473,8 @@ func (r Repository) fetchProductionDemandPartsQuery(ctx context.Context, queryer
 				oi.product_id,
 				requested.spec_g,
 				COALESCE(o.order_no,'') AS order_no,
-				SUM(COALESCE(oi.qty,0))::bigint AS need_units,
-				SUM(CASE WHEN COALESCE(osd.decision,'') = 'produce' THEN COALESCE(oi.qty,0) ELSE 0 END)::bigint AS force_produce_units
+				SUM(GREATEST(0,COALESCE(oi.qty,0)-COALESCE((to_jsonb(oi)->>'resolution_closed_qty')::numeric,0)))::bigint AS need_units,
+				SUM(CASE WHEN COALESCE(osd.decision,'') = 'produce' THEN GREATEST(0,COALESCE(oi.qty,0)-COALESCE((to_jsonb(oi)->>'resolution_closed_qty')::numeric,0)) ELSE 0 END)::bigint AS force_produce_units
 			FROM %s.order_items oi
 			JOIN %s.orders o ON o.id=oi.order_id
 			JOIN requested
@@ -847,8 +847,8 @@ func mergeDripPlanRows(rows []productionapp.UnprodNeedRow, dripRows []production
 }
 
 func (r Repository) fetchDripPlanNeeds(ctx context.Context, from, to string, customerID int64) ([]productionapp.UnprodNeedRow, error) {
-	where := fmt.Sprintf(`WHERE o.is_void=false AND COALESCE(to_jsonb(o)->>'confirmation_status','accepted')='accepted' AND %s
-	AND COALESCE(oi.product_id,0) > 0 AND oi.qty>0
+	where := fmt.Sprintf(`WHERE o.is_void=false AND COALESCE(to_jsonb(o)->>'resolution_status','open') NOT IN('closed','cancelled') AND NOT COALESCE((to_jsonb(o)->>'fulfillment_paused')::boolean,false) AND COALESCE(to_jsonb(o)->>'confirmation_status','accepted')='accepted' AND %s
+	AND COALESCE(oi.product_id,0) > 0 AND oi.qty>COALESCE((to_jsonb(oi)->>'resolution_closed_qty')::numeric,0)
 	AND COALESCE(NULLIF(oi.product_kind,''), NULLIF(p.product_kind,''), 'roasted_bean') = 'drip_bag'
 	AND NOT EXISTS (
 		SELECT 1 FROM %s.ship_statuses ss
@@ -880,7 +880,7 @@ func (r Repository) fetchDripPlanNeeds(ctx context.Context, from, to string, cus
 				COALESCE(p.name,'') AS product,
 				COALESCE(o.order_no,'') AS order_no,
 				COALESCE(NULLIF(oi.unit_bean_g,0), NULLIF(p.drip_bag_grams,0), NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), '')::numeric, 0)::numeric AS spec_g,
-				COALESCE(oi.qty,0)::numeric AS qty,
+				GREATEST(0,COALESCE(oi.qty,0)-COALESCE((to_jsonb(oi)->>'resolution_closed_qty')::numeric,0))::numeric AS qty,
 				COALESCE(NULLIF(oi.sales_unit,''), NULLIF(oi.unit,''), oi.price_source_json->>'price_unit') AS sales_unit,
 				COALESCE(NULLIF(oi.price_source_json->>'inventory_unit',''), 'kg') AS inventory_unit,
 				COALESCE(NULLIF(

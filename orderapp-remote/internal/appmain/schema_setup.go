@@ -3,6 +3,7 @@ package appmain
 import (
 	"context"
 	postgresofficialaccount "orderapp/internal/infrastructure/postgres/officialaccount"
+	resolutionpg "orderapp/internal/infrastructure/postgres/orderresolution"
 	postgrespageentry "orderapp/internal/infrastructure/postgres/pageentry"
 	postgressamples "orderapp/internal/infrastructure/postgres/samples"
 
@@ -60,6 +61,7 @@ func ensureAppSchema(ctx context.Context, pool *pgxpool.Pool, schema string) err
 		{Name: "production", Run: func(ctx context.Context) error { return postgresproduction.EnsureSchema(ctx, pool, schema) }},
 		{Name: "productcreator", Run: func(ctx context.Context) error { return postgresproductcreator.EnsureSchema(ctx, pool, schema) }},
 		{Name: "sales", Run: func(ctx context.Context) error { return postgressales.EnsureSchema(ctx, pool, schema) }},
+		{Name: "orderresolution", Run: func(ctx context.Context) error { return resolutionpg.EnsureSchema(ctx, pool, schema) }},
 		{Name: "samples", Run: func(ctx context.Context) error { return postgressamples.EnsureSchema(ctx, pool, schema) }},
 		{Name: "contracts", Run: func(ctx context.Context) error { return postgrescontracts.EnsureSchema(ctx, pool, schema) }},
 		{Name: "customer-settlement-legacy-draft-release", Run: func(ctx context.Context) error {

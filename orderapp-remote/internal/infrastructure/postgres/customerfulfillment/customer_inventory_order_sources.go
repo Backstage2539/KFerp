@@ -18,7 +18,7 @@ func (r *Repository) customerInventoryOrderSources(ctx context.Context, customer
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
         SELECT e.product_id,e.bom_spec_id,e.spec_g,o.id,o.order_no,
                COALESCE(NULLIF(ps.name,''),'未设置'),
-               SUM(GREATEST(e.promised_qty-e.received_qty,0))::bigint,
+               SUM(GREATEST(e.promised_qty-COALESCE((to_jsonb(e)->>'closed_qty')::bigint,0)-e.received_qty,0))::bigint,
                SUM(e.received_qty)::bigint
         FROM %[1]s.customer_stock_entitlements e
         JOIN %[1]s.orders o ON o.id=e.source_order_id AND o.customer_id=e.customer_id

@@ -20,6 +20,7 @@ import (
 	salesdomain "orderapp/internal/domain/sales"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"orderapp/internal/infrastructure/postgres/orderbeans"
+	resolutionpg "orderapp/internal/infrastructure/postgres/orderresolution"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -1313,6 +1314,12 @@ func (r Repository) WithSampleOrderTransaction(tx pgx.Tx) Repository {
 }
 
 func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error) {
+	if cmd.AmendmentID > 0 {
+		if cmd.EditID > 0 {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("修订必须生成新单")
+		}
+		cmd.RequireConfirmation = true
+	}
 	od := cmd.OrderDate
 	if od.IsZero() {
 		return salesapp.SaveOrderResult{}, fmt.Errorf("invalid order_date")
@@ -1681,6 +1688,17 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 	}
 	preservedItemIDs := map[int64]bool{}
+	resolutionSnapshotsAvailable := false
+	if editID > 0 {
+		if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, r.schema+".order_resolution_requests").Scan(&resolutionSnapshotsAvailable); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+		if resolutionSnapshotsAvailable {
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.order_resolution_requests r WHERE r.order_id=$1 AND (r.status='pending' OR EXISTS(SELECT 1 FROM %[1]s.order_resolution_line_events e WHERE e.request_id=r.id)))`, r.schema), orderID).Scan(&resolutionSnapshotsAvailable); err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+		}
+	}
 	retainedSnapshotsAvailable := false
 	if editID > 0 && strings.TrimSpace(cmd.DeliveryMode) == "customer_stock" {
 		if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL AND to_regprocedure($2) IS NOT NULL`, r.schema+".customer_stock_entitlements", r.schema+".customer_stock_has_dependencies(bigint)").Scan(&retainedSnapshotsAvailable); err != nil {
@@ -1694,6 +1712,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 	for idx := range items {
 		autoRetainedSnapshot := false
+		if resolutionSnapshotsAvailable && !items[idx].preserveExistingSnapshot && items[idx].itemID > 0 && items[idx].productID != nil && items[idx].conversion == nil {
+			autoRetainedSnapshot = true
+		}
 		if !items[idx].preserveExistingSnapshot && retainedSnapshotsAvailable && items[idx].itemID > 0 && items[idx].productID != nil && items[idx].conversion == nil {
 			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.customer_stock_entitlements WHERE source_order_id=$1 AND source_order_item_id=$2)`, r.schema), orderID, items[idx].itemID).Scan(&autoRetainedSnapshot); err != nil {
 				return salesapp.SaveOrderResult{}, err
@@ -3311,6 +3332,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			return salesapp.SaveOrderResult{}, err
 		}
 	}
+	if cmd.AmendmentID > 0 {
+		if err := resolutionpg.AttachAmendmentTx(ctx, tx, r.schema, cmd.AmendmentID, orderID, cmd.Actor); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+	}
 	if cmd.RequireConfirmation && cmd.CustomerRequestID != "" {
 		if _, err := tx.Exec(ctx, fmt.Sprintf("UPDATE %s.order_content_versions v SET request_id=$2,request_hash=$3,customer_id=$4 FROM %s.orders o WHERE v.order_id=o.id AND o.id=$1 AND v.revision=o.confirmation_revision", r.schema, r.schema), orderID, cmd.CustomerRequestID, cmd.CustomerRequestHash, cmd.CustomerID); err != nil {
 			return salesapp.SaveOrderResult{}, err
@@ -3712,39 +3738,7 @@ func (r Repository) Void(ctx context.Context, id int64, actor, reason string) er
 }
 
 func (r Repository) VoidMany(ctx context.Context, ids []int64, actor, reason string) (int, error) {
-	var explicit bool
-	if err := r.pool.QueryRow(ctx, fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s.orders o WHERE id=ANY($1) AND NOT o.is_void AND COALESCE(to_jsonb(o)->>'fulfillment_mode','') IN('stock','on_demand'))", r.schema), ids).Scan(&explicit); err != nil {
-		return 0, err
-	}
-	if explicit {
-		return 0, fmt.Errorf("场景代发订单请使用取消代发，以释放库存预订并冲回费用")
-	}
-
-	q := fmt.Sprintf("UPDATE %s.orders SET is_void=true, voided_at=now(), void_reason=$2 WHERE id = ANY($1) AND COALESCE(is_void,false)=false RETURNING id", r.schema)
-	rows, err := r.pool.Query(ctx, q, ids, notNullText(reason))
-	if err != nil {
-		return 0, err
-	}
-	defer rows.Close()
-	updatedIDs := make([]int64, 0, len(ids))
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return 0, err
-		}
-		updatedIDs = append(updatedIDs, id)
-	}
-	if err := rows.Err(); err != nil {
-		return 0, err
-	}
-	var rv *string
-	if strings.TrimSpace(reason) != "" {
-		rv = &reason
-	}
-	for _, id := range updatedIDs {
-		postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "order", &id, "void", nil, nil, rv, postgresinfra.AuditMeta{"order_id": id})
-	}
-	return len(updatedIDs), nil
+	return 0, fmt.Errorf("请刷新页面，从“订单处理”选择原因、关联处置和账期，预览后提交；旧失效入口不能跳过确认")
 }
 
 func loadOrderSaveAuditSummaryTx(ctx context.Context, tx pgx.Tx, schema string, orderID int64) (string, error) {

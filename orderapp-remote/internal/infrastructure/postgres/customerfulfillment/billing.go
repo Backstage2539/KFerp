@@ -56,7 +56,7 @@ func (r *Repository) loadUnbilledCharges(ctx context.Context, q billingRows, que
 	}
 	fees, err := q.Query(ctx, fmt.Sprintf(`
 		SELECT f.id,coalesce(f.source_type,''),coalesce(f.source_id,0),f.fee_type,coalesce(f.note,''),
-		       round(f.amount*100)::bigint,to_char(f.occurred_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD'),
+		       (round(f.amount*100)::bigint-COALESCE((to_jsonb(f)->>'resolution_credit_cents')::bigint,0)),to_char(f.occurred_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD'),
 		       COALESCE(o.order_no,''),CASE WHEN f.fee_type='shipping' AND f.source_type<>'freight_actual' THEN 'pending_billing' ELSE 'confirmed' END,
 		       CASE WHEN b.status='draft' THEN 'draft' ELSE 'unsettled' END
 		FROM %s.customer_fee_items f
@@ -280,9 +280,34 @@ func (r *Repository) getIssuedBill(ctx context.Context, query billingReader, cus
 			return out, err
 		}
 	}
+	adjustments := map[int64]int64{}
+	if relationExists(ctx, query, r.schema+".order_resolution_billing_adjustments") {
+		rows, e := query.Query(ctx, fmt.Sprintf(`SELECT a.line_id,sum(a.credit_cents)::bigint FROM %[1]s.order_resolution_billing_adjustments a JOIN %[1]s.customer_settlement_lines l ON l.id=a.line_id WHERE l.settlement_batch_id=$1 AND l.customer_id=$2 GROUP BY a.line_id`, r.schema), batchID, customerID)
+		if e != nil {
+			return out, e
+		}
+		for rows.Next() {
+			var id, credit int64
+			if e = rows.Scan(&id, &credit); e != nil {
+				rows.Close()
+				return out, e
+			}
+			adjustments[id] = credit
+		}
+		e = rows.Err()
+		rows.Close()
+		if e != nil {
+			return out, e
+		}
+	}
+	out.PaymentAdditionalAllowed = len(adjustments) > 0
 	out.DueAmountCents = total
 	for i := range out.Lines {
 		line := &out.Lines[i]
+		credit, adjusted := adjustments[line.ID]
+		line.AdjustmentCents = credit
+		line.ReceivableCents = max(int64(0), line.ReceivableCents-credit)
+		out.AdjustmentCents += credit
 		out.ReceivableCents += line.ReceivableCents
 		out.ChargeTypes = appendChargeType(out.ChargeTypes, line.ChargeType)
 		line.IssuedReceivedCents = line.ReceivedCents
@@ -304,8 +329,17 @@ func (r *Repository) getIssuedBill(ctx context.Context, query billingReader, cus
 		}
 		line.ReceivedCents = currentReceived
 		line.DueCents = max(int64(0), line.AmountCents-currentReceived)
-		out.ReceivedCents += currentReceived
-		out.DueAmountCents -= currentReceived
+		if adjusted && line.SourceType == "order" && line.ChargeType == "order_goods" {
+			// Original issued cash stays in the snapshot, but later refunds must
+			// not hide a newly reopened receivable.
+			settled := max(int64(0), receipts[line.SourceID])
+			line.DueCents = max(int64(0), line.ReceivableCents-settled)
+			line.ReceivedCents = max(int64(0), min(line.ReceivableCents, settled)-min(line.IssuedReceivedCents, settled))
+		} else if adjusted {
+			line.DueCents = max(int64(0), line.AmountCents-credit-currentReceived)
+		}
+		out.ReceivedCents += line.ReceivedCents
+		out.DueAmountCents += line.DueCents - line.AmountCents
 	}
 	if out.DueAmountCents < 0 {
 		out.DueAmountCents = 0
@@ -453,6 +487,11 @@ func (r *Repository) IssueBilling(ctx context.Context, cmd app.IssueBillingComma
 		return app.BillingBill{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	for _, key := range []string{fmt.Sprintf("mini-direct-ship:%d", cmd.CustomerID), r.schema + ":finance-period"} {
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, key); err != nil {
+			return app.BillingBill{}, err
+		}
+	}
 	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1),hashtext('customer_settlement'))`, fmt.Sprint(cmd.CustomerID)); err != nil {
 		return app.BillingBill{}, err
 	}
@@ -543,7 +582,7 @@ func (r *Repository) lockBillingSourcesTx(ctx context.Context, tx pgx.Tx, custom
 		}
 		var amount int64
 		var status, batchStatus string
-		err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT round(f.amount*100)::bigint,f.status,COALESCE(b.status,'') FROM %s.customer_fee_items f LEFT JOIN %s.customer_settlement_batches b ON b.id=f.settlement_batch_id AND b.customer_id=f.customer_id WHERE f.id=$1 AND f.customer_id=$2 FOR UPDATE OF f`, r.schema, r.schema), source.SourceID, customerID).Scan(&amount, &status, &batchStatus)
+		err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT (round(f.amount*100)::bigint-COALESCE((to_jsonb(f)->>'resolution_credit_cents')::bigint,0)),f.status,COALESCE(b.status,'') FROM %s.customer_fee_items f LEFT JOIN %s.customer_settlement_batches b ON b.id=f.settlement_batch_id AND b.customer_id=f.customer_id WHERE f.id=$1 AND f.customer_id=$2 FOR UPDATE OF f`, r.schema, r.schema), source.SourceID, customerID).Scan(&amount, &status, &batchStatus)
 		if err != nil || !(status == "unsettled" || status == "settled" && batchStatus == "draft") {
 			return fmt.Errorf("billing source changed; review again")
 		}

@@ -2190,9 +2190,9 @@ func (r Repository) listProcessingRequests(ctx context.Context, customerID int64
 
 func (r Repository) listFeeItems(ctx context.Context, customerID int64, limit int) ([]customerportalapp.FeeItem, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id, source_type, source_id, fee_type, to_char(amount, 'FM999999990.00'), currency,
+		SELECT id, source_type, source_id, fee_type, to_char(amount-COALESCE((to_jsonb(f)->>'resolution_credit_cents')::numeric,0)/100, 'FM999999990.00'), currency,
 		       to_char(occurred_at,'YYYY-MM-DD HH24:MI'), settlement_batch_id, status, note
-		FROM %s.customer_fee_items
+		FROM %s.customer_fee_items f
 		WHERE customer_id=$1
 		ORDER BY occurred_at DESC, id DESC
 		LIMIT $2

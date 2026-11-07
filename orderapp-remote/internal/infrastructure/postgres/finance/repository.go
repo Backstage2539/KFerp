@@ -15,6 +15,7 @@ import (
 )
 
 type Repository struct {
+	tx     pgx.Tx
 	pool   *pgxpool.Pool
 	schema string
 }
@@ -41,7 +42,7 @@ func (r Repository) LoadSettings(ctx context.Context) (appfinance.SettingsSnapsh
 	if r.pool == nil {
 		return appfinance.SettingsSnapshot{Settings: domain.DefaultSettings()}, nil
 	}
-	row := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	row := r.query().QueryRow(ctx, fmt.Sprintf(`
 		SELECT company_type,taxpayer_type,declaration_period,closing_mode,
 		       small_scale_vat_rate::float8,small_scale_vat_threshold::float8,
 		       general_output_vat_rate::float8,default_input_vat_rate::float8,
@@ -135,25 +136,30 @@ func (r Repository) MonthlySourceTotals(ctx context.Context, filter appfinance.R
 	}
 	start := filter.Month + "-01"
 	customerID := filter.CustomerID
-	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	if err := r.query().QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(SUM(%s),0)::float8
 		FROM %s.orders
-		WHERE COALESCE(is_void,false)=false
+		WHERE (COALESCE(is_void,false)=false OR COALESCE(to_jsonb(orders)->>'resolution_status','')='cancelled')
 		  AND order_date >= $1::date
 		  AND order_date < ($1::date + INTERVAL '1 month')
 		  AND ($2::bigint=0 OR customer_id=$2::bigint)
 	`, financeOrderRevenueSQL(""), r.schema), start, customerID).Scan(&out.RevenueTaxInclusive); err != nil {
 		return out, nil, err
 	}
+	adjustment, err := r.resolutionRevenue(ctx, filter)
+	if err != nil {
+		return out, nil, err
+	}
+	out.RevenueTaxInclusive += adjustment
 	var productionCost, mainCostExpense, periodExpense, inputVAT, nonDeductibleVAT domain.Money
-	_ = r.pool.QueryRow(ctx, fmt.Sprintf(`
+	_ = r.query().QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(SUM(total_cost),0)::float8
 		FROM %s.production_batch_costs
 		WHERE created_at >= $1::date
 		  AND created_at < ($1::date + INTERVAL '1 month')
 		  AND $2::bigint=0
 	`, r.schema), start, customerID).Scan(&productionCost)
-	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	if err := r.query().QueryRow(ctx, fmt.Sprintf(`
 		SELECT
 			COALESCE(SUM(amount) FILTER (WHERE allocation='main_cost'),0)::float8,
 			COALESCE(SUM(amount) FILTER (WHERE allocation='period_expense'),0)::float8,
@@ -171,7 +177,7 @@ func (r Repository) MonthlySourceTotals(ctx context.Context, filter appfinance.R
 	out.NonDeductibleInputVAT = nonDeductibleVAT
 	exceptions := make([]appfinance.Exception, 0)
 	var uncategorized int
-	_ = r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.finance_expenses WHERE month=$1 AND category='' AND ($2::bigint=0 OR customer_id=$2::bigint)`, r.schema), filter.Month, customerID).Scan(&uncategorized)
+	_ = r.query().QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.finance_expenses WHERE month=$1 AND category='' AND ($2::bigint=0 OR customer_id=$2::bigint)`, r.schema), filter.Month, customerID).Scan(&uncategorized)
 	if uncategorized > 0 {
 		exceptions = append(exceptions, appfinance.Exception{Code: "uncategorized_expense", Message: "有未分类费用", Count: uncategorized})
 	}
@@ -183,7 +189,7 @@ func (r Repository) CreateExpense(ctx context.Context, cmd appfinance.CreateExpe
 	if err := r.validateExpenseDimensionRefs(ctx, cmd); err != nil {
 		return row, err
 	}
-	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	err := r.query().QueryRow(ctx, fmt.Sprintf(`
 		WITH inserted AS (
 			INSERT INTO %s.finance_expenses(
 				expense_date,month,category,amount,allocation,employee_id,
@@ -232,7 +238,7 @@ func (r Repository) ensureExpenseOrderCustomerMatch(ctx context.Context, orderID
 		return nil
 	}
 	var orderCustomerID int64
-	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT customer_id FROM %s.orders WHERE id=$1`, r.schema), orderID).Scan(&orderCustomerID); err != nil {
+	if err := r.query().QueryRow(ctx, fmt.Sprintf(`SELECT customer_id FROM %s.orders WHERE id=$1`, r.schema), orderID).Scan(&orderCustomerID); err != nil {
 		return err
 	}
 	if orderCustomerID != customerID {
@@ -246,7 +252,7 @@ func (r Repository) ensureExpenseOrderProductMatch(ctx context.Context, orderID,
 		return nil
 	}
 	var exists bool
-	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.order_items WHERE order_id=$1 AND product_id=$2)`, r.schema), orderID, productID).Scan(&exists); err != nil {
+	if err := r.query().QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.order_items WHERE order_id=$1 AND product_id=$2)`, r.schema), orderID, productID).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {
@@ -260,7 +266,7 @@ func (r Repository) ensureExpenseDimensionRefExists(ctx context.Context, table s
 		return nil
 	}
 	var exists bool
-	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.%s WHERE id=$1)`, r.schema, table), id).Scan(&exists); err != nil {
+	if err := r.query().QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.%s WHERE id=$1)`, r.schema, table), id).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {
@@ -282,7 +288,7 @@ func (r Repository) ListExpenses(ctx context.Context, filter appfinance.ExpenseF
 		where += fmt.Sprintf(" AND fe.customer_id=$%d", argn)
 		args = append(args, filter.CustomerID)
 	}
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	rows, err := r.query().Query(ctx, fmt.Sprintf(`
 		SELECT fe.id,to_char(fe.expense_date,'YYYY-MM-DD'),fe.month,fe.category,fe.amount::float8,fe.allocation,
 		       COALESCE(fe.employee_id,0),COALESCE(e.name,''),
 		       fe.order_id,fe.customer_id,fe.product_id,fe.batch_no,fe.dimension_note,
@@ -333,7 +339,7 @@ func (r Repository) FinanceSourceDetails(ctx context.Context, filter appfinance.
 				FROM %s.orders o
 				LEFT JOIN %s.customers c ON c.id=o.customer_id
 				LEFT JOIN %s.sales_order_assets a ON a.id=o.payment_voucher_asset_id AND a.kind='payment_voucher'
-				WHERE COALESCE(o.is_void,false)=false
+				WHERE (COALESCE(o.is_void,false)=false OR COALESCE(to_jsonb(o)->>'resolution_status','')='cancelled')
 				  AND o.order_date >= $1::date
 				  AND o.order_date < ($1::date + INTERVAL '1 month')
 				  AND ($2::bigint=0 OR o.customer_id=$2::bigint)
@@ -391,7 +397,7 @@ func (r Repository) FinanceSourceDetails(ctx context.Context, filter appfinance.
 		},
 	}
 	for _, query := range queries {
-		rows, err := r.pool.Query(ctx, query.sql, query.args...)
+		rows, err := r.query().Query(ctx, query.sql, query.args...)
 		if err != nil {
 			return nil, err
 		}
@@ -399,6 +405,11 @@ func (r Repository) FinanceSourceDetails(ctx context.Context, filter appfinance.
 			return nil, err
 		}
 	}
+	adjustment, err := r.resolutionDetails(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, adjustment...)
 	return out, nil
 }
 
@@ -410,7 +421,7 @@ func nullableEmployeeID(id int64) any {
 }
 
 func (r Repository) ListExpenseEmployees(ctx context.Context) ([]appfinance.ExpenseEmployee, error) {
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	rows, err := r.query().Query(ctx, fmt.Sprintf(`
 		SELECT id,name,active
 		FROM %s.company_employees
 		ORDER BY active DESC,name,id
@@ -431,7 +442,7 @@ func (r Repository) ListExpenseEmployees(ctx context.Context) ([]appfinance.Expe
 }
 
 func (r Repository) ListTaxLedger(ctx context.Context, month string) ([]appfinance.TaxLedgerEntry, error) {
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	rows, err := r.query().Query(ctx, fmt.Sprintf(`
 		SELECT id,month,kind,invoice_no,counterparty,total_amount::float8,tax_amount::float8,status,note,created_by,to_char(created_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.finance_tax_ledger
 		WHERE month=$1
@@ -525,7 +536,7 @@ func (r Repository) SaveMonthlyReport(ctx context.Context, report domain.Monthly
 	if err != nil {
 		return domain.MonthlyReport{}, err
 	}
-	_, err = r.pool.Exec(ctx, fmt.Sprintf(`
+	_, err = r.query().Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.finance_monthly_reports(month,status,snapshot_json,generated_at,closed_at,closed_by,updated_at)
 		VALUES($1,$2,$3::jsonb,now(),CASE WHEN $2 IN ('closed','adjusted') THEN now() ELSE NULL END,$4,now())
 		ON CONFLICT(month) DO UPDATE SET
@@ -540,7 +551,7 @@ func (r Repository) SaveMonthlyReport(ctx context.Context, report domain.Monthly
 
 func (r Repository) MonthlyReportStatus(ctx context.Context, month string) (string, error) {
 	var status string
-	err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT status FROM %s.finance_monthly_reports WHERE month=$1`, r.schema), month).Scan(&status)
+	err := r.query().QueryRow(ctx, fmt.Sprintf(`SELECT status FROM %s.finance_monthly_reports WHERE month=$1`, r.schema), month).Scan(&status)
 	if err == pgx.ErrNoRows {
 		return domain.MonthStatusDraft, nil
 	}
@@ -582,7 +593,7 @@ func (r Repository) CreateAdjustment(ctx context.Context, cmd appfinance.CreateA
 }
 
 func (r Repository) ListAdjustments(ctx context.Context, month string) ([]appfinance.AdjustmentRecord, error) {
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	rows, err := r.query().Query(ctx, fmt.Sprintf(`
 		SELECT id,month,type,amount::float8,reason,note,actor,to_char(created_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.finance_adjustments
 		WHERE month=$1

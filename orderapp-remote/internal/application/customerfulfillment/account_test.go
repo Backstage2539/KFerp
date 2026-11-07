@@ -144,3 +144,16 @@ func TestOrderFeeGroupsExcludeStaleEstimateAfterActualFreight(t *testing.T) {
 		t.Fatalf("stale estimate counted: %+v %+v", groups, summary)
 	}
 }
+
+func TestAccountOrderResolutionKeepsCashSeparateFromSettlement(t *testing.T) {
+	o := AccountOrder{TotalCents: 9000, PaymentGoodsCents: 5000, ResolutionOffsetCents: 4000}
+	o.SetPayment()
+	if o.DueCents != 0 || o.PaidCents != 9000 || o.PrepaymentCents != 0 {
+		t.Fatalf("offset not settled: %+v", o)
+	}
+	o = AccountOrder{TotalCents: 3000, PrepaymentCents: 9000, ResolutionCreditCents: 6000, ResolutionSettledOutCents: 9000, PayStatus: "已付款"}
+	o.SetPayment()
+	if o.DueCents != 3000 || o.PaidCents != 0 || o.PrepaymentCents != 9000 {
+		t.Fatalf("refund erased by legacy paid status: %+v", o)
+	}
+}

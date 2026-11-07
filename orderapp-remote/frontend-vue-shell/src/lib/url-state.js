@@ -5,6 +5,8 @@ export function relativeURLForHistory(url) {
 
 const viewScopedParams = [
   'edit_id',
+  'copy_id',
+  'amendment_id',
   'mode',
   'q',
   'from',

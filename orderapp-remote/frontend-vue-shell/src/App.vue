@@ -420,6 +420,7 @@ const internalViews = {
   orders: OrdersView,
   contracts: ContractsView,
   orderSalesManual: OperationManualView,
+  orderResolutionManual: OperationManualView,
   orderInvoice: OrderInvoiceView,
   salesOrder: SalesOrderView,
   deliveryNote: DeliveryNoteView,

@@ -15,6 +15,9 @@ import (
 )
 
 type billingOrderSnapshot struct {
+	LegacyCash   int64  `json:"legacy_cash"`
+	Offset       int64  `json:"offset"`
+	SettledOut   int64  `json:"settled_out"`
 	Status       int64  `json:"status"`
 	Method       string `json:"method"`
 	Prepayment   int64  `json:"prepayment"`
@@ -40,6 +43,11 @@ func (r *Repository) ChangeBillingPayment(ctx context.Context, cmd app.BillingPa
 		return app.BillingBill{}, err
 	}
 	defer tx.Rollback(ctx)
+	for _, key := range []string{fmt.Sprintf("mini-direct-ship:%d", cmd.CustomerID), r.schema + ":finance-period"} {
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, key); err != nil {
+			return app.BillingBill{}, err
+		}
+	}
 	var id int64
 	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.customers WHERE id=$1 FOR UPDATE`, r.schema), cmd.CustomerID).Scan(&id); err != nil {
 		return app.BillingBill{}, fmt.Errorf("客户不存在")
@@ -85,7 +93,7 @@ func (r *Repository) ChangeBillingPayment(ctx context.Context, cmd app.BillingPa
 	}
 	var paymentID int64
 	var raw []byte
-	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,allocations FROM %s.customer_settlement_payments WHERE customer_id=$1 AND settlement_batch_id=$2 AND reversed_at IS NULL FOR UPDATE`, r.schema), cmd.CustomerID, cmd.BatchID).Scan(&paymentID, &raw)
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,allocations FROM %s.customer_settlement_payments WHERE customer_id=$1 AND settlement_batch_id=$2 AND reversed_at IS NULL ORDER BY id DESC LIMIT 1 FOR UPDATE`, r.schema), cmd.CustomerID, cmd.BatchID).Scan(&paymentID, &raw)
 	if err != nil && err != pgx.ErrNoRows {
 		return app.BillingBill{}, err
 	}
@@ -98,13 +106,15 @@ func (r *Repository) ChangeBillingPayment(ctx context.Context, cmd app.BillingPa
 		if e != nil {
 			return app.BillingBill{}, e
 		}
-		if bill.DueAmountCents > 0 {
+		if bill.DueAmountCents > 0 && !bill.PaymentAdditionalAllowed {
 			return app.BillingBill{}, fmt.Errorf("账单收款后金额发生变化，请核对账单和订单")
 		}
 		if cmd.ExpectedPaymentRevision == nil || bill.PaymentRevision != *cmd.ExpectedPaymentRevision {
 			return app.BillingBill{}, fmt.Errorf("账单付款状态已变化，请刷新核对")
 		}
-		return finish()
+		if bill.DueAmountCents == 0 {
+			return finish()
+		}
 	}
 	if cmd.Action == "reverse" && !active {
 		if status == "paid" || status == "settled" {
@@ -126,7 +136,7 @@ func (r *Repository) ChangeBillingPayment(ctx context.Context, cmd app.BillingPa
 		}
 		return finish()
 	}
-	if cmd.Action == "pay" && status != "confirmed" {
+	if cmd.Action == "pay" && status != "confirmed" && !(status == "paid" && active) {
 		return app.BillingBill{}, fmt.Errorf("历史账单状态不能自动登记收款，请先核对")
 	}
 	var allocs []billingOrderAllocation
@@ -189,7 +199,8 @@ func (r *Repository) ChangeBillingPayment(ctx context.Context, cmd app.BillingPa
 			if goods+shipping < a.Before.Prepayment {
 				return app.BillingBill{}, fmt.Errorf("订单预付款与实收明细不一致，请先核对")
 			}
-			if goods < 0 || shipping < 0 || goods+a.Amount > goodsDue || shipping > a.Before.Shipping || a.Before.Total < 0 {
+			effective := max(int64(0), goods+shipping+a.Before.LegacyCash+a.Before.Offset-a.Before.SettledOut)
+			if goods < 0 || shipping < 0 || effective+a.Amount > a.Before.Total || a.Before.Total < 0 {
 				return app.BillingBill{}, fmt.Errorf("订单收款或应收金额已变化，请核对")
 			}
 			a.After.Goods = goods + a.Amount
@@ -201,12 +212,12 @@ func (r *Repository) ChangeBillingPayment(ctx context.Context, cmd app.BillingPa
 				return app.BillingBill{}, fmt.Errorf("请填写实际付款方式")
 			}
 			totalPaid := a.After.Goods + a.After.ShippingPaid
-			if totalPaid > a.Before.Total {
+			if totalPaid+a.Before.LegacyCash+a.Before.Offset-a.Before.SettledOut > a.Before.Total {
 				return app.BillingBill{}, fmt.Errorf("订单收款超过应收，请核对")
 			}
 			a.After.Prepayment = totalPaid
 			name := "预付款（付款未完成）"
-			if totalPaid >= a.Before.Total {
+			if totalPaid+a.Before.LegacyCash+a.Before.Offset-a.Before.SettledOut >= a.Before.Total {
 				name = "已付款"
 			}
 			if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.pay_statuses WHERE name=$1 ORDER BY id LIMIT 1`, r.schema), name).Scan(&a.After.Status); err != nil {
@@ -251,7 +262,7 @@ func (r *Repository) ChangeBillingPayment(ctx context.Context, cmd app.BillingPa
 		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_settlement_payments SET reversed_at=now(),reversed_by=$2 WHERE id=$1`, r.schema), paymentID, cmd.Actor); err != nil {
 			return app.BillingBill{}, err
 		}
-		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_settlement_batches SET status='confirmed',paid_at=NULL WHERE id=$1`, r.schema), cmd.BatchID); err != nil {
+		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.customer_settlement_batches SET status=CASE WHEN EXISTS(SELECT 1 FROM %[1]s.customer_settlement_payments WHERE settlement_batch_id=$1 AND reversed_at IS NULL)THEN 'paid' ELSE 'confirmed' END,paid_at=CASE WHEN EXISTS(SELECT 1 FROM %[1]s.customer_settlement_payments WHERE settlement_batch_id=$1 AND reversed_at IS NULL)THEN paid_at ELSE NULL END WHERE id=$1`, r.schema), cmd.BatchID); err != nil {
 			return app.BillingBill{}, err
 		}
 	}
@@ -271,7 +282,7 @@ func (r *Repository) ChangeBillingPayment(ctx context.Context, cmd app.BillingPa
 func (r *Repository) lockBillingOrder(ctx context.Context, tx pgx.Tx, customerID, orderID int64) (billingOrderSnapshot, error) {
 	var s billingOrderSnapshot
 	var void, unaccepted bool
-	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(pay_status_id,0),COALESCE(payment_method,''),round(COALESCE(prepayment_amount,0)*100)::bigint,round(COALESCE(payment_goods_amount,0)*100)::bigint,round(COALESCE(payment_shipping_amount,0)*100)::bigint,round((CASE WHEN COALESCE(grand_total,0)<>0 OR COALESCE(NULLIF(to_jsonb(o)->>'discount_amount','')::numeric,0)<>0 OR COALESCE(shipping_amount,0)<>0 OR COALESCE(NULLIF(to_jsonb(o)->>'rounding_amount','')::numeric,0)<>0 THEN COALESCE(grand_total,0) ELSE COALESCE(total_amount,0) END)*100)::bigint,round(COALESCE(shipping_amount,0)*100)::bigint,COALESCE(is_void,false),COALESCE((to_jsonb(o)->>'confirmation_required')::boolean,false) AND COALESCE(to_jsonb(o)->>'confirmation_status','accepted')<>'accepted' FROM %s.orders o WHERE id=$1 AND customer_id=$2 FOR UPDATE`, r.schema), orderID, customerID).Scan(&s.Status, &s.Method, &s.Prepayment, &s.Goods, &s.ShippingPaid, &s.Total, &s.Shipping, &void, &unaccepted)
+	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(pay_status_id,0),COALESCE(payment_method,''),round(COALESCE(prepayment_amount,0)*100)::bigint,round(COALESCE(payment_goods_amount,0)*100)::bigint,round(COALESCE(payment_shipping_amount,0)*100)::bigint,round((CASE WHEN COALESCE(grand_total,0)<>0 OR COALESCE(NULLIF(to_jsonb(o)->>'discount_amount','')::numeric,0)<>0 OR COALESCE(shipping_amount,0)<>0 OR COALESCE(NULLIF(to_jsonb(o)->>'rounding_amount','')::numeric,0)<>0 THEN COALESCE(grand_total,0) ELSE COALESCE(total_amount,0) END)*100)::bigint-COALESCE((to_jsonb(o)->>'resolution_credit_cents')::bigint,0),GREATEST(0,round(COALESCE(shipping_amount,0)*100)::bigint-COALESCE((to_jsonb(o)->>'resolution_shipping_credit_cents')::bigint,0)),COALESCE((to_jsonb(o)->>'resolution_legacy_cash_cents')::bigint,0),COALESCE((to_jsonb(o)->>'resolution_offset_cents')::bigint,0),COALESCE((to_jsonb(o)->>'resolution_settled_out_cents')::bigint,0),COALESCE(is_void,false),COALESCE((to_jsonb(o)->>'confirmation_required')::boolean,false) AND COALESCE(to_jsonb(o)->>'confirmation_status','accepted')<>'accepted' FROM %s.orders o WHERE id=$1 AND customer_id=$2 FOR UPDATE`, r.schema), orderID, customerID).Scan(&s.Status, &s.Method, &s.Prepayment, &s.Goods, &s.ShippingPaid, &s.Total, &s.Shipping, &s.LegacyCash, &s.Offset, &s.SettledOut, &void, &unaccepted)
 	if err != nil || void || unaccepted {
 		return s, fmt.Errorf("关联订单不存在、已作废或尚未确认，请核对")
 	}

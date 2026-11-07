@@ -5262,7 +5262,7 @@ func (r *Repository) CreateSettlement(ctx context.Context, cmd app.CreateSettlem
 
 	fees, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT f.id,COALESCE(f.source_type,''),COALESCE(f.source_id,0),f.fee_type,COALESCE(f.note,''),
-			ROUND(f.amount*100)::bigint, to_char(f.occurred_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD'),
+			(round(f.amount*100)::bigint-COALESCE((to_jsonb(f)->>'resolution_credit_cents')::bigint,0)), to_char(f.occurred_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD'),
 			COALESCE(o.order_no,'')
 		FROM %s.customer_fee_items f
 		LEFT JOIN %s.orders o ON f.source_type='order' AND o.id=f.source_id AND o.customer_id=f.customer_id
@@ -5376,11 +5376,12 @@ func customerSettlementOrderChargesTx(ctx context.Context, tx settlementQueryRun
 				OR COALESCE(NULLIF(to_jsonb(o)->>'discount_amount','')::numeric,0)<>0
 				OR COALESCE(o.shipping_amount,0)<>0
 				OR COALESCE(NULLIF(to_jsonb(o)->>'rounding_amount','')::numeric,0)<>0
-				THEN COALESCE(o.grand_total,0) ELSE COALESCE(o.total_amount,0) END*100)::bigint,
-			round(COALESCE(o.shipping_amount,0)*100)::bigint,
+				THEN COALESCE(o.grand_total,0) ELSE COALESCE(o.total_amount,0) END*100)::bigint-COALESCE((to_jsonb(o)->>'resolution_credit_cents')::bigint,0),
+			GREATEST(0,round(COALESCE(o.shipping_amount,0)*100)::bigint-COALESCE((to_jsonb(o)->>'resolution_shipping_credit_cents')::bigint,0)),
 			COALESCE(NULLIF(to_jsonb(o)->>'prepayment_amount','')::numeric,0),
 			COALESCE(NULLIF(to_jsonb(o)->>'payment_goods_amount','')::numeric,0),
-			COALESCE(NULLIF(to_jsonb(o)->>'payment_shipping_amount','')::numeric,0)
+			COALESCE(NULLIF(to_jsonb(o)->>'payment_shipping_amount','')::numeric,0),
+ COALESCE((to_jsonb(o)->>'resolution_offset_cents')::bigint,0),COALESCE((to_jsonb(o)->>'resolution_settled_out_cents')::bigint,0),COALESCE((to_jsonb(o)->>'resolution_credit_cents')::bigint,0),COALESCE((to_jsonb(o)->>'resolution_payment_tracked')::boolean,false),COALESCE((to_jsonb(o)->>'resolution_legacy_cash_cents')::bigint,0)
 		FROM %s.orders o
 		LEFT JOIN %s.pay_statuses ps ON ps.id=o.pay_status_id
 		WHERE o.customer_id=$1 AND COALESCE(o.is_void,false)=false
@@ -5402,10 +5403,11 @@ func customerSettlementOrderChargesTx(ctx context.Context, tx settlementQueryRun
 	defer rows.Close()
 	out := make([]app.SettlementLineSummary, 0)
 	for rows.Next() {
-		var id, totalCents, shippingCents int64
+		var id, totalCents, shippingCents, offsetCents, settledOutCents, creditCents, legacyCash int64
+		var tracked bool
 		var orderNo, occurredAt, payStatus string
 		var prepayment, paymentGoods, paymentShipping float64
-		if err := rows.Scan(&id, &orderNo, &occurredAt, &payStatus, &totalCents, &shippingCents, &prepayment, &paymentGoods, &paymentShipping); err != nil {
+		if err := rows.Scan(&id, &orderNo, &occurredAt, &payStatus, &totalCents, &shippingCents, &prepayment, &paymentGoods, &paymentShipping, &offsetCents, &settledOutCents, &creditCents, &tracked, &legacyCash); err != nil {
 			return nil, err
 		}
 		goodsReceivable := max(int64(0), totalCents-shippingCents)
@@ -5417,12 +5419,21 @@ func customerSettlementOrderChargesTx(ctx context.Context, tx settlementQueryRun
 			goodsReceived = min(goodsReceivable, prepaymentCents)
 			shippingReceived = min(shippingReceivable, max(int64(0), prepaymentCents-goodsReceived))
 		}
-		if strings.Contains(payStatus, "已付款") || strings.Contains(payStatus, "已收款") || strings.Contains(payStatus, "已支付") {
+		if !tracked && (strings.Contains(payStatus, "已付款") || strings.Contains(payStatus, "已收款") || strings.Contains(payStatus, "已支付")) {
 			goodsReceived = goodsReceivable
 			shippingReceived = shippingReceivable
 		}
 		goodsReceived = min(goodsReceivable, max(int64(0), goodsReceived))
 		shippingReceived = min(shippingReceivable, max(int64(0), shippingReceived))
+		if tracked || offsetCents != 0 || settledOutCents != 0 {
+			cash := max(int64(math.Round(prepayment*100)), int64(math.Round((paymentGoods+paymentShipping)*100)))
+			if !tracked && (strings.Contains(payStatus, "已付款") || strings.Contains(payStatus, "已收款") || strings.Contains(payStatus, "已支付")) {
+				cash = max(cash, totalCents+creditCents)
+			}
+			settled := max(int64(0), cash+legacyCash+offsetCents-settledOutCents)
+			goodsReceived = min(goodsReceivable, settled)
+			shippingReceived = min(shippingReceivable, max(int64(0), settled-goodsReceived))
+		}
 		goodsDue := max(int64(0), goodsReceivable-goodsReceived)
 		shippingDue := max(int64(0), shippingReceivable-shippingReceived)
 		for _, line := range []app.SettlementLineSummary{
@@ -5700,13 +5711,13 @@ func (r *Repository) listDirectShipOrders(ctx context.Context, customerID int64)
 
 func (r *Repository) listFeeItems(ctx context.Context, customerID int64) ([]app.FeeItemSummary, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT f.fee_type, f.note, ROUND(f.amount * 100)::bigint, f.source_type, f.id, f.source_id, f.status, f.settlement_batch_id,
+		SELECT f.fee_type, f.note, (round(f.amount*100)::bigint-COALESCE((to_jsonb(f)->>'resolution_credit_cents')::bigint,0)), f.source_type, f.id, f.source_id, f.status, f.settlement_batch_id,
 			to_char(f.occurred_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI'),
 			CASE WHEN f.fee_type='direct_ship_service' OR (f.fee_type='shipping' AND f.source_type='freight_actual') THEN 'confirmed'
 				WHEN f.fee_type='shipping' THEN 'pending_confirmation' ELSE 'confirmed' END,
 			COALESCE(b.status,''),
-			CASE WHEN b.status='paid' THEN ROUND(f.amount*100)::bigint ELSE 0 END,
-			CASE WHEN b.status='paid' THEN 0 ELSE ROUND(f.amount*100)::bigint END
+			CASE WHEN b.status='paid' THEN (round(f.amount*100)::bigint-COALESCE((to_jsonb(f)->>'resolution_credit_cents')::bigint,0)) ELSE 0 END,
+			CASE WHEN b.status='paid' THEN 0 ELSE (round(f.amount*100)::bigint-COALESCE((to_jsonb(f)->>'resolution_credit_cents')::bigint,0)) END
 		FROM %s.customer_fee_items f
 		LEFT JOIN %s.customer_settlement_batches b ON b.id=f.settlement_batch_id AND b.customer_id=f.customer_id
 		WHERE f.customer_id=$1

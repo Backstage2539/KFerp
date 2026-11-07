@@ -13,6 +13,7 @@ import (
 	salesapp "orderapp/internal/application/sales"
 	stockapp "orderapp/internal/application/stock"
 	postgresinventory "orderapp/internal/infrastructure/postgres/inventory"
+	resolutionpg "orderapp/internal/infrastructure/postgres/orderresolution"
 	postgresproduction "orderapp/internal/infrastructure/postgres/production"
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
 	postgresstock "orderapp/internal/infrastructure/postgres/stock"
@@ -221,15 +222,15 @@ func TestMiniDirectShipClosedLoopFIFOIsolationIdempotencyAndCancellation(t *test
 		t.Fatalf("second batch related orders = %#v", batches[1].RelatedOrders)
 	}
 
-	cancelled, err := repo.CancelMiniDirectShipRequest(ctx, 501, created.ID, "mini_user:801")
+	cancelled, err := cancelDirectShipResolutionFixture(ctx, pool, schema, 501, created.ID, "customer_cancel", "employee:703")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cancelled.Status != "cancelled" {
 		t.Fatalf("cancelled = %#v", cancelled)
 	}
-	assertMiniDirectShipCount(t, pool, schema, "order_stock_batch_allocations", fmt.Sprintf("request_id=%d", created.ID), 0)
-	assertMiniDirectShipCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='customer_direct_ship_request' AND entity_id=%d", created.ID), 2)
+	assertMiniDirectShipCount(t, pool, schema, "order_stock_batch_allocations", fmt.Sprintf("request_id=%d AND (allocated_units>0 OR allocated_g>0)", created.ID), 0)
+	assertMiniDirectShipCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='customer_direct_ship_request' AND entity_id=%d", created.ID), 3)
 	assertMiniDirectShipCount(t, pool, schema, "orders", fmt.Sprintf("id IN (SELECT order_id FROM %s.customer_direct_ship_request_orders WHERE request_id=%d) AND is_void=true", schema, created.ID), 2)
 
 	availableAgain, err := repo.ListCustomerCentralInventory(ctx, 501)
@@ -285,10 +286,10 @@ func TestMiniDirectShipClosedLoopFIFOIsolationIdempotencyAndCancellation(t *test
 	if successes != 1 || shortages != 1 {
 		t.Fatalf("concurrent outcomes successes=%d shortages=%d errors=%v", successes, shortages, errs)
 	}
-	assertMiniDirectShipCount(t, pool, schema, "order_stock_batch_allocations", "request_id>0", 2)
+	assertMiniDirectShipCount(t, pool, schema, "order_stock_batch_allocations", "request_id>0 AND (allocated_units>0 OR allocated_g>0)", 2)
 	for _, result := range results {
 		if result.ID > 0 {
-			if _, err := repo.CancelMiniDirectShipRequest(ctx, 501, result.ID, "mini_user:801"); err != nil {
+			if _, err := cancelDirectShipResolutionFixture(ctx, pool, schema, 501, result.ID, "customer_cancel", "employee:703"); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -1087,6 +1088,9 @@ func newMiniDirectShipTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	}
 	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("sales.EnsureSchema: %v", err)
+	}
+	if err := resolutionpg.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("orderresolution.EnsureSchema: %v", err)
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s.order_audit_logs(
