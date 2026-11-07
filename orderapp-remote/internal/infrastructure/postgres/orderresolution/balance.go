@@ -12,6 +12,7 @@ import (
 )
 
 type Balance struct {
+	SourceFeeID    int64  `json:"source_fee_id,omitempty"`
 	ID             int64  `json:"id"`
 	OrderID        int64  `json:"order_id"`
 	OrderNo        string `json:"order_no"`
@@ -20,6 +21,7 @@ type Balance struct {
 	PostingDate    string `json:"posting_date"`
 }
 type BalanceUse struct {
+	SourceFeeID   int64  `json:"source_fee_id,omitempty"`
 	ID            int64  `json:"id"`
 	OrderNo       string `json:"order_no"`
 	TargetOrderNo string `json:"target_order_no"`
@@ -34,14 +36,14 @@ type BalanceUse struct {
 
 func (r Repository) BalanceHistory(ctx context.Context, orderID int64) ([]BalanceUse, error) {
 	out := []BalanceUse{}
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT u.id,o.order_no,COALESCE(target.order_no,''),u.kind,u.amount_cents,to_char(u.posting_date,'YYYY-MM-DD'),u.account,u.reference,u.note,u.actor FROM %[1]s.order_resolution_balance_uses u JOIN %[1]s.order_resolution_financial_entries f ON f.id=u.source_entry_id JOIN %[1]s.orders o ON o.id=f.order_id JOIN %[1]s.orders current ON current.customer_id=u.customer_id LEFT JOIN %[1]s.orders target ON target.id=u.target_order_id AND u.kind='offset' WHERE current.id=$1 ORDER BY u.id DESC LIMIT 100`, r.schema), orderID)
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT u.id,o.order_no,COALESCE(target.order_no,''),u.kind,u.amount_cents,to_char(u.posting_date,'YYYY-MM-DD'),u.account,u.reference,u.note,u.actor,f.source_fee_id FROM %[1]s.order_resolution_balance_uses u JOIN %[1]s.order_resolution_financial_entries f ON f.id=u.source_entry_id JOIN %[1]s.orders o ON o.id=f.order_id JOIN %[1]s.orders current ON current.customer_id=u.customer_id LEFT JOIN %[1]s.orders target ON target.id=u.target_order_id AND u.kind='offset' WHERE current.id=$1 ORDER BY u.id DESC LIMIT 100`, r.schema), orderID)
 	if err != nil {
 		return out, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var v BalanceUse
-		if err = rows.Scan(&v.ID, &v.OrderNo, &v.TargetOrderNo, &v.Choice, &v.AmountCents, &v.PostingDate, &v.Account, &v.Reference, &v.Note, &v.Actor); err != nil {
+		if err = rows.Scan(&v.ID, &v.OrderNo, &v.TargetOrderNo, &v.Choice, &v.AmountCents, &v.PostingDate, &v.Account, &v.Reference, &v.Note, &v.Actor, &v.SourceFeeID); err != nil {
 			return out, err
 		}
 		out = append(out, v)
@@ -58,14 +60,14 @@ type BalanceCommand struct {
 
 func (r Repository) Balances(ctx context.Context, orderID int64) ([]Balance, error) {
 	out := []Balance{}
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT f.id,f.order_id,o.order_no,f.amount_cents,f.amount_cents-COALESCE(u.used,0),to_char(f.posting_date,'YYYY-MM-DD') FROM %[1]s.order_resolution_financial_entries f JOIN %[1]s.orders o ON o.id=f.order_id JOIN %[1]s.orders current ON current.customer_id=f.customer_id LEFT JOIN LATERAL(SELECT sum(amount_cents)used FROM %[1]s.order_resolution_balance_uses WHERE source_entry_id=f.id)u ON true WHERE current.id=$1 AND f.kind='customer_credit' AND f.customer_id>0 AND f.amount_cents>COALESCE(u.used,0)ORDER BY f.id`, r.schema), orderID)
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT f.id,f.order_id,o.order_no,f.amount_cents,f.amount_cents-COALESCE(u.used,0),to_char(f.posting_date,'YYYY-MM-DD'),f.source_fee_id FROM %[1]s.order_resolution_financial_entries f JOIN %[1]s.orders o ON o.id=f.order_id JOIN %[1]s.orders current ON current.customer_id=f.customer_id LEFT JOIN LATERAL(SELECT sum(amount_cents)used FROM %[1]s.order_resolution_balance_uses WHERE source_entry_id=f.id)u ON true WHERE current.id=$1 AND f.kind='customer_credit' AND f.customer_id>0 AND f.amount_cents>COALESCE(u.used,0)ORDER BY f.id`, r.schema), orderID)
 	if err != nil {
 		return out, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var b Balance
-		if err = rows.Scan(&b.ID, &b.OrderID, &b.OrderNo, &b.AmountCents, &b.AvailableCents, &b.PostingDate); err != nil {
+		if err = rows.Scan(&b.ID, &b.OrderID, &b.OrderNo, &b.AmountCents, &b.AvailableCents, &b.PostingDate, &b.SourceFeeID); err != nil {
 			return out, err
 		}
 		out = append(out, b)

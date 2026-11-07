@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	resolutionpg "orderapp/internal/infrastructure/postgres/orderresolution"
 	"sort"
 
 	app "orderapp/internal/application/customerfulfillment"
@@ -280,6 +281,16 @@ func (r *Repository) getIssuedBill(ctx context.Context, query billingReader, cus
 			return out, err
 		}
 	}
+	if out.PaymentReversible {
+		var used bool
+		if err := query.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.customer_fee_items f WHERE f.settlement_batch_id=$1 AND f.customer_id=$2 AND COALESCE((to_jsonb(f)->>'resolution_cash_tracked')::boolean,false) AND COALESCE((to_jsonb(f)->>'resolution_cash_received_cents')::bigint,0)>0 AND COALESCE((to_jsonb(f)->>'resolution_credit_cents')::bigint,0)>0)`, r.schema), batchID, customerID).Scan(&used); err != nil {
+			return out, err
+		}
+		if used {
+			out.PaymentReversible = false
+			out.PaymentReversalReason = "关联费用已有冲减或资金处置，须通过财务更正保留原收款"
+		}
+	}
 	adjustments := map[int64]int64{}
 	if relationExists(ctx, query, r.schema+".order_resolution_billing_adjustments") {
 		rows, e := query.Query(ctx, fmt.Sprintf(`SELECT a.line_id,sum(a.credit_cents)::bigint FROM %[1]s.order_resolution_billing_adjustments a JOIN %[1]s.customer_settlement_lines l ON l.id=a.line_id WHERE l.settlement_batch_id=$1 AND l.customer_id=$2 GROUP BY a.line_id`, r.schema), batchID, customerID)
@@ -335,6 +346,16 @@ func (r *Repository) getIssuedBill(ctx context.Context, query billingReader, cus
 			settled := max(int64(0), receipts[line.SourceID])
 			line.DueCents = max(int64(0), line.ReceivableCents-settled)
 			line.ReceivedCents = max(int64(0), min(line.ReceivableCents, settled)-min(line.IssuedReceivedCents, settled))
+		} else if adjusted && line.SourceType == "customer_fee_item" {
+			var cash, outgoing int64
+			if err := query.QueryRow(ctx, fmt.Sprintf(`SELECT %s,COALESCE((to_jsonb(f)->>'resolution_settled_out_cents')::bigint,0) FROM %s.customer_fee_items f WHERE f.id=$1 AND f.customer_id=$2`, resolutionpg.FeeCashCentsSQL("f", "$3::text"), r.schema), line.SourceID, customerID, out.Status).Scan(&cash, &outgoing); err != nil {
+				return out, err
+			}
+			line.CashReceivedCents = cash
+			line.SettledOutCents = outgoing
+			settled := max(int64(0), cash-outgoing)
+			line.ReceivedCents = min(line.ReceivableCents, settled)
+			line.DueCents = max(int64(0), line.ReceivableCents-settled)
 		} else if adjusted {
 			line.DueCents = max(int64(0), line.AmountCents-credit-currentReceived)
 		}

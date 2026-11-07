@@ -1,6 +1,6 @@
 export function blankResolution() { return { action: '', reason: '', note: '', scope: '', lines: [], timing: '', external_status: '', posting_mode: '', posting_date: '', dispositions: [] } }
 export function resolutionPayload(form, version, key, {draft=false}={}) {
- const dispositions=structuredClone(form.dispositions).map(d=>{
+ const dispositions=structuredClone(form.dispositions).filter(d=>form.action!=='credit'||form.scope!=='fees_only'||['fee','funds'].includes(d.kind)).map(d=>{
   if(d.choice==='replace_supply'){
    if(!draft&&!d.supplies?.length)throw new Error('请逐笔选择替代货源和数量')
    d.supplies=(d.supplies || []).map(s=>{

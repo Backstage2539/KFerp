@@ -99,6 +99,12 @@ func ensureGuards(ctx context.Context, pool *pgxpool.Pool, schema string) error 
  RETURN NEW;END $fn$;
  DROP TRIGGER IF EXISTS order_resolution_guard_item ON %[1]s.order_items;
  CREATE TRIGGER order_resolution_guard_item BEFORE INSERT OR UPDATE OR DELETE ON %[1]s.order_items FOR EACH ROW EXECUTE FUNCTION %[1]s.order_resolution_guard_item();
+ CREATE OR REPLACE FUNCTION %[1]s.order_resolution_guard_fee_payment()RETURNS trigger LANGUAGE plpgsql AS $fn$
+ BEGIN
+ IF OLD.status IN('paid','settled') AND NEW.status NOT IN('paid','settled') AND EXISTS(SELECT 1 FROM %[1]s.customer_fee_items f WHERE f.settlement_batch_id=OLD.id AND f.resolution_cash_tracked AND f.resolution_cash_received_cents>0 AND f.resolution_credit_cents>0) THEN RAISE EXCEPTION '关联费用已有冲减或资金处置，不能撤销原收款，请通过财务更正保留历史';END IF;
+ RETURN NEW;END $fn$;
+ DROP TRIGGER IF EXISTS order_resolution_guard_fee_payment ON %[1]s.customer_settlement_batches;
+ CREATE TRIGGER order_resolution_guard_fee_payment BEFORE UPDATE OF status ON %[1]s.customer_settlement_batches FOR EACH ROW EXECUTE FUNCTION %[1]s.order_resolution_guard_fee_payment();
  CREATE OR REPLACE FUNCTION %[1]s.order_resolution_guard_fee()RETURNS trigger LANGUAGE plpgsql AS $fn$
  BEGIN
  IF (NEW.amount IS DISTINCT FROM OLD.amount OR NEW.customer_id IS DISTINCT FROM OLD.customer_id OR NEW.source_type IS DISTINCT FROM OLD.source_type OR NEW.source_id IS DISTINCT FROM OLD.source_id OR NEW.status IN('reversed','void')) AND EXISTS(SELECT 1 FROM %[1]s.order_resolution_fee_events e WHERE e.source_id=OLD.id)THEN RAISE EXCEPTION '费用已有订单处理记录，请通过费用调整保留原始金额';END IF;

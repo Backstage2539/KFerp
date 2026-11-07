@@ -144,7 +144,7 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 		shipmentFields = "coalesce(fs.id,0),coalesce(fs.tracking_no,'')"
 	}
 	// An order link is only valid when its source explicitly identifies an order of this customer.
-	fees, err := tx.Query(ctx, fmt.Sprintf(`SELECT f.id,coalesce(f.source_type,''),coalesce(f.source_id,0),coalesce(o.id,0),coalesce(o.order_no,''),f.fee_type,coalesce(to_jsonb(f)->>'note',''),(round(f.amount*100)::bigint-COALESCE((to_jsonb(f)->>'resolution_credit_cents')::bigint,0)),coalesce(nullif(f.currency,''),'CNY'),to_char(f.occurred_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI'),coalesce(s.id,0),coalesce(s.settlement_no,''),coalesce(s.status,''),coalesce(to_char(s.paid_at,'YYYY-MM-DD HH24:MI'),''),%[4]s FROM %[1]s.customer_fee_items f %[2]s LEFT JOIN %[1]s.orders o ON %[3]s AND o.customer_id=f.customer_id LEFT JOIN %[1]s.customer_settlement_batches s ON s.id=f.settlement_batch_id AND s.customer_id=f.customer_id WHERE f.customer_id=$1 ORDER BY f.occurred_at DESC,f.id DESC`, r.schema, freightJoin, orderJoin, shipmentFields), q.CustomerID)
+	fees, err := tx.Query(ctx, fmt.Sprintf(`SELECT f.id,coalesce(f.source_type,''),coalesce(f.source_id,0),coalesce(o.id,0),coalesce(o.order_no,''),f.fee_type,coalesce(to_jsonb(f)->>'note',''),(round(f.amount*100)::bigint-COALESCE((to_jsonb(f)->>'resolution_credit_cents')::bigint,0)),coalesce(nullif(f.currency,''),'CNY'),to_char(f.occurred_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI'),coalesce(s.id,0),coalesce(s.settlement_no,''),coalesce(s.status,''),coalesce(to_char(s.paid_at,'YYYY-MM-DD HH24:MI'),''),%[4]s,round(f.amount*100)::bigint,COALESCE((to_jsonb(f)->>'resolution_credit_cents')::bigint,0),%[5]s,COALESCE((to_jsonb(f)->>'resolution_settled_out_cents')::bigint,0) FROM %[1]s.customer_fee_items f %[2]s LEFT JOIN %[1]s.orders o ON %[3]s AND o.customer_id=f.customer_id LEFT JOIN %[1]s.customer_settlement_batches s ON s.id=f.settlement_batch_id AND s.customer_id=f.customer_id WHERE f.customer_id=$1 ORDER BY f.occurred_at DESC,f.id DESC`, r.schema, freightJoin, orderJoin, shipmentFields, resolutionpg.FeeCashCentsSQL("f", "s.status")), q.CustomerID)
 	if err != nil {
 		return d, err
 	}
@@ -157,7 +157,7 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 	for fees.Next() {
 		var f app.AccountFee
 		var paid string
-		if err = fees.Scan(&f.ID, &f.SourceType, &f.SourceID, &f.OrderID, &f.OrderNo, &f.FeeType, &f.FeeName, &f.AmountCents, &f.Currency, &f.OccurredAt, &f.SettlementID, &f.SettlementNo, &f.SettlementStatus, &paid, &f.ShipmentID, &f.TrackingNo); err != nil {
+		if err = fees.Scan(&f.ID, &f.SourceType, &f.SourceID, &f.OrderID, &f.OrderNo, &f.FeeType, &f.FeeName, &f.AmountCents, &f.Currency, &f.OccurredAt, &f.SettlementID, &f.SettlementNo, &f.SettlementStatus, &paid, &f.ShipmentID, &f.TrackingNo, &f.OriginalAmountCents, &f.AdjustmentCents, &f.CashReceivedCents, &f.SettledOutCents); err != nil {
 			fees.Close()
 			return d, err
 		}

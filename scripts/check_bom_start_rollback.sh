@@ -7,6 +7,8 @@ stack_dir="$1"
 app_container="$2"
 old_image="$3"
 
+bash "$(dirname "$0")/check_order_resolution_rollback.sh" "$stack_dir" "$app_container" "$old_image"
+
 label="$(docker image inspect --format '{{index .Config.Labels "io.kferp.bom-start-aware"}}' "$old_image" 2>/dev/null || true)"
 if [ "$label" = "1" ]; then
   echo aware

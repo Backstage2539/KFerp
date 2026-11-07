@@ -32,7 +32,7 @@ async function submit(){
   <p>来源为已确认留存的款项。使用余额不改写原收款；选择实际退款或抵扣应收后分别登记。</p>
   <button v-if="balances.length" type="button" @click="expanded=!expanded">{{ expanded?'收起':'处理客户余额' }}</button>
   <fieldset v-if="expanded" :disabled="busy">
-   <label>余额来源<select v-model.number="sourceID"><option :value="0">请选择来源</option><option v-for="v in balances" :key="v.id" :value="v.id">{{ v.order_no }} · {{ v.posting_date }} · 可用 ¥{{ (v.available_cents/100).toFixed(2) }}</option></select></label>
+   <label>余额来源<select v-model.number="sourceID"><option :value="0">请选择来源</option><option v-for="v in balances" :key="v.id" :value="v.id">{{ v.order_no }}{{ v.source_fee_id ? ` · 费用 #${v.source_fee_id}` : '' }} · {{ v.posting_date }} · 可用 ¥{{ (v.available_cents/100).toFixed(2) }}</option></select></label>
    <label>处理方式<select v-model="form.choice"><option value="">请选择</option><option v-for="v in choices" :key="v.value" :value="v.value" :disabled="v.disabled">{{ v.label }}{{ v.disabled?`（${v.reason}）`:'' }}</option></select></label>
    <label>金额（元）<input v-model="form.amount" inputmode="decimal" placeholder="填写实际金额" /></label>
    <label v-if="form.choice==='offset'">抵扣应收<select v-model.number="form.target_id"><option :value="0">请选择同客户应收</option><option v-for="v in targets" :key="v.id" :value="v.id">{{ v.label }} · 待收 ¥{{ (v.available_cents/100).toFixed(2) }}</option></select></label>
@@ -40,7 +40,7 @@ async function submit(){
    <label>实际处理日期<input v-model="form.posting_date" type="date" /></label><label>说明<textarea v-model="form.note" rows="2" /></label>
    <p v-if="error" role="alert" class="error">{{ error }}</p><button type="button" :disabled="busy||!sourceID||!form.choice" @click="submit">确认使用客户余额</button>
   </fieldset>
-  <details v-if="history.length"><summary>余额使用记录（最近 100 笔）</summary><article v-for="v in history" :key="v.id"><strong>{{ v.choice==='offset'?'抵扣应收':'实际退款' }} ¥{{ (v.amount_cents/100).toFixed(2) }}</strong><p>来源 {{ v.order_no }} · {{ v.posting_date }} · {{ v.actor }}</p><p v-if="v.target_order_no">抵扣 {{ v.target_order_no }}</p><p v-if="v.reference">凭据 {{ v.reference }} · {{ v.account }}</p><p>{{ v.note }}</p></article></details>
+  <details v-if="history.length"><summary>余额使用记录（最近 100 笔）</summary><article v-for="v in history" :key="v.id"><strong>{{ v.choice==='offset'?'抵扣应收':'实际退款' }} ¥{{ (v.amount_cents/100).toFixed(2) }}</strong><p>来源 {{ v.order_no }}{{ v.source_fee_id ? ` · 费用 #${v.source_fee_id}` : '' }} · {{ v.posting_date }} · {{ v.actor }}</p><p v-if="v.target_order_no">抵扣 {{ v.target_order_no }}</p><p v-if="v.reference">凭据 {{ v.reference }} · {{ v.account }}</p><p>{{ v.note }}</p></article></details>
  </section>
 </template>
 <style scoped>

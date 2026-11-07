@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Older applications treat every funds step as merchandise cash. Never run
+# them against fee-specific funds or an in-flight fee-only correction.
+stack_dir="$1"
+app_container="$2"
+old_image="$3"
+label="$(docker image inspect --format '{{index .Config.Labels "io.kferp.order-resolution-fee-aware"}}' "$old_image" 2>/dev/null || true)"
+if [ "$label" = 1 ]; then exit 0; fi
+schema="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$app_container" | sed -n 's/^DB_SCHEMA=//p' | tail -1)"
+if ! [[ "$schema" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+ echo 'Cannot verify the order resolution schema; refusing rollback.' >&2;exit 1
+fi
+query(){
+ docker compose -f "$stack_dir/docker-compose.yml" exec -T postgres sh -c \
+  'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc "$1"' _ "$1"
+}
+has_table="$(query "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema='$schema' AND table_name='order_resolution_requests')")"
+case "$has_table" in f) exit 0;; t) ;; *) echo 'Cannot verify order resolution records; refusing rollback.' >&2;exit 1;; esac
+has_new="$(query "SELECT EXISTS(SELECT 1 FROM \"$schema\".order_resolution_requests r WHERE r.command_json->>'scope'='fees_only' OR EXISTS(SELECT 1 FROM jsonb_array_elements(COALESCE(r.plan_json->'tasks','[]'::jsonb)) t WHERE t->>'kind'='funds' AND COALESCE((t->>'source_id')::bigint,0)>0))")"
+if [ "$has_new" = f ]; then exit 0; fi
+echo 'Fee-specific order resolution records exist or cannot be verified; refusing an incompatible rollback image. Keep a fee-aware release for recovery.' >&2
+exit 1

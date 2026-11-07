@@ -19,3 +19,9 @@ func SettledAmountSQL(alias, statusExpression string) string {
 func DueAmountSQL(alias, statusExpression string) string {
 	return fmt.Sprintf(`GREATEST(0,%s-%s)`, ReceivableAmountSQL(alias), SettledAmountSQL(alias, statusExpression))
 }
+
+// FeeCashCentsSQL preserves confirmed fee cash independently of merchandise.
+// Legacy settled-only batches are not evidence of an actual receipt.
+func FeeCashCentsSQL(alias, status string) string {
+	return fmt.Sprintf(`(CASE WHEN COALESCE((to_jsonb(%[1]s)->>'resolution_cash_tracked')::boolean,false) THEN COALESCE((to_jsonb(%[1]s)->>'resolution_cash_received_cents')::bigint,0) WHEN COALESCE(%[2]s,'')='paid' THEN round(%[1]s.amount*100)::bigint-COALESCE((to_jsonb(%[1]s)->>'resolution_credit_cents')::bigint,0) ELSE 0 END)`, alias, status)
+}

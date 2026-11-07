@@ -31,7 +31,12 @@ const options = computed(() => loaded.value?.options || {})
 const pending = computed(() => loaded.value?.history?.find(v => v.status === 'pending'))
 const editable = computed(() => Boolean(loaded.value?.permissions?.['orders.resolve']) && !pending.value?.applied)
 const simple = computed(() => ['hold', 'resume'].includes(form.action))
-const liveDependencies = computed(() => (current.value?.dependencies || []).filter(v => !['cancelled', 'released'].includes(v.status)))
+const feesOnly = computed(() => form.action === 'credit' && form.scope === 'fees_only')
+const visibleDependencies = computed(() => (current.value?.dependencies || []).filter(v => !feesOnly.value || v.kind === 'fee'))
+const scopeOptions = computed(() => (options.value.scope || []).filter(v=>v.value !== 'fees_only' || form.action === 'credit'))
+const timingOptions = computed(() => feesOnly.value ? (options.value.timing || []).filter(v=>v.value==='settle_first').map(v=>({...v,label:'完成费用确认和资金清算后执行'})) : options.value.timing || [])
+watch(() => form.action, () => { if(form.action!=='credit' && form.scope==='fees_only') form.scope='' })
+watch(feesOnly, value => { if(value && form.timing==='stop_first') form.timing='' })
 watch(form, () => { preview.value = null; key = '' }, { deep: true, flush: 'sync' })
 watch(() => props.orderId, () => { generation++; open.value = false; loaded.value = null; restorePage() })
 onBeforeUnmount(() => { generation++; restorePage() })
@@ -64,11 +69,12 @@ function supplyChoice(dep,source) { return disposition(dep)?.supplies?.find(v=>N
 function choices(dep) {
  return (options.value[dep.kind] || []).map(v => {
   let reason = v.disabled ? v.reason : ''
+  if (!reason && dep.kind==='fee' && dep.amount_cents<0 && !['keep','defer'].includes(v.value)) reason='该项是已有负数费用调整，请保留原记录'
+  if (!reason && dep.kind==='fee' && dep.cash_issue && !['keep','defer'].includes(v.value)) reason=dep.cash_issue
   if (!reason && dep.kind==='production' && dep.ownership_issue && ['keep_company_stock','continue_company'].includes(v.value)) reason=dep.ownership_issue
   if (!reason && dep.kind === 'production' && dep.status === 'completed' && !['keep_company_stock','allocate','scrap','defer'].includes(v.value)) reason='已完成生产须保留'
   if (!reason && dep.shared && ['cancel_unstarted','stop'].includes(v.value)) reason='共享生产不能影响其他订单'
   if (!reason && dep.kind==='production' && dep.status!=='completed' && ['keep_company_stock','allocate','scrap'].includes(v.value)) reason='请先明确未完成生产的处置'
-  if (!reason && dep.kind==='fee' && dep.id>0 && dep.paid_cents>0 && !['keep','defer'].includes(v.value)) reason='该费用已有收款，须先核对费用退款'
   if (!reason && dep.kind==='direct_ship' && dep.relation==='package' && v.value!=='cancel') reason='当前包裹须整单处理，其他包裹分别选择'
   if (!reason && dep.kind==='direct_ship' && v.value==='replace_supply' && dep.replacement_issue) reason=dep.replacement_issue
   if (!reason && dep.kind==='direct_ship' && v.value==='replace_supply' && !dep.supply_reservations?.length) reason='没有可切换的待入库预订'
@@ -123,13 +129,14 @@ const money = cents => (Number(cents || 0) / 100).toFixed(2)
      </fieldset>
      <fieldset v-if="!simple" :disabled="busy || !editable">
       <legend>商品范围</legend>
-      <label>范围<select v-model="form.scope"><option value="">请选择</option><option v-for="v in options.scope" :key="v.value" :value="v.value">{{ v.label }}</option></select></label>
+      <label>范围<select v-model="form.scope"><option value="">请选择</option><option v-for="v in scopeOptions" :key="v.value" :value="v.value">{{ v.label }}</option></select></label>
       <div class="table-scroll"><table><thead><tr><th>商品</th><th>原数量</th><th>已交付／入客户仓</th><th>已关闭</th><th v-if="form.scope === 'selected'">本次处理</th></tr></thead><tbody><tr v-for="line in current.lines" :key="line.id"><td>{{ line.name }}<small>{{ line.unit }}</small></td><td>{{ line.quantity }}</td><td>{{ line.delivered }}</td><td>{{ line.closed }}</td><td v-if="form.scope === 'selected'"><input v-if="form.lines.find(v => v.item_id === line.id)" v-model.number="form.lines.find(v => v.item_id === line.id).quantity" type="number" min="0" step="any" :aria-label="`${line.name}处理数量`" /></td></tr></tbody></table></div>
      </fieldset>
      <fieldset v-if="!simple && current.dependencies.length" :disabled="busy || !editable">
       <legend>关联单据与处置</legend>
-      <div v-for="dep in current.dependencies" :key="`${dep.kind}-${dep.id}`" class="dependency">
+      <div v-for="dep in visibleDependencies" :key="`${dep.kind}-${dep.id}`" class="dependency">
        <div><strong>{{ dep.label }}{{ dep.kind === 'fee' ? ` · ¥${money(dep.amount_cents)}` : '' }}</strong><span>{{ resolutionDependencyStatus(dep.status) }}{{ dep.shared ? ' · 共享生产' : '' }}</span></div>
+       <p v-if="dep.kind==='fee' && dep.id>0" class="hint">原收款 ¥{{ money(dep.paid_cents) }} · 资金已处置 ¥{{ money(dep.settled_out_cents) }}；减免后由财务另行选择资金去向。</p>
        <p v-if="dep.orders?.length" class="related-orders"><button v-for="order in dep.orders" :key="order.id" type="button" @click="relatedOrder(order)">{{ order.number || `订单 #${order.id}` }} · {{ resolutionDependencyStatus(order.status) }}{{ Number(order.id) === Number(orderId) ? '（当前订单）' : '' }}</button></p>
        <span v-if="['cancelled', 'released'].includes(dep.status)" class="hint">已取消或已释放，保留历史记录</span>
        <template v-else-if="disposition(dep)"><select v-model="disposition(dep).choice" :aria-label="`${dep.label}处置`"><option value="">请选择处置</option><option v-for="v in choices(dep)" :key="v.value" :value="v.value" :disabled="v.disabled">{{ v.label }}{{ v.disabled ? `（${v.reason}）` : '' }}</option></select><label v-if="dep.kind === 'fee' && ['partial_waiver','negotiated'].includes(disposition(dep).choice)">{{ disposition(dep).choice === 'negotiated' ? '协商后保留收费（元）' : '本次减免金额（元）' }}<input v-model="disposition(dep).amount" inputmode="decimal" placeholder="请明确填写金额" /></label><label v-if="dep.kind === 'stock_reservation' && disposition(dep).choice === 'release'">本批释放数量（{{ dep.unit }}）<input v-model.number="disposition(dep).quantity" type="number" min="0" :max="dep.quantity" step="any" placeholder="明确填写本批释放数量" /></label>
@@ -143,8 +150,8 @@ const money = cents => (Number(cents || 0) / 100).toFixed(2)
      </fieldset>
      <fieldset v-if="!simple" :disabled="busy || !editable">
       <legend>账款与处理时点</legend>
-      <p>已收款 ¥{{ money(current.paid_cents) }}。关闭不会自动退款。</p>
-      <div class="fields"><label v-for="[name,label] in [['timing','处理时点'],['external_status','开票及外部入账'],['posting_mode','账期处理']]" :key="name">{{ label }}<select v-model="form[name]"><option value="">请选择</option><option v-for="v in options[name]" :key="v.value" :value="v.value" :disabled="v.disabled">{{ v.label }}{{ v.disabled ? `（${v.reason}）` : '' }}</option></select></label><label>记账日期<input v-model="form.posting_date" type="date" /></label></div>
+      <p>订单款原收款 ¥{{ money(current.paid_cents) }}；独立费用收款见上方。关闭不会自动退款。</p>
+      <div class="fields"><label v-for="[name,label] in [['timing','处理时点'],['external_status','开票及外部入账'],['posting_mode','账期处理']]" :key="name">{{ label }}<select v-model="form[name]"><option value="">请选择</option><option v-for="v in (name === 'timing' ? timingOptions : options[name])" :key="v.value" :value="v.value" :disabled="v.disabled">{{ v.label }}{{ v.disabled ? `（${v.reason}）` : '' }}</option></select></label><label>记账日期<input v-model="form.posting_date" type="date" /></label></div>
      </fieldset>
      <div class="actions"><button v-if="pending && !pending.applied" type="button" :disabled="busy" @click="load(true)">刷新当前方案</button><button type="button" :disabled="busy || !editable" @click="saveDraft">保存处理草稿</button><button type="button" class="primary" :disabled="busy || !editable || !form.action" @click="review">预览处理影响</button></div>
      <section v-if="preview" class="preview"><h3>确认本次处理</h3><p>处理后：{{ resolutionStatus(preview.plan.status, form.action === 'hold') }}；应收冲减 ¥{{ money(preview.plan.credit_cents) }}；实际退款需另行确认。</p><ul v-if="preview.plan.tasks.length"><li v-for="(task,i) in preview.plan.tasks" :key="i">待处理：{{ task.label }}</li></ul><button type="button" class="primary" :disabled="busy" @click="submit">{{ pending ? '确认更新处理方案' : '确认提交处理单' }}</button></section>
