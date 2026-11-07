@@ -282,7 +282,7 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-PR749-INVENTORY", title: "部分数量与生产、预订、实物及货权处置", status: "doing", assignee: "Codex", evidence: "部分关闭、公司备货、包裹取消、逐批释放及数量上限已隔离验证；退回与换来源待完成"},
 		{table: "req_dev", code: "DEV-PR749-FINANCE", title: "费用、退款、客户余额、抵扣及账期更正", status: "doing", assignee: "Codex", evidence: "隔离退款/余额/抵扣、未收费用、已出账更正与历史快照重算通过；已收独立费用及完整并发链路待完成"},
 		{table: "req_dev", code: "DEV-PR749-UI", title: "统一订单处理入口、权限、手册及验收", status: "doing", assignee: "Codex", evidence: "Vue + Vite"},
-		{table: "req_dev", code: "DEV-PR749-DELIVERY", title: "隔离验收、develop/main 集成与正式 ERP 发布", status: "todo", assignee: "Codex", evidence: "docs/acceptance/2026-11-07-order-resolution.md；尚未部署"},
+		{table: "req_dev", code: "DEV-PR749-DELIVERY", title: "隔离验收、develop/main 集成与正式 ERP 发布", status: "doing", assignee: "Codex", evidence: "第一批候选检查通过，分批发布结果见 docs/acceptance/2026-11-07-order-resolution.md；完整需求仍在实施"},
 		{table: "req_product", code: "PR-748-BOM-START-CONSUMPTION", title: "取消 BOM 逐项工序配置并按批开工扣料", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-11-04-bom-batch-start.md；开发环境演练和 Van 验收待完成"},
 		{table: "req_product", code: "PR-DIRECTSHIP-REGION-20261104", title: "代发地址行政区层级识别与人工选择", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-04-directship-region.md；隔离验证通过，待现场验收"},
 		{table: "req_product", code: "PR-DIRECTSHIP-HISTORICAL-STOCK-20261104", title: "客户代发沿用历史库存批次的冻结规格", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-04-directship-historical-stock.md；隔离验证通过，待现场验收"},
