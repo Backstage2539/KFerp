@@ -32,3 +32,22 @@ test('related order navigation carries an in-memory return to the original order
  const editor=await setup();editor.relatedOrder({id:9})
  assert.equal(event.type,'kferp:navigate-view');assert.deepEqual(event.detail,{key:'orders',params:{order_id:9},returnNavigation:{key:'orders',label:'返回原订单',params:{order_id:7}}})
 })
+
+test('replacement supply starts with blank warehouse choices and explicit quantities',async t=>{
+ const previous=globalThis.fetch;t.after(()=>globalThis.fetch=previous)
+ const source={id:31,quantity:3,label:'source package',targets:[{id:41,label:'matching purchase',available_qty:5}]}
+ const writes=[]
+ globalThis.fetch=async(url,options={})=>{if(options.method)writes.push({url,body:JSON.parse(options.body)});return {ok:true,json:async()=>({context:{version:'v1',lines:[],dependencies:[{kind:'direct_ship',id:16,relation:'supply',status:'reserved',supply_reservations:[source]}]},options:{direct_ship:[{value:'replace_supply',label:'换来源'}]},permissions:{'orders.resolve':true},history:[]})}}
+ const editor=await setup();await editor.load(true)
+ const choice=editor.form.dispositions[0]
+ assert.equal(choice.choice,'')
+ assert.deepEqual(JSON.parse(JSON.stringify(choice.supplies)),[{reservation_id:31,target_id:0,quantity:''}])
+ choice.choice='replace_supply'
+ assert.throws(()=>editor.body(),/替代货源|数量/)
+ await editor.saveDraft()
+ assert.equal(editor.error.value,'')
+ assert.match(writes[0].url,/resolution\/draft$/)
+ assert.deepEqual(writes[0].body.dispositions[0].supplies,[{reservation_id:31,target_id:0,quantity:0}])
+ choice.supplies[0].target_id=41;choice.supplies[0].quantity='3'
+ assert.deepEqual(editor.body().dispositions[0].supplies,[{reservation_id:31,target_id:41,quantity:3}])
+})

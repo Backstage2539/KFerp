@@ -14,6 +14,7 @@ type Querier interface {
 type Supply struct {
 	ID, OrderID, OrderItemID, CustomerID, ProductID, BomSpecID, BomVariantID, SpecG, PendingQty, ReservedQty, AvailableQty int64
 	Warehouse, ProductName, BomSpecName, BomSpecKey, InventoryUnit, SKUCode                                                string
+	OrderNo                                                                                                                string
 }
 
 type PurchaseTotal struct {
@@ -72,7 +73,7 @@ func ListSupply(ctx context.Context, q Querier, schema string, customerID int64,
 	}
 	rows, err := q.Query(ctx, fmt.Sprintf(`SELECT e.id,e.source_order_id,e.source_order_item_id,e.customer_id,e.product_id,e.bom_spec_id,e.bom_variant_id,e.spec_g,e.warehouse_code,
  GREATEST(0,e.promised_qty-COALESCE((to_jsonb(e)->>'closed_qty')::bigint,0)-e.received_qty),COALESCE(r.qty,0),GREATEST(0,e.promised_qty-COALESCE((to_jsonb(e)->>'closed_qty')::bigint,0)-e.received_qty-COALESCE(r.qty,0)),COALESCE(p.name,''),
- COALESCE(s.name,''),COALESCE(s.spec_key,''),COALESCE(s.inventory_unit,''),COALESCE(NULLIF(s.code,''),p.sku_code,'')
+ COALESCE(s.name,''),COALESCE(s.spec_key,''),COALESCE(s.inventory_unit,''),COALESCE(NULLIF(s.code,''),p.sku_code,''),o.order_no
  FROM %[1]s.customer_stock_entitlements e JOIN %[1]s.orders o ON o.id=e.source_order_id JOIN %[1]s.products p ON p.id=e.product_id AND p.active=true
  LEFT JOIN %[1]s.production_bom_specs s ON s.id=e.bom_spec_id
  LEFT JOIN LATERAL(SELECT SUM(reserved_qty-converted_qty-released_qty)::bigint qty FROM %[1]s.customer_stock_supply_reservations WHERE entitlement_id=e.id AND status IN('reserved','partially_converted'))r ON true
@@ -85,7 +86,7 @@ func ListSupply(ctx context.Context, q Querier, schema string, customerID int64,
 	out := []Supply{}
 	for rows.Next() {
 		var s Supply
-		if err = rows.Scan(&s.ID, &s.OrderID, &s.OrderItemID, &s.CustomerID, &s.ProductID, &s.BomSpecID, &s.BomVariantID, &s.SpecG, &s.Warehouse, &s.PendingQty, &s.ReservedQty, &s.AvailableQty, &s.ProductName, &s.BomSpecName, &s.BomSpecKey, &s.InventoryUnit, &s.SKUCode); err != nil {
+		if err = rows.Scan(&s.ID, &s.OrderID, &s.OrderItemID, &s.CustomerID, &s.ProductID, &s.BomSpecID, &s.BomVariantID, &s.SpecG, &s.Warehouse, &s.PendingQty, &s.ReservedQty, &s.AvailableQty, &s.ProductName, &s.BomSpecName, &s.BomSpecKey, &s.InventoryUnit, &s.SKUCode, &s.OrderNo); err != nil {
 			return nil, err
 		}
 		out = append(out, s)

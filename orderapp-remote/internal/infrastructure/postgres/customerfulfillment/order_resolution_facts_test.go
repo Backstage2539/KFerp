@@ -629,7 +629,7 @@ func TestOrderResolutionCompletedCustomerProductionCannotBecomeCompanyStock(t *t
 	pool, schema := newMiniDirectShipTestDB(t)
 	seedMiniDirectShipStock(t, pool, schema)
 	ctx := context.Background()
-	_, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.orders(id,order_no,customer_id,total_amount)VALUES(78240,'CUSTOMER-OWNED-PRODUCTION',501,90);INSERT INTO %[1]s.order_items(id,order_id,line_no,product_id,item_name,spec,qty,unit,unit_price,line_total)VALUES(78240,78240,1,911,'coffee','1000g',3,'袋',30,90);INSERT INTO %[1]s.production_plans(id,plan_no,status)VALUES(78240,'CUSTOMER-PRODUCTION','completed');INSERT INTO %[1]s.production_plan_items(id,production_plan_id,product_id,product_name,customer_id,spec_g,planned_g,order_nos)VALUES(78240,78240,911,'customer coffee',501,1000,3000,'CUSTOMER-OWNED-PRODUCTION')`, schema))
+	_, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.orders(id,order_no,customer_id,total_amount)VALUES(78240,'CUSTOMER-OWNED-PRODUCTION',501,90);INSERT INTO %[1]s.order_items(id,order_id,line_no,product_id,item_name,spec,qty,unit,unit_price,line_total)VALUES(78240,78240,1,911,'coffee','1000g',3,'袋',30,90);INSERT INTO %[1]s.production_plans(id,plan_no,status)VALUES(78240,'CUSTOMER-PRODUCTION','completed');INSERT INTO %[1]s.production_plan_items(id,production_plan_id,product_id,product_name,customer_id,spec_g,planned_g,order_nos)VALUES(78240,78240,911,'customer coffee',501,1000,3000,'CUSTOMER-OWNED-PRODUCTION');UPDATE %[1]s.production_plan_items SET target_warehouse='DEV-E2E-A1' WHERE id=78240`, schema))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -641,5 +641,32 @@ func TestOrderResolutionCompletedCustomerProductionCannotBecomeCompanyStock(t *t
 	_, err = repo.Submit(ctx, 78240, domain.Command{Action: "close", Reason: "customer_cancel", Scope: "all", Timing: "stop_first", ExternalStatus: "none", PostingMode: "open_period", PostingDate: "2026-11-07", Version: c.Version, IdempotencyKey: "wrong-ownership", Dispositions: []domain.Disposition{{Kind: "production", ID: 78240, Choice: "keep_company_stock"}}}, "sales")
 	if err == nil {
 		t.Fatal("customer-owned completed production was labeled and disposed as company stock")
+	}
+}
+
+func TestOrderResolutionProductionOwnershipUsesInventoryFacts(t *testing.T) {
+	for _, tc := range []struct{ name, change string }{
+		{"plan_warehouse", `UPDATE %[1]s.production_plan_items SET target_warehouse='DEV-E2E-A1' WHERE id=78340`},
+		{"work_warehouse", `UPDATE %[1]s.work_orders SET target_warehouse='DEV-E2E-A1' WHERE id=78340`},
+		{"processing", `UPDATE %[1]s.production_plan_items SET processing_request_item_id=1 WHERE id=78340`},
+		{"output_material", `INSERT INTO %[1]s.materials(id,code,name,owner_customer_id)VALUES(78340,'OWNED-OUTPUT','customer material',501);UPDATE %[1]s.work_orders SET output_type='material',output_material_id=78340 WHERE id=78340`},
+		{"receipt", `INSERT INTO %[1]s.stock_entries(id,entry_no,entry_type,status,work_order_id)VALUES(78340,'OWNED-RECEIPT','finished_receipt','submitted',78340);INSERT INTO %[1]s.stock_entry_items(stock_entry_id,product_id,owner_customer_id,qty_units,to_warehouse)VALUES(78340,911,501,3,'DEV-E2E-A1')`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pool, schema := newMiniDirectShipTestDB(t)
+			seedMiniDirectShipStock(t, pool, schema)
+			ctx := context.Background()
+			_, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.production_plans(id,plan_no,status)VALUES(78340,'OWNERSHIP-FACTS','completed');INSERT INTO %[1]s.production_plan_items(id,production_plan_id,product_id,product_name,spec_g,planned_g)VALUES(78340,78340,911,'coffee',1000,3000);INSERT INTO %[1]s.work_orders(id,work_order_no,production_plan_id,production_plan_item_id,product_id,product_name,spec_g,planned_g,status)VALUES(78340,'OWNERSHIP-WORK',78340,78340,911,'coffee',1000,3000,'completed');`+tc.change, schema))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var issue string
+			if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT %s.order_resolution_company_production_issue(78340)`, schema)).Scan(&issue); err != nil {
+				t.Fatal(err)
+			}
+			if issue == "" {
+				t.Fatal("customer inventory fact accepted as company stock")
+			}
+		})
 	}
 }

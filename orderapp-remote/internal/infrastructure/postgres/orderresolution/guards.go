@@ -47,7 +47,12 @@ func ensureGuards(ctx context.Context, pool *pgxpool.Pool, schema string) error 
  CREATE TRIGGER order_resolution_guard_header BEFORE UPDATE ON %[1]s.orders FOR EACH ROW EXECUTE FUNCTION %[1]s.order_resolution_guard_header();
  CREATE OR REPLACE FUNCTION %[1]s.order_resolution_company_production_issue(plan BIGINT)RETURNS TEXT LANGUAGE plpgsql AS $fn$
  BEGIN
- IF EXISTS(SELECT 1 FROM %[1]s.work_orders WHERE production_plan_id=plan AND(customer_id<>0 OR processing_request_item_id<>0)) OR EXISTS(SELECT 1 FROM %[1]s.production_plan_items WHERE production_plan_id=plan AND customer_id<>0)THEN RETURN '客户货权生产不能转为公司备货，请先办理货权处置';END IF;
+ -- customer_id is the demand/customer-price identity, not inventory ownership.
+ -- Match the canonical receipt owner: destination warehouse or output material;
+ -- processing requests, consumed inputs and posted stock remain authoritative.
+ IF EXISTS(SELECT 1 FROM %[1]s.work_orders WHERE production_plan_id=plan AND processing_request_item_id<>0) OR EXISTS(SELECT 1 FROM %[1]s.production_plan_items WHERE production_plan_id=plan AND processing_request_item_id<>0)THEN RETURN '客户加工生产不能转为公司备货，请先办理货权处置';END IF;
+ IF EXISTS(SELECT 1 FROM (SELECT target_warehouse,output_material_id FROM %[1]s.work_orders WHERE production_plan_id=plan UNION ALL SELECT target_warehouse,output_material_id FROM %[1]s.production_plan_items WHERE production_plan_id=plan) p LEFT JOIN %[1]s.warehouses h ON h.code=p.target_warehouse LEFT JOIN %[1]s.materials m ON m.id=p.output_material_id WHERE COALESCE(h.customer_id,0)<>0 OR COALESCE(m.owner_customer_id,0)<>0)THEN RETURN '生产目标仓库或产出物料属于客户，不能作为公司备货';END IF;
+ IF EXISTS(SELECT 1 FROM %[1]s.stock_entries e JOIN %[1]s.stock_entry_items i ON i.stock_entry_id=e.id JOIN %[1]s.work_orders w ON w.id=e.work_order_id WHERE w.production_plan_id=plan AND e.status='submitted' AND i.owner_customer_id<>0)THEN RETURN '生产出入库记录含客户货权，请先办理货权处置';END IF;
  IF to_regclass('%[1]s.production_plan_component_sources')IS NOT NULL THEN
  IF EXISTS(SELECT 1 FROM %[1]s.production_plan_component_sources WHERE production_plan_id=plan AND source_owner_customer_id<>0)THEN RETURN '生产用料含客户货权，不能转为公司备货';END IF;END IF;
  IF to_regclass('%[1]s.work_order_material_reservations')IS NOT NULL THEN

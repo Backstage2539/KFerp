@@ -1,6 +1,6 @@
 # PR-749 订单处理实施与验收记录
 
-状态：开发中，尚未合并或部署。本文是工程验证记录，不代表 Van 已完成产品验收。
+状态：分批实施。第一批已合并 develop/main 并部署开发及正式环境；第二批货源切换与生产货权修正完成定向验证，尚未发布。第二批及第三批尚未全部交付。本文是工程验证记录，不代表 Van 已完成产品验收。
 
 ## 范围与数据边界
 
@@ -44,10 +44,10 @@
 ## 仍需完成，不可视为已交付
 
 - 完整已收独立费用的退款／余额／抵扣与费用经营报表口径。
-- 代发换货源、在制停工及余料、转供、库存分配／报损、实物与客户货权退回；当前对应选项禁用。
+- 代发换货源发布；在制停工及余料、转供、库存分配／报损、实物与客户货权退回仍未开放。
 - 剩余并发边界、生产实际执行／入库链路、阶段二和阶段三业务的完整 API 覆盖。
 - 全量受影响回归的基线问题处理或明确验证边界；最终 UI、构建及代码复核。
-- 推送分支、干净 develop 集成、正式 main 集成、ERP 部署、版本／服务／页面检查与目标订单只读预览。
+- 后续批次集成和发布；不得把第一批交付等同于完整需求完成。
 
 ## 手册
 
@@ -62,4 +62,21 @@
 - `/tmp/kferp-resolution-20261107-round13-backend.log`：完整 Go 检查通过（未配置 PostgreSQL 的集成测试按原规则跳过）。`...round13-bootstrap.log`：实际空库初始化和重复初始化通过。`...round13-pg.log`：订单处理、留厂共享生产、PR703、代发闭环、账单、客户账款、工作台、累计购货及履约编辑隔离 PostgreSQL 回归通过。
 - 前端最后一次完整验证：`...round10-front.log`，1745/1745；`...round10-build.log` 构建通过。后续本轮只调整 Go 与 Markdown，页面代码未变。
 - 完整应用 PostgreSQL 回归的 6 个失败与未修改 HEAD 归档一致，均为旧 BOM 物流重量／工艺路线测试样本；没有新增失败。`...round12-finance-init.log` 与 `...baseline-appmain.log`。财务包实际 PostgreSQL 回归通过。销售旧最小 schema 的 17 个失败也已在 HEAD 归档复现，不记录为全绿。
-- 服务器只读准备检查：应用均运行，数据库健康，磁盘剩余约 12 GB，发布锁空闲。该检查不代表已经发布，尚未执行 main 集成或部署，也未修改真实业务单据。
+- 服务器只读准备检查：应用均运行，数据库健康，磁盘剩余约 12 GB，发布锁空闲。这是发布前记录；后续部署回执如下，真实业务单据未修改。
+
+
+## 第一批发布回执与第二批验证（2026-11-07）
+
+- 第一批：功能提交 `87aa403c7` / `b190a4c28`，开发 `c994c9b2b168975cf2c2662e791b7ddf68dc7f8e`，正式 `2d46296a3b01957c447874d37a9e5a9dfe187abe`，均已推送。使用 `KFERP_ERP_ONLY=1`，不构建或发布小程序。
+- 开发备份 `/opt/stacks/erp/orderapp.backup.deploy-20261107170312-c994c9b2b168`；正式备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20261107171222-2d46296a3b01`；各自同名后缀的 `kferp-orderapp-rollback:<environment>-<suffix>` 镜像保留。
+- 正式容器运行、数据库健康；未登录接口 401，已登录页面、处理查询、策略、手册及需求接口 200。公开页面入口与部署文件一致（`main-CdVA-n9M.js`）。证据 `/tmp/kferp-resolution-20261107-{development,production}-smoke.json`、`...deploy-development-retry.log`、`...deploy-production.log`。
+- 目标 SO-20261031-0003 仍为正常、未作废、2160 元未收款，两行各 24 袋未交付，处理记录为 0；计划 18 取消、19 完成，代发 16/17 取消。未提交真实处理、库存或资金操作。
+- 只读核查发现第一批货权守卫误把 `production_plan_items.customer_id` / `work_orders.customer_id` 的需求客户当作库存货主。计划 19 的产出仓、物料、投料及入库实际货主均为公司。新增失败测试使用带客户编号的共享生产复现；修正改按仓库、物料、加工单、预留、投料和实际出入库货权判断。反向验证客户仓、客户物料、加工及客户入库仍拒绝公司备货。共享生产、其他订单、库存与预订完整快照保持一致。
+- 第二批代发换货源：逐笔明确货源和完整待入库数量；同客户、冻结商品规格版本及仓库匹配；目标不足和日志失败整笔回滚；先建立新预订再释放原预订，保留历史。已有目标预订安全累计，重复和并发提交仅执行一次。更改待确认货源生成新的仓库待办，旧确认不得授权新方案。
+- 第二批 API 验证覆盖预览缺选拒绝、提交、更新方案、分项确认重放；权限测试覆盖销售不能代仓库确认。Vue 运行时和隔离浏览器核对货源/数量初始留空、缺选提示、部分草稿保存及待办展示。未使用真实订单做写入测试。
+- RED：`...supply-red.log`、`...supply-pg-red.log`、`...supply-existing-red.log`、`...supply-refresh-red.log`、`...supply-ui-red.log`、`...supply-draft-red.log`、`...ownership-red.log`、`...ownership-facts-red.log`、`...options-red.log`。
+- GREEN：`...supply-api.log`（3.215s）、`...supply-concurrent.log`（3.462s）、`...ownership-green.log`（45.051s，全部订单处理及留厂关闭定向数据库回归）；`...options-green.log`。`...phase2-backend.log` 完整 Go 通过（数据库测试另跑），`...phase2-frontend.log` Vue 1746/1746 及构建通过；最终集成结果待追加。
+- 已完成生产的取消／修订、没有已关闭数量时的重新开启，查询接口明确返回禁用原因；关闭剩余履约仍可选择。生产、货源、原因及账期不自动预选。
+
+- 第二批完整定向数据库回归 `...phase2-pg.log`：订单处理、留厂关闭及 PR703 通过（55.346s）。随后补充混合实物／待入库预订在预览时禁用，避免形成无法完成的待办：`...partial-supply-red.log` → `...phase2-final-targeted.log`。该混合场景仍属后续范围，未宣称可执行。
+- 第二批最终版本：`...phase2-final-targeted.log`（7.941s）、`...phase2-final-backend.log` 完整 Go、`...phase2-final-frontend.log` 1746/1746 与构建（1.71s）、`...phase2-changed.log` 均通过。

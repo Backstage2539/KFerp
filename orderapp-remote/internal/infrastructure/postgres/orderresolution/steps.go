@@ -115,10 +115,20 @@ func (r Repository) completeStep(ctx context.Context, orderID, requestID, stepID
 		// Release is posted with the final order adjustment, so an approved
 		// quantity never leaves a half-applied order if another check fails.
 	case "direct_ship":
-		if cmd.Choice != step.Choice || cmd.Choice != "cancel" || strings.TrimSpace(cmd.Note) == "" {
-			return out, fmt.Errorf("请确认取消该代发预订并填写说明")
+		if cmd.Choice != step.Choice || !one(cmd.Choice, "cancel", "replace_supply") || strings.TrimSpace(cmd.Note) == "" {
+			return out, fmt.Errorf("请确认预览中的代发处置并填写说明")
 		}
-		err = r.cancelDirectShip(ctx, tx, orderID, requestID, step.SourceID, cmd.Note, actor)
+		if cmd.Choice == "replace_supply" {
+			err = fmt.Errorf("缺少原预览的替代货源选择，请刷新处理方案")
+			for _, disposition := range out.Command.Dispositions {
+				if disposition.Kind == "direct_ship" && disposition.ID == step.SourceID {
+					err = r.replaceSupply(ctx, tx, orderID, requestID, step.SourceID, disposition, cmd.Note, actor)
+					break
+				}
+			}
+		} else {
+			err = r.cancelDirectShip(ctx, tx, orderID, requestID, step.SourceID, cmd.Note, actor)
+		}
 	case "funds":
 		for _, other := range out.Steps {
 			if other.ID != stepID && other.Kind != "funds" && one(other.Status, "pending", "failed") {

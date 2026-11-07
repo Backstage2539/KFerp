@@ -70,6 +70,29 @@ func Preview(c Context, cmd Command) (Plan, error) {
 }
 func OptionsFor(c Context) map[string][]Option {
 	options := Options()
+	closed, delivered := false, false
+	for _, line := range c.Lines {
+		closed = closed || line.Closed > 0
+		delivered = delivered || line.Delivered > 0
+	}
+	completedProduction := false
+	for _, dep := range c.Dependencies {
+		completedProduction = completedProduction || (dep.Kind == "production" && dep.Status == "completed")
+	}
+	for n := range options["action"] {
+		option := &options["action"][n]
+		switch {
+		case option.Value == "reopen" && !closed:
+			option.Disabled = true
+			option.Reason = "没有已关闭数量可重新开启"
+		case oneOf(option.Value, "cancel", "amend") && completedProduction:
+			option.Disabled = true
+			option.Reason = "已完成生产必须保留，请选择关闭剩余履约"
+		case oneOf(option.Value, "cancel", "amend") && delivered:
+			option.Disabled = true
+			option.Reason = "已有交付事实，请按剩余履约或退货处理"
+		}
+	}
 	for kind, list := range options {
 		for n := range list {
 			if reason := c.Unavailable[kind+":"+list[n].Value]; reason != "" {
