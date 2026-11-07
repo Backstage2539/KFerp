@@ -11,6 +11,7 @@ import (
 	stockapp "orderapp/internal/application/stock"
 	domain "orderapp/internal/domain/orderresolution"
 	resolutionpg "orderapp/internal/infrastructure/postgres/orderresolution"
+	migration "orderapp/internal/infrastructure/postgres/productspecmigration"
 	stockpg "orderapp/internal/infrastructure/postgres/stock"
 	resolutionhttp "orderapp/internal/interfaces/http/orderresolution"
 	"orderapp/internal/interfaces/http/support"
@@ -365,5 +366,81 @@ func TestOrderResolutionCompanyAllocationRejectsTargetWithForeignOwnership(t *te
 	}
 	if _, err = r.Submit(ctx, 78400, companyAllocationCommand(current.Version), "sales"); err == nil {
 		t.Fatal("target with inconsistent customer ownership accepted")
+	}
+}
+
+func TestOrderResolutionCompanyAllocationPreservesFrozenHistoricalVariant(t *testing.T) {
+	pool, schema := companyAllocationFixture(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.production_bom_versions SET status='archived' WHERE id=7030;INSERT INTO %[1]s.production_bom_versions(id,bom_id,version_no,status,output_qty,output_unit)VALUES(7033,7030,'V2','published',1,'袋');INSERT INTO %[1]s.production_bom_version_variants(id,version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,logistics_weight_g)VALUES(7034,7033,7031,'454g袋','袋',true,454);UPDATE %[1]s.production_bom_output_bindings SET bom_version_id=7033 WHERE output_type='product' AND output_id=910`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	if err := migration.EnsureAuthorityProjection(ctx, pool, schema); err != nil {
+		t.Fatal(err)
+	}
+	r := resolutionpg.NewRepository(pool, schema)
+	current, err := r.Context(ctx, 78400)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := r.Submit(ctx, 78400, companyAllocationCommand(current.Version), "sales")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err = r.CompleteStep(ctx, 78400, result.ID, result.Steps[0].ID, resolutionpg.StepCommand{Choice: "allocate", Note: "原订单和真实批次均冻结旧版本", IdempotencyKey: "historical-company-stock"}, "warehouse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var variant int64
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT bom_variant_id FROM %s.order_stock_batch_allocations WHERE order_id=78401`, schema)).Scan(&variant); err != nil {
+		t.Fatal(err)
+	}
+	if !result.Applied || variant != 7032 {
+		t.Fatalf("frozen source silently replaced: %+v variant=%d", result, variant)
+	}
+}
+
+func TestOrderResolutionHistoricalCompanyAllocationRejectsWrongIdentity(t *testing.T) {
+	for _, tc := range []struct{ name, before, values string }{
+		{"wrong_line", "", "78400,78401,910,7031,7032,0,78400,'ALLOC-COMPANY-BATCH',1,0,'finished_goods'"},
+		{"wrong_batch_code", "", "78401,78401,910,7031,7032,0,78400,'OTHER',1,0,'finished_goods'"},
+		{"wrong_warehouse", "", "78401,78401,910,7031,7032,0,78400,'ALLOC-COMPANY-BATCH',1,0,'material'"},
+		{"over_demand", "", "78401,78401,910,7031,7032,0,78400,'ALLOC-COMPANY-BATCH',4,0,'finished_goods'"},
+		{"grams", "", "78401,78401,910,7031,7032,0,78400,'ALLOC-COMPANY-BATCH',1,1,'finished_goods'"},
+		{"zero", "", "78401,78401,910,7031,7032,0,78400,'ALLOC-COMPANY-BATCH',0,0,'finished_goods'"},
+		{"retained_target", "UPDATE %s.orders SET delivery_mode='customer_stock',delivery_warehouse_code='DEV-E2E-B1' WHERE id=78401", ""},
+		{"dropship_target", "UPDATE %s.orders SET fulfillment_mode='stock' WHERE id=78401", ""},
+		{"paused_target", "UPDATE %s.orders SET fulfillment_paused=true WHERE id=78401", ""},
+		{"closed_target", "UPDATE %s.orders SET resolution_status='closed' WHERE id=78401", ""},
+		{"foreign_owner", "UPDATE %s.stock_batches SET owner_customer_id=501 WHERE id=78400", ""},
+		{"already_reserved", "INSERT INTO %s.order_stock_batch_allocations(order_id,order_item_id,product_id,bom_spec_id,bom_variant_id,spec_g,batch_id,batch_code,allocated_units,warehouse)VALUES(78402,78402,910,7031,7032,0,78400,'ALLOC-COMPANY-BATCH',5,'finished_goods')", ""},
+		{"already_fulfilled_target", "INSERT INTO %s.order_stock_batch_allocations(order_id,order_item_id,product_id,bom_spec_id,bom_variant_id,spec_g,batch_id,batch_code,allocated_units,warehouse)VALUES(78401,78401,910,7031,7032,0,78400,'ALLOC-COMPANY-BATCH',3,'finished_goods')", ""},
+		{"wrong_unit", "UPDATE %s.order_items SET unit='箱' WHERE id=78401", ""},
+		{"quality_hold", "UPDATE %s.stock_batches SET quality_status='hold' WHERE id=78400", ""},
+		{"insufficient_batch", "UPDATE %s.stock_batches SET remaining_units=0 WHERE id=78400", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pool, schema := companyAllocationFixture(t)
+			ctx := context.Background()
+			if tc.before != "" {
+				if _, err := pool.Exec(ctx, fmt.Sprintf(tc.before, schema)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.production_bom_versions SET status='archived' WHERE id=7030;INSERT INTO %[1]s.production_bom_versions(id,bom_id,version_no,status,output_qty,output_unit)VALUES(7033,7030,'V2','published',1,'袋');INSERT INTO %[1]s.production_bom_version_variants(id,version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,logistics_weight_g)VALUES(7034,7033,7031,'454g袋','袋',true,454);UPDATE %[1]s.production_bom_output_bindings SET bom_version_id=7033 WHERE output_id=910`, schema)); err != nil {
+				t.Fatal(err)
+			}
+			if err := migration.EnsureAuthorityProjection(ctx, pool, schema); err != nil {
+				t.Fatal(err)
+			}
+			values := tc.values
+			if values == "" {
+				values = "78401,78401,910,7031,7032,0,78400,'ALLOC-COMPANY-BATCH',1,0,'finished_goods'"
+			}
+			_, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.order_stock_batch_allocations(order_id,order_item_id,product_id,bom_spec_id,bom_variant_id,spec_g,batch_id,batch_code,allocated_units,allocated_g,warehouse)VALUES(%s)`, schema, values))
+			if err == nil {
+				t.Fatal("invalid frozen company allocation accepted")
+			}
+		})
 	}
 }
