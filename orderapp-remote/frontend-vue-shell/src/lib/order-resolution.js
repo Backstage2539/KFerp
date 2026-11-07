@@ -1,8 +1,17 @@
 export function blankResolution() { return { action: '', reason: '', note: '', scope: '', lines: [], timing: '', external_status: '', posting_mode: '', posting_date: '', dispositions: [] } }
-export function resolutionPayload(form, version, key) {
+export function resolutionPayload(form, version, key, {draft=false}={}) {
  const dispositions=structuredClone(form.dispositions).map(d=>{
+  if(d.choice==='replace_supply'){
+   if(!draft&&!d.supplies?.length)throw new Error('请逐笔选择替代货源和数量')
+   d.supplies=(d.supplies || []).map(s=>{
+    const target=Number(s.target_id),quantity=Number(s.quantity)
+    if(!Number.isSafeInteger(target)||target<0||!Number.isSafeInteger(quantity)||quantity<0||(!draft&&(target===0||quantity===0)))throw new Error('请明确选择替代货源并填写预订数量')
+    return {reservation_id:Number(s.reservation_id),target_id:target,quantity}
+   })
+  }else delete d.supplies
   if(d.kind==='fee'&&['partial_waiver','negotiated'].includes(d.choice)){
    const raw=String(d.amount??(d.amount_specified?Number(d.amount_cents)/100:'')).trim()
+   if(draft&&!raw){d.amount_specified=false;d.amount_cents=0;delete d.amount;return d}
    if(!raw)throw new Error('请明确填写费用金额，零金额也须填写')
    if(!/^\d+(\.\d{1,2})?$/.test(raw))throw new Error('费用金额须为非负数，最多两位小数')
    d.amount_cents=Math.round(Number(raw)*100);if(!Number.isSafeInteger(d.amount_cents))throw new Error('金额超出范围')

@@ -21,20 +21,22 @@ type Line struct {
 	ClosedCents   int64   `json:"closed_cents"`
 }
 type Dependency struct {
-	OwnershipIssue string        `json:"ownership_issue,omitempty"`
-	ItemID         int64         `json:"item_id,omitempty"`
-	Version        string        `json:"version,omitempty"`
-	Unit           string        `json:"unit,omitempty"`
-	Relation       string        `json:"relation,omitempty"`
-	Orders         []LinkedOrder `json:"orders,omitempty"`
-	AmountCents    int64         `json:"amount_cents"`
-	PaidCents      int64         `json:"paid_cents"`
-	Kind           string        `json:"kind"`
-	ID             int64         `json:"id"`
-	Label          string        `json:"label"`
-	Status         string        `json:"status"`
-	Shared         bool          `json:"shared"`
-	Quantity       float64       `json:"quantity"`
+	ReplacementIssue   string              `json:"replacement_issue,omitempty"`
+	SupplyReservations []SupplyReservation `json:"supply_reservations,omitempty"`
+	OwnershipIssue     string              `json:"ownership_issue,omitempty"`
+	ItemID             int64               `json:"item_id,omitempty"`
+	Version            string              `json:"version,omitempty"`
+	Unit               string              `json:"unit,omitempty"`
+	Relation           string              `json:"relation,omitempty"`
+	Orders             []LinkedOrder       `json:"orders,omitempty"`
+	AmountCents        int64               `json:"amount_cents"`
+	PaidCents          int64               `json:"paid_cents"`
+	Kind               string              `json:"kind"`
+	ID                 int64               `json:"id"`
+	Label              string              `json:"label"`
+	Status             string              `json:"status"`
+	Shared             bool                `json:"shared"`
+	Quantity           float64             `json:"quantity"`
 }
 type LinkedOrder struct {
 	ID     int64  `json:"id"`
@@ -71,14 +73,15 @@ type Selection struct {
 	Quantity float64 `json:"quantity"`
 }
 type Disposition struct {
-	AmountSpecified bool    `json:"amount_specified"`
-	Kind            string  `json:"kind"`
-	ID              int64   `json:"id"`
-	Choice          string  `json:"choice"`
-	TargetID        int64   `json:"target_id"`
-	Quantity        float64 `json:"quantity"`
-	AmountCents     int64   `json:"amount_cents"`
-	Reference       string  `json:"reference"`
+	Supplies        []SupplyReplacement `json:"supplies,omitempty"`
+	AmountSpecified bool                `json:"amount_specified"`
+	Kind            string              `json:"kind"`
+	ID              int64               `json:"id"`
+	Choice          string              `json:"choice"`
+	TargetID        int64               `json:"target_id"`
+	Quantity        float64             `json:"quantity"`
+	AmountCents     int64               `json:"amount_cents"`
+	Reference       string              `json:"reference"`
 }
 type Command struct {
 	Action         string        `json:"action"`
@@ -250,7 +253,7 @@ func preview(c Context, cmd Command) (Plan, error) {
 		if !AllowedChoice(d.Kind, d.Choice) {
 			return fail("处置选项无效")
 		}
-		if oneOf(d.Choice, "replace_supply", "allocate", "reassign", "offset") && d.TargetID <= 0 {
+		if oneOf(d.Choice, "allocate", "reassign", "offset") && d.TargetID <= 0 {
 			return fail("请选择明确的替代货源或目标单据")
 		}
 		if d.AmountCents < 0 || math.IsNaN(d.Quantity) || math.IsInf(d.Quantity, 0) || d.Quantity < 0 {
@@ -268,6 +271,23 @@ func preview(c Context, cmd Command) (Plan, error) {
 		}
 		if !ok {
 			return fail("请选择关联单据的处置方式：" + d.Label)
+		}
+		if choice.Choice == "replace_supply" {
+			if err := ValidateSupplyReplacement(d, choice); err != nil {
+				return Plan{}, err
+			}
+			for _, selected := range choice.Supplies {
+				for _, source := range d.SupplyReservations {
+					if source.ID != selected.ReservationID {
+						continue
+					}
+					for _, target := range source.Targets {
+						if target.ID == selected.TargetID {
+							d.Label += fmt.Sprintf("；%s → %s，%d %s", source.Label, target.Label, selected.Quantity, source.Unit)
+						}
+					}
+				}
+			}
 		}
 		if d.Kind == "stock_reservation" {
 			left := d.Quantity
@@ -337,6 +357,10 @@ func preview(c Context, cmd Command) (Plan, error) {
 		}
 		permission := "orders.resolve"
 		switch d.Kind {
+		case "direct_ship":
+			if choice.Choice == "replace_supply" {
+				permission = "stock.resolve"
+			}
 		case "production":
 			permission = "production.resolve"
 		case "customer_stock", "stock", "stock_reservation":

@@ -2,14 +2,17 @@
 - Branch: `codex/order-resolution-20261106`；基线 `origin/main` 2d0fe0d46，2026-11-07 已核对远端 develop/main。
 - 已确认范围：普通销售、留厂购货、代发；显式选择暂停/恢复、关闭/重开、取消/修订、退货/冲减/退款。生产、库存、关联代发、费用、资金及账期均由有权限人员选择，不做隐式处置。
 - DEV-PR749-FOUNDATION：处理单、预览、版本、幂等、原子日志、草稿、旧入口保护（进行中）。
-- DEV-PR749-INVENTORY：部分数量、公司备货、逐包裹取消、逐批预留释放已做隔离验证；在制停工、换来源和货权/实物退回待完成。
+- DEV-PR749-INVENTORY：部分数量、公司备货、逐包裹取消、逐批预留释放已做隔离验证；第二批待入库预订换来源已完成 API、并发、回滚及页面验证，尚未发布；在制停工和货权/实物退回待完成。
 - DEV-PR749-FINANCE：独立未收费用、账单更正、退款／余额／抵扣、历史审批与月结重算已做隔离验证；已收独立费用及完整并发链路待完成。
 - DEV-PR749-UI：统一 Vue 抽屉、状态与手册、权限和策略设置（进行中）。
-- DEV-PR749-DELIVERY：测试、API、真实 PostgreSQL、页面与构建、develop/main/ERP 部署（待完成）。
+- DEV-PR749-DELIVERY：第一批已推送，develop `c994c9b2b` 已部署；main `2d46296a3` 已推送并部署正式 ERP，运行核查通过；目标订单只读核查发现生产客户编号被误当货权，修正及反向回归已完成，随第二批发布。第二批与第三批未全部完成。
 - 已有 RED/GREEN：显式选择、部分数量尾差、共享生产保护；关闭/重开/修订草稿、幂等、日志失败回滚；最终执行重新核查、过期方案更新；拆分资金、运费单独处置；策略与岗位审批；HTTP/Vue 定向验证。
 - 第一批候选验证：`orderapp-remote/docs/acceptance/2026-11-07-order-resolution.md`；完整 Go、Vue 1745/1745、构建、空库/重复初始化通过；订单处理、留厂、代发、账单、账款和编辑的隔离 PostgreSQL 回归通过。新增日期保存、旧应收、历史库存、追加收款撤销、月结及配置并发保护已 RED/GREEN。完整 PostgreSQL 受影响包仍有 HEAD 可复现的旧样本失败，未记全绿。
 - 验证入口：`go test ./internal/domain/orderresolution ./internal/interfaces/http/orderresolution`；隔离 PostgreSQL `go test ./internal/infrastructure/postgres/customerfulfillment -run 'TestOrderResolution|TestRetainedClose' -count=1`。
-- 正式订单 SO-20261031-0003 未修改；代码未合并/未部署；Van 产品验收待进行。
+- 第一批开发部署：`KFERP_ERP_ONLY=1 ./deploy_orderapp.sh development`；备份 `/opt/stacks/erp/orderapp.backup.deploy-20261107170312-c994c9b2b168`；接口未登录 401，登录后接口/手册/页面 200，页面资源与服务器文件一致，小程序包保留。首次构建 SSH 中断，确认原服务和发布锁后重试成功。
+- 第二批定向证据：`/tmp/kferp-resolution-20261107-supply-*.log`；换来源明确数量/身份/仓库权限、库存不足与日志失败回滚、重复提交、已有目标预订、方案变更重新确认；隔离 Vue 页面检查与构建。相关改动仍在功能分支，不包含在第一批正式发布中。
+- 第一批正式部署备份：`/opt/stacks/erp-production/orderapp.backup.deploy-20261107171222-2d46296a3b01`；接口认证、手册、PR 标记及静态资源一致性通过；原小程序包保留。
+- 正式订单 SO-20261031-0003 未修改；上线前只读状态为 2160 元未收款、计划 18 取消/19 完成、代发 16/17 取消；Van 产品验收待进行。
 
 ### PR-ORDER-DATE-SAVE-20261104 留厂及代发订单日期保存
 - Branch: `codex/order-date-save-20261104`; base `origin/main` 873ab8a41。
