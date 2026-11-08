@@ -8,6 +8,7 @@ import (
 	domain "orderapp/internal/domain/orderresolution"
 	resolutionpg "orderapp/internal/infrastructure/postgres/orderresolution"
 	productionpg "orderapp/internal/infrastructure/postgres/production"
+	migration "orderapp/internal/infrastructure/postgres/productspecmigration"
 	"sync"
 	"testing"
 )
@@ -302,4 +303,32 @@ func TestOrderResolutionProductionReassignRejectsUnacceptedOrCustomerSpecificTar
 			}
 		})
 	}
+}
+
+func TestOrderResolutionProductionReassignKeepsHistoricalFrozenVariant(t *testing.T) {
+	pool, schema := productionReassignFixture(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.production_bom_versions SET status='archived' WHERE id=7030;INSERT INTO %[1]s.production_bom_versions(id,bom_id,version_no,status,output_qty,output_unit)VALUES(7033,7030,'V2','published',1,'袋');INSERT INTO %[1]s.production_bom_version_variants(id,version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,logistics_weight_g)VALUES(7034,7033,7031,'454g袋','袋',true,454);UPDATE %[1]s.production_bom_output_bindings SET bom_version_id=7033 WHERE output_type='product' AND output_id=910`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	if err := migration.EnsureAuthorityProjection(ctx, pool, schema); err != nil {
+		t.Fatal(err)
+	}
+	r := resolutionpg.NewRepository(pool, schema)
+	c, err := r.Context(ctx, 78400)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := r.Submit(ctx, 78400, productionReassignCommand(c.Version), "sales")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err = r.CompleteStep(ctx, 78400, result.ID, result.Steps[0].ID, resolutionpg.StepCommand{Choice: "reassign", Note: "原工单和目标均冻结旧版", Reference: "FROZEN-APPROVE", IdempotencyKey: "frozen"}, "production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Applied {
+		t.Fatal("not applied")
+	}
+	assertMiniDirectShipCount(t, pool, schema, "work_orders", "id=78400 AND bom_variant_id=7032 AND order_nos='ALLOC-TARGET'", 1)
 }

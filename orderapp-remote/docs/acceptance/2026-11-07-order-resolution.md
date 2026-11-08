@@ -264,3 +264,5 @@
 - 完整无数据库 Go、Vue 1759/1759、Vite build、changed、回滚保护通过；订单处理全流程 PostgreSQL 回归 212.939s，生产接口 8.132s 通过（最后冻结快照与目标确认细化后将在集成前重新运行相关回归）。
 - Chrome 隔离页面从全部空选项到漏选拒绝，再明确目标/3袋/账期、生产岗位确认凭据，最终显示 SO-TEST-SOURCE → SO-TEST-TARGET 及 3 袋；截图 `/tmp/kferp-resolution-20261108-reassign-browser.png`。未连接业务数据库。
 - 已更新源手册与 Vue 表单说明、PR/DEV；候选待合并与发布，产品验收仍由 Van 完成。复杂共享/已部分产出或客户专属生产不自动改供；页面给出先拆分核对的限制。
+
+- 集成前最终检查：合并最新 origin/develop 后，完整无数据库 Go、changed、兼容回滚通过；订单处理/留厂关闭 PostgreSQL 全回归 189.244s，真实生产接口 3.093s 通过。历史 BOM 冻结转供另测 1.741s 通过；前端代码相对已通过的 1759 项及构建无变化。证据 `reassign-merged-{backend,changed,rollback,pg}.log` 与 `reassign-historical.log`。最后冻结保护的启动问题来自旧测试样本产出字段未回填，按正常生产初始化完善样本后重启、完工与历史保护均通过，未放宽生产守卫。
