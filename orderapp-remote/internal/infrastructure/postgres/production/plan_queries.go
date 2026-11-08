@@ -520,7 +520,7 @@ func (r Repository) fetchProductionDemandPartsQuery(ctx context.Context, queryer
 			LEFT JOIN %s.work_orders wo ON wo.production_plan_item_id=pi.id
 			WHERE pi.product_id=sn.product_id
 			  AND pi.spec_g=sn.spec_g
-			  AND COALESCE(pp.status,'') <> 'cancelled'
+			  AND COALESCE(pp.status,'') NOT IN ('cancelled','stopped')
 			  AND COALESCE(pi.replan_status,'active') <> 'withdrawn'
 			  AND sn.order_no = ANY(string_to_array(replace(COALESCE(pi.order_nos,''),' ',''), ','))
 			ORDER BY priority DESC,pp.created_at DESC,pp.id DESC,wo.id DESC
@@ -709,7 +709,7 @@ func (r Repository) productionDemandStatusByKeyQuery(ctx context.Context, querye
 		LEFT JOIN %s.work_orders wo ON wo.production_plan_item_id=pi.id
 		WHERE pi.product_id = ANY($1::bigint[])
 		  AND pi.spec_g = ANY($2::bigint[])
-		  AND COALESCE(pp.status,'') <> 'cancelled'
+		  AND COALESCE(pp.status,'') NOT IN ('cancelled','stopped')
 		  AND COALESCE(pi.replan_status,'active') <> 'withdrawn'
 		ORDER BY pp.created_at DESC,pp.id DESC,wo.id DESC
 	`, r.schema, r.schema, r.schema)

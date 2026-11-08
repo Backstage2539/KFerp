@@ -386,6 +386,7 @@
             <option value="in_progress">生产中</option>
             <option value="completed">已完成</option>
             <option value="cancelled">已取消</option>
+            <option value="stopped">已停止剩余生产</option>
           </select>
         </label>
         <label>
@@ -1939,6 +1940,7 @@ function workOrderStatusLabel(status) {
     running: '生产中',
     completed: '已完成',
     cancelled: '已取消',
+    stopped: '已停止剩余生产',
   }
   return map[String(status || '').trim()] || status || '-'
 }

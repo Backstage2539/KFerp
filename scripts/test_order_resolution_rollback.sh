@@ -6,6 +6,7 @@ trap 'rm -rf "$test_dir"' EXIT
 cat > "$test_dir/docker" <<'MOCK'
 #!/usr/bin/env bash
 case "$*" in
+ *'image inspect'*'production-stop-aware'*) echo "${ROLLBACK_STOP_AWARE:-0}" ;;
  *'image inspect'*'ownership-return-aware'*) echo "${ROLLBACK_OWNERSHIP_AWARE:-0}" ;;
  *'image inspect'*'return-aware'*) echo "${ROLLBACK_RETURN_AWARE:-0}" ;;
  *'image inspect'*'company-stock-aware'*) echo "${ROLLBACK_COMPANY_AWARE:-0}" ;;
@@ -13,6 +14,7 @@ case "$*" in
  *'image inspect'*) echo "${ROLLBACK_FEE_AWARE:-0}" ;;
  *'inspect --format'*) echo DB_SCHEMA=p2rms15pepb5ciz ;;
  *information_schema.tables*) echo t ;;
+ *"production_stop_marker"*) echo "${ROLLBACK_STOP_DATA:-f}" ;;
  *return_selections*) echo "${ROLLBACK_OWNERSHIP_DATA:-f}" ;;
  *return_settlement*) echo "${ROLLBACK_RETURN_DATA:-f}" ;;
  *stock_selections*) echo "${ROLLBACK_COMPANY_DATA:-f}" ;;
@@ -49,3 +51,9 @@ if PATH="$test_dir:$PATH" ROLLBACK_FEE_AWARE=1 ROLLBACK_MIXED_AWARE=1 ROLLBACK_C
 fi
 PATH="$test_dir:$PATH" ROLLBACK_FEE_AWARE=1 ROLLBACK_MIXED_AWARE=1 ROLLBACK_COMPANY_AWARE=1 ROLLBACK_RETURN_AWARE=1 ROLLBACK_OWNERSHIP_AWARE=1 ROLLBACK_OWNERSHIP_DATA=t bash "$root/scripts/check_order_resolution_rollback.sh" /test app old
 printf 'PASS: ownership return rollback protection\n'
+
+if PATH="$test_dir:$PATH" ROLLBACK_FEE_AWARE=1 ROLLBACK_MIXED_AWARE=1 ROLLBACK_COMPANY_AWARE=1 ROLLBACK_RETURN_AWARE=1 ROLLBACK_OWNERSHIP_AWARE=1 ROLLBACK_STOP_DATA=t bash "$root/scripts/check_order_resolution_rollback.sh" /test app old > "$test_dir/result" 2>&1;then
+ echo 'FAIL: old rollback accepted pending or applied production stops';exit 1
+fi
+PATH="$test_dir:$PATH" ROLLBACK_FEE_AWARE=1 ROLLBACK_MIXED_AWARE=1 ROLLBACK_COMPANY_AWARE=1 ROLLBACK_RETURN_AWARE=1 ROLLBACK_OWNERSHIP_AWARE=1 ROLLBACK_STOP_AWARE=1 ROLLBACK_STOP_DATA=t bash "$root/scripts/check_order_resolution_rollback.sh" /test app old
+printf 'PASS: production stop rollback protection\n'

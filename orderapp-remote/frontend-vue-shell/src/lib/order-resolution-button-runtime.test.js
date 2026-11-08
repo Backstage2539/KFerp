@@ -11,6 +11,20 @@ code=code.replace(/^import (OrderResolution(?:Step|Policy|Balance)) from .+$/gm,
 code=code.replace(/from (['"])([^'"]+)\1/g,(_,q,path)=>`from ${JSON.stringify(path.startsWith('.')?new URL(/\.[a-z]+$/.test(path)?path:`${path}.js`,filename).href:import.meta.resolve(path))}`)
 const {default:View}=await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
 async function setup(){let editor;await renderToString(createSSRApp({...View,setup(p,c){editor=View.setup(p,c);return editor},render(){return h('div')}},{orderId:7}));return editor}
+test('production stop requires blank explicit remainder choices and disables shared or unverified work',async t=>{
+ const previous=globalThis.fetch;t.after(()=>globalThis.fetch=previous)
+ const dep={kind:'production',id:19,status:'running',stop_work_orders:[{work_order_id:31,label:'WO-31',has_materials:true,has_wip:true,has_reservations:true,has_outputs:true}]}
+ globalThis.fetch=async()=>({ok:true,json:async()=>({context:{version:'v1',lines:[],dependencies:[dep]},options:{production:[{value:'stop'}]},permissions:{'orders.resolve':true},history:[]})})
+ const editor=await setup();await editor.load(true);editor.form.action='close';editor.form.scope='all'
+ const d=editor.form.dispositions[0];assert.equal(d.choice,'');assert.deepEqual(d.stops,[{work_order_id:31,materials:'',wip:'',reservations:'',outputs:''}])
+ d.choice='stop';assert.throws(()=>editor.body(),/余料|在制品|处置/)
+ Object.assign(d.stops[0],{materials:'retain_original',wip:'retain_original',reservations:'release_unconsumed',outputs:'keep_original'})
+ assert.equal(editor.body().dispositions[0].stops[0].reservations,'release_unconsumed')
+ assert.equal(editor.choices({...dep,shared:true})[0].disabled,true)
+ assert.equal(editor.choices({...dep,stop_work_orders:[]})[0].disabled,true)
+ assert.equal(editor.choices({...dep,stop_work_orders:[{work_order_id:31,issue:'来源不足'}]})[0].reason,'来源不足')
+ d.choice='continue_company';assert.equal(editor.body().dispositions[0].stops,undefined)
+})
 test('company stock assignment has no automatic batch target or quantity',async t=>{
  const previous=globalThis.fetch;t.after(()=>globalThis.fetch=previous)
  const dep={kind:'production',id:19,status:'completed',company_stock:[{batch_id:301,available_quantity:3,targets:[{order_item_id:401,order_id:40,remaining_quantity:2}]}]}
@@ -44,6 +58,12 @@ test('related order navigation carries an in-memory return to the original order
  let event;globalThis.window={dispatchEvent:value=>{event=value}}
  const editor=await setup();editor.relatedOrder({id:9})
  assert.equal(event.type,'kferp:navigate-view');assert.deepEqual(event.detail,{key:'orders',params:{order_id:9},returnNavigation:{key:'orders',label:'返回原订单',params:{order_id:7}}})
+})
+test('production remainder review opens the original work order with a return to this sales order',async t=>{
+ const previous=globalThis.window;t.after(()=>globalThis.window=previous)
+ let event;globalThis.window={dispatchEvent:value=>{event=value}}
+ const editor=await setup();editor.relatedWork({work_order_id:31})
+ assert.equal(event.type,'kferp:navigate-view');assert.deepEqual(event.detail,{key:'workOrders',params:{work_order_id:31},returnNavigation:{key:'orders',label:'返回原订单',params:{order_id:7}}})
 })
 
 test('replacement supply starts with blank warehouse choices and explicit quantities',async t=>{

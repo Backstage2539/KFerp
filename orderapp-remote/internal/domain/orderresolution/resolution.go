@@ -23,6 +23,7 @@ type Line struct {
 	ClosedCents          int64   `json:"closed_cents"`
 }
 type Dependency struct {
+	StopWorkOrders     []StopWorkOrder      `json:"stop_work_orders,omitempty"`
 	BatchID            int64                `json:"batch_id,omitempty"`
 	CompanyStock       []CompanyStockSource `json:"company_stock,omitempty"`
 	CashIssue          string               `json:"cash_issue,omitempty"`
@@ -80,6 +81,7 @@ type Selection struct {
 	Quantity float64 `json:"quantity"`
 }
 type Disposition struct {
+	Stops           []StopSelection     `json:"stops,omitempty"`
 	StockSelections []StockSelection    `json:"stock_selections,omitempty"`
 	SourceFeeID     int64               `json:"source_fee_id,omitempty"`
 	Supplies        []SupplyReplacement `json:"supplies,omitempty"`
@@ -298,6 +300,12 @@ func preview(c Context, cmd Command) (Plan, error) {
 		key := fmt.Sprintf("%s:%d", d.Kind, d.ID)
 		choice, ok := choices[key]
 		delete(choices, key)
+		if d.Kind == "production" && d.Status == "stopped" {
+			if oneOf(cmd.Action, "cancel", "amend") {
+				return fail("已停工生产仍有原扣料和产出历史，请保留原单并关闭剩余履约")
+			}
+			continue
+		}
 		if oneOf(d.Status, "cancelled", "released") {
 			continue
 		}
@@ -356,6 +364,14 @@ func preview(c Context, cmd Command) (Plan, error) {
 				return Plan{}, err
 			}
 			d.Label += label
+		}
+		if d.Kind == "production" && choice.Choice == "stop" {
+			label, err := validateProductionStop(d, choice, cmd)
+			if err != nil {
+				return Plan{}, err
+			}
+			d.Label += label
+			p.Tasks = append(p.Tasks, Task{Kind: "production_stock", SourceID: d.ID, Choice: "stop", Label: d.Label, Permission: "stock.resolve"})
 		}
 		if d.Kind == "production" && (cmd.Action == "cancel" || cmd.Action == "amend") && d.Status == "completed" {
 			return fail("已完成生产必须保留，请选择关闭剩余履约")

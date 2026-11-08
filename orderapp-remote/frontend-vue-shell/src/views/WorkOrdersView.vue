@@ -275,7 +275,7 @@ const linkedReplenishment = ref({ open: false, source: null, consumerWorkOrderID
 const visibleRows = computed(() => {
   const q = query.value.toLowerCase()
   return rows.value.filter((row) => {
-    if (status.value === 'active' && ['completed', 'cancelled'].includes(String(row.status || ''))) return false
+    if (status.value === 'active' && ['completed', 'cancelled', 'stopped'].includes(String(row.status || ''))) return false
     if (!q) return true
     return [row.work_order_no, row.output_name, row.product_name].some((value) => String(value || '').toLowerCase().includes(q))
   })
@@ -433,6 +433,7 @@ function operationCurrentText(row) {
 
 function workOrderTodo(row) {
   if (row.status === 'completed') return { title: '查看记录', detail: '工单已完成，查看工序、耗料和入库记录', action: 'records' }
+  if (row.status === 'stopped') return { title: '查看停工记录', detail: '剩余生产已停止，原扣料、在制品及产出保留；重新开启订单不会恢复工单', action: 'records' }
   if (row.status === 'cancelled') return { title: '已取消', detail: '工单已结束', action: 'summary' }
   if (workOrderHasUpstreamBlocker(row)) return { title: '等待上游供给', detail: workOrderUpstreamBlockerLabel(row) }
   const items = operationSummaryRows(row)

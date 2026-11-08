@@ -7,6 +7,7 @@ export function workOrderStatusOptions() {
     { value: 'partially_completed', label: '部分完成' },
     { value: 'completed', label: '已完成' },
     { value: 'cancelled', label: '已取消' },
+    { value: 'stopped', label: '已停止剩余生产' },
   ]
 }
 

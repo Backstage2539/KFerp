@@ -227,6 +227,13 @@ func (r Repository) load(ctx context.Context, q querier, id int64) (domain.Conte
 			if int64(num(item, "production_plan_id")) != pid {
 				continue
 			}
+			var demandSources []map[string]json.RawMessage
+			_ = json.Unmarshal(item["demand_sources_json"], &demandSources)
+			for _, source := range demandSources {
+				if int64(num(source, "order_id")) != c.OrderID || str(source, "order_no") != c.OrderNo {
+					shared = true
+				}
+			}
 			for _, no := range strings.Split(str(item, "order_nos"), ",") {
 				if other := strings.TrimSpace(no); other != "" && other != c.OrderNo {
 					shared = true
@@ -307,6 +314,9 @@ func (r Repository) load(ctx context.Context, q querier, id int64) (domain.Conte
 		c.Dependencies = append(c.Dependencies, domain.Dependency{Kind: "fee", ID: int64(num(f, "id")), Label: feeLabel(str(f, "fee_type")), CashIssue: cashIssue, Status: str(f, "status"), AmountCents: cents(num(f, "amount")) - int64(num(f, "resolution_credit_cents")), PaidCents: int64(num(f, "paid_cents")), SettledOutCents: int64(num(f, "resolution_settled_out_cents"))})
 	}
 	if err = r.replacementSources(ctx, q, &c); err != nil {
+		return c, err
+	}
+	if err = r.productionStopSources(ctx, q, &c); err != nil {
 		return c, err
 	}
 	if err = r.companyStockSources(ctx, q, &c, snap.Items); err != nil {
@@ -493,6 +503,9 @@ func (r Repository) apply(ctx context.Context, tx pgx.Tx, id, requestID int64, c
 		return err
 	}
 	if err := r.applyCompanyAllocations(ctx, tx, id, requestID, cmd, actor); err != nil {
+		return err
+	}
+	if err := r.applyProductionStops(ctx, tx, id, requestID, cmd, actor); err != nil {
 		return err
 	}
 	if cmd.Action == "amend" {

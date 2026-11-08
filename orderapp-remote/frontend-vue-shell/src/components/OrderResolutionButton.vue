@@ -54,10 +54,11 @@ async function load(restore = false) {
    Object.assign(form, blankResolution(), structuredClone(pending.value && !pending.value.applied ? toRaw(pending.value.command) : data.draft?.action ? data.draft : {}))
    for (const d of form.dispositions) if(d.amount_specified) d.amount=(Number(d.amount_cents)/100).toFixed(2)
    if (!form.lines.length) form.lines = data.context.lines.map(v => ({ item_id: v.id, quantity: 0 }))
-   for (const v of data.context.dependencies.filter(v => !['cancelled', 'released'].includes(v.status))) {
+   for (const v of data.context.dependencies.filter(v => !['cancelled', 'released', 'stopped'].includes(v.status))) {
     if (!form.dispositions.some(d => d.kind === v.kind && Number(d.id) === Number(v.id))) form.dispositions.push({ kind: v.kind, id: v.id, choice: '', target_id: 0, amount_cents: 0, reference: '' })
     const d=disposition(v)
     if(v.kind==='production') d.stock_selections ||= []
+    if(v.stop_work_orders?.length)d.stops=v.stop_work_orders.map(w=>d.stops?.find(s=>Number(s.work_order_id)===Number(w.work_order_id))||{work_order_id:w.work_order_id,materials:'',wip:'',reservations:'',outputs:''})
     if(v.supply_reservations?.length){
      d.supplies=v.supply_reservations.map(s=>{
       const prior=d.supplies?.find(choice=>Number(choice.reservation_id)===Number(s.id))
@@ -78,6 +79,7 @@ function close() { if (busy.value) return; generation++; open.value = false; res
 function disposition(dep) { return form.dispositions.find(v => v.kind === dep.kind && Number(v.id) === Number(dep.id)) }
 function supplyChoice(dep,source) { return disposition(dep)?.supplies?.find(v=>Number(v.reservation_id)===Number(source.id)) }
 function stockSource(dep,selection) { return dep.company_stock?.find(v=>Number(v.batch_id)===Number(selection.batch_id)) }
+function stopSelection(dep,work) { return disposition(dep)?.stops?.find(s=>Number(s.work_order_id)===Number(work.work_order_id)) }
 function addStockSelection(dep) { disposition(dep).stock_selections.push({batch_id:0,target_item_id:0,quantity:''}) }
 function addReturnSelection() { if(returnStockPosted.value) return; form.return_selections.push({source_kind:'',source_id:0,batch_id:0,quantity:'',ownership:'',warehouse:'',quality:''}) }
 function returnSource(row) { return current.value?.return_sources?.find(s=>s.kind===row.source_kind&&Number(s.id)===Number(row.source_id)&&Number(s.batch_id)===Number(row.batch_id)) }
@@ -94,6 +96,7 @@ function choices(dep) {
   if (!reason && dep.kind==='customer_stock' && v.value==='ownership_return' && !current.value?.return_sources?.some(s=>s.kind==='ownership'&&Number(s.entitlement_id)===Number(dep.id)&&s.available_quantity>0)) reason='没有该笔权益可核对的原收货批次和未预留实物'
   if (!reason && dep.kind==='fee' && dep.amount_cents<0 && !['keep','defer'].includes(v.value)) reason='该项是已有负数费用调整，请保留原记录'
   if (!reason && dep.kind==='fee' && dep.cash_issue && !['keep','defer'].includes(v.value)) reason=dep.cash_issue
+  if (!reason && dep.kind==='production' && v.value==='stop') reason=dep.shared?'共享生产须先拆分剩余需求':dep.stop_work_orders?.find(w=>w.issue)?.issue||(!dep.stop_work_orders?.length?'尚无可核对的工单余料与在制品':form.action!=='close'||form.scope!=='all'?'停止整批生产须选择关闭全部剩余履约':'')
   if (!reason && dep.kind==='production' && v.value==='allocate' && (dep.ownership_issue || !dep.company_stock?.some(s=>s.available_quantity>0&&s.targets?.length))) reason=dep.ownership_issue || '尚无可核对的公司成品与匹配目标；请核对原批次、预留、库存单位及仓库'
   if (!reason && dep.kind==='production' && dep.ownership_issue && ['keep_company_stock','continue_company'].includes(v.value)) reason=dep.ownership_issue
   if (!reason && dep.kind === 'production' && dep.status === 'completed' && !['keep_company_stock','allocate','scrap','defer'].includes(v.value)) reason='已完成生产须保留'
@@ -126,6 +129,10 @@ async function stepChanged() { emit('changed'); notice.value = '本项处置已�
 function relatedOrder(order) {
  close()
  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'orders', params: { order_id: order.id }, returnNavigation: { key: 'orders', label: '返回原订单', params: { order_id: props.orderId } } } }))
+}
+function relatedWork(work) {
+ close()
+ window.dispatchEvent(new CustomEvent('kferp:navigate-view',{detail:{key:'workOrders',params:{work_order_id:work.work_order_id},returnNavigation:{key:'orders',label:'返回原订单',params:{order_id:props.orderId}}}}))
 }
 function revise(record) {
  close()
@@ -181,13 +188,27 @@ const money = cents => (Number(cents || 0) / 100).toFixed(2)
       <legend>关联单据与处置</legend>
       <div v-for="dep in visibleDependencies" :key="`${dep.kind}-${dep.id}`" class="dependency">
        <div><strong>{{ dep.label }}{{ dep.kind === 'fee' ? ` · ¥${money(dep.amount_cents)}` : '' }}</strong><span>{{ resolutionDependencyStatus(dep.status) }}{{ dep.shared ? ' · 共享生产' : '' }}</span></div>
+       <p v-if="dep.stop_work_orders?.length" class="related-orders"><button v-for="work in dep.stop_work_orders" :key="work.work_order_id" type="button" @click="relatedWork(work)">{{ work.label }} · 查看工单／办理退料</button></p>
        <p v-if="dep.kind==='fee' && dep.id>0" class="hint">原收款 ¥{{ money(dep.paid_cents) }} · 资金已处置 ¥{{ money(dep.settled_out_cents) }}；减免后由财务另行选择资金去向。</p>
        <p v-if="dep.orders?.length" class="related-orders"><button v-for="order in dep.orders" :key="order.id" type="button" @click="relatedOrder(order)">{{ order.number || `订单 #${order.id}` }} · {{ resolutionDependencyStatus(order.status) }}{{ Number(order.id) === Number(orderId) ? '（当前订单）' : '' }}</button></p>
-       <span v-if="['cancelled', 'released'].includes(dep.status)" class="hint">已取消或已释放，保留历史记录</span>
+       <span v-if="['cancelled', 'released', 'stopped'].includes(dep.status)" class="hint">已结束关联业务，保留历史记录；重新开启订单不会恢复已停工工单。</span>
        <template v-else-if="disposition(dep)"><select v-model="disposition(dep).choice" :aria-label="`${dep.label}处置`"><option value="">请选择处置</option><option v-for="v in choices(dep)" :key="v.value" :value="v.value" :disabled="v.disabled">{{ v.label }}{{ v.disabled ? `（${v.reason}）` : '' }}</option></select><label v-if="dep.kind === 'fee' && ['partial_waiver','negotiated'].includes(disposition(dep).choice)">{{ disposition(dep).choice === 'negotiated' ? '协商后保留收费（元）' : '本次减免金额（元）' }}<input v-model="disposition(dep).amount" inputmode="decimal" placeholder="请明确填写金额" /></label><label v-if="dep.kind === 'stock_reservation' && disposition(dep).choice === 'release'">本批释放数量（{{ dep.unit }}）<input v-model.number="disposition(dep).quantity" type="number" min="0" :max="dep.quantity" step="any" placeholder="明确填写本批释放数量" /></label>
         <template v-if="disposition(dep).choice === 'replace_supply'">
          <p class="hint">逐笔选择同客户、同商品、同冻结规格及同仓库的替代购货权益。仓库确认并建立新预订后，才会释放原预订。</p>
          <fieldset v-for="source in dep.supply_reservations" :key="source.id" class="supply-choice"><legend>{{ source.label }}</legend><template v-if="supplyChoice(dep,source)"><p>待入库预订 {{ source.quantity }} {{ source.unit }}</p><p v-if="source.converted_quantity>0">已入库原批次：{{ source.physical_batches }}</p><label v-if="source.converted_quantity>0">已入库 {{ source.converted_quantity }} {{ source.unit }} 的处置<select v-model="supplyChoice(dep,source).physical_choice"><option value="">请选择已入库部分的处置</option><option value="keep_reserved">保留原批次预留，继续用于本笔代发</option></select></label><p v-if="source.physical_issue" class="error">{{ source.physical_issue }}</p><label v-if="source.quantity>0">替代货源<select v-model.number="supplyChoice(dep,source).target_id"><option :value="0">请选择明确的替代货源</option><option v-for="target in source.targets" :key="target.id" :value="target.id">{{ target.label }} · 可用 {{ target.available_qty }} {{ source.unit }}</option></select></label><label v-if="source.quantity>0">本笔替换数量<input v-model="supplyChoice(dep,source).quantity" type="number" min="1" step="1" :max="source.quantity" placeholder="明确填写本笔待入库预订数量" /></label></template></fieldset>
+        </template>
+        <template v-if="dep.kind==='production' && disposition(dep).choice==='stop'">
+         <p class="hint">生产负责人和仓库分别确认后停止剩余生产。已扣料和在制品保留原位置、货权及成本，不会自动变为可用库存；需要退还未加工余料时，先在工位办理退料，再刷新本方案。</p>
+         <fieldset v-for="work in dep.stop_work_orders" :key="work.work_order_id" class="supply-choice"><legend>{{ work.label }}</legend>
+          <p v-if="work.issue" class="error">{{ work.issue }}</p>
+          <ul><li v-for="row in work.remainders" :key="`${row.kind}-${row.id}`">{{ row.label }} · {{ row.quantity }} {{ row.unit }} · {{ row.warehouse || '原批次记录' }} · {{ row.owner_customer_id ? `客户货权 #${row.owner_customer_id}` : '公司货权' }} · 成本 ¥{{ Number(row.cost || 0).toFixed(2) }}</li></ul>
+          <template v-if="stopSelection(dep,work)">
+           <label>已投余料<select v-model="stopSelection(dep,work).materials"><option value="">请选择余料处置</option><option v-if="work.has_materials" value="retain_original">保留原位及原货权，停止继续消耗</option><option v-else value="returned">已核对：没有未处理的已投余料</option></select></label>
+           <label>在制品<select v-model="stopSelection(dep,work).wip"><option value="">请选择在制品处置</option><option v-if="work.has_wip" value="retain_original">保留原工序、位置、货权及成本</option><option v-else value="none">已核对：没有剩余在制品</option></select></label>
+           <label>未耗用预留<select v-model="stopSelection(dep,work).reservations"><option value="">请选择预留处置</option><template v-if="work.has_reservations"><option value="keep">保留原预留</option><option value="release_unconsumed">释放未耗用部分，保留耗用记录</option></template><option v-else value="none">已核对：没有未耗用预留</option></select></label>
+           <label>已完成产出<select v-model="stopSelection(dep,work).outputs"><option value="">请选择产出处置</option><option v-if="work.has_outputs" value="keep_original">保留原批次、货权、库存及成本</option><option v-else value="none">已核对：没有已完成产出</option></select></label>
+          </template>
+         </fieldset>
         </template>
         <template v-if="dep.kind==='production' && disposition(dep).choice==='allocate'">
          <p class="hint">明确选择原批次、普通销售订单及数量。仓库确认后建立目标预留；保留共享生产、批次和成本记录，不产生出库或转仓。目标已有生产、商品冻结规格或库存单位不同的订单须先核对。</p>

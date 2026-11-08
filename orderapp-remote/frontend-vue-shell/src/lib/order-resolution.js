@@ -22,6 +22,14 @@ export function resolutionPayload(form, version, key, {draft=false}={}) {
     return {batch_id:batch,target_item_id:target,quantity}
    })
   }else delete d.stock_selections
+  if(d.kind==='production'&&d.choice==='stop'){
+   if(!draft&&!d.stops?.length)throw new Error('请逐工单选择余料、在制品、预留和产出处置')
+   d.stops=(d.stops||[]).map(s=>{
+    const row={work_order_id:Number(s.work_order_id),materials:s.materials||'',wip:s.wip||'',reservations:s.reservations||'',outputs:s.outputs||''}
+    if(!draft&&(!Number.isSafeInteger(row.work_order_id)||row.work_order_id<=0||!row.materials||!row.wip||!row.reservations||!row.outputs))throw new Error('请明确选择余料、在制品、预留和产出处置')
+    return row
+   })
+  }else delete d.stops
   if(d.kind==='fee'&&['partial_waiver','negotiated'].includes(d.choice)){
    const raw=String(d.amount??(d.amount_specified?Number(d.amount_cents)/100:'')).trim()
    if(draft&&!raw){d.amount_specified=false;d.amount_cents=0;delete d.amount;return d}
@@ -53,4 +61,4 @@ export function resolutionStepPayload(form, key) {
  if (!Number.isSafeInteger(amount)) throw new Error('金额超出范围')
  return { choice: form.choice, amount_cents: amount, account: form.account.trim(), reference: form.reference.trim(), posting_date: form.posting_date, note: form.note.trim(), target_id: Number(form.target_id || 0), idempotency_key: key }
 }
-export function resolutionDependencyStatus(value) { return ({draft:'草稿',submitted:'已提交',released:'已释放',cancelled:'已取消',completed:'已完成',running:'生产中',reserved:'已预订',active:'有效',unsettled:'未结算',settled:'已结算',confirmed:'已确认'})[value] || value }
+export function resolutionDependencyStatus(value) { return ({draft:'草稿',submitted:'已提交',released:'已释放',cancelled:'已取消',completed:'已完成',stopped:'已停止剩余生产',running:'生产中',reserved:'已预订',active:'有效',unsettled:'未结算',settled:'已结算',confirmed:'已确认'})[value] || value }
