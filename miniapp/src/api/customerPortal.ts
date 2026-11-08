@@ -340,6 +340,7 @@ export type ProductSummary = {
 }
 
 export type CustomerOrderSummary = {
+  is_void?: boolean
   fee_summary?: import('../utils/customerOrderFees').CustomerFeeSummary
 
   fulfillment_progress?: FulfillmentProgress
@@ -1139,6 +1140,7 @@ export type CreateFulfillmentOrderPayload = {
 }
 
 export type ServicePageFilters = {
+ order_id?: number
  page?: number
  page_size?: number
   selected_price_table_ids?: number[]
@@ -1908,6 +1910,7 @@ export function buildEmployeeOrderDraftPath(): string {
 
 export function buildServicePagePath(key: ServiceKey, filters: ServicePageFilters = {}): string {
   const params = [
+    ['order_id',filters.order_id],
     ['page',filters.page],
     ['page_size',filters.page_size],
     ['selected_price_table_ids', filters.selected_price_table_ids?.join(',')],

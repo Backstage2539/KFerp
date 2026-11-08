@@ -17,16 +17,18 @@ import (
 )
 
 type incoming struct {
-	XMLName xml.Name `xml:"xml"`
-	To      string   `xml:"ToUserName"`
-	From    string   `xml:"FromUserName"`
-	Created int64    `xml:"CreateTime"`
-	MsgType string   `xml:"MsgType"`
-	Event   string   `xml:"Event"`
-	Key     string   `xml:"EventKey"`
-	Content string   `xml:"Content"`
-	MsgID   string   `xml:"MsgId"`
-	Encrypt string   `xml:"Encrypt"`
+	XMLName       xml.Name `xml:"xml"`
+	To            string   `xml:"ToUserName"`
+	From          string   `xml:"FromUserName"`
+	Created       int64    `xml:"CreateTime"`
+	MsgType       string   `xml:"MsgType"`
+	Event         string   `xml:"Event"`
+	Key           string   `xml:"EventKey"`
+	Content       string   `xml:"Content"`
+	MsgID         string   `xml:"MsgId"`
+	TemplateMsgID string   `xml:"MsgID"`
+	Status        string   `xml:"Status"`
+	Encrypt       string   `xml:"Encrypt"`
 }
 type outgoing struct {
 	XMLName xml.Name `xml:"xml"`
@@ -87,6 +89,31 @@ func (h *Handler) Callback(c echo.Context) error {
 	}
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 3500*time.Millisecond)
 	defer cancel()
+	if msg.MsgType == "event" {
+		switch msg.Event {
+		case "TEMPLATESENDJOBFINISH":
+			if err := h.Repo.NotificationReceipt(ctx, h.Config.AppID, msg.TemplateMsgID, msg.Status); err != nil {
+				return c.NoContent(503)
+			}
+			return c.String(200, "success")
+		case "subscribe", "unsubscribe":
+			if err := h.Repo.NotificationSubscription(ctx, h.Config.AppID, msg.From, msg.Event == "subscribe", msg.Created); err != nil {
+				return c.NoContent(503)
+			}
+		}
+		if msg.Event == "unsubscribe" {
+			return c.String(200, "success")
+		}
+		if msg.Event == "subscribe" || msg.Event == "SCAN" {
+			key := strings.TrimPrefix(msg.Key, "qrscene_")
+			if strings.HasPrefix(key, "notify_") {
+				if err := h.Repo.NotificationScan(ctx, strings.TrimPrefix(key, "notify_"), h.Config.AppID, msg.From); err != nil {
+					return c.NoContent(503)
+				}
+				return c.String(200, "success")
+			}
+		}
+	}
 	text := h.dispatch(ctx, msg)
 	if text == "" {
 		return c.String(http.StatusOK, "success")

@@ -31,6 +31,7 @@ import {
 } from '../../utils/customerSwitch'
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 
+function openOrderNotifications(){uni.navigateTo({url:'/pages/order-notifications/order-notifications'})}
 const session = useSessionStore()
 const {
   pullUpBrandRevealed,
@@ -350,6 +351,7 @@ onShow(() => { void refreshMiniappShareMenu() })
 
       <button v-if="canOpenFactoryProducts" class="secondary-button" @tap="openFactoryProducts">工厂商品表</button>
       <button v-if="canOpenFactoryProducts" class="secondary-button" @tap="openCustomerProducts">我的商品</button>
+      <button @tap="openOrderNotifications">订单通知</button>
       <button class="danger-button" @tap="clearAndLogin">退出登录</button>
     </view>
 

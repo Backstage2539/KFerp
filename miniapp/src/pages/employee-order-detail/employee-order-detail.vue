@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {loginRouteFor} from '../../utils/loginReturn'
 import {orderProgressLabel} from '../../utils/orderProgress'
 import OrderDetailsCopyButton from '../../components/OrderDetailsCopyButton.vue'
 import OrderItemWeights from '../../components/OrderItemWeights.vue'
@@ -214,7 +215,7 @@ async function loadDetail() {
 
 function goToLogin() {
   session.clearSession()
-  uni.reLaunch({ url: '/pages/login/login' })
+  uni.reLaunch({ url: loginRouteFor(`/pages/employee-order-detail/employee-order-detail?id=${orderID.value}`) })
 }
 
 function openEditor() {

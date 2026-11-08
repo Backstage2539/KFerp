@@ -1,4 +1,4 @@
-package officialaccount
+package wechataccount
 
 import (
 	"bytes"

@@ -38,3 +38,15 @@ describe('login return', () => {
       expect(safeLoginReturn(url)).toBe('')
   })
 })
+it('retains a specific notice order and rejects malformed or appended targets',()=>{
+ const p='/pages/service/service?key=orders&source=notice&order_id=42&customer_id=8'
+ expect(safeLoginReturn(p)).toBe(p)
+ for(const bad of [p+'&next=https://evil.test',p.replace('42','0'),p.replace('42','-1'),p.replace('8','8.5')]) expect(safeLoginReturn(bad)).toBe('')
+ expect(safeLoginReturn('/pages/order-notifications/order-notifications')).toBe('/pages/order-notifications/order-notifications')
+})
+it('keeps the employee notice order but rejects arbitrary employee navigation',()=>{
+ const p='/pages/employee-order-detail/employee-order-detail?id=42'
+ expect(safeLoginReturn(p)).toBe(p)
+ expect(safeLoginReturn(p+'&customer_id=8')).toBe('')
+ expect(safeLoginReturn(p.replace('42','-1'))).toBe('')
+})

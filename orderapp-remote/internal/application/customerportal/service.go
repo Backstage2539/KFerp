@@ -729,6 +729,7 @@ type CustomerOrderFeeSummary struct {
 }
 
 type CustomerOrderSummary struct {
+	IsVoid                bool                       `json:"is_void"`
 	FeeSummary            *CustomerOrderFeeSummary   `json:"fee_summary,omitempty"`
 	FulfillmentProgress   *progressdomain.Progress   `json:"fulfillment_progress,omitempty"`
 	Freight               *freightdomain.OrderView   `json:"freight,omitempty"`
@@ -983,6 +984,7 @@ type ServicePage struct {
 }
 
 type ServicePageQuery struct {
+	OrderID               int64
 	Offset                int
 	SelectedPriceTableIDs []int64
 	CustomerID            int64
@@ -997,6 +999,7 @@ type ServicePageQuery struct {
 }
 
 type ServicePageFilter struct {
+	OrderID               int64
 	Page                  int
 	PageSize              int
 	SelectedPriceTableIDs []int64
@@ -1617,6 +1620,7 @@ func (s *Service) GetServicePage(ctx context.Context, token, key string, filter 
 		offset = (pageNo - 1) * limit
 	}
 	page, err := s.repo.LoadServicePage(ctx, ServicePageQuery{
+		OrderID:               filter.OrderID,
 		Offset:                offset,
 		SelectedPriceTableIDs: filter.SelectedPriceTableIDs,
 		CustomerID:            current.CurrentCustomerID,
@@ -3502,7 +3506,7 @@ func NormalizeMallTemplateKey(value string) string {
 
 func normalizeServicePageFilter(filter ServicePageFilter) ServicePageFilter {
 	out := ServicePageFilter{
-		Page: filter.Page, PageSize: filter.PageSize,
+		Page: filter.Page, PageSize: filter.PageSize, OrderID: max(0, filter.OrderID),
 		Query:         strings.Join(strings.Fields(strings.TrimSpace(filter.Query)), " "),
 		DateFrom:      normalizeDateString(filter.DateFrom),
 		DateTo:        normalizeDateString(filter.DateTo),

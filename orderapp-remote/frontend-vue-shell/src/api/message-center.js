@@ -19,3 +19,13 @@ export function fetchNotificationRules() {
 export function saveNotificationRule(rule) {
   return apiSend('/api/message-center/rules', { body: rule })
 }
+
+const external = '/api/message-center/external'
+export const fetchOrderNotifications = () => apiGet(external)
+export const saveOrderNotifications = body => apiSend(external+'/config',{method:'PUT',body})
+export const fetchOrderNotificationTemplates = () => apiGet(external+'/templates')
+export const testOrderNotification = body => apiSend(external+'/tests',{body})
+export const retryOrderNotification = (id,confirmed_not_sent=false) => apiSend(`${external}/deliveries/${id}/retry`,{body:{confirmed_not_sent}})
+export const confirmOrderNotification = id => apiSend(`${external}/deliveries/${id}/confirm`,{body:{}})
+export const addNotificationDevice = body => apiSend(external+'/devices',{body})
+export const revokeNotificationDevice = id => apiSend(`${external}/devices/${id}`,{method:'DELETE'})

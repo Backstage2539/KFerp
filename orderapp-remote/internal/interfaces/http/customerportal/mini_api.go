@@ -224,8 +224,10 @@ func registerMiniAPIWithFees(e *echo.Echo, svc Service, messages MessagePublishe
 		if selectionErr != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": selectionErr.Error()})
 		}
+		orderID, _ := strconv.ParseInt(c.QueryParam("order_id"), 10, 64)
 		result, err := svc.GetServicePage(c.Request().Context(), token, c.Param("key"), customerportalapp.ServicePageFilter{
-			Page: miniPageNumber(c.QueryParam("page")), PageSize: miniPageNumber(c.QueryParam("page_size")),
+			OrderID: orderID,
+			Page:    miniPageNumber(c.QueryParam("page")), PageSize: miniPageNumber(c.QueryParam("page_size")),
 			SelectedPriceTableIDs: selected,
 			Query:                 c.QueryParam("q"),
 			DateFrom:              c.QueryParam("date_from"),

@@ -6497,3 +6497,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - 转仓商品和 BOM 规格按每条明细出库仓库存筛选；切仓清除商品；完整读取库存分页。保留过账时库存/质检校验。
 - Verifier: `node --test orderapp-remote/frontend-vue-shell/src/lib/stock-transfer-options*.test.js`; `scripts/verify_kferp.sh frontend-tests`; `scripts/verify_kferp.sh frontend-build`; `go test ./internal/interfaces/http/stock ./internal/application/stock`.
 - GREEN: frontend tests 1681/1681, frontend build, full backend, stock API, and local browser fixture. Production observed read-only; no production stock document or business data changed. Development/production deployment not performed.
+
+### PR-750-ORDER-WECHAT-NOTIFICATIONS
+- Branch: codex/order-wechat-notifications-20261108
+- Owner/session: Codex / order-wechat-notifications
+- Status: automated verification passed; live WeChat acceptance pending
+- Scope: 六节点服务号通知、原微信群 Mac 发送端、身份授权、可靠投递与订单深链。
+- Verifier: Go unit/API/PostgreSQL integration; Vue/miniapp node tests/build; Swift tests; six real channel notifications with test-only recipients.
+- Manual: orderapp-remote/docs/OP_MANUAL_NOTIFICATIONS.md
+- Deployment: not deployed; external delivery stays disabled until verified.
+- Last update: 2026-11-08
+- Notes: reserved PR-750 after macOS awk claim failure. User has re-logged into WeChat. Desktop chat accessibility was unavailable; no real notification sent. Existing OA API only exposed a one-time subscription template; suitable order templates and exact test group/account are pending.
+- Evidence: orderapp-remote/docs/acceptance/2026-11-08-order-wechat-notifications.md; DEV-PR750-01 through 04 remain doing for live acceptance.

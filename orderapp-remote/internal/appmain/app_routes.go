@@ -1,6 +1,7 @@
 package appmain
 
 import (
+	"context"
 	authzapp "orderapp/internal/application/authz"
 	bomapp "orderapp/internal/application/bom"
 	catalogapp "orderapp/internal/application/catalog"
@@ -59,6 +60,7 @@ import (
 	manufacturinghttp "orderapp/internal/interfaces/http/manufacturing"
 	materialshttp "orderapp/internal/interfaces/http/materials"
 	messagecenterhttp "orderapp/internal/interfaces/http/messagecenter"
+	notificationhttp "orderapp/internal/interfaces/http/notifications"
 	officialaccounthttp "orderapp/internal/interfaces/http/officialaccount"
 	resolutionhttp "orderapp/internal/interfaces/http/orderresolution"
 	pageentryhttp "orderapp/internal/interfaces/http/pageentry"
@@ -75,7 +77,7 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
+func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) func(context.Context) {
 	schema := cfg.Schema
 	assetDir := cfg.AssetDir
 	authzSvc := authzapp.NewService(postgresauthz.NewRepository(pool, schema))
@@ -115,6 +117,8 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
 	supporthttp.RegisterRoutes(e, pool, schema, supporthttp.Dependencies{Authz: authzSvc, ERPLoginEligibility: customerFulfillmentSvc})
 	sampleshttp.RegisterRoutes(e, sampleshttp.Dependencies{Service: samplesapp.NewService(samplespg.NewRepository(pool, schema)), Portal: customerPortalSvc, Authz: authzSvc, Messages: messageCenterSvc})
 	messagecenterhttp.RegisterRoutes(e, messagecenterhttp.Dependencies{MessageCenter: messageCenterSvc})
+	notifications := notificationhttp.RegisterRoutes(e, pool, schema, customerPortalSvc, authzSvc, salesSvc, officialaccounthttp.ConfigFromEnv(cfg.WechatMiniAppID))
+
 	customerportalhttp.RegisterRoutes(e, customerportalhttp.Dependencies{CustomerPortal: customerPortalSvc, CustomerFulfillment: customerFulfillmentSvc, Authz: authzSvc, MessageCenter: messageCenterSvc, SalesDocuments: salesSvc, EmployeeSales: salesSvc, CustomerMaintenance: customerSvc, EmployeeShareSettings: supporthttp.NewAppConfigStore(pool, schema), AssetDir: assetDir})
 	freighthttp.RegisterRoutes(e, pool, schema, customerFulfillmentSvc)
 	resolutionhttp.RegisterRoutes(e, resolutionpg.NewRepository(pool, schema), authzSvc)
@@ -135,6 +139,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
 	customerhttp.RegisterRoutes(e, customerhttp.Dependencies{Customer: customerSvc, AssetDir: assetDir})
 	saleshttp.RegisterRoutes(e, saleshttp.Dependencies{Authz: authzSvc, Sales: salesSvc, MessageCenter: messageCenterSvc, AssetDir: assetDir, CustomerScope: customerFulfillmentSvc, CustomerMall: customerPortalSvc, FulfillmentEditor: customerFulfillmentSvc})
 	financehttp.RegisterRoutes(e, financehttp.Dependencies{Finance: financeSvc, CustomerAccounts: customerFulfillmentSvc})
+	return notifications.Worker.Run
 }
 
 func customerPortalIdentityProvider(cfg appConfig) customerportalapp.IdentityProvider {

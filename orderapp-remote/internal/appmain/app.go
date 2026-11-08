@@ -29,7 +29,8 @@ func Main() {
 	}
 
 	e := newHTTPServer(cfg, pool)
-	registerAppRoutes(e, pool, cfg)
+	runNotifications := registerAppRoutes(e, pool, cfg)
+	go runNotifications(ctx)
 	go samplespg.NewRepository(pool, cfg.Schema).RunReminders(ctx)
 
 	log.Printf("orderapp listening on %s", cfg.ListenAddr)
