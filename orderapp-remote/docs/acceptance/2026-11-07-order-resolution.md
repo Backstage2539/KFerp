@@ -243,3 +243,26 @@
 - 操作手册和 PR/DEV 进度同步；候选待集成和发布，生产转供仍未完成，完整 PR 继续 doing。
 
 - 合并最新 origin/develop 后没有额外业务文件变化；完整无数据库 Go、changed 通过；报损/成品分配/停工隔离数据库回归 48.986s 通过。前端相对已通过的 1758 项及构建无变化。证据 `scrap-merged-{backend,changed,pg}.log`。
+
+
+### 第九批正式发布回执
+
+- 功能 c961fe10b，最终验证 cf59da51e，develop bc46c69cbae006851cf01aeacb9401ca4bdd5732，main f9cb1b3ee509d08c385a6e5d99e619a4bdbc7324 已推送；仅发布已验证报损，未带入生产转供候选。
+- 开发备份 `/opt/stacks/erp/orderapp.backup.deploy-20261108155706-bc46c69cbae0`，镜像 d9c7f061186c4648664f665d0a5bd8ba4d9d4341da16bcf7a4550ae195be37d6；正式备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20261108161117-f9cb1b3ee509`，回滚镜像 `kferp-orderapp-rollback:production-20261108161117-f9cb1b3ee509`，运行镜像 2c98ad5274a667fb067b4a11c43ab93c150f00242378141cb8ccc5ee8a5d8d53。
+- 两环境 ERP-only，保留原小程序包。正式服务运行、Postgres healthy，未登录 401、登录页面/接口/手册/PR 200；公开 main-cP5bzBb9.js 与部署文件一致，核心源码散列与干净 main 一致。
+- Chrome 刷新正式订单列表并打开目标订单处理，初始业务选项仍留空；关闭剩余履约可用、已完成共享生产及两个已取消代发列出。只读 API：SO-20261031-0003 正常、2160 元未收款、冲减 0、处理历史 0；没有提交预览、草稿、处置或库存移动。
+- 证据 `/tmp/kferp-resolution-20261108-scrap-{deploy-development,deploy-production,production-service}.log`、`scrap-{development,production}-smoke.json`。
+
+
+## 第十批未完成生产转供候选
+
+- 范围：明确非共享、单工单、公司货权、无成品产出生产的目标商品行及完整数量。要求原订单关闭量足够、目标已接单且冻结商品/规格/单位/仓库与完整剩余数量匹配；客户专属标识、加工说明、已有生产与上下游依赖须先核对，不自动拆分。普通客户名称快照保留，不误判为专属要求。
+- 原工单、工艺/配方、投料、余料、在制品、预留及成本保留；独立记录原单/目标/数量及完整快照，仅切换有效需求关联。生产负责人明确确认并提供依据；原单重开不撤销转供。目标编号、客户、规格、数量、仓库及专属加工信息不可直接改写；订单日期仍可修改。
+- RED → GREEN：原能力禁用、缺少目标数量、目标剩余数量不完整、原目标可改写、缺少实际凭据、旧版本回滚无保护、重复追加目标生产、转供冻结配方/工艺可改写、普通客户快照误挡、未审核或专属目标误接收。证据 `/tmp/kferp-resolution-20261108-reassign-{red,domain-red,target-remainder-red,guard-red,proof-red,rollback-red,duplicate-red,frozen-red,target-identity-red}.log`。
+- 真实 PostgreSQL HTTP：GET/preview/submit/step，销售与财务不能代替生产岗位确认，缺少凭据拒绝，重复返回原结果，历史返回原单→目标单凭据；同步操作日志。真实工位接口“开工→转供→完工”通过：原开工投入消耗一次、完工日志归目标单、目标进入生产完成、成品库存 100 袋、原成本记录一笔；未使用生产业务数据。
+- 过期目标数量/仓库/状态、新增目标生产、WIP 变化与审计失败均整体回滚；重复/并发确认仅一笔转供，重新初始化保持正常，旧审批刷新后 superseded，源单重开不会夺回生产；目标已承接的同一需求不能重复追加生产。最终身份/历史目标回归 17.334s、实际完工接口 2.254s 通过（`reassign-identity.log`、`reassign-final-production.log`）。
+- 完整无数据库 Go、Vue 1759/1759、Vite build、changed、回滚保护通过；订单处理全流程 PostgreSQL 回归 212.939s，生产接口 8.132s 通过（最后冻结快照与目标确认细化后将在集成前重新运行相关回归）。
+- Chrome 隔离页面从全部空选项到漏选拒绝，再明确目标/3袋/账期、生产岗位确认凭据，最终显示 SO-TEST-SOURCE → SO-TEST-TARGET 及 3 袋；截图 `/tmp/kferp-resolution-20261108-reassign-browser.png`。未连接业务数据库。
+- 已更新源手册与 Vue 表单说明、PR/DEV；候选待合并与发布，产品验收仍由 Van 完成。复杂共享/已部分产出或客户专属生产不自动改供；页面给出先拆分核对的限制。
+
+- 集成前最终检查：合并最新 origin/develop 后，完整无数据库 Go、changed、兼容回滚通过；订单处理/留厂关闭 PostgreSQL 全回归 189.244s，真实生产接口 3.093s 通过。历史 BOM 冻结转供另测 1.741s 通过；前端代码相对已通过的 1759 项及构建无变化。证据 `reassign-merged-{backend,changed,rollback,pg}.log` 与 `reassign-historical.log`。最后冻结保护的启动问题来自旧测试样本产出字段未回填，按正常生产初始化完善样本后重启、完工与历史保护均通过，未放宽生产守卫。

@@ -177,7 +177,10 @@ func (r Repository) completeStep(ctx context.Context, orderID, requestID, stepID
 				}
 			}
 		}
-		if one(cmd.Choice, "allocate", "stop", "scrap") {
+		if cmd.Choice == "reassign" && strings.TrimSpace(cmd.Reference) == "" {
+			return out, fmt.Errorf("请填写生产转供批准依据")
+		}
+		if one(cmd.Choice, "allocate", "stop", "scrap", "reassign") {
 			// Post the reservation atomically with the final order adjustment.
 			err = r.revalidatePlan(ctx, tx, orderID, requestID, original, out.Command, out.Plan)
 			break

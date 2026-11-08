@@ -13,7 +13,8 @@ return_label="$(docker image inspect --format '{{index .Config.Labels "io.kferp.
 ownership_label="$(docker image inspect --format '{{index .Config.Labels "io.kferp.order-resolution-ownership-return-aware"}}' "$old_image" 2>/dev/null || true)"
 stop_label="$(docker image inspect --format '{{index .Config.Labels "io.kferp.order-resolution-production-stop-aware"}}' "$old_image" 2>/dev/null || true)"
 scrap_label="$(docker image inspect --format '{{index .Config.Labels "io.kferp.order-resolution-company-scrap-aware"}}' "$old_image" 2>/dev/null || true)"
-if [ "$scrap_label" = 1 ] && [ "$stop_label" = 1 ] && [ "$ownership_label" = 1 ] && [ "$return_label" = 1 ] && [ "$label" = 1 ] && [ "$mixed_label" = 1 ] && [ "$company_label" = 1 ]; then exit 0; fi
+reassign_label="$(docker image inspect --format '{{index .Config.Labels "io.kferp.order-resolution-production-reassign-aware"}}' "$old_image" 2>/dev/null || true)"
+if [ "$reassign_label" = 1 ] && [ "$scrap_label" = 1 ] && [ "$stop_label" = 1 ] && [ "$ownership_label" = 1 ] && [ "$return_label" = 1 ] && [ "$label" = 1 ] && [ "$mixed_label" = 1 ] && [ "$company_label" = 1 ]; then exit 0; fi
 schema="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$app_container" | sed -n 's/^DB_SCHEMA=//p' | tail -1)"
 if ! [[ "$schema" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
  echo 'Cannot verify the order resolution schema; refusing rollback.' >&2;exit 1
@@ -24,6 +25,12 @@ query(){
 }
 has_table="$(query "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema='$schema' AND table_name='order_resolution_requests')")"
 case "$has_table" in f) exit 0;; t) ;; *) echo 'Cannot verify order resolution records; refusing rollback.' >&2;exit 1;; esac
+if [ "$reassign_label" != 1 ]; then
+ has_reassign="$(query "SELECT EXISTS(SELECT 1 FROM \"$schema\".order_resolution_requests r CROSS JOIN LATERAL jsonb_array_elements(COALESCE(r.command_json->'dispositions','[]'::jsonb)) d WHERE d->>'kind'='production' AND d->>'choice'='reassign') AS production_reassign_marker")"
+ if [ "$has_reassign" != f ]; then
+  echo 'Production reassignment records exist or cannot be verified; refusing an incompatible rollback image.' >&2;exit 1
+ fi
+fi
 if [ "$scrap_label" != 1 ]; then
  has_scrap="$(query "SELECT EXISTS(SELECT 1 FROM \"$schema\".order_resolution_requests r CROSS JOIN LATERAL jsonb_array_elements(COALESCE(r.command_json->'dispositions','[]'::jsonb)) d WHERE d->>'kind'='production' AND d->>'choice'='scrap') AS company_scrap_marker")"
  if [ "$has_scrap" != f ]; then

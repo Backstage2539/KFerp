@@ -33,16 +33,17 @@ type Step struct {
 	Failures  []StepFailure   `json:"failures"`
 }
 type Result struct {
-	Applied        bool                 `json:"applied"`
-	CanWithdraw    bool                 `json:"can_withdraw"`
-	ID             int64                `json:"id"`
-	AmendmentID    int64                `json:"amendment_id"`
-	RevisedOrderID int64                `json:"revised_order_id"`
-	Status         string               `json:"status"`
-	Command        domain.Command       `json:"command"`
-	Plan           domain.Plan          `json:"plan"`
-	Steps          []Step               `json:"steps"`
-	Scraps         []CompanyScrapRecord `json:"scraps"`
+	Applied        bool                       `json:"applied"`
+	CanWithdraw    bool                       `json:"can_withdraw"`
+	ID             int64                      `json:"id"`
+	AmendmentID    int64                      `json:"amendment_id"`
+	RevisedOrderID int64                      `json:"revised_order_id"`
+	Status         string                     `json:"status"`
+	Command        domain.Command             `json:"command"`
+	Plan           domain.Plan                `json:"plan"`
+	Steps          []Step                     `json:"steps"`
+	Scraps         []CompanyScrapRecord       `json:"scraps"`
+	Reassignments  []ProductionReassignRecord `json:"reassignments"`
 }
 type querier interface {
 	Query(context.Context, string, ...any) (pgx.Rows, error)
@@ -320,6 +321,9 @@ func (r Repository) load(ctx context.Context, q querier, id int64) (domain.Conte
 	if err = r.productionStopSources(ctx, q, &c); err != nil {
 		return c, err
 	}
+	if err = r.productionReassignSources(ctx, q, &c, snap.Items); err != nil {
+		return c, err
+	}
 	if err = r.companyStockSources(ctx, q, &c, snap.Items); err != nil {
 		return c, err
 	}
@@ -506,6 +510,9 @@ func (r Repository) apply(ctx context.Context, tx pgx.Tx, id, requestID int64, c
 	if err := r.applyCompanyAllocations(ctx, tx, id, requestID, cmd, actor); err != nil {
 		return err
 	}
+	if err := r.applyProductionReassignments(ctx, tx, id, requestID, cmd, actor); err != nil {
+		return err
+	}
 	if err := r.applyCompanyScraps(ctx, tx, id, requestID, cmd, actor); err != nil {
 		return err
 	}
@@ -610,6 +617,10 @@ func (r Repository) result(ctx context.Context, q querier, id int64) (Result, er
 		return out, err
 	}
 	out.Scraps, err = r.companyScrapRecords(ctx, q, id)
+	if err != nil {
+		return out, err
+	}
+	out.Reassignments, err = r.productionReassignRecords(ctx, q, id)
 	return out, err
 }
 func (r Repository) History(ctx context.Context, id int64) ([]Result, error) {

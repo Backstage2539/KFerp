@@ -205,7 +205,7 @@ func (r Repository) companyTargets(ctx context.Context, q querier, c domain.Cont
 // Lock every affected customer's fulfilment before the common finance and
 // order locks. Sorted acquisition avoids reverse source/target deadlocks.
 func (r Repository) lockCompanyTargets(ctx context.Context, tx pgx.Tx, orderID int64, cmd domain.Command) error {
-	ids := []int64{}
+	ids, _ := reassignTargetIDs(cmd)
 	for _, d := range cmd.Dispositions {
 		if d.Kind == "production" && d.Choice == "allocate" {
 			for _, s := range d.StockSelections {
@@ -236,7 +236,7 @@ func (r Repository) lockCompanyTargets(ctx context.Context, tx pgx.Tx, orderID i
 			return err
 		}
 	}
-	workIDs := []int64{}
+	_, workIDs := reassignTargetIDs(cmd)
 	for _, d := range cmd.Dispositions {
 		if d.Kind == "production" && d.Choice == "stop" {
 			for _, s := range d.Stops {

@@ -24,6 +24,10 @@ export function resolutionPayload(form, version, key, {draft=false}={}) {
     return {batch_id:batch,target_item_id:target,quantity}
    })
   }else {delete d.stock_selections;delete d.cost_treatment}
+  if(d.kind==='production'&&d.choice==='reassign'){
+   if(!draft&&!d.reassignments?.length)throw new Error('请选择原工单、目标需求和转供数量')
+   d.reassignments=(d.reassignments||[]).map(s=>{const row={work_order_id:Number(s.work_order_id),target_item_id:Number(s.target_item_id),quantity:Number(s.quantity)};if(!Object.values(row).every(v=>Number.isSafeInteger(v)&&v>=0)||(!draft&&Object.values(row).some(v=>v===0)))throw new Error('请明确目标需求并填写转供数量');return row})
+  }else delete d.reassignments
   if(d.kind==='production'&&d.choice==='stop'){
    if(!draft&&!d.stops?.length)throw new Error('请逐工单选择余料、在制品、预留和产出处置')
    d.stops=(d.stops||[]).map(s=>{
