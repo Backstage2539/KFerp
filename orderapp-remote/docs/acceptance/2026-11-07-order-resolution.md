@@ -241,3 +241,5 @@
 - 完整无数据库 Go 通过；全前端 1758/1758、Vite 构建通过；changed、diff-check、回滚保护通过。扩大数据库回归中订单处理等用例完成，唯一失败为已有代发目录样本缺 `product_bom_spec_authorities`，在干净 main 同一测试复现（`scrap-pg.log` / `scrap-baseline-fixture.log`），不声称完整数据库全绿；生产 1.442s、库存转仓 5.503s、规格守卫 0.743s 通过。
 - Chrome mock 页面完整操作通过：初始无选项，漏选拒绝；明确批次/3 袋/成本方式/原因/账期后预览财务和仓库待办，两岗位各自再选并填凭据，最终显示已报损 FP-TEST-301、3 袋、原成本 30 元及日期；未使用真实订单或库存测试。
 - 操作手册和 PR/DEV 进度同步；候选待集成和发布，生产转供仍未完成，完整 PR 继续 doing。
+
+- 合并最新 origin/develop 后没有额外业务文件变化；完整无数据库 Go、changed 通过；报损/成品分配/停工隔离数据库回归 48.986s 通过。前端相对已通过的 1758 项及构建无变化。证据 `scrap-merged-{backend,changed,pg}.log`。
