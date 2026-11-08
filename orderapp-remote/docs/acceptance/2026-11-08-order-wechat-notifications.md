@@ -76,4 +76,9 @@
 - 本机证据：`/private/tmp/kferp-notifications-development-deploy.log`、`/private/tmp/kferp-notifications-runtime-result.json`、`/private/tmp/kferp-notifications-integrated-backend.log`、`/private/tmp/kferp-notifications-integrated-db.log`。PR/DEV 保持 doing，开发发布回执与实际微信验收分别记录。
 - 开发 PR 与四条 DEV 的证据说明已在同一事务更新，新增 5 条操作审计；通过需求查询与 `/api/audit` 读回确认，状态仍为 doing。未修改订单、库存、款项或通知配置。
 
-后续回执提交仅更新跟踪说明与证据，不改变运行功能。两个自动发送开关默认关闭；正式环境、小程序平台上传/发布及真实微信发送未执行。完成真实验收前不得把此需求标记完成。
+## 正式发布回执（2026-11-08）
+
+- Van 明确要求将完整 develop 合入 main 并发布，包括尚待现场验收的微信通知。正式运行版本 `d48ad618d27d69cd099c3df4e921ce24fc19a110`；前端 1765 项、微信小程序 446 项、类型检查、构建及服务器后端检查通过。
+- 正式服务运行、数据库健康；通知管理 API 匿名 401、认证 200，订单表单、手册与需求查询 200，订单页面和通知 worker 源码散列与发布版本一致。两个自动发送开关关闭、设备 0、生命周期投递 0；原有投递共 145 条。未发送测试消息，真实微信送达仍待现场验收。
+- 正式小程序包已构建并同步至 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，版本标识与运行版本一致；未上传、提审或发布微信平台。正式备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20261108221728-d48ad618d27d`，回滚镜像 `kferp-orderapp-rollback:production-20261108221728-d48ad618d27d`。
+- 发布后回执仅更新跟踪说明，不改变运行功能；PR/DEV 保持待现场验收，不将真实送达标记为完成。
