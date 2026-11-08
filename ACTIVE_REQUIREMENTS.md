@@ -13,11 +13,12 @@
 - 手册：`orderapp-remote/docs/OP_MANUAL_ORDER_RESOLUTION.md`（Vue 订单处理手册入口）。验收及各批发布回执：`orderapp-remote/docs/acceptance/2026-11-07-order-resolution.md`。
 
 ### PR-ORDER-DATE-SAVE-20261104 留厂及代发订单日期保存
-- 2026-11-08 跟进 SO-20261104-0006：原单历史生产版本与当前目录不同，编辑页面自动更新规格和报价导致日期保存被关联保护拦截。分支 `codex/retained-order-date-snapshot`；隔离组件复现 RED，修复后保留原版本与报价，显式换表仍按新选择；隔离 PostgreSQL 原日期保存/实际修改保护回归及前端 1765 项通过。已合入 develop 并部署开发环境 `8c270204cde1cacb7659d86e28240759797c9fb0`；服务健康，登录页面/表单/手册/需求 API 与源码核对通过。正式订单只读核查，未修改；正式发布及现场验收待完成。发布后仅补充本回执，不重新构建。
+- 正式发布：按 Van 明确要求完整合并 develop，运行版本 `d48ad618d27d69cd099c3df4e921ce24fc19a110`，正式服务、认证订单表单及手册核对通过；SO-20261104-0006 只读检查仍为原日期，现场修改日期验收待完成。发布后回执只更新文档，不改变运行版本。
+- 2026-11-08 跟进 SO-20261104-0006：原单历史生产版本与当前目录不同，编辑页面自动更新规格和报价导致日期保存被关联保护拦截。分支 `codex/retained-order-date-snapshot`；隔离组件复现 RED，修复后保留原版本与报价，显式换表仍按新选择；隔离 PostgreSQL 原日期保存/实际修改保护回归及前端 1765 项通过。已合入 develop 并部署开发环境 `8c270204cde1cacb7659d86e28240759797c9fb0`；服务健康，登录页面/表单/手册/需求 API 与源码核对通过。正式订单只读核查，未修改；现场验收待完成。
 - Branch: `codex/order-date-save-20261104`; base `origin/main` 873ab8a41。
 - 留厂销售已有代发、生产或入库关联时，保存未更改的商品明细；历史代发地址与冻结运费地区一致时，修改日期沿用原有费用依据。
 - 验证：隔离 PostgreSQL 与员工 API 先 RED 后 GREEN，检查日期、商品身份、库存权益、运费快照、操作日志及真实变更限制；不改动正式订单。
-- 状态：隔离数据库 API 回归通过；集成、部署和现场验收待完成。
+- 状态：隔离数据库 API 回归通过，已完成开发及正式环境部署；现场验收待完成。
 
 ### PR-DIRECTSHIP-HISTORICAL-STOCK-20261104 代发历史批次分配
 - Branch: `codex/directship-frozen-variant-20261104`; base `origin/develop` 6566b26f。
@@ -6477,6 +6478,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - GREEN: frontend tests 1681/1681, frontend build, full backend, stock API, and local browser fixture. Production observed read-only; no production stock document or business data changed. Development/production deployment not performed.
 
 ### PR-750-ORDER-WECHAT-NOTIFICATIONS
+- 正式发布：Van 明确要求随 develop 完整上线，正式运行版本 `d48ad618d27d69cd099c3df4e921ce24fc19a110`；两个自动发送开关关闭、设备 0、生命周期投递 0；真实微信送达及现场验收仍未完成，小程序包已构建导出但未上传/提审/发布。
 - Branch: codex/order-wechat-notifications-20261108
 - Owner/session: Codex / order-wechat-notifications
 - Status: automated verification and development deployment passed; live WeChat acceptance pending
@@ -6487,5 +6489,5 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Runtime evidence: notification APIs reject anonymous access (401); authenticated configuration/manual/PR/DEV/shell return 200. App running with 0 restarts; database healthy; notification static bundle and development Mini Program release identity match. Both automatic switches off, 0 devices, 0 deliveries. Root entry redirects 303 to the existing public Vue shell; API auth is verified separately.
 - Mini Program: development artifact exported to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`, 100 manifest files and 25 pages. No platform upload/review/publication. Prior artifact retained at `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20261108174902-184ae0944e34`.
 - Last update: 2026-11-08
-- Notes: reserved PR-750 after macOS awk claim failure. Van confirmed test group “口加生产” and official account “棵凡咖啡-服务号”, and manually closed the storage warning. Current WeChat observation is still a blank window with no readable chat controls, including after raising it. Public-platform browser access was explicitly blocked by the site safety policy; no workaround attempted. No real notification sent; suitable order templates, readable target chat and live acceptance remain pending. Production was not deployed.
+- Notes: reserved PR-750 after macOS awk claim failure. Van confirmed test group “口加生产” and official account “棵凡咖啡-服务号”, and manually closed the storage warning. Current WeChat observation is still a blank window with no readable chat controls, including after raising it. Public-platform browser access was explicitly blocked by the site safety policy; no workaround attempted. No real notification sent; suitable order templates, readable target chat and live acceptance remain pending.
 - Evidence: orderapp-remote/docs/acceptance/2026-11-08-order-wechat-notifications.md; DEV-PR750-01 through 04 remain doing for live acceptance.
