@@ -27,8 +27,8 @@
         <div class="inventory-detail-stats"><div><span>实物库存</span><strong>{{ quantities(selected).physical }}</strong></div><div><span>可立即发货</span><strong>{{ quantities(selected).shippable }}</strong></div><div><span>已购待入库</span><strong>{{ quantities(selected).pending }}</strong></div></div>
         <h4>仓库分布</h4><p v-for="warehouse in selected.warehouses" :key="warehouse.warehouse_code">{{ warehouse.warehouse_name || warehouse.warehouse_code }} · 可预订 {{ warehouse.available_qty }} · 已占用 {{ warehouse.occupied_qty }}</p>
         <h4>关联留厂订单</h4>
-        <p>仅显示可追溯的留厂订单，其他库存来源可能不完整。累计入库不是当前库存余量。</p>
-        <table v-if="selected.order_sources?.length"><thead><tr><th>订单号</th><th>付款状态</th><th>待入库</th><th>累计入库</th></tr></thead><tbody><tr v-for="source in selected.order_sources" :key="source.order_id"><td>{{ source.order_no }}</td><td>{{ source.pay_status || '未设置' }}</td><td>{{ source.pending_inbound_qty }}</td><td>{{ source.received_qty }}</td></tr></tbody></table>
+        <p>仅显示可追溯的留厂订单，其他库存来源可能不完整。累计入库不是当前库存余量。货权已退回单列，退回不会重新形成待入库。</p>
+        <table v-if="selected.order_sources?.length"><thead><tr><th>订单号</th><th>付款状态</th><th>待入库</th><th>累计入库</th><th>货权已退回</th></tr></thead><tbody><tr v-for="source in selected.order_sources" :key="source.order_id"><td>{{ source.order_no }}</td><td>{{ source.pay_status || '未设置' }}</td><td>{{ source.pending_inbound_qty }}</td><td>{{ source.received_qty }}</td><td>{{ source.returned_qty || 0 }}</td></tr></tbody></table>
         <p v-else>无可关联订单</p>
         <h4>已入库批次</h4><table><thead><tr><th>批次 / 入库时间</th><th>仓库</th><th>实存</th><th>可用</th><th>状态</th></tr></thead><tbody><tr v-for="batch in selected.batches" :key="`${batch.batch_id}-${batch.warehouse_code}`"><td>{{ batch.batch_no }}<small>{{ batch.inbound_at || '未记录入库时间' }}</small></td><td>{{ batch.warehouse_name || batch.warehouse_code }}</td><td>{{ batch.total_qty }}</td><td>{{ batch.available_qty }}</td><td>{{ label(batch.quality_status) }}</td></tr><tr v-if="!selected.batches?.length"><td colspan="5" class="inventory-empty">暂无已入库批次</td></tr></tbody></table>
       </aside>

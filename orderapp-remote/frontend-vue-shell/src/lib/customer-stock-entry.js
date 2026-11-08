@@ -19,7 +19,7 @@ export function stockSupplySummary(spec = {}, requested = 0) {
 }
 
 export function stockPurchaseSummary(spec = {}) {
-  return { purchased: spec.purchased_qty == null ? null : Number(spec.purchased_qty), received: spec.received_qty == null ? null : Number(spec.received_qty) }
+  return { purchased: spec.purchased_qty == null ? null : Number(spec.purchased_qty), received: spec.received_qty == null ? null : Number(spec.received_qty), returned: Number(spec.returned_qty || 0) }
 }
 
 export function stockGroupShortage(spec = {}, quantities = []) {

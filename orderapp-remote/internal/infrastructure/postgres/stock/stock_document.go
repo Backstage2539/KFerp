@@ -47,7 +47,7 @@ func (r Repository) UpdateStockDocumentDraft(ctx context.Context, id int64, cmd 
 	if status != "draft" {
 		return stockapp.StockDocumentDetail{}, fmt.Errorf("only draft stock document can be edited")
 	}
-	if strings.TrimSpace(cmd.SourceType) == "order_resolution_return" {
+	if strings.TrimSpace(cmd.SourceType) == "order_resolution_return" || strings.TrimSpace(cmd.SourceType) == "order_resolution_ownership_return_out" {
 		return stockapp.StockDocumentDetail{}, fmt.Errorf("订单退货须从订单处理单完成仓库确认")
 	}
 	if err := r.resolveStockDocumentWorkOrderContextTx(ctx, tx, &cmd); err != nil {
@@ -378,7 +378,7 @@ func (r Repository) createStockDocumentDraftTx(ctx context.Context, tx pgx.Tx, c
 			return stockapp.StockDocumentDetail{}, err
 		}
 	}
-	if strings.TrimSpace(cmd.SourceType) == "order_resolution_return" {
+	if strings.TrimSpace(cmd.SourceType) == "order_resolution_return" || strings.TrimSpace(cmd.SourceType) == "order_resolution_ownership_return_out" {
 		return stockapp.StockDocumentDetail{}, fmt.Errorf("订单退货须从订单处理单完成仓库确认")
 	}
 	if err := r.resolveStockDocumentWorkOrderContextTx(ctx, tx, &cmd); err != nil {

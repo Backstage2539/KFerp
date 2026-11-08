@@ -17,7 +17,12 @@ import (
 // or an order's display status. Each quantity retains its original batch cost.
 func (r Repository) returnSources(ctx context.Context, q querier, c *domain.Context) error {
 	if c.DeliveryMode == "customer_stock" {
-		c.Unavailable["action:return"] = "客户货权退回仍待验证，请先核对实际客户库存和批次"
+		if err := r.ownershipReturnSources(ctx, q, c); err != nil {
+			return err
+		}
+		if len(c.ReturnSources) == 0 {
+			c.Unavailable["action:return"] = "没有可核对的原客户入库批次及未预留实物，请先核对货权与库存"
+		}
 		return nil
 	}
 	rows, err := q.Query(ctx, fmt.Sprintf(`SELECT d.id,b.id,i.id,b.batch_code,i.item_name,i.unit,
@@ -163,7 +168,7 @@ func (r Repository) postReturnStock(ctx context.Context, tx pgx.Tx, orderID, req
 	for _, s := range cmd.ReturnSelections {
 		source := returnSourceFor(current, s)
 		prior := returnSourceFor(original, s)
-		if source == nil || prior == nil || source.Version != prior.Version || s.SourceKind != "shipment" {
+		if source == nil || prior == nil || source.Version != prior.Version || !one(s.SourceKind, "shipment", "ownership") {
 			return fmt.Errorf("%w：原出库、批次或可退数量已变化，请重新核对", ErrStale)
 		}
 		var owner int64
@@ -180,7 +185,7 @@ func (r Repository) postReturnStock(ctx context.Context, tx pgx.Tx, orderID, req
 		}
 		var recordID int64
 		err = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %[1]s.order_resolution_stock_returns(request_id,step_id,order_id,order_item_id,source_kind,source_id,batch_id,product_id,bom_spec_id,bom_variant_id,source_warehouse,target_warehouse,source_owner_customer_id,target_owner_customer_id,quantity,unit_cost,quality,source_version,status,actor,posting_date)
- SELECT $1,$2,$3,$4,$5,$6,b.id,b.item_id,b.bom_spec_id,b.bom_variant_id,(SELECT min(l.warehouse) FROM %[1]s.stock_ledger_entries l WHERE l.source_doc_type='sales_order_shipment' AND l.source_doc_id=$3 AND l.source_batch_code=b.batch_code),$8,b.owner_customer_id,$9,$10,b.unit_cost,$11,$12,'posting',$13,$14::date FROM %[1]s.stock_batches b WHERE b.id=$7 RETURNING id`, r.schema), requestID, stepID, orderID, source.ItemID, s.SourceKind, s.SourceID, s.BatchID, s.Warehouse, owner, s.Quantity, s.Quality, source.Version, actor, confirmation.PostingDate).Scan(&recordID)
+ SELECT $1,$2,$3,$4,$5,$6,b.id,b.item_id,b.bom_spec_id,b.bom_variant_id,CASE WHEN $5='ownership' THEN (SELECT receipt.warehouse_code FROM %[1]s.customer_stock_entitlement_receipts receipt WHERE receipt.id=$6 AND receipt.stock_batch_id=b.id) ELSE (SELECT min(l.warehouse) FROM %[1]s.stock_ledger_entries l WHERE l.source_doc_type='sales_order_shipment' AND l.source_doc_id=$3 AND l.source_batch_code=b.batch_code) END,$8,b.owner_customer_id,$9,$10,b.unit_cost,$11,$12,'posting',$13,$14::date FROM %[1]s.stock_batches b WHERE b.id=$7 RETURNING id`, r.schema), requestID, stepID, orderID, source.ItemID, s.SourceKind, s.SourceID, s.BatchID, s.Warehouse, owner, s.Quantity, s.Quality, source.Version, actor, confirmation.PostingDate).Scan(&recordID)
 		if err != nil {
 			return err
 		}
@@ -204,6 +209,7 @@ func (r Repository) normalizePostedReturns(ctx context.Context, tx pgx.Tx, order
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT x.source_kind,x.source_id,x.batch_id,x.order_item_id,x.quantity,x.target_warehouse,x.target_owner_customer_id,x.quality,x.source_version,
  EXISTS(SELECT 1 FROM %[1]s.stock_batches b JOIN %[1]s.stock_ledger_entries l ON l.source_doc_type='order_resolution_return' AND l.source_doc_id=x.id AND l.source_batch_code=b.batch_code AND l.item_type='finished_product' AND l.item_id=x.product_id AND l.bom_spec_id=x.bom_spec_id AND l.bom_variant_id=x.bom_variant_id AND l.spec_g=0 AND l.owner_customer_id=x.target_owner_customer_id AND l.warehouse=x.target_warehouse AND l.qty_change_units=x.quantity AND l.qty_change_g=0 AND l.qty_after_units=l.qty_before_units+x.quantity WHERE b.id=x.target_batch_id AND b.batch_code=x.target_batch_code AND b.source_doc_type='order_resolution_return' AND b.source_doc_id=x.id AND b.item_type='finished_product' AND b.item_id=x.product_id AND b.bom_spec_id=x.bom_spec_id AND b.bom_variant_id=x.bom_variant_id AND b.spec_g=0 AND b.owner_customer_id=x.target_owner_customer_id AND b.qty_units=x.quantity AND b.unit_cost=x.unit_cost)
+ AND (x.source_kind<>'ownership' OR EXISTS(SELECT 1 FROM %[1]s.stock_ledger_entries l JOIN %[1]s.stock_batches b ON b.id=x.batch_id JOIN %[1]s.customer_stock_entitlement_receipts receipt ON receipt.id=x.source_id AND receipt.stock_batch_id=b.id AND receipt.warehouse_code=x.source_warehouse JOIN %[1]s.customer_stock_entitlements e ON e.id=receipt.entitlement_id AND e.source_order_id=x.order_id AND e.source_order_item_id=x.order_item_id AND e.customer_id=x.source_owner_customer_id AND e.returned_qty>=x.quantity WHERE l.source_doc_type='order_resolution_ownership_return_out' AND l.source_doc_id=x.id AND l.source_batch_code=b.batch_code AND l.item_type='finished_product' AND l.item_id=x.product_id AND l.bom_spec_id=x.bom_spec_id AND l.bom_variant_id=x.bom_variant_id AND l.spec_g=0 AND l.owner_customer_id=x.source_owner_customer_id AND l.warehouse=x.source_warehouse AND l.qty_change_units=-x.quantity AND l.qty_after_units=l.qty_before_units-x.quantity AND l.qty_change_g=0))
  FROM %[1]s.order_resolution_stock_returns x WHERE x.order_id=$1 AND x.request_id=$2 AND x.status='posted' ORDER BY x.id`, r.schema), orderID, requestID)
 	if err != nil {
 		return err

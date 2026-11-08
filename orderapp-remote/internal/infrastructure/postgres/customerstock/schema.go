@@ -21,6 +21,7 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
  promised_qty BIGINT NOT NULL CHECK(promised_qty>0),received_qty BIGINT NOT NULL DEFAULT 0 CHECK(received_qty>=0),
  status TEXT NOT NULL DEFAULT 'active',created_at TIMESTAMPTZ NOT NULL DEFAULT now(),updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
  CHECK(received_qty<=promised_qty));
+ ALTER TABLE %[1]s.customer_stock_entitlements ADD COLUMN IF NOT EXISTS returned_qty BIGINT NOT NULL DEFAULT 0 CHECK(returned_qty>=0 AND returned_qty<=received_qty);
  CREATE INDEX IF NOT EXISTS customer_stock_entitlements_customer ON %[1]s.customer_stock_entitlements(customer_id,warehouse_code,status);
  CREATE TABLE IF NOT EXISTS %[1]s.customer_stock_supply_reservations(
  id BIGSERIAL PRIMARY KEY,entitlement_id BIGINT NOT NULL REFERENCES %[1]s.customer_stock_entitlements(id),
@@ -35,6 +36,32 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
  receipt_key TEXT NOT NULL,running_item_id BIGINT NOT NULL,stock_batch_id BIGINT NOT NULL,batch_code TEXT NOT NULL,
  warehouse_code TEXT NOT NULL,quantity BIGINT NOT NULL CHECK(quantity>0),created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
  UNIQUE(entitlement_id,receipt_key));
+ CREATE OR REPLACE FUNCTION %[1]s.customer_stock_guard_return_counter() RETURNS trigger LANGUAGE plpgsql AS $fn$
+ DECLARE actual BIGINT:=0;
+ BEGIN
+ IF TG_OP='DELETE' THEN
+  IF OLD.returned_qty>0 THEN RAISE EXCEPTION '已有货权退回，不能删除原客户库存权益'; END IF;
+  RETURN OLD;
+ END IF;
+ IF TG_OP='UPDATE' AND OLD.returned_qty>0 AND (to_jsonb(NEW)-'returned_qty'-'received_qty'-'closed_qty'-'status'-'updated_at')<>(to_jsonb(OLD)-'returned_qty'-'received_qty'-'closed_qty'-'status'-'updated_at') THEN RAISE EXCEPTION '已有货权退回，不能改写原客户库存权益身份'; END IF;
+ IF to_regclass('%[1]s.order_resolution_stock_returns') IS NOT NULL THEN
+  SELECT COALESCE(sum(x.quantity),0) INTO actual FROM %[1]s.order_resolution_stock_returns x JOIN %[1]s.customer_stock_entitlement_receipts receipt ON receipt.id=x.source_id WHERE x.source_kind='ownership' AND x.status='posted' AND receipt.entitlement_id=NEW.id;
+ END IF;
+ IF NEW.returned_qty<>actual THEN RAISE EXCEPTION '客户货权退回数量须与已过账退回记录一致'; END IF;
+ RETURN NEW;
+ END $fn$;
+ DROP TRIGGER IF EXISTS customer_stock_guard_return_counter ON %[1]s.customer_stock_entitlements;
+ CREATE TRIGGER customer_stock_guard_return_counter BEFORE INSERT OR UPDATE OR DELETE ON %[1]s.customer_stock_entitlements FOR EACH ROW EXECUTE FUNCTION %[1]s.customer_stock_guard_return_counter();
+ CREATE OR REPLACE FUNCTION %[1]s.customer_stock_guard_return_receipt() RETURNS trigger LANGUAGE plpgsql AS $fn$
+ BEGIN
+ IF to_regclass('%[1]s.order_resolution_stock_returns') IS NOT NULL THEN
+  IF EXISTS(SELECT 1 FROM %[1]s.order_resolution_stock_returns x WHERE x.source_kind='ownership' AND x.source_id=OLD.id AND x.status='posted') THEN RAISE EXCEPTION '货权退回保留原收货记录，不能删除或改写'; END IF;
+ END IF;
+ IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+ RETURN NEW;
+ END $fn$;
+ DROP TRIGGER IF EXISTS customer_stock_guard_return_receipt ON %[1]s.customer_stock_entitlement_receipts;
+ CREATE TRIGGER customer_stock_guard_return_receipt BEFORE UPDATE OR DELETE ON %[1]s.customer_stock_entitlement_receipts FOR EACH ROW EXECUTE FUNCTION %[1]s.customer_stock_guard_return_receipt();
  CREATE OR REPLACE FUNCTION %[1]s.customer_stock_has_dependencies(target BIGINT) RETURNS BOOLEAN LANGUAGE plpgsql AS $fn$
  DECLARE depended BOOLEAN; nos TEXT;
  BEGIN

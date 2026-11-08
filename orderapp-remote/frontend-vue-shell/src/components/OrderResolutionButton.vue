@@ -90,6 +90,8 @@ function returnOwners(row) { return (options.value.return_ownership||[]).filter(
 function choices(dep) {
  return (options.value[dep.kind] || []).map(v => {
   let reason = v.disabled ? v.reason : ''
+  if (!reason && dep.kind==='customer_stock' && v.value==='ownership_return' && form.action!=='return') reason='请选择退货，再明确货权退回数量'
+  if (!reason && dep.kind==='customer_stock' && v.value==='ownership_return' && !current.value?.return_sources?.some(s=>s.kind==='ownership'&&Number(s.entitlement_id)===Number(dep.id)&&s.available_quantity>0)) reason='没有该笔权益可核对的原收货批次和未预留实物'
   if (!reason && dep.kind==='fee' && dep.amount_cents<0 && !['keep','defer'].includes(v.value)) reason='该项是已有负数费用调整，请保留原记录'
   if (!reason && dep.kind==='fee' && dep.cash_issue && !['keep','defer'].includes(v.value)) reason=dep.cash_issue
   if (!reason && dep.kind==='production' && v.value==='allocate' && (dep.ownership_issue || !dep.company_stock?.some(s=>s.available_quantity>0&&s.targets?.length))) reason=dep.ownership_issue || '尚无可核对的公司成品与匹配目标；请核对原批次、预留、库存单位及仓库'
@@ -157,7 +159,7 @@ const money = cents => (Number(cents || 0) / 100).toFixed(2)
      </fieldset>
      <fieldset v-if="form.action==='return'" :disabled="busy || !editable">
       <legend>实际退回来源与商品款</legend>
-      <p class="hint">按原出库记录逐批核对。实物入库、商品款冲减和实际退款分别确认；不会自动取消原发货或改变客户货权。</p>
+      <p class="hint">{{ current.delivery_mode === 'customer_stock' ? '按原客户收货记录核对货权退回；逐批选择公司接收仓与数量，原收货及共享生产记录保留。' : '按原出库记录逐批核对，保留原发货与客户货权。' }}实物入库、商品款冲减和实际退款分别确认。</p>
       <label>退回商品款处理<select v-model="form.return_settlement" :disabled="returnStockPosted"><option value="">请选择</option><option v-for="v in options.return_finance" :key="v.value" :value="v.value" :disabled="v.disabled">{{ v.label }}{{ v.disabled && v.reason ? `（${v.reason}）` : '' }}</option></select></label>
       <p v-if="returnStockPosted" class="hint">已验收入库：{{ returnStockLabel }}。实物记录已保存，请继续完成财务待办；已收回的批次与数量不能改选。</p>
       <template v-else>

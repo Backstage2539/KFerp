@@ -60,10 +60,19 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
  IF TG_OP='DELETE' OR OLD.status='posted' THEN RAISE EXCEPTION '退回记录已形成事实，不能删除或改写'; END IF;
  IF (to_jsonb(NEW)-'target_batch_id'-'target_batch_code'-'status')<>(to_jsonb(OLD)-'target_batch_id'-'target_batch_code'-'status') THEN RAISE EXCEPTION '退回记录的原来源和处置不能改写'; END IF;
  IF NEW.status='posted' AND NOT EXISTS(SELECT 1 FROM %[1]s.stock_batches b JOIN %[1]s.stock_ledger_entries l ON l.source_doc_type='order_resolution_return' AND l.source_doc_id=NEW.id AND l.source_batch_code=b.batch_code AND l.item_type='finished_product' AND l.item_id=NEW.product_id AND l.bom_spec_id=NEW.bom_spec_id AND l.bom_variant_id=NEW.bom_variant_id AND l.owner_customer_id=NEW.target_owner_customer_id AND l.warehouse=NEW.target_warehouse AND l.qty_change_units=NEW.quantity AND l.qty_after_units=l.qty_before_units+NEW.quantity AND l.qty_change_g=0 WHERE b.id=NEW.target_batch_id AND b.batch_code=NEW.target_batch_code AND b.source_doc_type='order_resolution_return' AND b.source_doc_id=NEW.id AND b.qty_units=NEW.quantity AND b.bom_spec_id=NEW.bom_spec_id AND b.bom_variant_id=NEW.bom_variant_id AND b.owner_customer_id=NEW.target_owner_customer_id AND b.unit_cost=NEW.unit_cost) THEN RAISE EXCEPTION '退回记录缺少真实入库批次和库存流水'; END IF;
+ IF NEW.status='posted' AND NEW.source_kind='ownership' AND NOT EXISTS(SELECT 1 FROM %[1]s.stock_ledger_entries l JOIN %[1]s.stock_batches b ON b.id=NEW.batch_id JOIN %[1]s.customer_stock_entitlement_receipts receipt ON receipt.id=NEW.source_id AND receipt.stock_batch_id=b.id AND receipt.warehouse_code=NEW.source_warehouse JOIN %[1]s.customer_stock_entitlements e ON e.id=receipt.entitlement_id AND e.source_order_id=NEW.order_id AND e.source_order_item_id=NEW.order_item_id AND e.customer_id=NEW.source_owner_customer_id WHERE l.source_doc_type='order_resolution_ownership_return_out' AND l.source_doc_id=NEW.id AND l.source_batch_code=b.batch_code AND l.item_type='finished_product' AND l.item_id=NEW.product_id AND l.bom_spec_id=NEW.bom_spec_id AND l.bom_variant_id=NEW.bom_variant_id AND l.spec_g=0 AND l.owner_customer_id=NEW.source_owner_customer_id AND l.warehouse=NEW.source_warehouse AND l.qty_change_units=-NEW.quantity AND l.qty_after_units=l.qty_before_units-NEW.quantity AND l.qty_change_g=0) THEN RAISE EXCEPTION '货权退回缺少原客户批次的出库流水'; END IF;
  RETURN NEW;
  END $$;
  DROP TRIGGER IF EXISTS order_resolution_return_immutable ON %[1]s.order_resolution_stock_returns;
  CREATE TRIGGER order_resolution_return_immutable BEFORE UPDATE OR DELETE ON %[1]s.order_resolution_stock_returns FOR EACH ROW EXECUTE FUNCTION %[1]s.order_resolution_return_immutable();
+ CREATE OR REPLACE FUNCTION %[1]s.order_resolution_return_ledger_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
+ BEGIN
+ IF OLD.source_doc_type IN('order_resolution_return','order_resolution_ownership_return_out') AND EXISTS(SELECT 1 FROM %[1]s.order_resolution_stock_returns x WHERE x.id=OLD.source_doc_id AND x.status='posted') THEN RAISE EXCEPTION '已过账退回的库存流水不能删除或改写'; END IF;
+ IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+ RETURN NEW;
+ END $$;
+ DROP TRIGGER IF EXISTS order_resolution_return_ledger_immutable ON %[1]s.stock_ledger_entries;
+ CREATE TRIGGER order_resolution_return_ledger_immutable BEFORE UPDATE OR DELETE ON %[1]s.stock_ledger_entries FOR EACH ROW EXECUTE FUNCTION %[1]s.order_resolution_return_ledger_immutable();
  CREATE INDEX IF NOT EXISTS order_resolution_stock_return_source ON %[1]s.order_resolution_stock_returns(source_kind,source_id);
  CREATE TABLE IF NOT EXISTS %[1]s.order_resolution_step_failures(
  id BIGSERIAL PRIMARY KEY,step_id BIGINT NOT NULL REFERENCES %[1]s.order_resolution_steps(id),

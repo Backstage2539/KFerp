@@ -22,6 +22,12 @@ func (r Repository) ListTransferOptions(ctx context.Context, q stockapp.Transfer
 
 // ListTransferOptionsTx reuses the physical stock checks inside the caller transaction.
 func (r Repository) ListTransferOptionsTx(ctx context.Context, tx pgx.Tx, q stockapp.TransferOptionsQuery) (stockapp.TransferOptionsResult, error) {
+	return r.listTransferOptionsTx(ctx, tx, q, false)
+}
+
+// allowRetained is internal and only used after proving an original retained
+// receipt. Ordinary transfer APIs cannot change customer ownership this way.
+func (r Repository) listTransferOptionsTx(ctx context.Context, tx pgx.Tx, q stockapp.TransferOptionsQuery, allowRetained bool) (stockapp.TransferOptionsResult, error) {
 	type candidate struct {
 		row             stockapp.TransferOptionRow
 		quality, status string
@@ -188,7 +194,7 @@ WHERE fi.warehouse=$1 AND (fi.onhand_units>0 OR fi.onhand_loose_g>0)`, productCo
 			if err != nil {
 				return stockapp.TransferOptionsResult{}, err
 			}
-			if retained {
+			if retained && !allowRetained {
 				row.UnavailableReason = "客户寄存库存不能普通转仓"
 			}
 		}

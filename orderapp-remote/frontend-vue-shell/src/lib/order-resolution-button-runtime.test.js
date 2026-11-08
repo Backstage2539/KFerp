@@ -143,3 +143,15 @@ test('posted physical return stays visible and cannot be reselected while financ
  const template=descriptor.template.content
  assert.match(template,/v-if="returnStockPosted"/);assert.match(template,/returnStockLabel/)
 })
+
+test('ownership return requires a real source and the return action; choices remain blank',async t=>{
+ const previous=globalThis.fetch;t.after(()=>globalThis.fetch=previous)
+ const dep={kind:'customer_stock',id:18,status:'active'}
+ globalThis.fetch=async()=>({ok:true,json:async()=>({context:{version:'v1',lines:[],dependencies:[dep],return_sources:[{kind:'ownership',id:8,entitlement_id:18,batch_id:20,available_quantity:2}]},options:{customer_stock:[{value:'ownership_return',label:'办理货权退回'}]},permissions:{'orders.resolve':true},history:[]})})
+ const editor=await setup();await editor.load(true)
+ assert.equal(editor.form.dispositions[0].choice,'')
+ editor.form.action='close';assert.equal(editor.choices(dep)[0].disabled,true)
+ editor.form.action='return';assert.equal(editor.choices(dep)[0].disabled,false)
+ assert.equal(editor.choices({...dep,id:19})[0].disabled,true)
+ assert.match(editor.choices({...dep,id:19})[0].reason,/实物|收货|来源/)
+})

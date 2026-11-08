@@ -22,6 +22,7 @@ LABEL io.kferp.order-resolution-fee-aware="1"
 LABEL io.kferp.order-resolution-mixed-supply-aware="1"
 LABEL io.kferp.order-resolution-company-stock-aware="1"
 LABEL io.kferp.order-resolution-return-aware="1"
+LABEL io.kferp.order-resolution-ownership-return-aware="1"
 RUN sed -i 's|dl-cdn.alpinelinux.org|mirrors.aliyun.com|g' /etc/apk/repositories && \
     apk add --no-cache poppler-utils
 WORKDIR /app
