@@ -190,3 +190,16 @@ test('company scrap leaves batch quantity cost and reason explicit and disables 
  assert.equal(editor.choices({...dep,company_stock:[{batch_id:301,available_quantity:3,cost_record_id:0,scrap_issue:'原成本缺失'}]})[0].disabled,true)
  d.choice='keep_company_stock';assert.equal(editor.body().dispositions[0].cost_treatment,undefined);assert.equal(editor.body().dispositions[0].stock_selections,undefined)
 })
+
+test('unfinished production transfer leaves target and quantity blank and requires explicit original work',async t=>{
+ const previous=globalThis.fetch;t.after(()=>globalThis.fetch=previous)
+ const dep={kind:'production',id:19,status:'running',reassign_work_orders:[{work_order_id:31,source_item_id:1,quantity:3,unit:'袋',targets:[{order_id:4,order_item_id:41,remaining_quantity:3}]}]}
+ globalThis.fetch=async()=>({ok:true,json:async()=>({context:{version:'v1',lines:[],dependencies:[dep]},options:{production:[{value:'reassign'}]},permissions:{'orders.resolve':true},history:[]})})
+ const editor=await setup();await editor.load(true);editor.form.action='close';editor.form.scope='all';const d=editor.form.dispositions[0]
+ assert.equal(d.choice,'');assert.deepEqual(d.reassignments,[{work_order_id:31,target_item_id:0,quantity:''}])
+ d.choice='reassign';assert.throws(()=>editor.body(),/目标|数量/);d.reassignments[0].target_item_id=41;d.reassignments[0].quantity='3'
+ assert.deepEqual(editor.body().dispositions[0].reassignments,[{work_order_id:31,target_item_id:41,quantity:3}])
+ assert.equal(editor.choices({...dep,shared:true})[0].disabled,true)
+ assert.equal(editor.choices({...dep,reassign_work_orders:[{work_order_id:31,issue:'已有成品，请拆分'}]})[0].reason,'已有成品，请拆分')
+ d.choice='continue_company';assert.equal(editor.body().dispositions[0].reassignments,undefined)
+})

@@ -45,7 +45,7 @@ async function submit() {
    </template>
    <label v-if="step.kind==='return_stock'">实际退回入库日期<input v-model="form.posting_date" type="date" /></label>
    <label v-if="step.kind==='return_stock'">退回验收凭据<input v-model="form.reference" placeholder="填写收货、验收凭据编号" /></label>
-   <label v-if="['funds','external','period','billing','production_finance'].includes(step.kind) || step.choice==='scrap'">付款／更正／批准凭据<input v-model="form.reference" placeholder="填写可核对的凭据编号" /></label>
+   <label v-if="['funds','external','period','billing','production_finance'].includes(step.kind) || ['scrap','reassign'].includes(step.choice)">付款／更正／批准凭据<input v-model="form.reference" placeholder="填写可核对的凭据编号" /></label>
    <label>处理说明<textarea v-model="form.note" rows="2" /></label>
    <p v-if="error" class="error" role="alert">{{ error }}</p>
    <button type="button" :disabled="busy || !form.choice" @click="submit">确认本项处理</button>
