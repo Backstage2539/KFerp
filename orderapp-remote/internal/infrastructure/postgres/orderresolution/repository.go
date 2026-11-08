@@ -158,7 +158,7 @@ func (r Repository) load(ctx context.Context, q querier, id int64) (domain.Conte
 			c.CreditUsedCents += int64(num(f, "amount_cents"))
 		}
 	}
-	delivered, fulfillmentIssue := shipmentQuantities(snap.Items, snap.Stock)
+	delivered, fulfillmentIssue := shipmentQuantities(snap.Items, snap.Stock, snap.Allocated)
 	if c.DeliveryMode != "customer_stock" {
 		c.FulfillmentIssue = fulfillmentIssue
 	}
@@ -179,7 +179,7 @@ func (r Repository) load(ctx context.Context, q querier, id int64) (domain.Conte
 				l.Delivered = l.Quantity
 			}
 		}
-		err = q.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(sum(credit_cents) FILTER(WHERE closed_delta<>0),0),COALESCE(sum(return_delta),0)::float8,COALESCE(sum(credit_cents),0) FROM %s.order_resolution_line_events WHERE order_item_id=$1`, r.schema), l.ID).Scan(&l.ClosedCents, &l.Returned, &l.CreditedCents)
+		err = q.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(sum(e.credit_cents) FILTER(WHERE e.closed_delta<>0),0),COALESCE(sum(e.return_delta),0)::float8+(SELECT COALESCE(sum(x.quantity),0)::float8 FROM %[1]s.order_resolution_stock_returns x JOIN %[1]s.order_resolution_requests r ON r.id=x.request_id WHERE x.order_item_id=$1 AND x.status='posted' AND NOT r.applied),COALESCE(sum(e.credit_cents),0),COALESCE(sum(e.return_delta) FILTER(WHERE r.command_json->>'return_settlement'='credit_returned_goods'),0)::float8,COALESCE(sum(e.credit_cents) FILTER(WHERE r.command_json->>'action'='return'),0) FROM %[1]s.order_resolution_line_events e JOIN %[1]s.order_resolution_requests r ON r.id=e.request_id WHERE e.order_item_id=$1`, r.schema), l.ID).Scan(&l.ClosedCents, &l.Returned, &l.CreditedCents, &l.ReturnCreditQuantity, &l.ReturnCreditCents)
 		if err != nil {
 			return c, err
 		}
@@ -306,6 +306,9 @@ func (r Repository) load(ctx context.Context, q querier, id int64) (domain.Conte
 		return c, err
 	}
 	if err = r.companyStockSources(ctx, q, &c, snap.Items); err != nil {
+		return c, err
+	}
+	if err = r.returnSources(ctx, q, &c); err != nil {
 		return c, err
 	}
 	return c, nil

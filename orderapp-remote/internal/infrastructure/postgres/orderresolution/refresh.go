@@ -68,6 +68,9 @@ func (r Repository) Refresh(ctx context.Context, orderID, requestID int64, cmd d
 	if err = json.Unmarshal(originalRaw, &original); err != nil {
 		return out, err
 	}
+	if err = r.normalizePostedReturns(ctx, tx, orderID, requestID, original, cmd, &current); err != nil {
+		return out, err
+	}
 	current.Paused = original.Paused
 	plan, err := domain.Preview(current, cmd)
 	if err != nil {

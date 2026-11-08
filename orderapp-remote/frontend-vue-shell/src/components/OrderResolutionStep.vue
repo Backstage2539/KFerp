@@ -41,6 +41,8 @@ async function submit() {
     <label v-if="form.choice === 'offset'">抵扣应收<select v-model.number="form.target_id"><option :value="0">请选择同客户的应收</option><option v-for="v in targets" :key="v.id" :value="v.id">{{ v.label }} · 可抵扣 ¥{{ (v.available_cents / 100).toFixed(2) }}</option></select></label>
     <label>实际处理日期<input v-model="form.posting_date" type="date" /></label>
    </template>
+   <label v-if="step.kind==='return_stock'">实际退回入库日期<input v-model="form.posting_date" type="date" /></label>
+   <label v-if="step.kind==='return_stock'">退回验收凭据<input v-model="form.reference" placeholder="填写收货、验收凭据编号" /></label>
    <label v-if="['funds','external','period','billing'].includes(step.kind)">付款／更正／批准凭据<input v-model="form.reference" placeholder="填写可核对的凭据编号" /></label>
    <label>处理说明<textarea v-model="form.note" rows="2" /></label>
    <p v-if="error" class="error" role="alert">{{ error }}</p>
