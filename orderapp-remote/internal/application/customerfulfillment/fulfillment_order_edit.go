@@ -10,24 +10,25 @@ import (
 // FulfillmentOrderEditCommand describes a replacement draft of the same order.
 // Customer and mode are always checked against the locked persisted order.
 type FulfillmentOrderEditCommand struct {
-	OrderID              int64                             `json:"-"`
-	CustomerID           int64                             `json:"-"`
-	Actor                string                            `json:"-"`
-	RecipientOnly        bool                              `json:"-"`
-	ExpectedEditRevision string                            `json:"edit_revision"`
-	PreviewToken         string                            `json:"preview_token,omitempty"`
-	OrderDate            string                            `json:"order_date"`
-	ReceiverName         string                            `json:"receiver_name"`
-	ReceiverPhone        string                            `json:"receiver_phone"`
-	ReceiverAddress      string                            `json:"receiver_address"`
-	ReceiverCompany      *string                           `json:"receiver_company,omitempty"`
-	Province             string                            `json:"province"`
-	City                 string                            `json:"city"`
-	District             string                            `json:"district"`
-	Notes                string                            `json:"notes"`
-	Items                []FulfillmentOrderEditItemCommand `json:"items"`
-	ServiceFeeCents      *int64                            `json:"service_fee_cents,omitempty"`
-	AdjustmentReason     string                            `json:"adjustment_reason,omitempty"`
+	OrderID                 int64                             `json:"-"`
+	CustomerID              int64                             `json:"-"`
+	Actor                   string                            `json:"-"`
+	RecipientOnly           bool                              `json:"-"`
+	ExpectedEditRevision    string                            `json:"edit_revision"`
+	PreviewToken            string                            `json:"preview_token,omitempty"`
+	ReplacePendingWithStock bool                              `json:"replace_pending_with_stock,omitempty"`
+	OrderDate               string                            `json:"order_date"`
+	ReceiverName            string                            `json:"receiver_name"`
+	ReceiverPhone           string                            `json:"receiver_phone"`
+	ReceiverAddress         string                            `json:"receiver_address"`
+	ReceiverCompany         *string                           `json:"receiver_company,omitempty"`
+	Province                string                            `json:"province"`
+	City                    string                            `json:"city"`
+	District                string                            `json:"district"`
+	Notes                   string                            `json:"notes"`
+	Items                   []FulfillmentOrderEditItemCommand `json:"items"`
+	ServiceFeeCents         *int64                            `json:"service_fee_cents,omitempty"`
+	AdjustmentReason        string                            `json:"adjustment_reason,omitempty"`
 }
 
 type FulfillmentOrderEditItemCommand struct {
@@ -98,6 +99,7 @@ type FulfillmentOrderEditContext struct {
 }
 
 type FulfillmentOrderEditPreview struct {
+	StockSources    []FulfillmentStockSource   `json:"stock_sources,omitempty"`
 	OrderID         int64                      `json:"order_id"`
 	OrderNo         string                     `json:"order_no"`
 	RequestID       int64                      `json:"request_id"`
@@ -108,6 +110,17 @@ type FulfillmentOrderEditPreview struct {
 	Fees            FulfillmentFeeQuote        `json:"fees"`
 	StockReady      bool                       `json:"stock_ready"`
 	Shortages       []MiniDirectShipShortage   `json:"shortages,omitempty"`
+}
+
+// Explicitly accepted source plan. Historical BOM versions remain on the batch.
+type FulfillmentStockSource struct {
+	ProductID    int64  `json:"product_id"`
+	BomSpecID    int64  `json:"bom_spec_id"`
+	BomVariantID int64  `json:"bom_variant_id"`
+	CustomerID   int64  `json:"customer_id"`
+	BatchCode    string `json:"batch_code"`
+	Warehouse    string `json:"warehouse"`
+	Qty          int64  `json:"qty"`
 }
 
 type FulfillmentOrderEditResult struct {

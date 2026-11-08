@@ -538,3 +538,40 @@ test('historical discounted amounts, net order totals and rich item snapshots su
     document.body.innerHTML = '<div id="app"></div>'
   }
 })
+
+
+test('physical replenishment is opt-in and saves only the reviewed batch preview', async () => {
+  const { component: Orders } = await loadComponent('../views/OrdersView.vue')
+  const oldFetch = globalThis.fetch, writes = [], previews = []
+  globalThis.fetch = async (url, options = {}) => {
+    const path = new URL(String(url), window.location.origin).pathname
+    if (path === '/api/orders') return response({ rows: [order], summary: {}, page: 1, limit: 20 })
+    if (path.endsWith('/detail') || path === '/api/order/form') return response(formData)
+    if (path.endsWith('/fulfillment/preview')) {
+      previews.push(JSON.parse(options.body))
+      return response({ items: context.items, goods_total_cents: 0, fees, stock_ready: true,
+        stock_sources: [{ product_id: 7, bom_spec_id: 19, customer_id: 8, warehouse: 'customer-warehouse', batch_code: 'REVIEWED-BATCH', qty: 4 }], preview_token: 'reviewed-plan' })
+    }
+    if (path.endsWith('/fulfillment') && options.method === 'PATCH') { writes.push(JSON.parse(options.body)); return response({ ok: true, order_id: 117 }) }
+    if (path.endsWith('/fulfillment')) return response(context)
+    return response({ rows: [], profiles: [], groups: [], assignments: [], regions: [] })
+  }
+  const app = createApp(Orders); app.config.warnHandler = () => {}
+  try {
+    app.mount(document.querySelector('#app')); await flush()
+    document.querySelector('.order-link').click(); await flush()
+    const toggle = () => [...document.querySelectorAll('label')].find(el => el.textContent.includes('使用客户现货补足待入库预订')).querySelector('input')
+    assert.equal(toggle().checked, false)
+    toggle().click(); await flush()
+    button('保存订单', document.querySelector('.footer-panel')).click(); await flush()
+    assert.equal(writes.length, 0); assert.equal(previews.length, 0)
+    assert.match(document.body.textContent, /请先重新核算并核对补足后的库存来源/)
+    button('重新核算代发费用').click(); await flush()
+    assert.equal(previews[0].replace_pending_with_stock, true)
+    assert.match(document.querySelector('[aria-label="补足后的库存来源"]').textContent, /REVIEWED-BATCH/)
+    button('保存订单', document.querySelector('.footer-panel')).click(); await flush()
+    assert.equal(previews.length, 1, 'saving cannot silently substitute a new stock plan')
+    assert.equal(writes.length, 1); assert.equal(writes[0].preview_token, 'reviewed-plan')
+    assert.equal(toggle().checked, false, 'reopening cannot retain a business choice')
+  } finally { app.unmount(); globalThis.fetch = oldFetch; document.body.innerHTML = '<div id="app"></div>' }
+})

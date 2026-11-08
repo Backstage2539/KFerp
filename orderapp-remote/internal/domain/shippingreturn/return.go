@@ -43,6 +43,10 @@ type Row struct {
 	Status             string `json:"status"`
 	OrderID            int64  `json:"order_id,omitempty"`
 	Version            string `json:"version,omitempty"`
+	CanSelect          bool   `json:"can_select"`
+	BlockReason        string `json:"block_reason,omitempty"`
+	OrderNo            string `json:"order_no,omitempty"`
+	OrderDate          string `json:"order_date,omitempty"`
 }
 type Batch struct {
 	Rematched bool    `json:"rematched,omitempty"`

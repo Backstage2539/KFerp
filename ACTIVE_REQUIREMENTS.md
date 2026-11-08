@@ -1,3 +1,14 @@
+### PR-751-SHIPPING-RETURN-CANDIDATES
+- Branch: `codex/shipping-return-correct-candidates`; base `origin/develop` 79df1f424.
+- Scope: 实时收件信息候选与发货条件分开；显式客户现货补足待入库预订，保留原购货/批次/货权和历史数量；预览后保存，再选择运单。
+- DEV-PR751-01: 候选实时查询、未就绪原因、自动唯一匹配防误配。
+- DEV-PR751-02: 原单显式现货补足、预览来源、锁定复核和日志回滚。
+- DEV-PR751-03: Vue 操作、手册、隔离 API/组件验证及开发交付。
+- Verifier: targeted PostgreSQL `TestShippingReturn|TestFulfillmentOrderEdit|TestFulfillmentExplicitPhysicalReplenishment`; frontend shipping-return-runtime/fulfillment-full-edit-dom; backend and frontend build.
+- RED: 候选为空；显式补足后 StockReady=false；禁用候选仍触发提交。证据 `/tmp/kferp-return-verification`。
+- Status: implementation/verification in progress. Production order mapping needs Van to identify both waybills; no live stock/order/fee writes performed.
+- Note: macOS reserve_req_id.sh awk failed before write; reserved PR-751 manually after inspecting next id.
+
 ### PR-749-ORDER-RESOLUTION 订单取消、关闭与更正
 - 状态：已验证的三批业务能力已实施、合入 develop/main 并部署开发及正式 ERP；等待 Van 现场业务验收。PR/DEV 保持待验收，未代用户接受产品需求。
 - Branch：`codex/order-resolution-20261106`；最后功能 e7d4cd58b，验证 54c7be454，开发发布 03e5e0091b3e5a79ee9616b7bf6b9ff8e7767d1f，正式发布 2657ca8e2e9f1b15762b7c8155315a39c7efc1a4。发布后只补充验收文档，不改变此运行版本。
