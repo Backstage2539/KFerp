@@ -220,3 +220,5 @@
 - 完整无数据库 Go 验证通过；全前端 1757/1757、Vite 构建通过；隔离 PostgreSQL 订单处理/留厂/PR703/历史发货 177.077s、生产需求 0.955s 通过；changed 与旧版本回滚保护通过。证据 `/tmp/kferp-resolution-20261108-stop-release-{backend,frontend,pg}.log`，最终停工定向 `/tmp/kferp-resolution-20261108-stop-final-target.log`。未声称完整 PostgreSQL 全库回归。
 - 浏览器 mock 样本通过：四种业务处置均不预选，未选时拒绝预览；明确原位保留余料/在制品、释放未耗用预留、保留原产出后，显示订单冲减与生产/仓库两个确认；仓库确认仍需明确选择。截图 `/tmp/kferp-resolution-20261108-stop-ui.png`；真实订单未写入。工单跳转及返回来源用实际组件运行测试验证。
 - 未完成：开发/正式发布；指定需求转供及批准报损仍待实施。完整 PR/DEV 保持进行中。
+
+- 合并最新 origin/develop（无源码差异）后，完整无数据库 Go 再次通过；停工/API/重开需求隔离数据库 14.872s / 1.255s 通过，changed 通过。前端相对已通过的 1757 项和构建无差异。
