@@ -222,3 +222,22 @@
 - 未完成：开发/正式发布；指定需求转供及批准报损仍待实施。完整 PR/DEV 保持进行中。
 
 - 合并最新 origin/develop（无源码差异）后，完整无数据库 Go 再次通过；停工/API/重开需求隔离数据库 14.872s / 1.255s 通过，changed 通过。前端相对已通过的 1757 项和构建无差异。
+
+## 第八批停工正式回执（2026-11-08）
+
+- 候选 90d92003a，develop f9b9a06a7aaa51893ec6cf62ed3d0329b1aaed4d，main 5d52568126ffb84c5ee2f9944f56790f2d7b9528 均已推送；发布源来自干净 main，未带入隔离中的报损改动。
+- 开发备份 `/opt/stacks/erp/orderapp.backup.deploy-20261108151607-f9b9a06a7aaa`，镜像 11efbf996ac132dd8fe4cbc2f3b0ef07f3d4f3c06dbfa2c5667cc7616ed05a0a。
+- 首次正式构建中断，先只读确认旧服务和发布锁，再从同一 main 重试成功。正式备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20261108153839-5d52568126ff`，回滚镜像 `kferp-orderapp-rollback:production-20261108153839-5d52568126ff`，运行镜像 379b8b6fbe42e906e91144443e429ce29cca96b4a1d51959e0af37631bb34bd6。
+- 两环境 ERP-only 发布保留原小程序产物。静态入口 main-BSVuaiOb.js，认证前 API 401、认证 shell/API/手册/策略/PR 200；核心源码 SHA256 与干净 main 相同，正式服务运行且数据库健康。
+- Chrome 只读打开当前正式订单抽屉，确认关闭剩余履约可选、取消须保留已完成共享生产；所有原因、范围、处置及账期留空。SO-20261031-0003 仍正常、未暂停、2160 元未收、冲减 0、历史 0。未提交业务预览、草稿、库存或订单操作。
+- 证据 `/tmp/kferp-resolution-20261108-stop-deploy-{development,production-retry}.log`、`stop-{development,production}-smoke.json`、`stop-production-service.log`。完整需求和现场业务验收仍未完成。
+
+## 第九批公司成品批准报损候选
+
+- 明确原批次、数量、原因和成本方式；共享生产保护其他需求/预留；销售提交、财务批准、仓库确认分别按权限，最终扣库、原成本单列／成对重分类、订单调整与日志原子提交。所有钱货选项留空，管理员可停用成本方式，不能跳过事实校验。
+- 原生产成本已被现有经营报表计入，因此“保留原成本”不再加费用；“转列损失”在选定账期形成主成本 -30/费用 +30 的成对调整，原 10 月成本 50 保留、11 月总成本净变化 0。以真实财务服务 DraftReport 验证。报损不能早于原批次和原成本日期。
+- RED → GREEN：缺少原成本证明、缺少明确选项、历史 BOM 报损拒绝、普通库存接口伪造报损来源、旧财务批准可重复沿用、原批次成本可改写、处理记录没有实际报损凭据、管理员配置丢失报损选项、质检拒收批次不能批准报损、同月提前记报损、旧版本回滚未保护。证据 `/tmp/kferp-resolution-20261108-scrap-{domain,posting,history,source,refresh,immutable,evidence,policy,held,date,rollback}-red.log`（个别 RED 文件名以此前记录为准）。
+- 隔离 PostgreSQL 定向最终 16.389s 通过：实际 HTTP 各岗位 403/200、两岗位确认、重复/并发一次、共享其他订单保留、实物不足、来源/成本/预留过期、账期关闭、日志失败全回滚、原成本和调整不可改写、历史 BOM、冻结批次余量仍冻结、重新初始化、重开不恢复损失，含财务报表核对。日志 `scrap-final-target2.log`；原批次持久凭证包含单位/数量/成本/日期/批次。
+- 完整无数据库 Go 通过；全前端 1758/1758、Vite 构建通过；changed、diff-check、回滚保护通过。扩大数据库回归中订单处理等用例完成，唯一失败为已有代发目录样本缺 `product_bom_spec_authorities`，在干净 main 同一测试复现（`scrap-pg.log` / `scrap-baseline-fixture.log`），不声称完整数据库全绿；生产 1.442s、库存转仓 5.503s、规格守卫 0.743s 通过。
+- Chrome mock 页面完整操作通过：初始无选项，漏选拒绝；明确批次/3 袋/成本方式/原因/账期后预览财务和仓库待办，两岗位各自再选并填凭据，最终显示已报损 FP-TEST-301、3 袋、原成本 30 元及日期；未使用真实订单或库存测试。
+- 操作手册和 PR/DEV 进度同步；候选待集成和发布，生产转供仍未完成，完整 PR 继续 doing。

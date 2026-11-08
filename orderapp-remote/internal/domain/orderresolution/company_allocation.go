@@ -1,6 +1,9 @@
 package orderresolution
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type CompanyStockTarget struct {
 	Version           string `json:"version"`
@@ -15,6 +18,11 @@ type CompanyStockRelease struct {
 	Quantity int64 `json:"quantity"`
 }
 type CompanyStockSource struct {
+	UnitCostMicros     int64                 `json:"unit_cost_micros"`
+	CostRecordID       int64                 `json:"cost_record_id"`
+	CostDate           string                `json:"cost_date"`
+	CostMonth          string                `json:"cost_month"`
+	ScrapIssue         string                `json:"scrap_issue,omitempty"`
 	Version            string                `json:"version"`
 	FreeQuantity       int64                 `json:"free_quantity"`
 	UnreservedQuantity int64                 `json:"unreserved_quantity"`
@@ -38,6 +46,10 @@ type companyAllocationUsage struct {
 }
 
 func validateCompanyAllocation(d Dependency, choice Disposition, effects []LineEffect, usage *companyAllocationUsage, dependencies []Dependency, dispositions []Disposition) (string, error) {
+	scrap := choice.Choice == "scrap"
+	if scrap && (!oneOf(choice.CostTreatment, "retain_cost", "reclassify_loss") || strings.TrimSpace(choice.Reference) == "") {
+		return "", fmt.Errorf("请选择报损成本处理方式，并填写实际报损原因或验收依据")
+	}
 	if d.OwnershipIssue != "" {
 		return "", fmt.Errorf("%s", d.OwnershipIssue)
 	}
@@ -67,8 +79,11 @@ func validateCompanyAllocation(d Dependency, choice Disposition, effects []LineE
 				break
 			}
 		}
-		if source.BatchID == 0 || target.OrderID == 0 {
+		if source.BatchID == 0 || (!scrap && target.OrderID == 0) {
 			return "", fmt.Errorf("所选原批次或目标订单的商品、冻结规格、仓库或货权不匹配")
+		}
+		if scrap && (selected.TargetItemID != 0 || source.CostRecordID <= 0 || source.ScrapIssue != "") {
+			return "", fmt.Errorf("报损须核对原批次及已确认成本，不得指定转供目标：%s", source.ScrapIssue)
 		}
 		available := source.AvailableQuantity
 		var releasedOnBatch, releasedForItem int64
@@ -93,7 +108,7 @@ func validateCompanyAllocation(d Dependency, choice Disposition, effects []LineE
 		if selected.Quantity > available-batches[source.BatchID] {
 			return "", fmt.Errorf("成品可分配数量不足，不能占用其他预留")
 		}
-		if selected.Quantity > target.RemainingQuantity-targets[target.OrderItemID] {
+		if !scrap && selected.Quantity > target.RemainingQuantity-targets[target.OrderItemID] {
 			return "", fmt.Errorf("分配数量超过目标订单的剩余未预留需求")
 		}
 		var closed float64
@@ -112,7 +127,11 @@ func validateCompanyAllocation(d Dependency, choice Disposition, effects []LineE
 		batches[source.BatchID] += selected.Quantity
 		targets[target.OrderItemID] += selected.Quantity
 		items[source.SourceItemID] += selected.Quantity
-		label += fmt.Sprintf("；%s → %s，%d", source.Label, target.Label, selected.Quantity)
+		if scrap {
+			label += fmt.Sprintf("；%s：报损 %d，原成本 %.2f 元", source.Label, selected.Quantity, float64(source.UnitCostMicros)/1e6*float64(selected.Quantity))
+		} else {
+			label += fmt.Sprintf("；%s → %s，%d", source.Label, target.Label, selected.Quantity)
+		}
 	}
 	return label, nil
 }

@@ -175,3 +175,18 @@ test('ownership return requires a real source and the return action; choices rem
  assert.equal(editor.choices({...dep,id:19})[0].disabled,true)
  assert.match(editor.choices({...dep,id:19})[0].reason,/实物|收货|来源/)
 })
+test('company scrap leaves batch quantity cost and reason explicit and disables unproven cost',async t=>{
+ const previous=globalThis.fetch;t.after(()=>globalThis.fetch=previous)
+ const dep={kind:'production',id:19,status:'completed',company_stock:[{batch_id:301,available_quantity:3,cost_record_id:7,unit_cost_micros:10000000,cost_month:'2026-10'}]}
+ globalThis.fetch=async()=>({ok:true,json:async()=>({context:{version:'v1',lines:[],dependencies:[dep]},options:{production:[{value:'scrap'}]},permissions:{'orders.resolve':true},history:[]})})
+ const editor=await setup();await editor.load(true);editor.form.action='close'
+ const d=editor.form.dispositions[0];assert.equal(d.cost_treatment,'');assert.equal(d.reference,'');assert.deepEqual(d.stock_selections,[])
+ d.choice='scrap';assert.throws(()=>editor.body(),/批次|报损/)
+ editor.addStockSelection(dep);assert.deepEqual(d.stock_selections,[{batch_id:0,target_item_id:0,quantity:''}])
+ Object.assign(d.stock_selections[0],{batch_id:301,quantity:2});assert.throws(()=>editor.body(),/成本|报损/)
+ d.cost_treatment='retain_cost';d.reference='原批次验收破损'
+ assert.deepEqual(editor.body().dispositions[0].stock_selections,[{batch_id:301,target_item_id:0,quantity:2}])
+ assert.equal(editor.body().dispositions[0].cost_treatment,'retain_cost')
+ assert.equal(editor.choices({...dep,company_stock:[{batch_id:301,available_quantity:3,cost_record_id:0,scrap_issue:'原成本缺失'}]})[0].disabled,true)
+ d.choice='keep_company_stock';assert.equal(editor.body().dispositions[0].cost_treatment,undefined);assert.equal(editor.body().dispositions[0].stock_selections,undefined)
+})

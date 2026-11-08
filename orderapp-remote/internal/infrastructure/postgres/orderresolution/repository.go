@@ -33,15 +33,16 @@ type Step struct {
 	Failures  []StepFailure   `json:"failures"`
 }
 type Result struct {
-	Applied        bool           `json:"applied"`
-	CanWithdraw    bool           `json:"can_withdraw"`
-	ID             int64          `json:"id"`
-	AmendmentID    int64          `json:"amendment_id"`
-	RevisedOrderID int64          `json:"revised_order_id"`
-	Status         string         `json:"status"`
-	Command        domain.Command `json:"command"`
-	Plan           domain.Plan    `json:"plan"`
-	Steps          []Step         `json:"steps"`
+	Applied        bool                 `json:"applied"`
+	CanWithdraw    bool                 `json:"can_withdraw"`
+	ID             int64                `json:"id"`
+	AmendmentID    int64                `json:"amendment_id"`
+	RevisedOrderID int64                `json:"revised_order_id"`
+	Status         string               `json:"status"`
+	Command        domain.Command       `json:"command"`
+	Plan           domain.Plan          `json:"plan"`
+	Steps          []Step               `json:"steps"`
+	Scraps         []CompanyScrapRecord `json:"scraps"`
 }
 type querier interface {
 	Query(context.Context, string, ...any) (pgx.Rows, error)
@@ -505,6 +506,9 @@ func (r Repository) apply(ctx context.Context, tx pgx.Tx, id, requestID int64, c
 	if err := r.applyCompanyAllocations(ctx, tx, id, requestID, cmd, actor); err != nil {
 		return err
 	}
+	if err := r.applyCompanyScraps(ctx, tx, id, requestID, cmd, actor); err != nil {
+		return err
+	}
 	if err := r.applyProductionStops(ctx, tx, id, requestID, cmd, actor); err != nil {
 		return err
 	}
@@ -601,7 +605,12 @@ func (r Repository) result(ctx context.Context, q querier, id int64) (Result, er
 		}
 		out.Steps = append(out.Steps, s)
 	}
-	return out, rows.Err()
+	rows.Close()
+	if err = rows.Err(); err != nil {
+		return out, err
+	}
+	out.Scraps, err = r.companyScrapRecords(ctx, q, id)
+	return out, err
 }
 func (r Repository) History(ctx context.Context, id int64) ([]Result, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT id FROM %s.order_resolution_requests WHERE order_id=$1 ORDER BY id DESC LIMIT 100`, r.schema), id)

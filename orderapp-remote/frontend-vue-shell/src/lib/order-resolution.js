@@ -14,14 +14,16 @@ export function resolutionPayload(form, version, key, {draft=false}={}) {
     return out
    })
   }else delete d.supplies
-  if(d.kind==='production'&&d.choice==='allocate'){
+  if(d.kind==='production'&&['allocate','scrap'].includes(d.choice)){
+   const scrap=d.choice==='scrap'
+   if(scrap){ d.cost_treatment=String(d.cost_treatment||'');if(!draft&&(!['retain_cost','reclassify_loss'].includes(d.cost_treatment)||!String(d.reference||'').trim()))throw new Error('请明确选择报损成本处理方式并填写报损依据') }else delete d.cost_treatment
    if(!draft&&!d.stock_selections?.length)throw new Error('请选择公司成品的原批次、目标订单和分配数量')
    d.stock_selections=(d.stock_selections||[]).map(s=>{
-    const batch=Number(s.batch_id),target=Number(s.target_item_id),quantity=Number(s.quantity)
-    if(![batch,target,quantity].every(v=>Number.isSafeInteger(v)&&v>=0)||(!draft&&[batch,target,quantity].some(v=>v===0)))throw new Error('请明确选择成品批次、目标订单并填写分配数量')
+    const batch=Number(s.batch_id),target=scrap?0:Number(s.target_item_id),quantity=Number(s.quantity)
+    if(![batch,target,quantity].every(v=>Number.isSafeInteger(v)&&v>=0)||(!draft&&(batch===0||quantity===0||(!scrap&&target===0))))throw new Error('请明确选择成品批次、目标订单并填写分配数量')
     return {batch_id:batch,target_item_id:target,quantity}
    })
-  }else delete d.stock_selections
+  }else {delete d.stock_selections;delete d.cost_treatment}
   if(d.kind==='production'&&d.choice==='stop'){
    if(!draft&&!d.stops?.length)throw new Error('请逐工单选择余料、在制品、预留和产出处置')
    d.stops=(d.stops||[]).map(s=>{

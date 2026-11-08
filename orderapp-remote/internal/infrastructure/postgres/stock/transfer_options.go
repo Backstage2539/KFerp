@@ -22,12 +22,18 @@ func (r Repository) ListTransferOptions(ctx context.Context, q stockapp.Transfer
 
 // ListTransferOptionsTx reuses the physical stock checks inside the caller transaction.
 func (r Repository) ListTransferOptionsTx(ctx context.Context, tx pgx.Tx, q stockapp.TransferOptionsQuery) (stockapp.TransferOptionsResult, error) {
-	return r.listTransferOptionsTx(ctx, tx, q, false)
+	return r.listTransferOptionsTx(ctx, tx, q, false, false)
+}
+
+// ListCompanyScrapOptionsTx exposes physical company stock for explicit loss approval.
+// It does not authorize a transfer, shipment, allocation, or customer ownership change.
+func (r Repository) ListCompanyScrapOptionsTx(ctx context.Context, tx pgx.Tx, q stockapp.TransferOptionsQuery) (stockapp.TransferOptionsResult, error) {
+	return r.listTransferOptionsTx(ctx, tx, q, false, true)
 }
 
 // allowRetained is internal and only used after proving an original retained
 // receipt. Ordinary transfer APIs cannot change customer ownership this way.
-func (r Repository) listTransferOptionsTx(ctx context.Context, tx pgx.Tx, q stockapp.TransferOptionsQuery, allowRetained bool) (stockapp.TransferOptionsResult, error) {
+func (r Repository) listTransferOptionsTx(ctx context.Context, tx pgx.Tx, q stockapp.TransferOptionsQuery, allowRetained, allowScrapQuality bool) (stockapp.TransferOptionsResult, error) {
 	type candidate struct {
 		row             stockapp.TransferOptionRow
 		quality, status string
@@ -164,7 +170,7 @@ WHERE fi.warehouse=$1 AND (fi.onhand_units>0 OR fi.onhand_loose_g>0)`, productCo
 		}
 		if c.status == "unbatched" {
 			row.UnavailableReason = "历史库存缺少批次，请先核对"
-		} else if c.status != "active" || c.quality == "hold" || c.quality == "reject" {
+		} else if c.status != "active" || (!allowScrapQuality && (c.quality == "hold" || c.quality == "reject")) {
 			row.UnavailableReason = "批次停用或质检冻结"
 		}
 		if row.ItemType == "material" && row.OwnerCustomerID != c.masterOwner {
