@@ -119,8 +119,15 @@ type returnOrder struct {
 }
 
 func returnOrderSQL(s string) string {
-	where, _, _ := orderListWhere(s, app.OrderListQuery{ShipReadyOnly: true})
-	return fmt.Sprintf(`SELECT o.id,CASE WHEN o.portal_service_code IN ('direct_ship','product_order','processing_ship') THEN coalesce(o.receiver_name,'') ELSE coalesce(nullif(o.receiver_name,''),nullif(c.contact,''),c.name,'') END,CASE WHEN o.portal_service_code IN ('direct_ship','product_order','processing_ship') THEN coalesce(o.receiver_phone,'') ELSE coalesce(nullif(o.receiver_phone,''),c.phone,'') END,md5(to_jsonb(o)::text) FROM %[1]s.orders o LEFT JOIN %[1]s.customers c ON c.id=o.customer_id WHERE %[2]s AND coalesce(o.ship_tracking_no,'')='' AND NOT EXISTS(SELECT 1 FROM %[1]s.order_shipping_trackings t WHERE t.order_id=o.id) AND coalesce(o.ship_method,'') NOT IN ('self_pickup','local_delivery')`, s, strings.Join(where, " AND "))
+	where := []string{
+		"NOT o.is_void",
+		"COALESCE(to_jsonb(o)->>'confirmation_status','accepted')='accepted'",
+		"COALESCE(to_jsonb(o)->>'delivery_mode','ship')<>'customer_stock'",
+		"COALESCE(to_jsonb(o)->>'fulfillment_paused','false')<>'true'",
+		"COALESCE(to_jsonb(o)->>'resolution_status','open') NOT IN ('closed','cancelled','canceled')",
+		fmt.Sprintf("NOT EXISTS (SELECT 1 FROM %s.ship_statuses ss WHERE ss.id=o.ship_status_id AND (ss.name LIKE '%%已发货%%' OR ss.name IN ('部分发货','已签收','已出库','已收货','已完成')))", s),
+	}
+	return fmt.Sprintf(`SELECT o.id,CASE WHEN o.portal_service_code IN ('direct_ship','product_order','processing_ship') THEN coalesce(o.receiver_name,'') ELSE coalesce(nullif(o.receiver_name,''),nullif(c.contact,''),c.name,'') END,CASE WHEN o.portal_service_code IN ('direct_ship','product_order','processing_ship') THEN coalesce(o.receiver_phone,'') ELSE coalesce(nullif(o.receiver_phone,''),c.phone,'') END,md5(to_jsonb(o)::text) FROM %[1]s.orders o LEFT JOIN %[1]s.customers c ON c.id=o.customer_id WHERE %[2]s AND coalesce(o.ship_tracking_no,'')='' AND NOT EXISTS(SELECT 1 FROM %[1]s.order_shipping_trackings t WHERE t.order_id=o.id) AND coalesce(o.ship_method,'') NOT IN ('pickup','self_pickup','local_delivery')`, s, strings.Join(where, " AND "))
 }
 func (r Repository) ImportShippingReturn(ctx context.Context, actor, name, hash string, t d.Template, items []d.Row) (d.Batch, error) {
 	var b d.Batch
@@ -166,25 +173,6 @@ func (r Repository) ImportShippingReturn(ctx context.Context, actor, name, hash 
 	orders.Close()
 	if e != nil {
 		return b, e
-	}
-	ids := []int64{}
-	for _, list := range targets {
-		for _, o := range list {
-			ids = append(ids, o.id)
-		}
-	}
-	progress, err := progresspg.Load(ctx, tx, r.schema, ids)
-	if err != nil {
-		return b, err
-	}
-	for key, list := range targets {
-		filtered := list[:0]
-		for _, o := range list {
-			if progress[o.id] != nil && progress[o.id].CanShip {
-				filtered = append(filtered, o)
-			}
-		}
-		targets[key] = filtered
 	}
 	// Duplicate waybills collapse only if their recipient and cost agree; conflicts never auto-apply.
 	first := map[string]int{}
@@ -311,28 +299,98 @@ func (r Repository) returnBatch(ctx context.Context, id int64) (d.Batch, error) 
 	return b, rows.Err()
 }
 func (r Repository) ShippingReturnCandidates(ctx context.Context, oid int64) ([]d.Row, error) {
-	out := []d.Row{}
-	rows, e := r.pool.Query(ctx, fmt.Sprintf(`SELECT r.id,r.payload,c.order_id,md5(to_jsonb(o)::text),r.result FROM %[1]s.shipping_return_rows r JOIN %[1]s.shipping_return_candidates c ON c.row_id=r.id JOIN %[1]s.orders o ON o.id=c.order_id WHERE r.status='pending' AND NOT o.is_void AND coalesce(o.ship_tracking_no,'')='' AND ($1::bigint=0 OR c.order_id=$1) ORDER BY r.id DESC`, r.schema), oid)
-	if e != nil {
-		return out, e
+	return r.liveShippingReturnCandidates(ctx, r.pool, oid)
+}
+
+// Read from current orders, including matches whose inventory is not yet ready.
+// A GET neither reserves stock nor persists stale recipient-match snapshots.
+func (r Repository) liveShippingReturnCandidates(ctx context.Context, q progresspg.Querier, oid int64) ([]d.Row, error) {
+	query := returnOrderSQL(r.schema)
+	args := []any{}
+	if oid > 0 {
+		query += " AND o.id=$1"
+		args = append(args, oid)
+	}
+	orders, err := q.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	targets := map[string][]returnOrder{}
+	ids := []int64{}
+	for orders.Next() {
+		var o returnOrder
+		if err = orders.Scan(&o.id, &o.name, &o.phone, &o.version); err != nil {
+			orders.Close()
+			return nil, err
+		}
+		if key := d.PhoneMatchKey(o.phone); key != "" {
+			targets[key] = append(targets[key], o)
+			ids = append(ids, o.id)
+		}
+	}
+	err = orders.Err()
+	orders.Close()
+	if err != nil {
+		return nil, err
+	}
+	progress, err := progresspg.Load(ctx, q, r.schema, ids)
+	if err != nil {
+		return nil, err
+	}
+	dates := map[int64][2]string{}
+	meta, err := q.Query(ctx, fmt.Sprintf(`SELECT id,order_no,coalesce(to_char(order_date,'YYYY-MM-DD'),'') FROM %s.orders WHERE id=ANY($1)`, r.schema), ids)
+	if err != nil {
+		return nil, err
+	}
+	for meta.Next() {
+		var id int64
+		var no, date string
+		if err = meta.Scan(&id, &no, &date); err != nil {
+			meta.Close()
+			return nil, err
+		}
+		dates[id] = [2]string{no, date}
+	}
+	err = meta.Err()
+	meta.Close()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := q.Query(ctx, fmt.Sprintf(`SELECT r.id,r.payload FROM %[1]s.shipping_return_rows r
+      WHERE r.status='pending' AND NOT EXISTS(SELECT 1 FROM %[1]s.orders o WHERE o.ship_tracking_no=r.payload->>'tracking_no'
+        UNION ALL SELECT 1 FROM %[1]s.order_shipping_trackings t WHERE t.tracking_no=r.payload->>'tracking_no') ORDER BY r.id DESC`, r.schema))
+	if err != nil {
+		return nil, err
 	}
 	defer rows.Close()
+	out := []d.Row{}
 	for rows.Next() {
-		var v d.Row
+		var item d.Row
 		var raw []byte
-		var id, order int64
-		var version, result string
-		if e = rows.Scan(&id, &raw, &order, &version, &result); e != nil {
-			return out, e
+		var id int64
+		if err = rows.Scan(&id, &raw); err != nil {
+			return nil, err
 		}
-		if e = json.Unmarshal(raw, &v); e != nil {
-			return out, e
+		if err = json.Unmarshal(raw, &item); err != nil {
+			return nil, err
 		}
-		v.ID = id
-		v.OrderID = order
-		v.Version = version
-		v.Error = result
-		out = append(out, v)
+		if item.Error != "" {
+			continue
+		}
+		for _, o := range targets[d.PhoneMatchKey(item.Phone)] {
+			if !d.RecipientMatches(item.Receiver, item.Phone, o.name, o.phone) {
+				continue
+			}
+			v := item
+			v.ID, v.OrderID, v.Version = id, o.id, o.version
+			v.OrderNo, v.OrderDate = dates[o.id][0], dates[o.id][1]
+			v.BlockReason = "订单尚未满足发货条件"
+			if p := progress[o.id]; p != nil {
+				v.CanSelect = p.CanShip
+				v.BlockReason = p.BlockReason
+			}
+			out = append(out, v)
+		}
 	}
 	return out, rows.Err()
 }
@@ -352,7 +410,7 @@ func (r Repository) selectShippingReturn(ctx context.Context, actor string, oid,
 	var raw, cfg []byte
 	var status string
 	var selected int64
-	e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT r.payload,b.template,r.status,coalesce(r.selected_order_id,0) FROM %[1]s.shipping_return_rows r JOIN %[1]s.shipping_return_batches b ON b.id=r.batch_id JOIN %[1]s.shipping_return_candidates c ON c.row_id=r.id AND c.order_id=$2 WHERE r.id=$1 FOR UPDATE OF r`, r.schema), rid, oid).Scan(&raw, &cfg, &status, &selected)
+	e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT r.payload,b.template,r.status,coalesce(r.selected_order_id,0) FROM %[1]s.shipping_return_rows r JOIN %[1]s.shipping_return_batches b ON b.id=r.batch_id WHERE r.id=$1 FOR UPDATE OF r`, r.schema), rid).Scan(&raw, &cfg, &status, &selected)
 	if e != nil {
 		return out, e
 	}
@@ -365,12 +423,20 @@ func (r Repository) selectShippingReturn(ctx context.Context, actor string, oid,
 	// Import and selection share this lock. Recheck uniqueness inside it because
 	// another uploaded batch may have introduced candidates after the initial scan.
 	if automatic {
-		var unique bool
-		e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT (SELECT count(*) FROM %[1]s.shipping_return_candidates WHERE row_id=$1)=1 AND (SELECT count(*) FROM %[1]s.shipping_return_candidates c JOIN %[1]s.shipping_return_rows r ON r.id=c.row_id WHERE c.order_id=$2 AND r.status='pending')=1`, r.schema), rid, oid).Scan(&unique)
-		if e != nil {
-			return out, e
+		matches, err := r.liveShippingReturnCandidates(ctx, tx, 0)
+		if err != nil {
+			return out, err
 		}
-		if !unique {
+		rowCount, orderCount := 0, 0
+		for _, c := range matches {
+			if c.ID == rid {
+				rowCount++
+			}
+			if c.OrderID == oid {
+				orderCount++
+			}
+		}
+		if rowCount != 1 || orderCount != 1 {
 			return out, fmt.Errorf("出现多个匹配，请选择快递单")
 		}
 	}
@@ -400,7 +466,7 @@ func (r Repository) selectShippingReturn(ctx context.Context, actor string, oid,
 		return out, err
 	}
 	if progress[oid] == nil || !progress[oid].CanShip {
-		return out, fmt.Errorf("订单库存或履约状态已变化，请重新匹配")
+		return out, fmt.Errorf("本单实物库存尚未全部分配或履约状态不允许发货，请先处理订单库存后刷新")
 	}
 	if !d.RecipientMatches(item.Receiver, item.Phone, eligible.name, eligible.phone) {
 		return out, fmt.Errorf("收件信息已变化")

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	d "orderapp/internal/domain/shippingreturn"
 	"orderapp/internal/infrastructure/postgres/freight"
-	progresspg "orderapp/internal/infrastructure/postgres/orderprogress"
 )
 
 // RematchShippingReturn only updates pending candidates. It never invokes selection.
@@ -92,16 +91,6 @@ func (r Repository) RematchShippingReturn(ctx context.Context, actor string, bat
 	if err != nil {
 		return d.Batch{}, err
 	}
-	ids := []int64{}
-	for _, list := range targets {
-		for _, o := range list {
-			ids = append(ids, o.id)
-		}
-	}
-	progress, err := progresspg.Load(ctx, tx, r.schema, ids)
-	if err != nil {
-		return d.Batch{}, err
-	}
 	changed := []int64{}
 	for _, item := range items {
 		if _, err = tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.shipping_return_candidates WHERE row_id=$1`, r.schema), item.ID); err != nil {
@@ -111,14 +100,14 @@ func (r Repository) RematchShippingReturn(ctx context.Context, actor string, bat
 		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.orders WHERE ship_tracking_no=$1 UNION ALL SELECT 1 FROM %[1]s.order_shipping_trackings WHERE tracking_no=$1)`, r.schema), item.TrackingNo).Scan(&occupied); err != nil {
 			return d.Batch{}, err
 		}
-		reason := "未匹配当前可发货订单"
+		reason := "未匹配收件信息一致的待发订单"
 		if occupied {
 			reason = "该运单已被使用，请核对"
 		} else if item.Error != "" {
 			reason = item.Error
 		} else {
 			for _, o := range targets[d.PhoneMatchKey(item.Phone)] {
-				if progress[o.id] == nil || !progress[o.id].CanShip || !d.RecipientMatches(item.Receiver, item.Phone, o.name, o.phone) {
+				if !d.RecipientMatches(item.Receiver, item.Phone, o.name, o.phone) {
 					continue
 				}
 				if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.shipping_return_candidates(row_id,order_id,version) VALUES($1,$2,$3)`, r.schema), item.ID, o.id, o.version); err != nil {

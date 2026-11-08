@@ -25,7 +25,7 @@ func TestShippingReturnRepeatAfterReceiptRematchesWithoutShipping(t *testing.T) 
 	cfg.CarrierID = 1
 	rows := []d.Row{{RowNo: 3, TrackingNo: "SF5144416745654", ActualCents: 910, Receiver: "汝**", Phone: "136****6539", Status: "pending"}}
 	before, err := r.ImportShippingReturn(ctx, "tester", "return.xlsx", "rematch-hash", cfg, rows)
-	if err != nil || before.Rows[0].Status != "unmatched" {
+	if err != nil || before.Rows[0].Status != "pending" || before.Updated != 0 {
 		t.Fatalf("initial %+v %v", before, err)
 	}
 	if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.orders SET process_status_id=(SELECT id FROM %[1]s.order_process_statuses WHERE name='无需生产' LIMIT 1) WHERE id=%d`, schema, oid)); err != nil {
