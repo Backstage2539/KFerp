@@ -13,6 +13,7 @@ const choices = computed(() => {
  if (props.step.kind === 'external') return [{value:'none',label:'已核实：未开票且无外部入账'},{value:'recorded',label:'已完成冲减或更正并登记凭据'}]
  if (props.step.kind === 'approval') return [{value:'approve',label:'批准本次订单处理'}]
  if (props.step.kind === 'period') return [{value:'approve',label:'批准历史账期更正，保留原快照'}]
+ if (props.step.kind === 'production_stock') return (props.options?.production || []).filter(v=>v.value==='stop').map(v=>({...v,label:'确认余料、在制品、预留和产出的原停工方案'}))
  return (props.options?.[props.step.kind] || []).filter(v => v.value === props.step.choice)
 })
 async function submit() {

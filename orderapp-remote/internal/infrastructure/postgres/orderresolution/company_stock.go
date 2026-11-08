@@ -229,6 +229,20 @@ func (r Repository) lockCompanyTargets(ctx context.Context, tx pgx.Tx, orderID i
 			return err
 		}
 	}
+	workIDs := []int64{}
+	for _, d := range cmd.Dispositions {
+		if d.Kind == "production" && d.Choice == "stop" {
+			for _, s := range d.Stops {
+				workIDs = append(workIDs, s.WorkOrderID)
+			}
+		}
+	}
+	sort.Slice(workIDs, func(i, j int) bool { return workIDs[i] < workIDs[j] })
+	for _, id := range workIDs {
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, fmt.Sprintf("%s:finished-receipt:%d", r.schema, id)); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

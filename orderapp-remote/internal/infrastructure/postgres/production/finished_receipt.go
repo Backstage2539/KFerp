@@ -21,6 +21,16 @@ func lockReceiptWorkOrderTx(ctx context.Context, tx pgx.Tx, schema string, id in
 		return err
 	}
 	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, fmt.Sprintf("%s:finished-receipt:%d", schema, id))
+	if err != nil {
+		return err
+	}
+	var stopped bool
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.work_orders WHERE id=$1 AND status='stopped')`, schema), id).Scan(&stopped); err != nil {
+		return err
+	}
+	if stopped {
+		return fmt.Errorf("工单已停止剩余生产，请保留原扣料、在制品和产出记录")
+	}
 	return err
 }
 
@@ -205,7 +215,7 @@ func loadReceiptContextTx(ctx context.Context, tx pgx.Tx, schema string, id int6
 	if task.QualityBlocked && task.BlockedReason == "" {
 		task.BlockedReason = "质检阻塞，请先完成质量处理"
 	}
-	if wo.Status == "completed" || wo.Status == "cancelled" {
+	if wo.Status == "completed" || wo.Status == "cancelled" || wo.Status == "stopped" {
 		task.AvailableQty = 0
 		task.CorrectionBlockedReason = "工单已结束，不能更正报工"
 	}

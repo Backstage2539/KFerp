@@ -71,6 +71,7 @@ func ensureGuards(ctx context.Context, pool *pgxpool.Pool, schema string) error 
  CREATE OR REPLACE FUNCTION %[1]s.order_resolution_guard_job_card()RETURNS trigger LANGUAGE plpgsql AS $fn$
  DECLARE target BIGINT;plan BIGINT;
  BEGIN
+ IF NEW.status='stopped' AND EXISTS(SELECT 1 FROM %[1]s.order_resolution_production_stops WHERE work_order_id=NEW.work_order_id) THEN RETURN NEW;END IF;
  IF TG_OP='UPDATE' AND NEW.status IS NOT DISTINCT FROM OLD.status AND NEW.started_at IS NOT DISTINCT FROM OLD.started_at AND NEW.actual_input_qty<=OLD.actual_input_qty THEN RETURN NEW;END IF;
  IF NEW.status IN('cancelled','paused') THEN RETURN NEW;END IF;
  SELECT production_plan_id INTO plan FROM %[1]s.work_orders WHERE id=NEW.work_order_id;
@@ -81,6 +82,7 @@ func ensureGuards(ctx context.Context, pool *pgxpool.Pool, schema string) error 
  CREATE OR REPLACE FUNCTION %[1]s.order_resolution_guard_production()RETURNS trigger LANGUAGE plpgsql AS $fn$
  DECLARE target BIGINT;
  BEGIN
+ IF (to_jsonb(NEW)->>'status')='stopped' AND EXISTS(SELECT 1 FROM %[1]s.order_resolution_production_stops WHERE work_order_id=(to_jsonb(NEW)->>'id')::bigint) THEN RETURN NEW;END IF;
  IF TG_OP='UPDATE' AND (to_jsonb(NEW)->>'status') IN('cancelled','completed') THEN RETURN NEW;END IF;
  FOR target IN SELECT id FROM %[1]s.orders WHERE order_no=ANY(string_to_array(replace(COALESCE(to_jsonb(NEW)->>'order_nos',''),' ',''),',')) LOOP
  PERFORM %[1]s.order_resolution_require_production(target,COALESCE((to_jsonb(NEW)->>'production_plan_id')::bigint,0));

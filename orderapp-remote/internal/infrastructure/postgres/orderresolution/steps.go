@@ -119,6 +119,14 @@ func (r Repository) completeStep(ctx context.Context, orderID, requestID, stepID
 	}
 	completed := true
 	switch step.Kind {
+	case "production_stock":
+		if cmd.Choice != "stop" || step.Choice != "stop" || strings.TrimSpace(cmd.Note) == "" {
+			return out, fmt.Errorf("请明确确认原停工方案的余料、在制品、预留和产出，并填写仓库说明")
+		}
+		if !currentPolicy.Policy.Allows("production", "stop") {
+			return out, fmt.Errorf("管理员已停用停工处置")
+		}
+		err = r.revalidatePlan(ctx, tx, orderID, requestID, original, out.Command, out.Plan)
 	case "stock_reservation":
 		if cmd.Choice != step.Choice || !one(cmd.Choice, "release", "keep") || strings.TrimSpace(cmd.Note) == "" {
 			return out, fmt.Errorf("请确认预览中的预留处置并填写仓库说明")
@@ -151,7 +159,7 @@ func (r Repository) completeStep(ctx context.Context, orderID, requestID, stepID
 		if cmd.Choice != step.Choice || strings.TrimSpace(cmd.Note) == "" {
 			return out, fmt.Errorf("请确认原预览的生产处置并填写说明")
 		}
-		if cmd.Choice == "allocate" {
+		if cmd.Choice == "allocate" || cmd.Choice == "stop" {
 			// Post the reservation atomically with the final order adjustment.
 			err = r.revalidatePlan(ctx, tx, orderID, requestID, original, out.Command, out.Plan)
 			break

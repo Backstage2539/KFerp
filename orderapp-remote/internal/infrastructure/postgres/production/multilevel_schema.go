@@ -22,7 +22,7 @@ SET output_type='product',
     output_name=CASE WHEN output_name<>'' THEN output_name ELSE product_name END,
     output_qty=CASE WHEN output_qty>0 THEN output_qty ELSE planned_inventory_qty END,
     output_unit=CASE WHEN output_unit<>'' THEN output_unit ELSE inventory_unit END
-WHERE output_type='product';
+WHERE output_type='product' AND NOT EXISTS(SELECT 1 FROM %[1]s.production_plans p WHERE p.id=production_plan_items.production_plan_id AND p.status='stopped');
 
 ALTER TABLE %[1]s.work_orders ADD COLUMN IF NOT EXISTS output_type TEXT NOT NULL DEFAULT 'product';
 ALTER TABLE %[1]s.work_orders ADD COLUMN IF NOT EXISTS output_product_id BIGINT NOT NULL DEFAULT 0;
@@ -36,7 +36,7 @@ SET output_type='product',
     output_name=CASE WHEN output_name<>'' THEN output_name ELSE product_name END,
     output_qty=CASE WHEN output_qty>0 THEN output_qty ELSE planned_inventory_qty END,
     output_unit=CASE WHEN output_unit<>'' THEN output_unit ELSE inventory_unit END
-WHERE output_type='product';
+WHERE output_type='product' AND status<>'stopped';
 
 ALTER TABLE %[1]s.produce_running_items ADD COLUMN IF NOT EXISTS output_type TEXT NOT NULL DEFAULT 'product';
 ALTER TABLE %[1]s.produce_running_items ADD COLUMN IF NOT EXISTS output_product_id BIGINT NOT NULL DEFAULT 0;
@@ -49,7 +49,7 @@ UPDATE %[1]s.produce_running_items
 SET output_type='product',
     output_product_id=CASE WHEN output_product_id>0 THEN output_product_id ELSE product_id END,
     output_name=CASE WHEN output_name<>'' THEN output_name ELSE product_name END
-WHERE output_type='product';
+WHERE output_type='product' AND status<>'stopped';
 
 CREATE TABLE IF NOT EXISTS %[1]s.production_plan_item_dependencies (
 	id BIGSERIAL PRIMARY KEY,
@@ -161,7 +161,7 @@ ALTER TABLE %[1]s.work_order_dependencies ADD COLUMN IF NOT EXISTS component_bom
 ALTER TABLE %[1]s.work_order_dependencies ADD COLUMN IF NOT EXISTS component_spec_g BIGINT NOT NULL DEFAULT 0;
 UPDATE %[1]s.work_order_dependencies
 SET component_type='material',component_id=material_id,component_spec_g=0
-WHERE component_id=0 AND material_id>0;
+WHERE component_id=0 AND material_id>0 AND NOT EXISTS(SELECT 1 FROM %[1]s.work_orders w WHERE w.status='stopped' AND w.id IN(work_order_dependencies.work_order_id,work_order_dependencies.depends_on_work_order_id));
 DO $$
 DECLARE old_uq RECORD;
 BEGIN
@@ -232,7 +232,7 @@ ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN IF NOT EXISTS sour
 ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN IF NOT EXISTS source_owner_customer_id BIGINT NOT NULL DEFAULT 0;
 UPDATE %[1]s.work_order_material_reservations
 SET component_type='material',component_id=material_id,component_spec_g=0
-WHERE component_id=0 AND material_id>0;
+WHERE component_id=0 AND material_id>0 AND NOT EXISTS(SELECT 1 FROM %[1]s.work_orders w WHERE w.status='stopped' AND (w.id=work_order_material_reservations.work_order_id OR (w.running_item_id>0 AND w.running_item_id=work_order_material_reservations.running_item_id)));
 DROP INDEX IF EXISTS %[1]s.work_order_material_reservations_component_idx;
 CREATE INDEX work_order_material_reservations_component_idx
 	ON %[1]s.work_order_material_reservations(component_type,component_id,component_bom_spec_id,component_spec_g,status);
@@ -247,7 +247,7 @@ ALTER TABLE %[1]s.work_order_material_reservation_batches ADD COLUMN IF NOT EXIS
 ALTER TABLE %[1]s.work_order_material_reservation_batches ALTER COLUMN material_batch_id SET DEFAULT 0;
 UPDATE %[1]s.work_order_material_reservation_batches
 SET component_type='material',component_id=material_id,component_spec_g=0
-WHERE component_id=0 AND material_id>0;
+WHERE component_id=0 AND material_id>0 AND NOT EXISTS(SELECT 1 FROM %[1]s.work_orders w WHERE w.status='stopped' AND w.id=work_order_material_reservation_batches.work_order_id);
 UPDATE %[1]s.work_order_material_reservation_batches binding
 SET warehouse=COALESCE(NULLIF((
 	SELECT ledger.warehouse
@@ -262,7 +262,7 @@ SET warehouse=COALESCE(NULLIF((
 	ORDER BY ledger.id DESC
 	LIMIT 1
 ),''),'finished_goods')
-WHERE binding.component_type='product' AND binding.stock_batch_id>0 AND binding.warehouse='';
+WHERE binding.component_type='product' AND binding.stock_batch_id>0 AND binding.warehouse='' AND NOT EXISTS(SELECT 1 FROM %[1]s.work_orders w WHERE w.id=binding.work_order_id AND w.status='stopped');
 DO $$
 DECLARE old_uq RECORD;
 BEGIN

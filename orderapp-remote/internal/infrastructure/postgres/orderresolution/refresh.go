@@ -110,6 +110,11 @@ func (r Repository) Refresh(ctx context.Context, orderID, requestID int64, cmd d
 					continue
 				}
 			}
+			if (one(task.Kind, "production", "production_stock") && task.Choice == "stop") || task.Kind == "approval" {
+				if verifyProductionStopIdentity(original, current, cmd) != nil {
+					continue
+				}
+			}
 			// A pending confirmation describes the exact displayed disposition.
 			// Changing its quantity or destination requires a new confirmation.
 			if task.Kind != "funds" && (step.Label != task.Label || !reflect.DeepEqual(dispositionFor(out.Command, task.Kind, task.SourceID), dispositionFor(cmd, task.Kind, task.SourceID))) {
@@ -131,7 +136,7 @@ func (r Repository) Refresh(ctx context.Context, orderID, requestID int64, cmd d
 		}
 	}
 	for _, step := range out.Steps {
-		if !kept[step.ID] && one(step.Status, "pending", "failed") {
+		if !kept[step.ID] && (one(step.Status, "pending", "failed") || (step.Choice == "stop" && one(step.Kind, "production", "production_stock") && step.Status == "completed")) {
 			if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.order_resolution_steps SET status='superseded',updated_at=now() WHERE id=$1`, r.schema), step.ID); err != nil {
 				return out, err
 			}
@@ -177,6 +182,9 @@ func (r Repository) Refresh(ctx context.Context, orderID, requestID int64, cmd d
 }
 
 func dispositionFor(cmd domain.Command, kind string, id int64) *domain.Disposition {
+	if kind == "production_stock" {
+		kind = "production"
+	}
 	for _, d := range cmd.Dispositions {
 		if d.Kind == kind && d.ID == id {
 			return &d
