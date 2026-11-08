@@ -19,7 +19,7 @@ func (r *Repository) customerInventoryOrderSources(ctx context.Context, customer
         SELECT e.product_id,e.bom_spec_id,e.spec_g,o.id,o.order_no,
                COALESCE(NULLIF(ps.name,''),'未设置'),
                SUM(GREATEST(e.promised_qty-COALESCE((to_jsonb(e)->>'closed_qty')::bigint,0)-e.received_qty,0))::bigint,
-               SUM(e.received_qty)::bigint
+               SUM(e.received_qty)::bigint,SUM(COALESCE((to_jsonb(e)->>'returned_qty')::bigint,0))::bigint
         FROM %[1]s.customer_stock_entitlements e
         JOIN %[1]s.orders o ON o.id=e.source_order_id AND o.customer_id=e.customer_id
         LEFT JOIN %[1]s.pay_statuses ps ON ps.id=o.pay_status_id
@@ -38,7 +38,7 @@ func (r *Repository) customerInventoryOrderSources(ctx context.Context, customer
 	for rows.Next() {
 		var productID, specID, specG int64
 		var source app.CustomerAssetOrderSource
-		if err := rows.Scan(&productID, &specID, &specG, &source.OrderID, &source.OrderNo, &source.PayStatus, &source.PendingInboundQty, &source.ReceivedQty); err != nil {
+		if err := rows.Scan(&productID, &specID, &specG, &source.OrderID, &source.OrderNo, &source.PayStatus, &source.PendingInboundQty, &source.ReceivedQty, &source.ReturnedQty); err != nil {
 			return nil, err
 		}
 		key := miniStockKey(productID, specID, specG)
@@ -48,6 +48,7 @@ func (r *Repository) customerInventoryOrderSources(ctx context.Context, customer
 		if index, ok := positions[key][source.OrderID]; ok {
 			result[key][index].PendingInboundQty += source.PendingInboundQty
 			result[key][index].ReceivedQty += source.ReceivedQty
+			result[key][index].ReturnedQty += source.ReturnedQty
 		} else {
 			positions[key][source.OrderID] = len(result[key])
 			result[key] = append(result[key], source)

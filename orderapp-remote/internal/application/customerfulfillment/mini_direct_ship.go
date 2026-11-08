@@ -280,6 +280,7 @@ type MiniDirectShipListResult struct {
 }
 
 type CustomerInventorySummary struct {
+	ReturnedQty          *int64   `json:"returned_qty,omitempty"`
 	PurchasedQty         *int64   `json:"purchased_qty,omitempty"`
 	ReceivedQty          *int64   `json:"received_qty,omitempty"`
 	PhysicalAvailableQty int64    `json:"physical_available_qty"`
@@ -387,6 +388,7 @@ type CustomerAssetInventoryBatch struct {
 
 // CustomerAssetOrderSource describes a traceable retained-stock order, not its current stock balance.
 type CustomerAssetOrderSource struct {
+	ReturnedQty       int64  `json:"returned_qty"`
 	OrderID           int64  `json:"order_id"`
 	OrderNo           string `json:"order_no"`
 	PayStatus         string `json:"pay_status"`

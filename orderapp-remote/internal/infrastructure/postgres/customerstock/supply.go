@@ -18,13 +18,14 @@ type Supply struct {
 }
 
 type PurchaseTotal struct {
-	HistoryComplete                                                         bool
-	ProductID, BomSpecID, BomVariantID, SpecG, PurchasedQty, ReceivedQty    int64
-	Warehouse, ProductName, BomSpecName, BomSpecKey, InventoryUnit, SKUCode string
+	HistoryComplete                                                                   bool
+	ProductID, BomSpecID, BomVariantID, SpecG, PurchasedQty, ReceivedQty, ReturnedQty int64
+	Warehouse, ProductName, BomSpecName, BomSpecKey, InventoryUnit, SKUCode           string
 }
 
 // ListPurchaseTotals counts linked accepted retained purchases and their actual
-// receipts. Shipment allocations do not reduce these cumulative quantities.
+// receipts net of posted ownership returns. ReturnedQty separately explains
+// the reduction; shipment allocations do not reduce these quantities.
 func ListPurchaseTotals(ctx context.Context, q Querier, schema string, customerID int64, warehouse string) ([]PurchaseTotal, error) {
 	var exists bool
 	if err := q.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+".customer_stock_entitlements").Scan(&exists); err != nil {
@@ -33,7 +34,7 @@ func ListPurchaseTotals(ctx context.Context, q Querier, schema string, customerI
 	if !exists {
 		return nil, nil
 	}
-	rows, err := q.Query(ctx, fmt.Sprintf(`SELECT e.product_id,e.bom_spec_id,MAX(e.bom_variant_id),e.spec_g,e.warehouse_code,SUM(e.promised_qty-COALESCE((to_jsonb(e)->>'closed_qty')::bigint,0))::bigint,SUM(e.received_qty)::bigint,COALESCE(p.name,''),COALESCE(s.name,''),COALESCE(s.spec_key,''),COALESCE(s.inventory_unit,''),COALESCE(NULLIF(s.code,''),p.sku_code,''), NOT EXISTS(
+	rows, err := q.Query(ctx, fmt.Sprintf(`SELECT e.product_id,e.bom_spec_id,MAX(e.bom_variant_id),e.spec_g,e.warehouse_code,SUM(e.promised_qty-COALESCE((to_jsonb(e)->>'closed_qty')::bigint,0)-COALESCE((to_jsonb(e)->>'returned_qty')::bigint,0))::bigint,SUM(e.received_qty-COALESCE((to_jsonb(e)->>'returned_qty')::bigint,0))::bigint,SUM(COALESCE((to_jsonb(e)->>'returned_qty')::bigint,0))::bigint,COALESCE(p.name,''),COALESCE(s.name,''),COALESCE(s.spec_key,''),COALESCE(s.inventory_unit,''),COALESCE(NULLIF(s.code,''),p.sku_code,''), NOT EXISTS(
  SELECT 1 FROM %[1]s.orders old_order JOIN %[1]s.order_items old_item ON old_item.order_id=old_order.id
  WHERE old_order.customer_id=$1 AND old_order.delivery_mode='customer_stock' AND old_order.delivery_warehouse_code=e.warehouse_code
  AND NOT old_order.is_void AND COALESCE(to_jsonb(old_order)->>'confirmation_status','accepted')='accepted' AND old_item.product_id=e.product_id
@@ -51,7 +52,7 @@ GROUP BY e.product_id,e.bom_spec_id,e.spec_g,e.warehouse_code,p.name,s.name,s.sp
 	var out []PurchaseTotal
 	for rows.Next() {
 		var v PurchaseTotal
-		if err := rows.Scan(&v.ProductID, &v.BomSpecID, &v.BomVariantID, &v.SpecG, &v.Warehouse, &v.PurchasedQty, &v.ReceivedQty, &v.ProductName, &v.BomSpecName, &v.BomSpecKey, &v.InventoryUnit, &v.SKUCode, &v.HistoryComplete); err != nil {
+		if err := rows.Scan(&v.ProductID, &v.BomSpecID, &v.BomVariantID, &v.SpecG, &v.Warehouse, &v.PurchasedQty, &v.ReceivedQty, &v.ReturnedQty, &v.ProductName, &v.BomSpecName, &v.BomSpecKey, &v.InventoryUnit, &v.SKUCode, &v.HistoryComplete); err != nil {
 			return nil, err
 		}
 		out = append(out, v)

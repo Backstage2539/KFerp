@@ -926,7 +926,7 @@ func normalizeStockDocumentCommand(cmd StockDocumentCommand) (StockDocumentComma
 	}
 	cmd.EntryType = entryTypeForPurpose(cmd.Purpose, cmd.IsReturn)
 	cmd.SourceType = strings.TrimSpace(cmd.SourceType)
-	if cmd.SourceType == "order_resolution_return" {
+	if cmd.SourceType == "order_resolution_return" || cmd.SourceType == "order_resolution_ownership_return_out" {
 		return StockDocumentCommand{}, fmt.Errorf("订单退货须从订单处理单完成仓库确认")
 	}
 	cmd.ReturnSource = strings.TrimSpace(cmd.ReturnSource)

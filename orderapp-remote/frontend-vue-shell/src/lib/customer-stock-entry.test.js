@@ -7,8 +7,8 @@ import * as retained from './customer-stock-entry.js'
 
 test('累计购买和入库与可用数量分开，并合计同规格的补购缺口', () => {
   const spec = { purchased_qty: 20, received_qty: 8, physical_available_qty: 4, pending_inbound_qty: 12, pending_reserved_qty: 3 }
-  assert.deepEqual(stockPurchaseSummary(spec), { purchased: 20, received: 8 })
-  assert.deepEqual(stockPurchaseSummary({}), { purchased: null, received: null })
+  assert.deepEqual(stockPurchaseSummary(spec), { purchased: 20, received: 8, returned: 0 })
+  assert.deepEqual(stockPurchaseSummary({}), { purchased: null, received: null, returned: 0 })
   assert.equal(stockGroupShortage(spec, [7, 8]), 2)
   assert.equal(stockGroupShortage(spec, [6, 7]), 0)
 })
@@ -63,3 +63,8 @@ test('普通发货清除上一次留厂订单的目标仓，防止误入客户�
 })
 
  test('shared backend progress preserves production and receipt together',()=> {assert.equal(customerStockProgressLabel({delivery_mode:'customer_stock',delivery_status:'received',process_status:'生产完成',fulfillment_progress:{label:'生产完成 · 已入库'}}),'生产完成 · 已入库')})
+
+test('货权退回单列，不将退回数量恢复成待入库',()=>{
+ assert.deepEqual(stockPurchaseSummary({purchased_qty:5,received_qty:3,returned_qty:2}),{purchased:5,received:3,returned:2})
+ assert.deepEqual(stockSupplySummary({physical_available_qty:3,pending_inbound_qty:2,pending_reserved_qty:0},5),{physical:3,pending:2,reserved:0,gap:0})
+})

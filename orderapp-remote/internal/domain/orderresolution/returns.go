@@ -41,6 +41,7 @@ func validateReturnSelections(c Context, cmd Command, plan Plan) (string, error)
 	seen := map[string]bool{}
 	quantities := map[int64]int64{}
 	batchQuantities := map[int64]int64{}
+	ownershipQuantities := map[int64]int64{}
 	label := ""
 	for _, selected := range cmd.ReturnSelections {
 		key := fmt.Sprintf("%s:%d", selected.SourceKind, selected.SourceID)
@@ -70,6 +71,24 @@ func validateReturnSelections(c Context, cmd Command, plan Plan) (string, error)
 			return "", fmt.Errorf("请选择与原实物货权匹配的退回仓库和货权处置")
 		}
 		if source.Kind == "ownership" {
+			if c.DeliveryMode != "customer_stock" || source.EntitlementID <= 0 || selected.Ownership != "company" {
+				return "", fmt.Errorf("货权退回必须对应本笔留厂销售的原入库权益和公司接收仓")
+			}
+			confirmed := false
+			for _, d := range c.Dependencies {
+				if d.Kind != "customer_stock" || d.ID != source.EntitlementID {
+					continue
+				}
+				for _, choice := range cmd.Dispositions {
+					if choice.Kind == d.Kind && choice.ID == d.ID && choice.Choice == "ownership_return" {
+						confirmed = true
+					}
+				}
+			}
+			if !confirmed {
+				return "", fmt.Errorf("请明确选择原客户库存权益办理货权退回，不能保留销售货权后自动转走实物")
+			}
+			ownershipQuantities[source.EntitlementID] += selected.Quantity
 			batchQuantities[source.BatchID] += selected.Quantity
 			if batchQuantities[source.BatchID] > source.BatchAvailableQuantity {
 				return "", fmt.Errorf("本批货权退回总量超过未预留实物库存")
@@ -81,6 +100,11 @@ func validateReturnSelections(c Context, cmd Command, plan Plan) (string, error)
 			quality = "待检隔离，禁止销售出库"
 		}
 		label += fmt.Sprintf("%s · %d %s → %s · %s；", source.Label, selected.Quantity, source.Unit, selected.Warehouse, quality)
+	}
+	for _, d := range cmd.Dispositions {
+		if d.Kind == "customer_stock" && d.Choice == "ownership_return" && ownershipQuantities[d.ID] <= 0 {
+			return "", fmt.Errorf("请选择该笔客户货权实际退回的原批次和数量")
+		}
 	}
 	for _, line := range plan.Lines {
 		if line.ReturnDelta <= 0 || line.ReturnDelta != math.Trunc(line.ReturnDelta) || int64(line.ReturnDelta) != quantities[line.ItemID] {
