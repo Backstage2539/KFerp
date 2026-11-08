@@ -18,10 +18,10 @@ test('policy editor loads saved choices and submits the observed revision',async
  const previous=globalThis.fetch;t.after(()=>globalThis.fetch=previous)
  const writes=[]
  globalThis.fetch=async(url,options)=>{
-  if(!options.method||options.method==='GET')return {ok:true,json:async()=>({revision:3,policy:{disabled:{action:['cancel']},approvals:{close:'finance.resolve'}},options:{action:[{value:'close'},{value:'cancel'}]}})}
+  if(!options.method||options.method==='GET')return {ok:true,json:async()=>({revision:3,policy:{disabled:{action:['cancel'],scrap_cost:['reclassify_loss']},approvals:{close:'finance.resolve'}},options:{action:[{value:'close'},{value:'cancel'}]}})}
   writes.push(JSON.parse(options.body));return {ok:false,status:409,json:async()=>({error:'配置已变化'})}
  }
  const editor=await setup();await editor.load()
  assert.deepEqual(editor.form.disabled.action,['cancel']);assert.equal(editor.form.approvals.close,'finance.resolve')
- await editor.save();assert.equal(writes[0].revision,3);assert.deepEqual(writes[0].policy.disabled.action,['cancel']);assert.match(editor.error.value,/配置已变化/)
+ await editor.save();assert.equal(writes[0].revision,3);assert.deepEqual(writes[0].policy.disabled.action,['cancel']);assert.deepEqual(writes[0].policy.disabled.scrap_cost,['reclassify_loss']);assert.match(editor.error.value,/配置已变化/)
 })

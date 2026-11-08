@@ -10,7 +10,7 @@ type Policy struct {
 func (p Policy) Validate() error {
 	options := Options()
 	for kind, values := range p.Disabled {
-		if kind != "action" && !oneOf(kind, "production", "direct_ship", "customer_stock", "stock", "stock_reservation", "fee", "funds", "return_finance", "return_stock", "return_quality", "return_ownership") {
+		if kind != "action" && !oneOf(kind, "production", "direct_ship", "customer_stock", "stock", "stock_reservation", "fee", "funds", "return_finance", "return_stock", "return_quality", "return_ownership", "scrap_cost") {
 			return fmt.Errorf("不支持的处置类别：%s", kind)
 		}
 		for _, value := range values {
@@ -52,6 +52,9 @@ func Preview(c Context, cmd Command) (Plan, error) {
 		return Plan{}, fmt.Errorf("管理员已停用此订单操作")
 	}
 	for _, d := range cmd.Dispositions {
+		if d.Choice == "scrap" && !c.Policy.Allows("scrap_cost", d.CostTreatment) {
+			return Plan{}, fmt.Errorf("管理员已停用所选报损成本处置")
+		}
 		if reason := c.Unavailable[d.Kind+":"+d.Choice]; reason != "" {
 			return Plan{}, fmt.Errorf("%s", reason)
 		}

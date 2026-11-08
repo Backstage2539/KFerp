@@ -17,7 +17,7 @@ import (
 
 type companyBatch struct {
 	ID, ProductID, SpecID, VariantID, SpecG int64
-	Code, Warehouse, Version                string
+	Code, Warehouse, Version, Quality       string
 }
 
 // A production customer is a demand source, not an ownership declaration.
@@ -33,7 +33,7 @@ func (r Repository) companyStockSources(ctx context.Context, q querier, c *domai
 			continue
 		}
 		rows, err := q.Query(ctx, fmt.Sprintf(`SELECT DISTINCT b.id,b.item_id,b.bom_spec_id,b.bom_variant_id,b.spec_g,b.batch_code,
- COALESCE((SELECT l.warehouse FROM %[1]s.stock_ledger_entries l WHERE l.source_batch_code=b.batch_code AND l.item_type=b.item_type AND l.item_id=b.item_id AND l.bom_spec_id=b.bom_spec_id AND l.bom_variant_id=b.bom_variant_id AND l.spec_g=b.spec_g AND l.owner_customer_id=0 ORDER BY l.id DESC LIMIT 1),''),md5(to_jsonb(b)::text)
+ COALESCE((SELECT l.warehouse FROM %[1]s.stock_ledger_entries l WHERE l.source_batch_code=b.batch_code AND l.item_type=b.item_type AND l.item_id=b.item_id AND l.bom_spec_id=b.bom_spec_id AND l.bom_variant_id=b.bom_variant_id AND l.spec_g=b.spec_g AND l.owner_customer_id=0 ORDER BY l.id DESC LIMIT 1),''),md5(to_jsonb(b)::text),COALESCE(b.quality_status,'unchecked')
  FROM %[1]s.stock_batches b JOIN %[1]s.work_orders w ON
  (b.source_doc_type='production_run' AND w.running_item_id=b.source_doc_id AND b.source_doc_id>0)
  OR (b.source_doc_type IN('production_operation_event','operation_completion') AND EXISTS(SELECT 1 FROM %[1]s.production_operation_events e WHERE e.id=b.source_doc_id AND e.work_order_id=w.id))
@@ -46,7 +46,7 @@ func (r Repository) companyStockSources(ctx context.Context, q querier, c *domai
 		var batches []companyBatch
 		for rows.Next() {
 			var b companyBatch
-			if err = rows.Scan(&b.ID, &b.ProductID, &b.SpecID, &b.VariantID, &b.SpecG, &b.Code, &b.Warehouse, &b.Version); err != nil {
+			if err = rows.Scan(&b.ID, &b.ProductID, &b.SpecID, &b.VariantID, &b.SpecG, &b.Code, &b.Warehouse, &b.Version, &b.Quality); err != nil {
 				rows.Close()
 				return err
 			}
@@ -82,7 +82,7 @@ func (r Repository) companyStockSources(ctx context.Context, q querier, c *domai
 			if limit <= 0 || math.Trunc(limit) != limit {
 				continue
 			}
-			options, err := stockpg.NewRepository(r.pool, r.schema).ListTransferOptionsTx(ctx, tx, stockapp.TransferOptionsQuery{Warehouse: b.Warehouse, ItemType: "finished_product", ItemID: b.ProductID, BomSpecID: b.SpecID, Limit: 1000000})
+			options, err := stockpg.NewRepository(r.pool, r.schema).ListCompanyScrapOptionsTx(ctx, tx, stockapp.TransferOptionsQuery{Warehouse: b.Warehouse, ItemType: "finished_product", ItemID: b.ProductID, BomSpecID: b.SpecID, Limit: 1000000})
 			if err != nil {
 				return err
 			}
@@ -127,7 +127,14 @@ func (r Repository) companyStockSources(ctx context.Context, q querier, c *domai
 			if err != nil {
 				return err
 			}
-			dep.CompanyStock = append(dep.CompanyStock, domain.CompanyStockSource{Version: hash([]byte(b.Version + "|" + b.Warehouse)), FreeQuantity: free - protected, UnreservedQuantity: max(int64(0), int64(limit)-originalReserved), Releases: releases, BatchID: b.ID, SourceItemID: itemID, Label: fmt.Sprintf("%s · %s · %s · %s", str(item, "item_name"), b.Code, b.Warehouse, physical.InventoryUnit), AvailableQuantity: available, CloseLimit: int64(limit), Targets: targets})
+			if b.Quality == "hold" || b.Quality == "reject" {
+				targets = nil
+			}
+			source := domain.CompanyStockSource{Version: hash([]byte(b.Version + "|" + b.Warehouse)), FreeQuantity: free - protected, UnreservedQuantity: max(int64(0), int64(limit)-originalReserved), Releases: releases, BatchID: b.ID, SourceItemID: itemID, Label: fmt.Sprintf("%s · %s · %s · %s", str(item, "item_name"), b.Code, b.Warehouse, physical.InventoryUnit), AvailableQuantity: available, CloseLimit: int64(limit), Targets: targets}
+			if err = r.companyScrapCostSource(ctx, q, &source); err != nil {
+				return err
+			}
+			dep.CompanyStock = append(dep.CompanyStock, source)
 		}
 		raw, _ := json.Marshal(dep.CompanyStock)
 		c.Version = hash([]byte(c.Version + string(raw)))
@@ -312,6 +319,9 @@ func verifyCompanySelectionIdentity(original, current domain.Context, cmd domain
 				if s.BatchID != batchID {
 					continue
 				}
+				if targetID == 0 {
+					return s.Version, "scrap"
+				}
 				for _, t := range s.Targets {
 					if t.OrderItemID == targetID {
 						return s.Version, t.Version
@@ -322,7 +332,7 @@ func verifyCompanySelectionIdentity(original, current domain.Context, cmd domain
 		return "", ""
 	}
 	for _, d := range cmd.Dispositions {
-		if d.Kind != "production" || d.Choice != "allocate" {
+		if d.Kind != "production" || !one(d.Choice, "allocate", "scrap") {
 			continue
 		}
 		for _, s := range d.StockSelections {
@@ -339,7 +349,7 @@ func verifyCompanySelectionIdentity(original, current domain.Context, cmd domain
 func (r Repository) lockCompanyStockIdentities(ctx context.Context, tx pgx.Tx, cmd domain.Command) error {
 	ids := []int64{}
 	for _, d := range cmd.Dispositions {
-		if d.Kind == "production" && d.Choice == "allocate" {
+		if d.Kind == "production" && one(d.Choice, "allocate", "scrap") {
 			for _, s := range d.StockSelections {
 				ids = append(ids, s.BatchID)
 			}

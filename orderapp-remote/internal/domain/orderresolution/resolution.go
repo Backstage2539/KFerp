@@ -81,6 +81,7 @@ type Selection struct {
 	Quantity float64 `json:"quantity"`
 }
 type Disposition struct {
+	CostTreatment   string              `json:"cost_treatment,omitempty"`
 	Stops           []StopSelection     `json:"stops,omitempty"`
 	StockSelections []StockSelection    `json:"stock_selections,omitempty"`
 	SourceFeeID     int64               `json:"source_fee_id,omitempty"`
@@ -358,10 +359,24 @@ func preview(c Context, cmd Command) (Plan, error) {
 		if d.Kind == "production" && oneOf(choice.Choice, "keep_company_stock", "continue_company") && d.OwnershipIssue != "" {
 			return fail(d.OwnershipIssue)
 		}
-		if d.Kind == "production" && choice.Choice == "allocate" {
+		if d.Kind == "production" && oneOf(choice.Choice, "allocate", "scrap") {
 			label, err := validateCompanyAllocation(d, choice, p.Lines, companyUsage, c.Dependencies, cmd.Dispositions)
 			if err != nil {
 				return Plan{}, err
+			}
+			if choice.Choice == "scrap" {
+				if cmd.Action != "close" {
+					return fail("已完成成品报损请关闭剩余履约，保留原生产历史")
+				}
+				for _, selected := range choice.StockSelections {
+					for _, source := range d.CompanyStock {
+						if source.BatchID == selected.BatchID && (len(source.CostDate) != 10 || source.CostDate > cmd.PostingDate) {
+							return fail("报损日期不能早于原批次形成及原成本日期，请核对来源记录")
+						}
+					}
+				}
+				label += "；成本处理：" + map[string]string{"retain_cost": "保留原生产成本，报损单列不重复计费", "reclassify_loss": "原生产成本重分类为损失费用，不重复增加总成本"}[choice.CostTreatment]
+				p.Tasks = append(p.Tasks, Task{Kind: "production_finance", SourceID: d.ID, Choice: choice.CostTreatment, Label: d.Label + label, Permission: "finance.resolve"})
 			}
 			d.Label += label
 		}
@@ -437,7 +452,7 @@ func preview(c Context, cmd Command) (Plan, error) {
 			}
 		case "production":
 			permission = "production.resolve"
-			if choice.Choice == "allocate" {
+			if oneOf(choice.Choice, "allocate", "scrap") {
 				permission = "stock.resolve"
 			}
 		case "customer_stock", "stock", "stock_reservation":
@@ -604,6 +619,7 @@ func Options() map[string][]Option {
 	add("timing", "stop_first", "先停止新增履约，后完成清算", "settle_first", "完成处置和清算后最终关闭")
 	add("external_status", "none", "未开票且无外部入账", "recorded", "已开票或已外部入账", "unknown", "待核实")
 	add("posting_mode", "open_period", "开放账期调整", "historical_correction", "申请历史账期更正")
+	add("scrap_cost", "retain_cost", "保留原生产成本，单列报损", "reclassify_loss", "原成本重分类为损失费用")
 	add("production", "cancel_unstarted", "取消尚未开工部分", "stop", "停止剩余生产并处理余料", "continue_company", "继续生产作为公司备货", "reassign", "转供指定其他需求", "keep_company_stock", "保留公司库存", "allocate", "分配指定其他需求", "scrap", "另行批准报损", "defer", "暂不处理")
 	add("direct_ship", "cancel", "取消该代发", "replace_supply", "保留并更换货源", "keep_fulfilled", "保留原包裹与已发生发货，另行登记退回", "defer", "暂不处理")
 	add("customer_stock", "keep_sale", "保留原销售与客户库存", "ownership_return", "办理货权退回", "physical_return", "办理实物退货", "defer", "暂不处理")

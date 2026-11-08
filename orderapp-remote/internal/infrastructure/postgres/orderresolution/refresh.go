@@ -105,8 +105,8 @@ func (r Repository) Refresh(ctx context.Context, orderID, requestID int64, cmd d
 			if task.Kind == "external" && step.Status == "completed" && current.ExternalVersion != original.ExternalVersion {
 				continue
 			}
-			if task.Kind == "production" && task.Choice == "allocate" {
-				if d := dispositionFor(cmd, task.Kind, task.SourceID); d != nil && verifyCompanySelectionIdentity(original, current, domain.Command{Dispositions: []domain.Disposition{*d}}) != nil {
+			if one(task.Kind, "production", "production_finance") || task.Kind == "approval" {
+				if verifyCompanySelectionIdentity(original, current, cmd) != nil {
 					continue
 				}
 			}
@@ -136,7 +136,7 @@ func (r Repository) Refresh(ctx context.Context, orderID, requestID int64, cmd d
 		}
 	}
 	for _, step := range out.Steps {
-		if !kept[step.ID] && (one(step.Status, "pending", "failed") || (step.Choice == "stop" && one(step.Kind, "production", "production_stock") && step.Status == "completed")) {
+		if !kept[step.ID] && (one(step.Status, "pending", "failed") || (step.Status == "completed" && (one(step.Kind, "approval", "production_finance") || (one(step.Kind, "production", "production_stock") && one(step.Choice, "stop", "allocate", "scrap"))))) {
 			if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.order_resolution_steps SET status='superseded',updated_at=now() WHERE id=$1`, r.schema), step.ID); err != nil {
 				return out, err
 			}
@@ -182,7 +182,7 @@ func (r Repository) Refresh(ctx context.Context, orderID, requestID int64, cmd d
 }
 
 func dispositionFor(cmd domain.Command, kind string, id int64) *domain.Disposition {
-	if kind == "production_stock" {
+	if one(kind, "production_stock", "production_finance") {
 		kind = "production"
 	}
 	for _, d := range cmd.Dispositions {

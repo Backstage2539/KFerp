@@ -57,7 +57,7 @@ async function load(restore = false) {
    for (const v of data.context.dependencies.filter(v => !['cancelled', 'released', 'stopped'].includes(v.status))) {
     if (!form.dispositions.some(d => d.kind === v.kind && Number(d.id) === Number(v.id))) form.dispositions.push({ kind: v.kind, id: v.id, choice: '', target_id: 0, amount_cents: 0, reference: '' })
     const d=disposition(v)
-    if(v.kind==='production') d.stock_selections ||= []
+    if(v.kind==='production') {d.stock_selections ||= [];d.cost_treatment ||= ''}
     if(v.stop_work_orders?.length)d.stops=v.stop_work_orders.map(w=>d.stops?.find(s=>Number(s.work_order_id)===Number(w.work_order_id))||{work_order_id:w.work_order_id,materials:'',wip:'',reservations:'',outputs:''})
     if(v.supply_reservations?.length){
      d.supplies=v.supply_reservations.map(s=>{
@@ -97,6 +97,7 @@ function choices(dep) {
   if (!reason && dep.kind==='fee' && dep.amount_cents<0 && !['keep','defer'].includes(v.value)) reason='该项是已有负数费用调整，请保留原记录'
   if (!reason && dep.kind==='fee' && dep.cash_issue && !['keep','defer'].includes(v.value)) reason=dep.cash_issue
   if (!reason && dep.kind==='production' && v.value==='stop') reason=dep.shared?'共享生产须先拆分剩余需求':dep.stop_work_orders?.find(w=>w.issue)?.issue||(!dep.stop_work_orders?.length?'尚无可核对的工单余料与在制品':form.action!=='close'||form.scope!=='all'?'停止整批生产须选择关闭全部剩余履约':'')
+  if (!reason && dep.kind==='production' && v.value==='scrap' && (dep.ownership_issue || form.action!=='close' || !dep.company_stock?.some(s=>s.available_quantity>0&&s.cost_record_id>0&&!s.scrap_issue))) reason=dep.ownership_issue || (form.action!=='close'?'报损请关闭剩余履约，保留原生产历史':dep.company_stock?.find(s=>s.scrap_issue)?.scrap_issue || '没有可核对原批次、公司货权和原生产成本的可用成品')
   if (!reason && dep.kind==='production' && v.value==='allocate' && (dep.ownership_issue || !dep.company_stock?.some(s=>s.available_quantity>0&&s.targets?.length))) reason=dep.ownership_issue || '尚无可核对的公司成品与匹配目标；请核对原批次、预留、库存单位及仓库'
   if (!reason && dep.kind==='production' && dep.ownership_issue && ['keep_company_stock','continue_company'].includes(v.value)) reason=dep.ownership_issue
   if (!reason && dep.kind === 'production' && dep.status === 'completed' && !['keep_company_stock','allocate','scrap','defer'].includes(v.value)) reason='已完成生产须保留'
@@ -222,6 +223,21 @@ const money = cents => (Number(cents || 0) / 100).toFixed(2)
          </fieldset>
          <button type="button" @click="addStockSelection(dep)">添加成品分配</button>
         </template>
+        <template v-if="dep.kind==='production' && disposition(dep).choice==='scrap'">
+         <p class="hint">填写实际报损依据，明确原批次和数量。财务批准后由仓库确认；所有必要处置完成后，报损出库与本次订单影响同时生效。其他订单和预留不能占用。</p>
+         <label>报损原因／验收依据<textarea v-model="disposition(dep).reference" rows="2" placeholder="填写实际破损、变质等情况及依据" /></label>
+         <label>原成本处理<select v-model="disposition(dep).cost_treatment"><option value="">请选择成本处理方式</option><option v-for="v in options.scrap_cost || []" :key="v.value" :value="v.value" :disabled="v.disabled">{{ v.label }}{{ v.disabled ? `（${v.reason}）` : '' }}</option></select></label>
+         <p class="hint">保留原生产成本：报损记录单列数量和金额，不重复计费。重分类：在所选账期减记原成本、等额转为损失费用，原记录和总成本保留。</p>
+         <fieldset v-for="(selection,index) in disposition(dep).stock_selections" :key="index" class="supply-choice">
+          <legend>成品报损 {{ index+1 }}</legend>
+          <label>原报损批次<select v-model.number="selection.batch_id" @change="selection.target_item_id=0"><option :value="0">请选择原成品批次</option><option v-for="source in dep.company_stock" :key="source.batch_id" :value="source.batch_id" :disabled="!source.cost_record_id || Boolean(source.scrap_issue)">{{ source.label }} · 最多 {{ source.available_quantity }}{{ source.scrap_issue ? `（${source.scrap_issue}）` : '' }}</option></select></label>
+          <p v-if="stockSource(dep,selection)" class="hint">原成本账期 {{ stockSource(dep,selection).cost_month }} · 每库存单位 ¥{{ (stockSource(dep,selection).unit_cost_micros/1000000).toFixed(4) }}</p>
+          <p v-if="stockSource(dep,selection)?.releases?.length" class="hint">本批有原订单预留，请在对应预留项目明确选择释放及数量；释放与报损同时生效。</p>
+          <label>本次报损数量<input v-model="selection.quantity" type="number" min="1" step="1" :max="stockSource(dep,selection)?.available_quantity" placeholder="明确填写实际数量" /></label>
+          <button type="button" @click="disposition(dep).stock_selections.splice(index,1)">移除此项</button>
+         </fieldset>
+         <button type="button" @click="addStockSelection(dep)">添加报损批次</button>
+        </template>
         <p v-if="disposition(dep).choice==='reassign'" class="hint">提交前须选择具体目标并核验可用数量。</p>
        </template>
       </div>
@@ -235,6 +251,7 @@ const money = cents => (Number(cents || 0) / 100).toFixed(2)
      <section v-if="preview" class="preview"><h3>确认本次处理</h3><p>处理后：{{ resolutionStatus(preview.plan.status, form.action === 'hold') }}；应收冲减 ¥{{ money(preview.plan.credit_cents) }}；实际退款需另行确认。</p><ul v-if="preview.plan.tasks.length"><li v-for="(task,i) in preview.plan.tasks" :key="i">待处理：{{ task.label }}</li></ul><button type="button" class="primary" :disabled="busy" @click="submit">{{ pending ? '确认更新处理方案' : '确认提交处理单' }}</button></section>
      <OrderResolutionBalance :order-id="orderId" :balances="loaded.balances || []" :history="loaded.balance_history || []" :targets="loaded.balance_targets || []" :permissions="loaded.permissions" :options="options" @changed="stepChanged" />
      <section v-if="loaded.history?.length"><h3>处理记录</h3><article v-for="r in loaded.history" :key="r.id" class="history"><strong>处理单 #{{ r.id }} · {{ ({pending:'处理中',completed:'已完成',withdrawn:'已撤回'})[r.status] || r.status }}</strong><p>{{ options.action.find(v => v.value === r.command.action)?.label }} · {{ options.reason.find(v => v.value === r.command.reason)?.label }} · {{ r.command.note }}</p><p v-if="r.applied && r.status === 'pending'" class="hint">履约已按本次方案处理，以下清算待办尚未全部完成。</p>
+      <div v-for="loss in r.scraps || []" :key="loss.id" class="notice"><strong>已报损 · {{ loss.batch_code }}</strong><p>{{ loss.quantity }} {{ loss.unit }} · 原成本 ¥{{ money(loss.cost_cents) }} · {{ loss.posting_date }}</p><p>{{ options.scrap_cost?.find(v => v.value === loss.cost_treatment)?.label }} · {{ loss.reason }}</p></div>
       <OrderResolutionStep v-for="step in r.steps" :key="step.id" :order-id="orderId" :request-id="r.id" :step="step" :options="options" :permissions="loaded.permissions" :targets="loaded.targets || []" @changed="stepChanged" @refresh="load()" />
       <div v-if="r.can_withdraw && loaded.permissions?.['orders.resolve']" class="withdraw"><label>撤回原因<input v-model="withdrawalNotes[r.id]" placeholder="仅在尚未执行处置时可撤回" /></label><button type="button" :disabled="busy || !withdrawalNotes[r.id]?.trim()" @click="withdraw(r)">撤回处理单</button></div>
       <button v-if="r.amendment_id && !r.revised_order_id" type="button" :disabled="busy" @click="revise(r)">打开关联修订草稿</button><p v-if="r.revised_order_id" class="hint">已生成修订单 #{{ r.revised_order_id }}，新单单独审核。</p></article></section>
