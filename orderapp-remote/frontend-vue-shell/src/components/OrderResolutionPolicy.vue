@@ -4,7 +4,7 @@ import { apiGet, apiSend } from '../api/client'
 const emit=defineEmits(['changed'])
 const expanded=ref(false),busy=ref(false),error=ref(''),notice=ref(''),revision=ref(0),options=ref({})
 const form=reactive({disabled:{},approvals:{}})
-const groups={action:'订单操作',production:'生产处置',direct_ship:'关联代发',customer_stock:'客户货权库存',stock:'公司库存',stock_reservation:'库存预留',fee:'费用',funds:'资金去向'}
+const groups={action:'订单操作',production:'生产处置',direct_ship:'关联代发',customer_stock:'客户货权库存',stock:'公司库存',stock_reservation:'库存预留',fee:'费用',funds:'资金去向',return_stock:'退回入库',return_finance:'退回商品款',return_quality:'退回验收',return_ownership:'退回货权'}
 const roles={'orders.resolve':'销售负责人','production.resolve':'生产负责人','stock.resolve':'仓库负责人','finance.resolve':'财务负责人'}
 async function load(){
  busy.value=true;error.value='';notice.value=''

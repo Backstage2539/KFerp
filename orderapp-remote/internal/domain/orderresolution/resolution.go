@@ -9,16 +9,18 @@ import (
 )
 
 type Line struct {
-	ID            int64   `json:"id"`
-	Name          string  `json:"name"`
-	Unit          string  `json:"unit"`
-	Quantity      float64 `json:"quantity"`
-	Delivered     float64 `json:"delivered"`
-	Closed        float64 `json:"closed"`
-	Returned      float64 `json:"returned"`
-	AmountCents   int64   `json:"amount_cents"`
-	CreditedCents int64   `json:"credited_cents"`
-	ClosedCents   int64   `json:"closed_cents"`
+	ReturnCreditQuantity float64 `json:"return_credit_quantity"`
+	ReturnCreditCents    int64   `json:"return_credit_cents"`
+	ID                   int64   `json:"id"`
+	Name                 string  `json:"name"`
+	Unit                 string  `json:"unit"`
+	Quantity             float64 `json:"quantity"`
+	Delivered            float64 `json:"delivered"`
+	Closed               float64 `json:"closed"`
+	Returned             float64 `json:"returned"`
+	AmountCents          int64   `json:"amount_cents"`
+	CreditedCents        int64   `json:"credited_cents"`
+	ClosedCents          int64   `json:"closed_cents"`
 }
 type Dependency struct {
 	BatchID            int64                `json:"batch_id,omitempty"`
@@ -48,6 +50,7 @@ type LinkedOrder struct {
 	Status string `json:"status"`
 }
 type Context struct {
+	ReturnSources    []ReturnSource    `json:"return_sources"`
 	Unavailable      map[string]string `json:"unavailable,omitempty"`
 	Policy           Policy            `json:"policy"`
 	OrderID          int64             `json:"order_id"`
@@ -90,18 +93,20 @@ type Disposition struct {
 	Reference       string              `json:"reference"`
 }
 type Command struct {
-	Action         string        `json:"action"`
-	Reason         string        `json:"reason"`
-	Note           string        `json:"note"`
-	Scope          string        `json:"scope"`
-	Lines          []Selection   `json:"lines"`
-	Timing         string        `json:"timing"`
-	ExternalStatus string        `json:"external_status"`
-	PostingMode    string        `json:"posting_mode"`
-	PostingDate    string        `json:"posting_date"`
-	Dispositions   []Disposition `json:"dispositions"`
-	Version        string        `json:"version"`
-	IdempotencyKey string        `json:"idempotency_key"`
+	ReturnSelections []ReturnSelection `json:"return_selections,omitempty"`
+	ReturnSettlement string            `json:"return_settlement,omitempty"`
+	Action           string            `json:"action"`
+	Reason           string            `json:"reason"`
+	Note             string            `json:"note"`
+	Scope            string            `json:"scope"`
+	Lines            []Selection       `json:"lines"`
+	Timing           string            `json:"timing"`
+	ExternalStatus   string            `json:"external_status"`
+	PostingMode      string            `json:"posting_mode"`
+	PostingDate      string            `json:"posting_date"`
+	Dispositions     []Disposition     `json:"dispositions"`
+	Version          string            `json:"version"`
+	IdempotencyKey   string            `json:"idempotency_key"`
 }
 type LineEffect struct {
 	ItemID      int64   `json:"item_id"`
@@ -174,6 +179,9 @@ func preview(c Context, cmd Command) (Plan, error) {
 	if !oneOf(cmd.ExternalStatus, "none", "recorded", "unknown") {
 		return fail("请选择开票及外部入账情况")
 	}
+	if cmd.Action == "return" && !oneOf(cmd.ReturnSettlement, "keep_receivable", "credit_returned_goods") {
+		return fail("请选择退回商品款的处理方式：保留应收或按退回数量冲减")
+	}
 	if !oneOf(cmd.PostingMode, "open_period", "historical_correction") {
 		return fail("请选择账期处理方式")
 	}
@@ -223,16 +231,19 @@ func preview(c Context, cmd Command) (Plan, error) {
 		}
 		if q > 0 {
 			delta := q
-			credit := int64(math.Round(float64(v.AmountCents)*(v.Closed+q)/v.Quantity)) - v.ClosedCents
+			credit := int64(math.Round(float64(v.AmountCents)*(v.Closed+v.ReturnCreditQuantity+q)/v.Quantity)) - v.ClosedCents - v.ReturnCreditCents
 			effect := LineEffect{ItemID: v.ID, Quantity: q, ClosedDelta: delta, CreditCents: credit}
 			switch cmd.Action {
 			case "reopen":
 				effect.ClosedDelta = -q
-				effect.CreditCents = int64(math.Round(float64(v.AmountCents)*(v.Closed-q)/v.Quantity)) - v.ClosedCents
+				effect.CreditCents = int64(math.Round(float64(v.AmountCents)*(v.Closed+v.ReturnCreditQuantity-q)/v.Quantity)) - v.ClosedCents - v.ReturnCreditCents
 			case "return":
 				effect.ClosedDelta = 0
 				effect.ReturnDelta = q
-				effect.CreditCents = int64(math.Round(float64(v.AmountCents) * q / v.Quantity))
+				effect.CreditCents = int64(math.Round(float64(v.AmountCents)*(v.Closed+v.ReturnCreditQuantity+q)/v.Quantity)) - v.ClosedCents - v.ReturnCreditCents
+				if cmd.ReturnSettlement == "keep_receivable" {
+					effect.CreditCents = 0
+				}
 			case "credit":
 				effect.ClosedDelta = 0
 				effect.CreditCents = int64(math.Round(float64(v.AmountCents) * q / v.Quantity))
@@ -324,8 +335,17 @@ func preview(c Context, cmd Command) (Plan, error) {
 			}
 			reserved[d.ItemID] += left
 		}
-		if d.Kind == "direct_ship" && d.Relation == "package" && (!oneOf(cmd.Action, "close", "cancel", "amend") || cmd.Scope != "all" || choice.Choice != "cancel") {
-			return fail("当前代发包裹须整单取消预订；部分调整请先明确拆分包裹")
+		if d.Kind == "direct_ship" && choice.Choice == "keep_fulfilled" && (cmd.Action != "return" || d.Relation != "package") {
+			return fail("保留已发生包裹仅用于本单实际退货，不解除原履约义务")
+		}
+		if d.Kind == "direct_ship" && d.Relation == "package" {
+			if cmd.Action == "return" {
+				if !oneOf(choice.Choice, "keep_fulfilled", "defer") {
+					return fail("实际退货须保留原代发包裹及发货记录，不能取消已发生的发货")
+				}
+			} else if !oneOf(cmd.Action, "close", "cancel", "amend") || cmd.Scope != "all" || choice.Choice != "cancel" {
+				return fail("当前代发包裹须整单取消预订；部分调整请先明确拆分包裹")
+			}
 		}
 		if d.Kind == "production" && oneOf(choice.Choice, "keep_company_stock", "continue_company") && d.OwnershipIssue != "" {
 			return fail(d.OwnershipIssue)
@@ -409,7 +429,7 @@ func preview(c Context, cmd Command) (Plan, error) {
 		case "fee", "invoice", "billing":
 			permission = "finance.resolve"
 		}
-		if choice.Choice != "keep_company_stock" && choice.Choice != "keep_sale" {
+		if choice.Choice != "keep_company_stock" && choice.Choice != "keep_sale" && choice.Choice != "keep_fulfilled" {
 			p.Tasks = append(p.Tasks, Task{Kind: d.Kind, SourceID: d.ID, Choice: choice.Choice, Label: d.Label, Permission: permission})
 		}
 	}
@@ -478,7 +498,16 @@ func preview(c Context, cmd Command) (Plan, error) {
 		p.Tasks = append(p.Tasks, Task{Kind: "funds", Label: "请选择可退金额去向", Permission: "finance.resolve"})
 	}
 	if cmd.Action == "return" {
-		p.Tasks = append(p.Tasks, Task{Kind: "return", Label: "核对实物、批次、货权与退货仓库", Permission: "stock.resolve"})
+		label := "保留退回商品原应收；后续账款另行处理"
+		if cmd.ReturnSettlement == "credit_returned_goods" {
+			label = "按退回数量冲减商品款，退款另行登记"
+		}
+		p.Tasks = append(p.Tasks, Task{Kind: "return_finance", Choice: cmd.ReturnSettlement, Label: label, Permission: "finance.resolve"})
+		label, err := validateReturnSelections(c, cmd, p)
+		if err != nil {
+			return Plan{}, err
+		}
+		p.Tasks = append(p.Tasks, Task{Kind: "return_stock", Choice: "receive", Label: label, Permission: "stock.resolve"})
 	}
 	switch cmd.Action {
 	case "close":
@@ -520,7 +549,7 @@ func AllowedChoice(kind, choice string) bool {
 	case "production":
 		return oneOf(choice, "cancel_unstarted", "stop", "continue_company", "reassign", "keep_company_stock", "allocate", "scrap", "defer")
 	case "direct_ship":
-		return oneOf(choice, "cancel", "replace_supply", "defer")
+		return oneOf(choice, "cancel", "replace_supply", "keep_fulfilled", "defer")
 	case "stock":
 		return oneOf(choice, "keep_company_stock", "allocate", "scrap", "defer")
 	case "customer_stock":
@@ -550,13 +579,17 @@ func Options() map[string][]Option {
 		}
 	}
 	add("action", "hold", "暂停履约", "resume", "恢复履约", "close", "关闭剩余履约", "reopen", "重新开启", "cancel", "取消原单", "amend", "取消并修订", "return", "退货", "credit", "金额冲减")
+	add("return_finance", "keep_receivable", "保留商品原应收", "credit_returned_goods", "按退回数量冲减商品款")
+	add("return_stock", "receive", "已核对实物、原批次和验收凭据，确认入库")
+	add("return_quality", "restock", "验收合格，可用库存", "quarantine", "待检隔离，禁止销售出库")
+	add("return_ownership", "company", "收回公司货权", "customer", "保留原客户货权")
 	add("reason", "customer_cancel", "客户取消", "entry_error", "录单错误", "duplicate", "重复订单", "other", "其他")
 	add("scope", "all", "全部可处理数量", "selected", "指定商品和数量", "fees_only", "仅调整费用（商品履约保持原状）")
 	add("timing", "stop_first", "先停止新增履约，后完成清算", "settle_first", "完成处置和清算后最终关闭")
 	add("external_status", "none", "未开票且无外部入账", "recorded", "已开票或已外部入账", "unknown", "待核实")
 	add("posting_mode", "open_period", "开放账期调整", "historical_correction", "申请历史账期更正")
 	add("production", "cancel_unstarted", "取消尚未开工部分", "stop", "停止剩余生产并处理余料", "continue_company", "继续生产作为公司备货", "reassign", "转供指定其他需求", "keep_company_stock", "保留公司库存", "allocate", "分配指定其他需求", "scrap", "另行批准报损", "defer", "暂不处理")
-	add("direct_ship", "cancel", "取消该代发", "replace_supply", "保留并更换货源", "defer", "暂不处理")
+	add("direct_ship", "cancel", "取消该代发", "replace_supply", "保留并更换货源", "keep_fulfilled", "保留原包裹与已发生发货，另行登记退回", "defer", "暂不处理")
 	add("customer_stock", "keep_sale", "保留原销售与客户库存", "ownership_return", "办理货权退回", "physical_return", "办理实物退货", "defer", "暂不处理")
 	add("stock", "keep_company_stock", "保留公司库存", "allocate", "分配指定其他需求", "scrap", "另行批准报损", "defer", "暂不处理")
 	add("stock_reservation", "release", "释放指定数量的未发货预留", "keep", "保留本批预留用于剩余履约", "defer", "暂不处理")

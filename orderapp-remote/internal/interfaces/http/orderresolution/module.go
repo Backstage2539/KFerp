@@ -309,6 +309,15 @@ func RegisterRoutes(e *echo.Echo, b Backend, auth support.AuthzService) {
 				}
 				return c.JSON(200, out)
 			}
+			if previewer, ok := b.(interface {
+				Preview(context.Context, int64, domain.Command) (domain.Plan, string, error)
+			}); ok {
+				plan, version, err := previewer.Preview(c.Request().Context(), id, cmd)
+				if err != nil {
+					return fail(c, err)
+				}
+				return c.JSON(200, map[string]any{"plan": plan, "version": version})
+			}
 			current, err := b.Context(c.Request().Context(), id)
 			if err != nil {
 				return fail(c, err)

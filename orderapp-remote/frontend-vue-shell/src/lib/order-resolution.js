@@ -1,4 +1,4 @@
-export function blankResolution() { return { action: '', reason: '', note: '', scope: '', lines: [], timing: '', external_status: '', posting_mode: '', posting_date: '', dispositions: [] } }
+export function blankResolution() { return { return_settlement: '', return_selections: [], action: '', reason: '', note: '', scope: '', lines: [], timing: '', external_status: '', posting_mode: '', posting_date: '', dispositions: [] } }
 export function resolutionPayload(form, version, key, {draft=false}={}) {
  const dispositions=structuredClone(form.dispositions).filter(d=>form.action!=='credit'||form.scope!=='fees_only'||['fee','funds'].includes(d.kind)).map(d=>{
   if(d.choice==='replace_supply'){
@@ -32,7 +32,18 @@ export function resolutionPayload(form, version, key, {draft=false}={}) {
   }
   delete d.amount;return d
  })
- return { ...structuredClone(form), dispositions, lines: form.scope === 'selected' ? form.lines.filter(v => Number(v.quantity) > 0).map(v => ({ item_id: Number(v.item_id), quantity: Number(v.quantity) })) : [], version, idempotency_key: key } }
+ const result={ ...structuredClone(form), dispositions, lines: form.scope === 'selected' ? form.lines.filter(v => Number(v.quantity) > 0).map(v => ({ item_id: Number(v.item_id), quantity: Number(v.quantity) })) : [], version, idempotency_key: key }
+ if(form.action==='return'){
+  if(!draft&&!['keep_receivable','credit_returned_goods'].includes(form.return_settlement))throw new Error('请明确选择退回商品款的处理方式')
+  if(!draft&&!form.return_selections?.length)throw new Error('请选择退回来源、货权、仓库和验收处置')
+  result.return_selections=(form.return_selections||[]).map(row=>{
+   const source=Number(row.source_id),batch=Number(row.batch_id),quantity=Number(row.quantity)
+   if(![source,batch,quantity].every(v=>Number.isSafeInteger(v)&&v>=0)||(!draft&&([source,batch,quantity].some(v=>v===0)||!['shipment','ownership'].includes(row.source_kind)||!['company','customer'].includes(row.ownership)||!row.warehouse||!['restock','quarantine'].includes(row.quality))))throw new Error('请明确填写退回批次、数量、货权、仓库与验收处置')
+   return {source_kind:row.source_kind||'',source_id:source,batch_id:batch,quantity,ownership:row.ownership||'',warehouse:row.warehouse||'',quality:row.quality||''}
+  })
+ }else{delete result.return_selections;delete result.return_settlement}
+ return result
+}
 export function resolutionStatus(status, paused) { const label = ({ open: '正常', partially_closed: '部分关闭', closed: '已关闭', cancelled: '已取消' })[status] || '正常'; return paused ? `已暂停 · ${label}` : label }
 export function blankResolutionStep() { return { choice: '', amount: '', account: '', reference: '', note: '', target_id: 0, posting_date: '' } }
 export function resolutionStepPayload(form, key) {

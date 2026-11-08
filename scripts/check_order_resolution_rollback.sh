@@ -9,7 +9,8 @@ old_image="$3"
 label="$(docker image inspect --format '{{index .Config.Labels "io.kferp.order-resolution-fee-aware"}}' "$old_image" 2>/dev/null || true)"
 mixed_label="$(docker image inspect --format '{{index .Config.Labels "io.kferp.order-resolution-mixed-supply-aware"}}' "$old_image" 2>/dev/null || true)"
 company_label="$(docker image inspect --format '{{index .Config.Labels "io.kferp.order-resolution-company-stock-aware"}}' "$old_image" 2>/dev/null || true)"
-if [ "$label" = 1 ] && [ "$mixed_label" = 1 ] && [ "$company_label" = 1 ]; then exit 0; fi
+return_label="$(docker image inspect --format '{{index .Config.Labels "io.kferp.order-resolution-return-aware"}}' "$old_image" 2>/dev/null || true)"
+if [ "$return_label" = 1 ] && [ "$label" = 1 ] && [ "$mixed_label" = 1 ] && [ "$company_label" = 1 ]; then exit 0; fi
 schema="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$app_container" | sed -n 's/^DB_SCHEMA=//p' | tail -1)"
 if ! [[ "$schema" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
  echo 'Cannot verify the order resolution schema; refusing rollback.' >&2;exit 1
@@ -20,6 +21,12 @@ query(){
 }
 has_table="$(query "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema='$schema' AND table_name='order_resolution_requests')")"
 case "$has_table" in f) exit 0;; t) ;; *) echo 'Cannot verify order resolution records; refusing rollback.' >&2;exit 1;; esac
+if [ "$return_label" != 1 ]; then
+ has_return="$(query "SELECT EXISTS(SELECT 1 FROM \"$schema\".order_resolution_requests r WHERE COALESCE(r.command_json->>'return_settlement','')<>'')")"
+ if [ "$has_return" != f ]; then
+  echo 'Physical return processing records exist or cannot be verified; refusing an incompatible rollback image.' >&2;exit 1
+ fi
+fi
 if [ "$company_label" != 1 ]; then
  has_company="$(query "SELECT EXISTS(SELECT 1 FROM \"$schema\".order_resolution_requests r CROSS JOIN LATERAL jsonb_array_elements(COALESCE(r.command_json->'dispositions','[]'::jsonb)) d WHERE d->>'kind'='production' AND d->>'choice'='allocate' AND jsonb_array_length(COALESCE(d->'stock_selections','[]'::jsonb))>0)")"
  if [ "$has_company" != f ]; then
