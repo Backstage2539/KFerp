@@ -158,16 +158,16 @@ const money = cents => (Number(cents || 0) / 100).toFixed(2)
      <fieldset v-if="form.action==='return'" :disabled="busy || !editable">
       <legend>实际退回来源与商品款</legend>
       <p class="hint">按原出库记录逐批核对。实物入库、商品款冲减和实际退款分别确认；不会自动取消原发货或改变客户货权。</p>
-      <label>退回商品款处理<select v-model="form.return_settlement" :disabled="returnStockPosted"><option value="">请选择</option><option v-for="v in options.return_finance" :key="v.value" :value="v.value" :disabled="v.disabled">{{ v.label }}</option></select></label>
+      <label>退回商品款处理<select v-model="form.return_settlement" :disabled="returnStockPosted"><option value="">请选择</option><option v-for="v in options.return_finance" :key="v.value" :value="v.value" :disabled="v.disabled">{{ v.label }}{{ v.disabled && v.reason ? `（${v.reason}）` : '' }}</option></select></label>
       <p v-if="returnStockPosted" class="hint">已验收入库：{{ returnStockLabel }}。实物记录已保存，请继续完成财务待办；已收回的批次与数量不能改选。</p>
       <template v-else>
       <div v-for="(row,index) in form.return_selections" :key="index" class="return-selection">
        <div class="fields">
         <label class="wide">原出库／退回来源<select :value="`${row.source_kind}:${row.source_id}`" @change="chooseReturnSource(row,$event.target.value)"><option value=":0">请选择原批次</option><option v-for="source in current.return_sources" :key="`${source.kind}:${source.id}`" :value="`${source.kind}:${source.id}`">{{ source.label }} · 可退 {{ source.available_quantity }} {{ source.unit }}</option></select></label>
         <label>本批退回数量<input v-model="row.quantity" type="number" min="1" step="1" placeholder="填写实际数量" /></label>
-        <label>货权处置<select v-model="row.ownership" @change="row.warehouse='' "><option value="">请选择货权</option><option v-for="v in returnOwners(row)" :key="v.value" :value="v.value" :disabled="v.disabled">{{ v.label }}</option></select></label>
+        <label>货权处置<select v-model="row.ownership" @change="row.warehouse='' "><option value="">请选择货权</option><option v-for="v in returnOwners(row)" :key="v.value" :value="v.value" :disabled="v.disabled">{{ v.label }}{{ v.disabled && v.reason ? `（${v.reason}）` : '' }}</option></select></label>
         <label>退回仓库<select v-model="row.warehouse"><option value="">请选择仓库</option><option v-for="d in returnSource(row)?.destinations?.filter(d=>d.ownership===row.ownership)||[]" :key="d.warehouse" :value="d.warehouse">{{ d.label }}</option></select></label>
-        <label>验收后库存处置<select v-model="row.quality"><option value="">请选择验收处置</option><option v-for="v in options.return_quality" :key="v.value" :value="v.value" :disabled="v.disabled">{{ v.label }}</option></select></label>
+        <label>验收后库存处置<select v-model="row.quality"><option value="">请选择验收处置</option><option v-for="v in options.return_quality" :key="v.value" :value="v.value" :disabled="v.disabled">{{ v.label }}{{ v.disabled && v.reason ? `（${v.reason}）` : '' }}</option></select></label>
        </div>
        <p v-if="row.source_id && !returnSource(row)" class="error">原来源已变化或已退回，请重新核对当前处理单与原入库记录。</p>
        <button type="button" @click="form.return_selections.splice(index,1)">移除此批</button>
