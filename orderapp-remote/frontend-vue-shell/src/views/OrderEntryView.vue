@@ -888,12 +888,12 @@ async function refreshStaffOrderCatalog() {
   }
   syncBeanListVersionForCustomer()
   if (!data.catalog_updated) {
-    if (previousKey && previousKey !== staffCatalog.key) syncRowsForType({ priceListChanged: true })
+    if (previousKey && previousKey !== staffCatalog.key) syncRowsForType({ priceListChanged: true, preserveRetainedSnapshots: true })
     else repriceHydratedRows()
   }
   if (data.catalog_updated) {
     ok.value = '价格表已更新，请重新选择规格并核对原有商品价格。'
-    for (const row of rows.value) if (Number(row.product_id) > 0 && !preservesStoredOrderPrice(row)) { row.spec_invalid_message = '价格表已更新，请重新选择规格并核对价格'; row.price_missing = true }
+    for (const row of rows.value) if (Number(row.product_id) > 0 && !row.preserve_retained_initial_snapshot && !preservesStoredOrderPrice(row)) { row.spec_invalid_message = '价格表已更新，请重新选择规格并核对价格'; row.price_missing = true }
   }
   return true
 }
@@ -1949,6 +1949,7 @@ function assignProductFamilyHeader(row, family) {
 }
 
 function applyPriceListSpecToRow(row, family, spec, publicationID) {
+  row.preserve_retained_initial_snapshot = false
   row.spec_conversion = null
   const qty = row.qty
   const itemNote = row.item_note
@@ -2138,6 +2139,7 @@ function onLegacySpecChange(row) {
 function syncRowsForType(options = {}) {
   if (fulfillmentOrderEditing.value) return
   rows.value.forEach((row) => {
+    if (options.preserveRetainedSnapshots && row.preserve_retained_initial_snapshot) return
     if (preservesStoredOrderPrice(row)) return
     if (options.priceListChanged) {
       row.price_selection_mode = 'auto'
@@ -2202,6 +2204,7 @@ function syncRowsForType(options = {}) {
 }
 
 function syncPrice(row, options = {}) {
+  row.preserve_retained_initial_snapshot = false
   if (fulfillmentOrderEditing.value) return
   if (isFrozenConversion(row)) return
   if (preservesSampleSpec(row, sampleOrderEditing.value) && row.manual_price && !options.force) return
@@ -2353,6 +2356,7 @@ function dripUnitOptionsForRow(row) {
 }
 
 function markManualPrice(row) {
+  row.preserve_retained_initial_snapshot = false
   if (isFrozenConversion(row)) return
   row.manual_price = true
   row.tier_id = 'manual'
@@ -2680,6 +2684,8 @@ function applyEditData(data) {
       item.bean_list_publication_id,
     )
     const keepSampleSpec = sampleOrderEditing.value && Number(item.bom_spec_id || 0) > 0
+    const keepRetainedSnapshot = !copyMode.value && data.delivery_mode === 'customer_stock' && Number(item.item_id || 0) > 0
+    hydrated.preserve_retained_initial_snapshot = keepRetainedSnapshot
     const keepFrozenPublication = keepSampleSpec || shouldKeepFrozenOrderPublication(
       beanListVersionGroups.value,
       item.bean_list_publication_id,
@@ -2710,7 +2716,7 @@ function applyEditData(data) {
     hydrated.spec_g = specNumber
     hydrated.custom_spec_g = ''
     hydrated.historical_spec_readonly = !pricedSpec || keepFrozenPublication
-    hydrated.spec_invalid_message = !pricedSpec && !keepFrozenPublication ? '原商品规格在此报价表中不可用，请重新选择有效规格。' : ''
+    hydrated.spec_invalid_message = !pricedSpec && !keepFrozenPublication && !keepRetainedSnapshot ? '原商品规格在此报价表中不可用，请重新选择有效规格。' : ''
     if (pricedSpec && family) {
       Object.assign(hydrated, orderFamilyHydratedSpecRowPatch(
         family,
@@ -2719,6 +2725,18 @@ function applyEditData(data) {
         {
           bom_spec_id: Number(item.bom_spec_id || 0),
           bom_variant_id: Number(item.bom_variant_id || 0),
+          ...(keepRetainedSnapshot ? {
+            customer_product_reference_id: Number(item.customer_product_reference_id || 0),
+            customer_product_alias_id: Number(item.customer_product_alias_id || 0),
+            product_name: item.product_name || '',
+            product_query: item.product_name || '',
+            unit: item.unit || '件',
+            ...(productKind === 'drip_bag' ? {
+              sales_unit: salesUnit,
+              unit_bag_count: Number(item.unit_bag_count || 0),
+              unit_bean_g: Number(item.unit_bean_g || 0),
+            } : {}),
+          } : {}),
           tier_id: item.tier_id || 'auto',
           price_selection_mode: item.price_selection_mode || (item.price_override === true || item.tier_id === 'manual' ? 'manual' : 'auto'),
           selected_price_row_key: item.selected_price_row_key || '',
@@ -2734,6 +2752,14 @@ function applyEditData(data) {
         },
         keepFrozenPublication,
       ))
+    }
+    if (keepRetainedSnapshot) {
+      hydrated.customer_product_reference_id = Number(item.customer_product_reference_id || 0)
+      hydrated.customer_product_alias_id = Number(item.customer_product_alias_id || 0)
+      hydrated.product_name = item.product_name || ''
+      hydrated.product_query = hydrated.product_name
+      hydrated.product_kind = item.product_kind || productKind
+      hydrated.unit = item.unit || '件'
     }
     if (keepSampleSpec) {
       Object.assign(hydrated, sampleStoredItemIdentity(item))
@@ -2761,6 +2787,7 @@ function applyEditData(data) {
 function repriceHydratedRows() {
   if (fulfillmentOrderEditing.value) return
   for (const row of rows.value) {
+    if (row.preserve_retained_initial_snapshot) continue
     if (preservesStoredOrderPrice(row)) continue
     if (row.historical_spec_readonly) {
       ensureRowBeanListVersion(row)
