@@ -201,3 +201,5 @@
 - 完整无数据库后端验证通过；全前端首次 1754/1755，旧断言需包含新增的已退回数；修正该断言后定向 23/23 及 Vite 构建通过，合并后再运行完整前端。未将无数据库后端验证称为完整数据库验证。
 - 浏览器隔离样本通过：业务选项均初始留空，选择原收货仍不预填数量/货权/仓库；明确退 2 袋、公司成品仓、待检隔离、按原款冲减，预览列出 60 元及库存/财务分项。截图 `/tmp/kferp-resolution-20261108-ownership-ui.png`；使用 mock 页面，无真实业务写入。
 - 源手册 `orderapp-remote/docs/OP_MANUAL_ORDER_RESOLUTION.md` 已同步，ERP 处理表单与库存/代发录单说明同步。需求 PR-749 与 DEV-PR749-* 继续 doing；停工余料、生产转供、报损仍未交付，Van 验收待进行。
+
+- 合并最新 origin/develop 后：完整无数据库 Go、前端 1755/1755 与 Vite 构建通过；原出库退货/客户货权退回/库存代发/不可改写记录的隔离 PostgreSQL 回归 72.449s 通过，changed、diff-check 与回滚保护通过。证据 `/tmp/kferp-resolution-20261108-ownership-merged-{backend,frontend,build,pg}.log`。
