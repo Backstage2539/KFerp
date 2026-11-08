@@ -371,6 +371,43 @@ BEGIN
 				  AND source_batch.owner_customer_id=COALESCE((to_jsonb(source_order)->>'customer_id')::bigint,0)
 			) INTO frozen_production_identity_derived;
 			END IF;
+			-- An ordinary sale may reserve a company batch frozen to the same
+			-- historical order line. This is not a new choice of BOM: require the
+			-- exact batch, stock location, unit and remaining demand, with no
+			-- ownership conversion or implied weight conversion.
+			IF NOT frozen_production_identity_derived AND TG_TABLE_NAME='order_stock_batch_allocations' AND TG_OP='INSERT'
+			   AND to_regclass('%[1]s.orders') IS NOT NULL AND to_regclass('%[1]s.order_items') IS NOT NULL
+			   AND to_regclass('%[1]s.stock_batches') IS NOT NULL AND to_regclass('%[1]s.stock_ledger_entries') IS NOT NULL
+			   AND to_regclass('%[1]s.order_stock_deductions') IS NOT NULL AND to_regclass('%[1]s.warehouses') IS NOT NULL THEN
+				SELECT EXISTS (
+				 SELECT 1 FROM %[1]s.order_items item JOIN %[1]s.orders sale ON sale.id=item.order_id
+				 JOIN %[1]s.stock_batches batch ON batch.id=COALESCE((to_jsonb(NEW)->>'batch_id')::bigint,0)
+				  AND batch.batch_code=to_jsonb(NEW)->>'batch_code' AND batch.item_type='finished_product'
+				  AND batch.item_id=item.product_id AND batch.bom_spec_id=item.bom_spec_id AND batch.bom_variant_id=item.bom_variant_id
+				  AND batch.owner_customer_id=0 AND batch.spec_g=0
+				 JOIN %[1]s.production_bom_version_variants variant ON variant.id=batch.bom_variant_id AND variant.inventory_unit=item.unit
+				 JOIN %[1]s.warehouses warehouse ON warehouse.code=to_jsonb(NEW)->>'warehouse' AND warehouse.active
+				  AND COALESCE(warehouse.customer_id,0)=0
+				 WHERE item.id=production_source_id AND sale.id=COALESCE((to_jsonb(NEW)->>'order_id')::bigint,0)
+				  AND item.product_id=business_product_id AND item.bom_spec_id=business_bom_spec_id AND item.bom_variant_id=business_bom_variant_id
+				  AND NOT sale.is_void AND NOT COALESCE((to_jsonb(sale)->>'fulfillment_paused')::boolean,false)
+				  AND COALESCE(to_jsonb(sale)->>'resolution_status','') NOT IN('closed','cancelled')
+				  AND COALESCE(sale.fulfillment_mode,'')='' AND COALESCE(sale.delivery_mode,'')<>'customer_stock'
+				  AND COALESCE(NULLIF(sale.source_warehouse,''),'finished_goods')=warehouse.code
+				  AND warehouse.code=(SELECT l.warehouse FROM %[1]s.stock_ledger_entries l WHERE l.source_batch_code=batch.batch_code AND l.item_type=batch.item_type AND l.item_id=batch.item_id AND l.bom_spec_id=batch.bom_spec_id AND l.bom_variant_id=batch.bom_variant_id AND l.spec_g=batch.spec_g AND l.owner_customer_id=0 ORDER BY l.id DESC LIMIT 1)
+				  AND lower(btrim(COALESCE(batch.quality_status,''))) NOT IN('hold','held','frozen','blocked','rejected','reject','failed','冻结','冻结批次','不合格','拒收')
+				  AND COALESCE((to_jsonb(NEW)->>'request_id')::bigint,0)=0
+				  AND COALESCE((to_jsonb(NEW)->>'spec_g')::bigint,0)=0 AND COALESCE((to_jsonb(NEW)->>'allocated_g')::bigint,0)=0
+				  AND (to_jsonb(NEW)->>'allocated_units')::bigint>0
+				  AND (to_jsonb(NEW)->>'allocated_units')::bigint<=batch.remaining_units-COALESCE((
+				   SELECT sum(GREATEST(0,reserved.units-COALESCE(deducted.units,0)))
+				   FROM (SELECT a.order_id,sum(a.allocated_units) units FROM %[1]s.order_stock_batch_allocations a JOIN %[1]s.orders prior ON prior.id=a.order_id AND NOT prior.is_void WHERE a.batch_id=batch.id GROUP BY a.order_id) reserved
+				   LEFT JOIN LATERAL (SELECT sum(d.deducted_units) units FROM %[1]s.order_stock_deductions d WHERE d.order_id=reserved.order_id AND d.batch_id=batch.id) deducted ON true),0)
+				  AND (to_jsonb(NEW)->>'allocated_units')::bigint<=item.qty-COALESCE((to_jsonb(item)->>'resolution_closed_qty')::numeric,0)-GREATEST(
+				   COALESCE((SELECT sum(a.allocated_units) FROM %[1]s.order_stock_batch_allocations a WHERE a.order_id=sale.id AND a.product_id=item.product_id AND a.bom_spec_id=item.bom_spec_id),0),
+				   COALESCE((SELECT sum(d.deducted_units) FROM %[1]s.order_stock_deductions d WHERE d.order_id=sale.id AND d.product_id=item.product_id AND d.bom_spec_id=item.bom_spec_id),0))
+				) INTO frozen_production_identity_derived;
+			END IF;
 			IF NOT frozen_production_identity_derived
 			   AND to_regclass('%[1]s.orders') IS NOT NULL AND to_regclass('%[1]s.order_items') IS NOT NULL
 			   AND to_regclass('%[1]s.stock_batches') IS NOT NULL AND to_regclass('%[1]s.produce_running_items') IS NOT NULL

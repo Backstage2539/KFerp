@@ -125,3 +125,32 @@
 - 已完成仓库处置后，替代货源可以在财务后续确认之前实际入库；原先要求整个库存永远不变会把后续确认卡住，`...mixed-later-receipt-red.log` 已复现。最终校验改为核对已执行的旧待入库解除、原转换数量及包裹身份，仓库执行前仍要求实物预留版本一致。最终数据库回归见 `...mixed-all-final.log`。该候选尚未合入或部署。
 
 - 混合货源最终候选：`...mixed-all-final.log` 领域/HTTP/订单处理与留厂数据库回归通过（51.389s）；`...mixed-final-backend.log` 完整 Go 通过；`...mixed-final-frontend.log` 1750/1750 与构建（2.30s）通过。第三批正式数据库健康、Caddy/应用运行、费用版本标签为 1，近五分钟无 panic/fatal/ERROR；磁盘剩余 5.5 GB，证据 `...phase3-service-check.log`。
+
+### 混合货源发布回执（2026-11-08）
+
+- 已推送功能 `498bf7ade`，develop `3c7ec9d83ba7720bab87cb24e300e59ec45d214b`，main `ad60158c5eb34aca5eb5a31a9a78fcfd6cc83d7b`。合并前后检查没有其他工作流的新改动。
+- ERP-only 开发和正式部署成功，小程序包保留；开发备份 `/opt/stacks/erp/orderapp.backup.deploy-20261108005120-3c7ec9d83ba7`，正式备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20261108010433-ad60158c5eb3`，正式回滚锚点 `kferp-orderapp-rollback:production-20261108010433-ad60158c5eb3`。
+- 开发镜像 `b394f77609cb`，正式镜像 `1699fb6ae4eb`。入口 `main-Dqs9Wi-s.js`，公开页面与服务器静态文件匹配；仓库源码校验 `4656af6bc9302576d2b64cb0bc63abdde9e616be4828971012466ab11113a793` 一致。
+- 正式未认证页面/API 401，认证页面/处理接口/手册/配置/需求接口 200。Chrome 再次打开目标订单处理抽屉，正常状态、原数量、共享已完成生产、已取消代发和未选择的业务选项均符合预期。未预览、保存或提交真实订单。
+- 只读目标 SO-20261031-0003：2160 元未收款，关闭/退回量 0，处理历史 0。完整方案及现场产品验收仍未完成。
+- 日志 `/tmp/kferp-resolution-20261108-phase4-deploy-{development,production}.log`；接口与版本核查 `/tmp/kferp-resolution-20261108-phase4-{development,production}-smoke.json`。
+
+### 公司成品转配候选（2026-11-08）
+
+- 明确选择生产原批次、普通销售目标商品行及整数库存数量；原订单已有预留时，另行明确释放数量。仓库确认与最终订单关闭、原预留释放、目标预留及日志原子保存。全部齐备才标记库存待发货，不自动出库、转仓或退款。
+- 核对真实库存、批次、仓库、公司货权、冻结商品规格、目标客户、已有预留、共享需求和本单继续履约量；源批次或目标变化后重新预览，仓库确认不能沿用。跨计划总分配不得超过原单本次关闭数量。
+- 普通库存转仓可用量现在扣除销售批次未发货预留；多笔分配先按订单合计，再扣一次出库量，避免重复扣减或遗漏。旧版本回滚遇到新成品分配记录时拒绝不兼容镜像。
+- RED：`/tmp/kferp-resolution-20261108-company-allocation-{red,pg-red}.log`；`company-{stock-guards,multiplan,partial,release,target-identity,ready,reapproval,shared-unit,existing-identity,ui,rollback}-red.log`。初次数据库样本使用不存在字段的错误已纠正，PG RED 记录为缺少批次与可用量的业务失败。
+- GREEN：最终公司分配与相关订单处理／留厂／PR703 数据库回归 `company-final-pg.log`（125.199s）；转仓数据库回归 `company-stock-transfer-regression.log`（22.550s）；全 Go `company-final-backend.log`；Vue 1751/1751 及构建 3.73s `company-frontend.log`；changed、旧版回滚和 ERP-only 保留包检查均通过。
+- 真实数据库用例包含共享已完成生产、部分目标齐备、已有原预留释放、API 显式选择与重复提交、并发仅一次执行、批次／单位／目标身份／库存变更拒绝、日志失败回滚、变化后再次仓库确认、其他客户货权异常拒绝。原批次实物与共享生产/其他订单快照保持不变。
+- Chrome 隔离模拟页面观察：分配项最初为空；添加后批次与目标为未选、数量为空；选择批次才列出明确目标，填写后布局正常。页面写入仅模拟，真实 API 写入证据来自隔离 PostgreSQL。临时页面已移出仓库，样本在 `/tmp/kferp-order-resolution-company-preview-20261108.html`。
+- 当前能力仅开放可核对的按件公司成品到普通销售需求，不推断箱件／重量转换，不自动接管目标已有生产。停工余料、生产转供、客户货权退回、实物退货及报损仍待完成；PR／DEV 保持进行中。
+
+
+### 公司成品转配历史版本补查（2026-11-08）
+
+- 首次集成 develop `7cf45b430956f5dfaf31fd19ede158a1eee4740c` 并部署开发；备份 `/opt/stacks/erp/orderapp.backup.deploy-20261108013512-7cf45b430956`，镜像 `1d0917839f07`，页面 `main-DOSGBqsA.js`。开发 API、页面、手册、需求标记与静态文件核查通过；该候选未发布正式环境。
+- 补查复现订单和原批次都冻结 V1、BOM 已发布 V2 时分配失败：`company-historical-red.log` 为 `bom_variant_not_current`（此前样本遗漏归档旧版本的唯一键错误已修正）。新增精确冻结订单行与公司批次链，核对仓库、库存单位、货权、品质、实物可用量、已有预留和目标剩余需求；不把历史身份改成当前版本。
+- 增加反向数据库用例：错订单行、错批次、错仓库、超需求、克数混入、零数量、留厂/代发/暂停/关闭目标、其他客户货权、原预留占满、目标已齐备、单位不符、质检冻结及实物不足。API 和共享生产保护复用本批实际接口回归；最终结果见后续回执。
+
+- 补查最终隔离回归通过：`company-historical-final-pg.log`，订单处理／留厂／PR703／历史发货 HTTP 为 143.338s，BOM 守卫为 2.806s；完整 Go `company-historical-backend.log` 通过。扩大通配回归时，旧代发目录样本缺少 `product_bom_spec_authorities`；未改动的 develop 发布基线同一用例复现，证据 `company-historical-baseline-fixture.log`，未声称该扩大集合全绿。

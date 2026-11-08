@@ -26,6 +26,9 @@ func (r Repository) Refresh(ctx context.Context, orderID, requestID int64, cmd d
 		return out, err
 	}
 	defer tx.Rollback(ctx)
+	if err = r.lockCompanyTargets(ctx, tx, orderID, cmd); err != nil {
+		return out, err
+	}
 	if err = r.lock(ctx, tx, orderID); err != nil {
 		return out, err
 	}
@@ -98,6 +101,11 @@ func (r Repository) Refresh(ctx context.Context, orderID, requestID int64, cmd d
 			}
 			if task.Kind == "external" && step.Status == "completed" && current.ExternalVersion != original.ExternalVersion {
 				continue
+			}
+			if task.Kind == "production" && task.Choice == "allocate" {
+				if d := dispositionFor(cmd, task.Kind, task.SourceID); d != nil && verifyCompanySelectionIdentity(original, current, domain.Command{Dispositions: []domain.Disposition{*d}}) != nil {
+					continue
+				}
 			}
 			// A pending confirmation describes the exact displayed disposition.
 			// Changing its quantity or destination requires a new confirmation.

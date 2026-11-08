@@ -49,7 +49,7 @@ func reservationDependencies(items, allocations, deductions []map[string]json.Ra
 			continue
 		}
 		i := matched[0]
-		out = append(out, domain.Dependency{Kind: "stock_reservation", ID: int64(num(a, "id")), ItemID: int64(num(i, "id")), Version: rowVersion(a), Quantity: q, Unit: str(i, "unit"), Status: "reserved", Label: fmt.Sprintf("%s · 批次 %s · 未发货预留 %g %s", str(i, "item_name"), str(a, "batch_code"), q, str(i, "unit"))})
+		out = append(out, domain.Dependency{BatchID: int64(num(a, "batch_id")), Kind: "stock_reservation", ID: int64(num(a, "id")), ItemID: int64(num(i, "id")), Version: rowVersion(a), Quantity: q, Unit: str(i, "unit"), Status: "reserved", Label: fmt.Sprintf("%s · 批次 %s · 未发货预留 %g %s", str(i, "item_name"), str(a, "batch_code"), q, str(i, "unit"))})
 	}
 	return out, ""
 }
