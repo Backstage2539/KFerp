@@ -43,6 +43,7 @@ export function jobCardStatusOptions() {
 }
 
 export function jobCardStatusLabel(status) {
+  if(status==='stopped') return '已停止剩余生产'
   return jobCardStatusOptions().find((item) => item.value === String(status || '').trim())?.label || status || '-'
 }
 
@@ -54,6 +55,7 @@ export function workOrderStatusLabel(status) {
     partially_completed: '部分完成',
     completed: '已完成',
     cancelled: '已取消',
+    stopped: '已停止剩余生产',
   })[String(status || '').trim()] || status || '-'
 }
 

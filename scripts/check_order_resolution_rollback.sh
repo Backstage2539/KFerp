@@ -11,7 +11,8 @@ mixed_label="$(docker image inspect --format '{{index .Config.Labels "io.kferp.o
 company_label="$(docker image inspect --format '{{index .Config.Labels "io.kferp.order-resolution-company-stock-aware"}}' "$old_image" 2>/dev/null || true)"
 return_label="$(docker image inspect --format '{{index .Config.Labels "io.kferp.order-resolution-return-aware"}}' "$old_image" 2>/dev/null || true)"
 ownership_label="$(docker image inspect --format '{{index .Config.Labels "io.kferp.order-resolution-ownership-return-aware"}}' "$old_image" 2>/dev/null || true)"
-if [ "$ownership_label" = 1 ] && [ "$return_label" = 1 ] && [ "$label" = 1 ] && [ "$mixed_label" = 1 ] && [ "$company_label" = 1 ]; then exit 0; fi
+stop_label="$(docker image inspect --format '{{index .Config.Labels "io.kferp.order-resolution-production-stop-aware"}}' "$old_image" 2>/dev/null || true)"
+if [ "$stop_label" = 1 ] && [ "$ownership_label" = 1 ] && [ "$return_label" = 1 ] && [ "$label" = 1 ] && [ "$mixed_label" = 1 ] && [ "$company_label" = 1 ]; then exit 0; fi
 schema="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$app_container" | sed -n 's/^DB_SCHEMA=//p' | tail -1)"
 if ! [[ "$schema" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
  echo 'Cannot verify the order resolution schema; refusing rollback.' >&2;exit 1
@@ -22,6 +23,12 @@ query(){
 }
 has_table="$(query "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema='$schema' AND table_name='order_resolution_requests')")"
 case "$has_table" in f) exit 0;; t) ;; *) echo 'Cannot verify order resolution records; refusing rollback.' >&2;exit 1;; esac
+if [ "$stop_label" != 1 ]; then
+ has_stop="$(query "SELECT EXISTS(SELECT 1 FROM \"$schema\".order_resolution_requests r CROSS JOIN LATERAL jsonb_array_elements(COALESCE(r.command_json->'dispositions','[]'::jsonb)) d WHERE d->>'kind'='production' AND d->>'choice'='stop') AS production_stop_marker")"
+ if [ "$has_stop" != f ]; then
+  echo 'Production stop records exist or cannot be verified; refusing an incompatible rollback image.' >&2;exit 1
+ fi
+fi
 if [ "$ownership_label" != 1 ]; then
  has_ownership="$(query "SELECT EXISTS(SELECT 1 FROM \"$schema\".order_resolution_requests r CROSS JOIN LATERAL jsonb_array_elements(COALESCE(r.command_json->'return_selections','[]'::jsonb)) s WHERE s->>'source_kind'='ownership')")"
  if [ "$has_ownership" != f ]; then

@@ -87,7 +87,7 @@ func OptionsFor(c Context) map[string][]Option {
 	}
 	completedProduction := false
 	for _, dep := range c.Dependencies {
-		completedProduction = completedProduction || (dep.Kind == "production" && dep.Status == "completed")
+		completedProduction = completedProduction || (dep.Kind == "production" && oneOf(dep.Status,"completed","stopped"))
 	}
 	for n := range options["action"] {
 		option := &options["action"][n]

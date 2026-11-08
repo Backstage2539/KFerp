@@ -203,3 +203,20 @@
 - 源手册 `orderapp-remote/docs/OP_MANUAL_ORDER_RESOLUTION.md` 已同步，ERP 处理表单与库存/代发录单说明同步。需求 PR-749 与 DEV-PR749-* 继续 doing；停工余料、生产转供、报损仍未交付，Van 验收待进行。
 
 - 合并最新 origin/develop 后：完整无数据库 Go、前端 1755/1755 与 Vite 构建通过；原出库退货/客户货权退回/库存代发/不可改写记录的隔离 PostgreSQL 回归 72.449s 通过，changed、diff-check 与回滚保护通过。证据 `/tmp/kferp-resolution-20261108-ownership-merged-{backend,frontend,build,pg}.log`。
+
+## 第七批正式回执（2026-11-08）
+
+- 功能 57fd6c209；最终候选 770dd8767；develop a65c5d890ff1193cbfe6214b3233e63093cccc3a；main dfedfd86175901ff556b6f2d248485af207417b0，全部已推送。
+- 开发：备份 `/opt/stacks/erp/orderapp.backup.deploy-20261108142955-a65c5d890ff1`，镜像 3c4b26ab846d，源码与页面核对通过。
+- 正式：备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20261108144236-dfedfd861759`，回滚镜像 `kferp-orderapp-rollback:production-20261108144236-dfedfd861759`；运行镜像 e74ced3a9491c835196c53bee22cc563cc049e82d87aa94925486d6987247ad3，入口 main-DZrtLBCZ.js。
+- 证据 `/tmp/kferp-resolution-20261108-ownership-deploy-{development,production}.log`、`ownership-{development,production}-smoke.json`、`ownership-production-service.log`。认证 API 401/200、页面/手册/PR/配置 200、源文件哈希、静态资源一致性通过；数据库健康，ERP 服务运行。
+- Chrome 刷新正式订单列表并只读打开目标抽屉：SO-20261031-0003 正常，2160 元未收，历史 0；共享 PP19 完成、PP18/两笔代发取消；可关闭剩余履约，全部原因/数量/处置/账期均未选。未提交业务预览、保存或变更。保留原小程序包，未构建或发布小程序。
+
+## 第八批停工候选（尚未发布）
+
+- RED：没有逐工单余料选项、缺少仓库确认、预览无实际余料行；旧确认沿用、已停工计划新建工单绕过、旧版本回滚均先复现。
+- 当前隔离 GREEN：保留扣料/在制品/批次/成本；明确保留或只释放未耗用预留；生产与仓库分别确认；数量/货权/预留变化拒绝，日志失败原子回滚，重复及并发只执行一次；刷新变化后的方案重新要求两个岗位确认；重新开启销售不恢复停工工单。
+- 补充 RED → GREEN：停工计划遮住重开后的剩余需求；重复初始化尝试回填停工历史；其他工单通过来源关联继续消耗已停工在制品/余料；计重产出成本误显示为零。分别修复需求筛选、跳过停工历史回填、校验新旧两端来源、按原单位成本计算，定向回归通过。
+- 完整无数据库 Go 验证通过；全前端 1757/1757、Vite 构建通过；隔离 PostgreSQL 订单处理/留厂/PR703/历史发货 177.077s、生产需求 0.955s 通过；changed 与旧版本回滚保护通过。证据 `/tmp/kferp-resolution-20261108-stop-release-{backend,frontend,pg}.log`，最终停工定向 `/tmp/kferp-resolution-20261108-stop-final-target.log`。未声称完整 PostgreSQL 全库回归。
+- 浏览器 mock 样本通过：四种业务处置均不预选，未选时拒绝预览；明确原位保留余料/在制品、释放未耗用预留、保留原产出后，显示订单冲减与生产/仓库两个确认；仓库确认仍需明确选择。截图 `/tmp/kferp-resolution-20261108-stop-ui.png`；真实订单未写入。工单跳转及返回来源用实际组件运行测试验证。
+- 未完成：开发/正式发布；指定需求转供及批准报损仍待实施。完整 PR/DEV 保持进行中。
