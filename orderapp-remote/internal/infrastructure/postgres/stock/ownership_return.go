@@ -26,7 +26,7 @@ func (r Repository) OwnershipReturnStockTx(ctx context.Context, tx pgx.Tx, recei
 	if err != nil {
 		return stockapp.TransferOptionRow{}, err
 	}
-	options, err := r.listTransferOptionsTx(ctx, tx, stockapp.TransferOptionsQuery{Warehouse: warehouse, ItemType: "finished_product", ItemID: product, BomSpecID: spec, Limit: 1000000}, true)
+	options, err := r.listTransferOptionsTx(ctx, tx, stockapp.TransferOptionsQuery{Warehouse: warehouse, ItemType: "finished_product", ItemID: product, BomSpecID: spec, Limit: 1000000}, true, false)
 	if err != nil {
 		return stockapp.TransferOptionRow{}, err
 	}

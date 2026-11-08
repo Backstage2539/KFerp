@@ -650,6 +650,11 @@ BEGIN
 			      OR (to_jsonb(NEW)->>'source_batch_code'=move.source_batch_code AND to_jsonb(NEW)->>'warehouse'=item.from_warehouse AND (to_jsonb(NEW)->>'qty_change_units')::bigint=move.qty_units AND (to_jsonb(NEW)->>'qty_change_g')::bigint=move.qty_g)
 			     END)
 			) INTO frozen_production_identity_derived;
+        ELSIF TG_TABLE_NAME='stock_ledger_entries' AND to_jsonb(NEW)->>'source_doc_type'='order_resolution_company_scrap'
+          AND to_regprocedure('%[1]s.order_resolution_scrap_ledger_allowed(jsonb)') IS NOT NULL THEN
+          -- The approved loss consumes this exact frozen batch. It creates no
+          -- replacement identity and cannot stand in for a normal stock write.
+          frozen_production_identity_derived := %[1]s.order_resolution_scrap_ledger_allowed(to_jsonb(NEW));
         ELSIF to_regclass('%[1]s.order_resolution_stock_returns') IS NOT NULL
           AND ((TG_TABLE_NAME IN('stock_batches','stock_ledger_entries') AND to_jsonb(NEW)->>'source_doc_type' IN('order_resolution_return','order_resolution_ownership_return_out'))
            OR (TG_TABLE_NAME='finished_inventory' AND COALESCE(current_setting('kferp.order_return_id',true),'')<>''))

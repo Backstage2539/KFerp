@@ -13,6 +13,7 @@ const choices = computed(() => {
  if (props.step.kind === 'external') return [{value:'none',label:'已核实：未开票且无外部入账'},{value:'recorded',label:'已完成冲减或更正并登记凭据'}]
  if (props.step.kind === 'approval') return [{value:'approve',label:'批准本次订单处理'}]
  if (props.step.kind === 'period') return [{value:'approve',label:'批准历史账期更正，保留原快照'}]
+ if (props.step.kind === 'production_finance') return (props.options?.scrap_cost || []).filter(v=>v.value===props.step.choice)
  if (props.step.kind === 'production_stock') return (props.options?.production || []).filter(v=>v.value==='stop').map(v=>({...v,label:'确认余料、在制品、预留和产出的原停工方案'}))
  return (props.options?.[props.step.kind] || []).filter(v => v.value === props.step.choice)
 })
@@ -44,7 +45,7 @@ async function submit() {
    </template>
    <label v-if="step.kind==='return_stock'">实际退回入库日期<input v-model="form.posting_date" type="date" /></label>
    <label v-if="step.kind==='return_stock'">退回验收凭据<input v-model="form.reference" placeholder="填写收货、验收凭据编号" /></label>
-   <label v-if="['funds','external','period','billing'].includes(step.kind)">付款／更正／批准凭据<input v-model="form.reference" placeholder="填写可核对的凭据编号" /></label>
+   <label v-if="['funds','external','period','billing','production_finance'].includes(step.kind) || step.choice==='scrap'">付款／更正／批准凭据<input v-model="form.reference" placeholder="填写可核对的凭据编号" /></label>
    <label>处理说明<textarea v-model="form.note" rows="2" /></label>
    <p v-if="error" class="error" role="alert">{{ error }}</p>
    <button type="button" :disabled="busy || !form.choice" @click="submit">确认本项处理</button>

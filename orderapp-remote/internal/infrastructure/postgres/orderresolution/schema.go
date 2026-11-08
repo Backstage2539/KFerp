@@ -139,6 +139,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err != nil {
 		return err
 	}
+	if err = ensureCompanyScrapSchema(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err = ensureProductionStopSchema(ctx, pool, schema); err != nil {
 		return err
 	}

@@ -119,6 +119,14 @@ func (r Repository) completeStep(ctx context.Context, orderID, requestID, stepID
 	}
 	completed := true
 	switch step.Kind {
+	case "production_finance":
+		if cmd.Choice != step.Choice || !one(cmd.Choice, "retain_cost", "reclassify_loss") || strings.TrimSpace(cmd.Note) == "" || strings.TrimSpace(cmd.Reference) == "" {
+			return out, fmt.Errorf("请明确批准原报损成本方案并填写财务依据")
+		}
+		if !currentPolicy.Policy.Allows("production", "scrap") || !currentPolicy.Policy.Allows("scrap_cost", cmd.Choice) {
+			return out, fmt.Errorf("管理员已停用报损或成本处置")
+		}
+		err = r.revalidatePlan(ctx, tx, orderID, requestID, original, out.Command, out.Plan)
 	case "production_stock":
 		if cmd.Choice != "stop" || step.Choice != "stop" || strings.TrimSpace(cmd.Note) == "" {
 			return out, fmt.Errorf("请明确确认原停工方案的余料、在制品、预留和产出，并填写仓库说明")
@@ -159,7 +167,17 @@ func (r Repository) completeStep(ctx context.Context, orderID, requestID, stepID
 		if cmd.Choice != step.Choice || strings.TrimSpace(cmd.Note) == "" {
 			return out, fmt.Errorf("请确认原预览的生产处置并填写说明")
 		}
-		if cmd.Choice == "allocate" || cmd.Choice == "stop" {
+		if cmd.Choice == "scrap" {
+			if strings.TrimSpace(cmd.Reference) == "" {
+				return out, fmt.Errorf("请填写仓库报损验收依据")
+			}
+			for _, other := range out.Steps {
+				if (other.Kind == "approval" || (other.Kind == "production_finance" && other.SourceID == step.SourceID)) && one(other.Status, "pending", "failed") {
+					return out, fmt.Errorf("请先完成报损财务批准及本单审批")
+				}
+			}
+		}
+		if one(cmd.Choice, "allocate", "stop", "scrap") {
 			// Post the reservation atomically with the final order adjustment.
 			err = r.revalidatePlan(ctx, tx, orderID, requestID, original, out.Command, out.Plan)
 			break
