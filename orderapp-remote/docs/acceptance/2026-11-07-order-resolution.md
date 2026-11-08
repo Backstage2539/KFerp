@@ -266,3 +266,14 @@
 - 已更新源手册与 Vue 表单说明、PR/DEV；候选待合并与发布，产品验收仍由 Van 完成。复杂共享/已部分产出或客户专属生产不自动改供；页面给出先拆分核对的限制。
 
 - 集成前最终检查：合并最新 origin/develop 后，完整无数据库 Go、changed、兼容回滚通过；订单处理/留厂关闭 PostgreSQL 全回归 189.244s，真实生产接口 3.093s 通过。历史 BOM 冻结转供另测 1.741s 通过；前端代码相对已通过的 1759 项及构建无变化。证据 `reassign-merged-{backend,changed,rollback,pg}.log` 与 `reassign-historical.log`。最后冻结保护的启动问题来自旧测试样本产出字段未回填，按正常生产初始化完善样本后重启、完工与历史保护均通过，未放宽生产守卫。
+
+
+### 第十批开发与正式发布回执
+
+- 验证提交 54c7be4542ec56f1f4b69c080121ebe2d254f66c 已推送；干净 develop 03e5e0091b3e5a79ee9616b7bf6b9ff8e7767d1f、main 2657ca8e2e9f1b15762b7c8155315a39c7efc1a4 已推送并完成两环境发布；发布前确认源与已验证分支一致，没有带入其他改动。
+- 开发备份 `/opt/stacks/erp/orderapp.backup.deploy-20261108163305-03e5e0091b3e`，回滚镜像 `kferp-orderapp-rollback:development-20261108163305-03e5e0091b3e`，运行镜像 830b21b373f821fcbbb36bbe8d1fa818c3a22213a283bc394994ce3286301956。
+- 正式备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20261108164456-2657ca8e2e9f`，回滚镜像 `kferp-orderapp-rollback:production-20261108164456-2657ca8e2e9f`，运行镜像 6b32575caf79348bb6391017638736132681e431c16c2f1669de3dda13a6c32c。两次 ERP-only 均保留原小程序包。
+- 正式服务运行、Postgres healthy；匿名页面及 API 401，登录页面/订单处理/策略/手册/PR 200；main-YdwMQe4H.js 与服务器文件一致，repository/生产转供/停工/报损/退货/货权/库存及身份守卫源码散列与干净 main 一致。开发 API 认证及同等功能核对通过。
+- Chrome 刷新正式订单列表并只读打开目标处理抽屉，观察正常状态与所有业务选项初始为空。只读 API 与第九批发布后相比，目标订单状态、数量、已关闭量、已退回量及账款完全一致，历史仍为 0；未 POST 真实预览/草稿/处置，无真实领料、取消、退款或库存移动。
+- 证据 `/tmp/kferp-resolution-20261108-reassign-{deploy-development,deploy-production,production-service}.log`、`reassign-{development,production}-smoke.json`；隔离与正式页面截图保存在 `/Users/yiiiple-work/.codex/visualizations/2026/11/04/01a1a5fe-9461-76a2-958f-8b00b47606d5/order-resolution-acceptance/`。
+- 本回执在部署后补入仓库，仅更新验收和需求进度文档，不重新构建已核对的服务；生产运行版本仍为 2657ca8e2。实施与发布已完成，Van 现场业务验收待进行；复杂共享、部分产出或客户专属工单须先拆分核对，未验证场景不自动处置。
