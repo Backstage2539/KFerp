@@ -33,4 +33,12 @@
 
 ## 发布回执
 
-待记录合并、部署版本、服务检查和生产只读候选检查。无数据库迁移，无小程序源码改动。
+- 功能提交 `2ceda2f95` 已推送；集成至 `develop@65a896eee611d7090b115d362f536fb75fefb628`，开发环境 ERP-only 部署成功。
+- 开发回滚锚点：源码 `/opt/stacks/erp/orderapp.backup.deploy-20261108233503-65a896eee611`，镜像 `kferp-orderapp-rollback:development-20261108233503-65a896eee611`。
+- 开发服务运行且重启数 0，登录页 HTTP 200；候选查询源码 SHA256 与本地一致，运行容器前端资源包含显式补足选项。匿名 API 401 只证明鉴权，不作为业务验收。
+- 经确认本次没有夹带其他新增功能，已验证的 develop 合入 `main@54f87c0846dbbf8579aa920a4d02b50ef77e01fb` 并推送；`KFERP_ERP_ONLY=1 ./deploy_orderapp.sh production` 返回成功。
+- 正式回滚锚点：源码 `/opt/stacks/erp-production/orderapp.backup.deploy-20261108234647-54f87c0846db`，镜像 `kferp-orderapp-rollback:production-20261108234647-54f87c0846db`。
+- 正式服务运行且重启数 0，Postgres healthy，登录页 HTTP 200；运行镜像 `sha256:8affb203845e1941b1a513df6d565e7396a162288fb5055ee7f22f6bdb8356ca`。候选查询源码 SHA256 `e9c0576c9682350902e55ec435a50ffbfd5efcacff61387ffe8f72a05840be93` 与已验证源一致；前端 `OrderEntryView-MOPN1mBN.js` 已装入容器。
+- 正式 Chrome 员工会话只读核查：SO-20260922-000190 页面出现「选择快递单（2）」；弹窗同时显示本次两张运单，分别展示订单日期、快递下单及揽件时间，明确提示实物分配未完成并禁用「使用此单」。未进行补足预览、保存或运单提交。
+- 正式只读 SQL 核查：回传行 10/11 均为 pending、selected_order_id 为空；订单 190/173 的快递单号为空。PR-751 和三个 DEV 行均为 review，等待真实业务归属确认及 Van 验收。
+- 无数据库迁移，无小程序源码改动；ERP-only 保留原小程序包，不上传、提审或发布微信版本。本节为部署后文档回执，后续文档提交不代表运行版本再次变化。

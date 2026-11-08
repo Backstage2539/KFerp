@@ -6,7 +6,8 @@
 - DEV-PR751-03: Vue 操作、手册、隔离 API/组件验证及开发交付。
 - Verifier: targeted PostgreSQL `TestShippingReturn|TestFulfillmentOrderEdit|TestFulfillmentExplicitPhysicalReplenishment`; frontend shipping-return-runtime/fulfillment-full-edit-dom; backend and frontend build.
 - RED: 候选为空；显式补足后 StockReady=false；禁用候选仍触发提交。证据 `/tmp/kferp-return-verification`。
-- Status: implementation/verification in progress. Production order mapping needs Van to identify both waybills; no live stock/order/fee writes performed.
+- Status: implementation, isolated API verification, 1767 Vue tests and build passed; feature `2ceda2f95` pushed and integrated. Development runtime `65a896eee611d7090b115d362f536fb75fefb628`; production runtime `54f87c0846dbbf8579aa920a4d02b50ef77e01fb`, both ERP-only releases verified. Production order mapping needs Van to identify both waybills; no live stock/order/fee writes performed. PR/DEV remain review pending Van acceptance.
+- Production: service running with 0 restarts, Postgres healthy, login 200; candidate source hash and Vue bundle match. Read-only browser now shows two candidate waybills on SO-20260922-000190, separate dates and disabled actions for its unfilled physical allocation. Both rows remain pending, neither target order has a tracking number. Receipt-only commits after deployment do not change the stated runtime version.
 - Note: macOS reserve_req_id.sh awk failed before write; reserved PR-751 manually after inspecting next id.
 
 ### PR-749-ORDER-RESOLUTION 订单取消、关闭与更正
