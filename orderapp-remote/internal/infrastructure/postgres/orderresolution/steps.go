@@ -171,6 +171,17 @@ func (r Repository) completeStep(ctx context.Context, orderID, requestID, stepID
 		if err == nil {
 			_, err = productionpg.NewRepository(r.pool, r.schema).CancelProductionPlanTx(ctx, tx, productionapp.CancelProductionPlanCommand{ID: step.SourceID, Operator: actor, Note: cmd.Note})
 		}
+	case "return_stock":
+		for _, other := range out.Steps {
+			if other.Kind == "approval" && one(other.Status, "pending", "failed") {
+				return out, fmt.Errorf("请先完成本次退货方案的审批，再确认实物入库")
+			}
+		}
+		err = r.postReturnStock(ctx, tx, orderID, requestID, stepID, original, out.Command, out.Plan, cmd, actor)
+	case "return_finance":
+		if cmd.Choice != out.Command.ReturnSettlement || cmd.Choice != step.Choice || !one(cmd.Choice, "keep_receivable", "credit_returned_goods") || strings.TrimSpace(cmd.Note) == "" {
+			return out, fmt.Errorf("请明确确认原预览中的退回商品款处理方式，并填写财务说明")
+		}
 	case "fee":
 		if cmd.Choice != step.Choice || strings.TrimSpace(cmd.Note) == "" || cmd.Choice == "defer" {
 			return out, fmt.Errorf("请确认预览中的费用处置并填写财务说明；暂不处理项需先更新方案")

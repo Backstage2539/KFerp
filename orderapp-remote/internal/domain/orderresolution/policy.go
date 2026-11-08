@@ -10,7 +10,7 @@ type Policy struct {
 func (p Policy) Validate() error {
 	options := Options()
 	for kind, values := range p.Disabled {
-		if kind != "action" && !oneOf(kind, "production", "direct_ship", "customer_stock", "stock", "stock_reservation", "fee", "funds") {
+		if kind != "action" && !oneOf(kind, "production", "direct_ship", "customer_stock", "stock", "stock_reservation", "fee", "funds", "return_finance", "return_stock", "return_quality", "return_ownership") {
 			return fmt.Errorf("不支持的处置类别：%s", kind)
 		}
 		for _, value := range values {
@@ -57,6 +57,16 @@ func Preview(c Context, cmd Command) (Plan, error) {
 		}
 		if !c.Policy.Allows(d.Kind, d.Choice) {
 			return Plan{}, fmt.Errorf("管理员已停用所选处置，请重新选择")
+		}
+	}
+	if cmd.Action == "return" {
+		if !c.Policy.Allows("return_finance", cmd.ReturnSettlement) || !c.Policy.Allows("return_stock", "receive") {
+			return Plan{}, fmt.Errorf("管理员已停用所选退回或商品款处理方式")
+		}
+		for _, s := range cmd.ReturnSelections {
+			if !c.Policy.Allows("return_quality", s.Quality) || !c.Policy.Allows("return_ownership", s.Ownership) {
+				return Plan{}, fmt.Errorf("管理员已停用所选退回验收或货权处置")
+			}
 		}
 	}
 	p, err := preview(c, cmd)

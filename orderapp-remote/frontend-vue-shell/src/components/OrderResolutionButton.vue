@@ -29,6 +29,9 @@ let key = ''
 const current = computed(() => loaded.value?.context)
 const options = computed(() => loaded.value?.options || {})
 const pending = computed(() => loaded.value?.history?.find(v => v.status === 'pending'))
+const returnStockStep = computed(() => pending.value?.steps?.find(s=>s.kind==='return_stock' && s.status==='completed'))
+const returnStockPosted = computed(() => Boolean(returnStockStep.value))
+const returnStockLabel = computed(() => returnStockStep.value?.label || '')
 const editable = computed(() => Boolean(loaded.value?.permissions?.['orders.resolve']) && !pending.value?.applied)
 const simple = computed(() => ['hold', 'resume'].includes(form.action))
 const feesOnly = computed(() => form.action === 'credit' && form.scope === 'fees_only')
@@ -76,6 +79,14 @@ function disposition(dep) { return form.dispositions.find(v => v.kind === dep.ki
 function supplyChoice(dep,source) { return disposition(dep)?.supplies?.find(v=>Number(v.reservation_id)===Number(source.id)) }
 function stockSource(dep,selection) { return dep.company_stock?.find(v=>Number(v.batch_id)===Number(selection.batch_id)) }
 function addStockSelection(dep) { disposition(dep).stock_selections.push({batch_id:0,target_item_id:0,quantity:''}) }
+function addReturnSelection() { if(returnStockPosted.value) return; form.return_selections.push({source_kind:'',source_id:0,batch_id:0,quantity:'',ownership:'',warehouse:'',quality:''}) }
+function returnSource(row) { return current.value?.return_sources?.find(s=>s.kind===row.source_kind&&Number(s.id)===Number(row.source_id)&&Number(s.batch_id)===Number(row.batch_id)) }
+function chooseReturnSource(row,key) {
+ if(returnStockPosted.value) return
+ const source=current.value?.return_sources?.find(s=>`${s.kind}:${s.id}`===key)
+ Object.assign(row,{source_kind:source?.kind||'',source_id:source?.id||0,batch_id:source?.batch_id||0,quantity:'',ownership:'',warehouse:'',quality:''})
+}
+function returnOwners(row) { return (options.value.return_ownership||[]).filter(v=>returnSource(row)?.destinations?.some(d=>d.ownership===v.value)) }
 function choices(dep) {
  return (options.value[dep.kind] || []).map(v => {
   let reason = v.disabled ? v.reason : ''
@@ -86,7 +97,8 @@ function choices(dep) {
   if (!reason && dep.kind === 'production' && dep.status === 'completed' && !['keep_company_stock','allocate','scrap','defer'].includes(v.value)) reason='已完成生产须保留'
   if (!reason && dep.shared && ['cancel_unstarted','stop'].includes(v.value)) reason='共享生产不能影响其他订单'
   if (!reason && dep.kind==='production' && dep.status!=='completed' && ['keep_company_stock','allocate','scrap'].includes(v.value)) reason='请先明确未完成生产的处置'
-  if (!reason && dep.kind==='direct_ship' && dep.relation==='package' && v.value!=='cancel') reason='当前包裹须整单处理，其他包裹分别选择'
+  if (!reason && dep.kind==='direct_ship' && v.value==='keep_fulfilled' && (form.action!=='return'||dep.relation!=='package')) reason='仅用于本包裹实际退货，保留原发货历史'
+  if (!reason && dep.kind==='direct_ship' && dep.relation==='package' && (form.action==='return' ? !['keep_fulfilled','defer'].includes(v.value) : v.value!=='cancel')) reason=form.action==='return'?'退货须保留已发生的原包裹发货记录':'当前包裹须整单处理，其他包裹分别选择'
   if (!reason && dep.kind==='direct_ship' && v.value==='replace_supply' && dep.replacement_issue) reason=dep.replacement_issue
   if (!reason && dep.kind==='direct_ship' && v.value==='replace_supply' && !dep.supply_reservations?.some(s=>s.quantity>0)) reason='没有可切换的待入库预订'
   if (!reason && v.value==='replace_supply' && dep.supply_reservations?.some(s=>s.quantity>0&&!s.targets?.length)) reason='尚无客户、商品、冻结规格和仓库均匹配的替代货源'
@@ -140,8 +152,28 @@ const money = cents => (Number(cents || 0) / 100).toFixed(2)
      </fieldset>
      <fieldset v-if="!simple" :disabled="busy || !editable">
       <legend>商品范围</legend>
-      <label>范围<select v-model="form.scope"><option value="">请选择</option><option v-for="v in scopeOptions" :key="v.value" :value="v.value">{{ v.label }}</option></select></label>
-      <div class="table-scroll"><table><thead><tr><th>商品</th><th>原数量</th><th>已交付／入客户仓</th><th>已关闭</th><th v-if="form.scope === 'selected'">本次处理</th></tr></thead><tbody><tr v-for="line in current.lines" :key="line.id"><td>{{ line.name }}<small>{{ line.unit }}</small></td><td>{{ line.quantity }}</td><td>{{ line.delivered }}</td><td>{{ line.closed }}</td><td v-if="form.scope === 'selected'"><input v-if="form.lines.find(v => v.item_id === line.id)" v-model.number="form.lines.find(v => v.item_id === line.id).quantity" type="number" min="0" step="any" :aria-label="`${line.name}处理数量`" /></td></tr></tbody></table></div>
+      <label>范围<select v-model="form.scope" :disabled="returnStockPosted"><option value="">请选择</option><option v-for="v in scopeOptions" :key="v.value" :value="v.value">{{ v.label }}</option></select></label>
+      <div class="table-scroll"><table><thead><tr><th>商品</th><th>原数量</th><th>已交付／入客户仓</th><th>已关闭</th><th>已退回</th><th v-if="form.scope === 'selected'">本次处理</th></tr></thead><tbody><tr v-for="line in current.lines" :key="line.id"><td>{{ line.name }}<small>{{ line.unit }}</small></td><td>{{ line.quantity }}</td><td>{{ line.delivered }}</td><td>{{ line.closed }}</td><td>{{ line.returned || 0 }}</td><td v-if="form.scope === 'selected'"><input v-if="form.lines.find(v => v.item_id === line.id)" v-model.number="form.lines.find(v => v.item_id === line.id).quantity" :disabled="returnStockPosted" type="number" min="0" step="any" :aria-label="`${line.name}处理数量`" /></td></tr></tbody></table></div>
+     </fieldset>
+     <fieldset v-if="form.action==='return'" :disabled="busy || !editable">
+      <legend>实际退回来源与商品款</legend>
+      <p class="hint">按原出库记录逐批核对。实物入库、商品款冲减和实际退款分别确认；不会自动取消原发货或改变客户货权。</p>
+      <label>退回商品款处理<select v-model="form.return_settlement" :disabled="returnStockPosted"><option value="">请选择</option><option v-for="v in options.return_finance" :key="v.value" :value="v.value" :disabled="v.disabled">{{ v.label }}</option></select></label>
+      <p v-if="returnStockPosted" class="hint">已验收入库：{{ returnStockLabel }}。实物记录已保存，请继续完成财务待办；已收回的批次与数量不能改选。</p>
+      <template v-else>
+      <div v-for="(row,index) in form.return_selections" :key="index" class="return-selection">
+       <div class="fields">
+        <label class="wide">原出库／退回来源<select :value="`${row.source_kind}:${row.source_id}`" @change="chooseReturnSource(row,$event.target.value)"><option value=":0">请选择原批次</option><option v-for="source in current.return_sources" :key="`${source.kind}:${source.id}`" :value="`${source.kind}:${source.id}`">{{ source.label }} · 可退 {{ source.available_quantity }} {{ source.unit }}</option></select></label>
+        <label>本批退回数量<input v-model="row.quantity" type="number" min="1" step="1" placeholder="填写实际数量" /></label>
+        <label>货权处置<select v-model="row.ownership" @change="row.warehouse='' "><option value="">请选择货权</option><option v-for="v in returnOwners(row)" :key="v.value" :value="v.value" :disabled="v.disabled">{{ v.label }}</option></select></label>
+        <label>退回仓库<select v-model="row.warehouse"><option value="">请选择仓库</option><option v-for="d in returnSource(row)?.destinations?.filter(d=>d.ownership===row.ownership)||[]" :key="d.warehouse" :value="d.warehouse">{{ d.label }}</option></select></label>
+        <label>验收后库存处置<select v-model="row.quality"><option value="">请选择验收处置</option><option v-for="v in options.return_quality" :key="v.value" :value="v.value" :disabled="v.disabled">{{ v.label }}</option></select></label>
+       </div>
+       <p v-if="row.source_id && !returnSource(row)" class="error">原来源已变化或已退回，请重新核对当前处理单与原入库记录。</p>
+       <button type="button" @click="form.return_selections.splice(index,1)">移除此批</button>
+      </div>
+      <button type="button" @click="addReturnSelection">添加退回批次</button>
+     </template>
      </fieldset>
      <fieldset v-if="!simple && current.dependencies.length" :disabled="busy || !editable">
       <legend>关联单据与处置</legend>
@@ -189,5 +221,5 @@ const money = cents => (Number(cents || 0) / 100).toFixed(2)
  </Teleport>
 </template>
 <style scoped>
-.resolution-entry{border:1px solid #c5d5cd;background:#fff;color:#285e49;border-radius:6px;padding:6px 10px;cursor:pointer}.resolution-backdrop{position:fixed;inset:0;z-index:1200;background:#10251d66;display:flex;justify-content:flex-end}.resolution-drawer{width:min(820px,100vw);height:100%;box-sizing:border-box;overflow:auto;background:#f7f9f7;padding:24px;color:#20372c}.resolution-drawer header{position:sticky;top:-24px;z-index:2;background:#f7f9f7;padding:16px 0;display:flex;justify-content:space-between;align-items:flex-start;gap:16px}.resolution-drawer header strong{display:block;margin-top:6px}.resolution-drawer h2{margin:0 0 8px}.resolution-content{display:grid;gap:18px}.resolution-drawer fieldset{border:1px solid #d6e0d9;background:white;border-radius:10px;padding:16px;min-width:0}.resolution-drawer legend{font-weight:700}.fields{display:grid;grid-template-columns:1fr 1fr;gap:14px}.fields .wide{grid-column:1/-1}.resolution-drawer label{display:flex;flex-direction:column;gap:7px}.resolution-drawer input,.resolution-drawer select,.resolution-drawer textarea{box-sizing:border-box;max-width:100%;min-width:0;padding:9px;border:1px solid #bccdc1;border-radius:6px;background:#fff;color:inherit;font:inherit}.resolution-drawer button{padding:9px 14px;border:1px solid #b8cbbf;border-radius:6px;background:#fff;color:inherit;cursor:pointer}.resolution-drawer .primary{background:#286449;color:white}.resolution-drawer button:disabled{opacity:.5;cursor:default}.hint,small{color:#62776a;font-size:13px}.error{color:#ab3026;background:#fff0ed;padding:12px}.notice{background:#e6f3e9;padding:12px}.table-scroll{overflow:auto}table{width:100%;border-collapse:collapse;margin-top:12px}td,th{text-align:left;padding:9px;border-bottom:1px solid #e2e8e3;white-space:normal}td input{width:100px}small{display:block}.dependency{padding:12px 0;border-bottom:1px solid #e5ebe6}.dependency>div{display:flex;gap:12px;margin-bottom:8px}.dependency select{width:100%}.related-orders{display:flex;gap:10px;flex-wrap:wrap}.related-orders a{color:#285e49;font-size:13px}.actions{display:flex;justify-content:flex-end;gap:12px}.preview{border:2px solid #3f8060;padding:16px;border-radius:10px;background:#fff}.history{padding:12px;border-bottom:1px solid #d5e0d8}@media(max-width:600px){.fields{grid-template-columns:1fr}.resolution-drawer{padding:16px}.resolution-drawer header{top:-16px}.actions{flex-wrap:wrap}}
+.resolution-entry{border:1px solid #c5d5cd;background:#fff;color:#285e49;border-radius:6px;padding:6px 10px;cursor:pointer}.resolution-backdrop{position:fixed;inset:0;z-index:1200;background:#10251d66;display:flex;justify-content:flex-end}.resolution-drawer{width:min(820px,100vw);height:100%;box-sizing:border-box;overflow:auto;background:#f7f9f7;padding:24px;color:#20372c}.resolution-drawer header{position:sticky;top:-24px;z-index:2;background:#f7f9f7;padding:16px 0;display:flex;justify-content:space-between;align-items:flex-start;gap:16px}.resolution-drawer header strong{display:block;margin-top:6px}.resolution-drawer h2{margin:0 0 8px}.resolution-content{display:grid;gap:18px}.resolution-drawer fieldset{border:1px solid #d6e0d9;background:white;border-radius:10px;padding:16px;min-width:0}.resolution-drawer legend{font-weight:700}.fields{display:grid;grid-template-columns:1fr 1fr;gap:14px}.fields .wide{grid-column:1/-1}.resolution-drawer label{display:flex;flex-direction:column;gap:7px}.resolution-drawer input,.resolution-drawer select,.resolution-drawer textarea{box-sizing:border-box;max-width:100%;min-width:0;padding:9px;border:1px solid #bccdc1;border-radius:6px;background:#fff;color:inherit;font:inherit}.resolution-drawer button{padding:9px 14px;border:1px solid #b8cbbf;border-radius:6px;background:#fff;color:inherit;cursor:pointer}.resolution-drawer .primary{background:#286449;color:white}.resolution-drawer button:disabled{opacity:.5;cursor:default}.hint,small{color:#62776a;font-size:13px}.error{color:#ab3026;background:#fff0ed;padding:12px}.notice{background:#e6f3e9;padding:12px}.return-selection{padding:14px 0;border-bottom:1px solid #e2e8e3}.return-selection>button{margin-top:10px}.table-scroll{overflow:auto}table{width:100%;border-collapse:collapse;margin-top:12px}td,th{text-align:left;padding:9px;border-bottom:1px solid #e2e8e3;white-space:normal}td input{width:100px}small{display:block}.dependency{padding:12px 0;border-bottom:1px solid #e5ebe6}.dependency>div{display:flex;gap:12px;margin-bottom:8px}.dependency select{width:100%}.related-orders{display:flex;gap:10px;flex-wrap:wrap}.related-orders a{color:#285e49;font-size:13px}.actions{display:flex;justify-content:flex-end;gap:12px}.preview{border:2px solid #3f8060;padding:16px;border-radius:10px;background:#fff}.history{padding:12px;border-bottom:1px solid #d5e0d8}@media(max-width:600px){.fields{grid-template-columns:1fr}.resolution-drawer{padding:16px}.resolution-drawer header{top:-16px}.actions{flex-wrap:wrap}}
 </style>

@@ -40,13 +40,15 @@ func reservationDependencies(items, allocations, deductions []map[string]json.Ra
 		if num(a, "request_id") > 0 || (num(a, "allocated_units") == 0 && num(a, "allocated_g") == 0) {
 			continue
 		}
+		q := quantityOf(a, "allocated") - used[int64(num(a, "id"))]
+		// Fully shipped allocations are historical facts, not remaining stock
+		// reservations to release. Shipment identity is checked separately.
+		if q <= 0 {
+			continue
+		}
 		matched := matchingOrderItems(items, a)
 		if len(matched) != 1 {
 			return out, "库存预留无法唯一对应商品，请先核对商品、规格和批次"
-		}
-		q := quantityOf(a, "allocated") - used[int64(num(a, "id"))]
-		if q <= 0 {
-			continue
 		}
 		i := matched[0]
 		out = append(out, domain.Dependency{BatchID: int64(num(a, "batch_id")), Kind: "stock_reservation", ID: int64(num(a, "id")), ItemID: int64(num(i, "id")), Version: rowVersion(a), Quantity: q, Unit: str(i, "unit"), Status: "reserved", Label: fmt.Sprintf("%s · 批次 %s · 未发货预留 %g %s", str(i, "item_name"), str(a, "batch_code"), q, str(i, "unit"))})

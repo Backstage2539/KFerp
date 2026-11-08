@@ -6,11 +6,13 @@ trap 'rm -rf "$test_dir"' EXIT
 cat > "$test_dir/docker" <<'MOCK'
 #!/usr/bin/env bash
 case "$*" in
+ *'image inspect'*'return-aware'*) echo "${ROLLBACK_RETURN_AWARE:-0}" ;;
  *'image inspect'*'company-stock-aware'*) echo "${ROLLBACK_COMPANY_AWARE:-0}" ;;
  *'image inspect'*'mixed-supply-aware'*) echo "${ROLLBACK_MIXED_AWARE:-0}" ;;
  *'image inspect'*) echo "${ROLLBACK_FEE_AWARE:-0}" ;;
  *'inspect --format'*) echo DB_SCHEMA=p2rms15pepb5ciz ;;
  *information_schema.tables*) echo t ;;
+ *return_settlement*) echo "${ROLLBACK_RETURN_DATA:-f}" ;;
  *stock_selections*) echo "${ROLLBACK_COMPANY_DATA:-f}" ;;
  *physical_choice*) echo "${ROLLBACK_MIXED_DATA:-f}" ;;
  *command_json*) echo "${ROLLBACK_NEW_DATA:-t}" ;;
@@ -33,3 +35,9 @@ if PATH="$test_dir:$PATH" ROLLBACK_FEE_AWARE=1 ROLLBACK_MIXED_AWARE=1 ROLLBACK_C
 fi
 PATH="$test_dir:$PATH" ROLLBACK_FEE_AWARE=1 ROLLBACK_MIXED_AWARE=1 ROLLBACK_COMPANY_AWARE=1 ROLLBACK_COMPANY_DATA=t bash "$root/scripts/check_order_resolution_rollback.sh" /test app old
 printf 'PASS: fee-aware rollback and unchanged-data rollback; legacy with new records rejected\n'
+
+if PATH="$test_dir:$PATH" ROLLBACK_FEE_AWARE=1 ROLLBACK_MIXED_AWARE=1 ROLLBACK_COMPANY_AWARE=1 ROLLBACK_RETURN_AWARE=0 ROLLBACK_RETURN_DATA=t bash "$root/scripts/check_order_resolution_rollback.sh" /test app old > "$test_dir/result" 2>&1;then
+ echo 'FAIL: old rollback accepted independently posted physical returns';exit 1
+fi
+PATH="$test_dir:$PATH" ROLLBACK_FEE_AWARE=1 ROLLBACK_MIXED_AWARE=1 ROLLBACK_COMPANY_AWARE=1 ROLLBACK_RETURN_AWARE=1 ROLLBACK_RETURN_DATA=t bash "$root/scripts/check_order_resolution_rollback.sh" /test app old
+printf 'PASS: physical return rollback protection\n'

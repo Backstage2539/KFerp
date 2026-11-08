@@ -154,3 +154,29 @@
 - 增加反向数据库用例：错订单行、错批次、错仓库、超需求、克数混入、零数量、留厂/代发/暂停/关闭目标、其他客户货权、原预留占满、目标已齐备、单位不符、质检冻结及实物不足。API 和共享生产保护复用本批实际接口回归；最终结果见后续回执。
 
 - 补查最终隔离回归通过：`company-historical-final-pg.log`，订单处理／留厂／PR703／历史发货 HTTP 为 143.338s，BOM 守卫为 2.806s；完整 Go `company-historical-backend.log` 通过。扩大通配回归时，旧代发目录样本缺少 `product_bom_spec_authorities`；未改动的 develop 发布基线同一用例复现，证据 `company-historical-baseline-fixture.log`，未声称该扩大集合全绿。
+
+
+### 公司成品转配正式发布回执（2026-11-08）
+
+- 功能提交 `b6362964b`，最新 develop 合并后功能头 `5ef2403a004d7ebeaa2458cff5f784b3a6be6280`，develop `430f061ad677835a004651ad9e422168c70feb73`，main `c0d0650e798da1b8fcc2e3f114d7b8fcde5bf53f` 均已推送；main/develop 业务文件一致，没有混入隔离中的退货实现。
+- 追加身份定向回归 `company-historical-final-identity.log`（公司分配与历史场景 53.232s，BOM 守卫 1.134s）；合并后定向 PG 7.593s/2.704s、完整 Go、Vue 构建和 changed 均通过。原成品转配 Vue 1751/1751 保持有效。
+- 开发发布连接回执中断，未盲目重试；只读确认源码、运行镜像、静态文件与服务已更新成功。开发备份 `/opt/stacks/erp/orderapp.backup.deploy-20261108015345-430f061ad677`，镜像 `e043d326559b`。构建缓存清理释放约 22 GB，数据库、业务文件和回滚锚点保留。
+- 正式 ERP-only 发布成功：备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20261108124311-c0d0650e798d`；回滚镜像 `kferp-orderapp-rollback:production-20261108124311-c0d0650e798d`；运行镜像 `sha256:e0ca30c6f9ae485053b3c0f2fc4e5e107ad93ac613acf7ba79c9a50bf4c180b6`。小程序原包保留。
+- 正式未登录页面/API 401，认证页面、处理接口、策略、需求与手册 200；入口 `main-DOSGBqsA.js` 与服务文件一致。仓储源码 SHA256 `097cc1ea1648640a5109532006773d9cdb02681076e596feece5afb89764cfef`，BOM 守卫 SHA256 `4682c421e774a03d1e3895636041568c32b328a879804b8108ff1fcc4c2327d2` 与发布提交一致；服务正常。
+- Chrome 刷新并只读打开目标订单处理抽屉，原因、范围、时点、账期与处置初始留空。保留公司库存可选；原红岩成品批次 99 可核对 24 袋，但当前没有匹配的目标订单，分配选项给出禁用原因；未选择替代目标或提交业务。SO-20261031-0003 仍为正常、2160 元未收款，原数量和已取消代发/共享完成生产保留，处理历史 0。
+- 证据：`/tmp/kferp-resolution-20261108-phase5-fixed-development-smoke.json`、`phase5-production-smoke.json`、`phase5-production-service.log`、`phase5-deploy-production.log`。完整订单处理方案及 Van 现场验收仍未完成。
+
+
+## 2026-11-08 原批次实物退货候选
+
+- 范围：普通销售和客户货权库存代发的真实出库批次退货；明确商品款保留／按量冲减、原批次、数量、货权、仓库和验收状态。留厂购货货权退回、生产停工／转供及报损仍未开放，完整 PR 保持 doing。
+- 原始业务保护：保留原发货、包裹、分配、扣减与批次余量；新建退回批次，继承原冻结 BOM 和存储成本。新版订单实际分配旧版批次时，必须存在精确商品行、批次、仓库和数量的原分配证明，不替换版本。
+- 仓库与财务分项：仓库填实际开放日期、验收凭据及说明，独立入库；财务确认商品款，必要处置完成后形成应收调整；退款／余额／抵扣继续按原现金来源上限处理。配置审批时，仓库入库前必须先批准。
+- TDD RED/GREEN：`/tmp/kferp-resolution-20261108-return-{accounting,rounding,selection,sources,posting,history,ownership,dropship,policy,ui,pending-ui,refresh-api,provenance,rollback,allocated-history,approval}-*.log`。补充成本核对直接通过，未虚报为 RED。
+- 隔离数据库：真实原出库证明、公司／客户货权、部分退回与关闭尾差、独立入库及信用、已收／未收、分次退款和客户余额、超额拒绝、重复／并发收货、开放账期、审批、历史版本、源数据过期、日志失败回滚及失败重试、不可改写退回记录、已入库方案刷新、Schema 重复初始化。
+- API：真实 HTTP GET／preview／submit／steps／refresh，覆盖必选项缺失、旧预览、收货凭据缺失、已入库继续财务、改选已执行实物拒绝；沿用岗位权限矩阵。证据 `return-refresh-api-green.log`。
+- 回归：`return-final-pg.log` 138.195s；库存转仓与身份守卫 `return-stock-identity-pg.log` 4.634s／0.946s；审批补充 `return-approval-green.log` 6.655s。完整 Go（无外部数据库）及 Vue 1753/1753、构建通过；数据库范围之外没有宣称全量数据库测试通过。
+- 界面：Chrome 本机隔离 Vue 页验证初始不预选；选原批次后仍须填写数量／货权／仓库／验收；预览保留应收显示冲减 0；模拟仓库收货后已收批次只读，财务仍待办。截图 `/tmp/kferp-resolution-20261108-return-ui.png`。此页面验证不连接任何正式或开发数据库。
+- 手册：`docs/OP_MANUAL_ORDER_RESOLUTION.md`“按原出库批次退货”；原有 Vue 手册入口继续读取单一 Markdown 来源。PR／DEV 种子已同步，Van 验收待进行。
+- 发布保护：新镜像标记 `io.kferp.order-resolution-return-aware=1`；数据库已有退货处理记录时拒绝回滚到不支持分项退货的旧镜像。回滚脚本 RED/GREEN 已通过。
+- 当前状态：候选验证完成，待推送、集成及 ERP 发布。生产业务单据未写入。

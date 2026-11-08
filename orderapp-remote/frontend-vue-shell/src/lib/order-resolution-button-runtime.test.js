@@ -116,3 +116,30 @@ test('fee-only scope explicitly excludes fulfillment choices and keeps cash disp
  assert.equal(editor.choices(unknown).find(v=>v.value==='waive').disabled,true)
  assert.equal(editor.choices({...fee,amount_cents:-100}).find(v=>v.value==='waive').disabled,true)
 })
+
+test('return source, warehouse, ownership, quality and money treatment require explicit choices',async t=>{
+ const previous=globalThis.fetch;t.after(()=>globalThis.fetch=previous)
+ const source={kind:'shipment',id:101,item_id:71,batch_id:201,label:'原批次',unit:'袋',available_quantity:3,destinations:[{ownership:'company',warehouse:'finished_goods',label:'公司成品仓',owner_customer_id:0}]}
+ globalThis.fetch=async()=>({ok:true,json:async()=>({context:{version:'return-v1',lines:[{id:71,quantity:3,delivered:3}],dependencies:[],return_sources:[source]},options:{},permissions:{'orders.resolve':true},history:[]})})
+ const editor=await setup();await editor.load(true);editor.form.action='return';editor.form.scope='all'
+ assert.equal(editor.form.return_settlement,'');assert.deepEqual(editor.form.return_selections,[]);assert.throws(()=>editor.body(),/商品款|退回/)
+ editor.form.return_settlement='keep_receivable';editor.addReturnSelection()
+ let row=editor.form.return_selections[0];assert.equal(row.quantity,'');assert.equal(row.ownership,'');assert.equal(row.warehouse,'');assert.equal(row.quality,'')
+ editor.chooseReturnSource(row,'shipment:101');assert.equal(row.batch_id,201);assert.equal(row.quantity,'');assert.equal(row.ownership,'');assert.equal(row.warehouse,'');assert.equal(row.quality,'')
+ assert.throws(()=>editor.body(),/退回|货权|验收/)
+ row.quantity='3';row.ownership='company';row.warehouse='finished_goods';row.quality='quarantine'
+ assert.deepEqual(editor.body().return_selections,[{source_kind:'shipment',source_id:101,batch_id:201,quantity:3,ownership:'company',warehouse:'finished_goods',quality:'quarantine'}])
+ editor.form.action='close';assert.equal(editor.body().return_settlement,undefined);assert.equal(editor.body().return_selections,undefined)
+})
+
+test('posted physical return stays visible and cannot be reselected while finance is pending',async t=>{
+ const previous=globalThis.fetch;t.after(()=>globalThis.fetch=previous)
+ const selection={source_kind:'shipment',source_id:101,batch_id:201,quantity:3,ownership:'company',warehouse:'finished_goods',quality:'quarantine'}
+ globalThis.fetch=async()=>({ok:true,json:async()=>({context:{version:'posted',lines:[{id:71,quantity:3,delivered:3,returned:3}],dependencies:[],return_sources:[]},options:{},permissions:{'orders.resolve':true},history:[{id:11,status:'pending',applied:false,command:{action:'return',scope:'all',return_settlement:'keep_receivable',return_selections:[selection]},steps:[{id:12,kind:'return_stock',status:'completed',label:'原批次 B201 · 3 袋 → 成品仓 · 待检隔离'},{id:13,kind:'return_finance',status:'pending'}]}]})})
+ const editor=await setup();await editor.load(true)
+ assert.equal(editor.returnStockPosted.value,true);assert.match(editor.returnStockLabel.value,/B201/)
+ editor.chooseReturnSource(editor.form.return_selections[0],':0');editor.addReturnSelection()
+ assert.deepEqual(editor.body().return_selections,[selection])
+ const template=descriptor.template.content
+ assert.match(template,/v-if="returnStockPosted"/);assert.match(template,/returnStockLabel/)
+})
