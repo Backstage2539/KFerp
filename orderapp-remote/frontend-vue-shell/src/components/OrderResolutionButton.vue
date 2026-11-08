@@ -58,6 +58,7 @@ async function load(restore = false) {
     if (!form.dispositions.some(d => d.kind === v.kind && Number(d.id) === Number(v.id))) form.dispositions.push({ kind: v.kind, id: v.id, choice: '', target_id: 0, amount_cents: 0, reference: '' })
     const d=disposition(v)
     if(v.kind==='production') {d.stock_selections ||= [];d.cost_treatment ||= ''}
+    if(v.reassign_work_orders?.length)d.reassignments=v.reassign_work_orders.map(w=>d.reassignments?.find(s=>Number(s.work_order_id)===Number(w.work_order_id))||{work_order_id:w.work_order_id,target_item_id:0,quantity:''})
     if(v.stop_work_orders?.length)d.stops=v.stop_work_orders.map(w=>d.stops?.find(s=>Number(s.work_order_id)===Number(w.work_order_id))||{work_order_id:w.work_order_id,materials:'',wip:'',reservations:'',outputs:''})
     if(v.supply_reservations?.length){
      d.supplies=v.supply_reservations.map(s=>{
@@ -89,6 +90,7 @@ function chooseReturnSource(row,key) {
  Object.assign(row,{source_kind:source?.kind||'',source_id:source?.id||0,batch_id:source?.batch_id||0,quantity:'',ownership:'',warehouse:'',quality:''})
 }
 function returnOwners(row) { return (options.value.return_ownership||[]).filter(v=>returnSource(row)?.destinations?.some(d=>d.ownership===v.value)) }
+function reassignSelection(dep,work) {return disposition(dep).reassignments?.find(s=>Number(s.work_order_id)===Number(work.work_order_id))}
 function choices(dep) {
  return (options.value[dep.kind] || []).map(v => {
   let reason = v.disabled ? v.reason : ''
@@ -96,6 +98,7 @@ function choices(dep) {
   if (!reason && dep.kind==='customer_stock' && v.value==='ownership_return' && !current.value?.return_sources?.some(s=>s.kind==='ownership'&&Number(s.entitlement_id)===Number(dep.id)&&s.available_quantity>0)) reason='没有该笔权益可核对的原收货批次和未预留实物'
   if (!reason && dep.kind==='fee' && dep.amount_cents<0 && !['keep','defer'].includes(v.value)) reason='该项是已有负数费用调整，请保留原记录'
   if (!reason && dep.kind==='fee' && dep.cash_issue && !['keep','defer'].includes(v.value)) reason=dep.cash_issue
+  if (!reason && dep.kind==='production' && v.value==='reassign') reason=dep.shared?'共享生产须先拆分剩余需求':dep.ownership_issue||dep.reassign_work_orders?.find(w=>w.issue)?.issue||(form.action!=='close'||form.scope!=='all'?'转供整批生产须选择关闭全部剩余履约':!dep.reassign_work_orders?.some(w=>w.targets?.length)?'尚无数量、冻结规格及仓库匹配的明确目标需求':'')
   if (!reason && dep.kind==='production' && v.value==='stop') reason=dep.shared?'共享生产须先拆分剩余需求':dep.stop_work_orders?.find(w=>w.issue)?.issue||(!dep.stop_work_orders?.length?'尚无可核对的工单余料与在制品':form.action!=='close'||form.scope!=='all'?'停止整批生产须选择关闭全部剩余履约':'')
   if (!reason && dep.kind==='production' && v.value==='scrap' && (dep.ownership_issue || form.action!=='close' || !dep.company_stock?.some(s=>s.available_quantity>0&&s.cost_record_id>0&&!s.scrap_issue))) reason=dep.ownership_issue || (form.action!=='close'?'报损请关闭剩余履约，保留原生产历史':dep.company_stock?.find(s=>s.scrap_issue)?.scrap_issue || '没有可核对原批次、公司货权和原生产成本的可用成品')
   if (!reason && dep.kind==='production' && v.value==='allocate' && (dep.ownership_issue || !dep.company_stock?.some(s=>s.available_quantity>0&&s.targets?.length))) reason=dep.ownership_issue || '尚无可核对的公司成品与匹配目标；请核对原批次、预留、库存单位及仓库'
@@ -211,6 +214,12 @@ const money = cents => (Number(cents || 0) / 100).toFixed(2)
           </template>
          </fieldset>
         </template>
+        <template v-if="dep.kind==='production' && disposition(dep).choice==='reassign'">
+         <p class="hint">选择明确的目标订单商品行并填写转供数量。仅转供所选工单全部未产出数量，保留原工单、冻结配方、投料、余料、在制品、预留及成本；生产负责人确认后变更履约关联，不移动库存。</p>
+         <fieldset v-for="work in dep.reassign_work_orders || []" :key="work.work_order_id"><legend>{{ work.label }} · 待产 {{ work.quantity }} {{ work.unit }}</legend><button type="button" @click="relatedWork(work)">核对原工单及投料</button><p v-if="work.issue" class="error">{{ work.issue }}</p>
+          <template v-if="reassignSelection(dep,work)"><label>目标订单商品<select v-model.number="reassignSelection(dep,work).target_item_id"><option :value="0">请选择明确目标需求</option><option v-for="target in work.targets" :key="target.order_item_id" :value="target.order_item_id">{{ target.label }} · 可接收 {{ target.remaining_quantity }}</option></select></label><label>本次转供数量<input v-model="reassignSelection(dep,work).quantity" type="number" min="1" step="1" :max="work.quantity" /></label></template>
+         </fieldset>
+        </template>
         <template v-if="dep.kind==='production' && disposition(dep).choice==='allocate'">
          <p class="hint">明确选择原批次、普通销售订单及数量。仓库确认后建立目标预留；保留共享生产、批次和成本记录，不产生出库或转仓。目标已有生产、商品冻结规格或库存单位不同的订单须先核对。</p>
          <fieldset v-for="(selection,index) in disposition(dep).stock_selections" :key="index" class="supply-choice">
@@ -251,6 +260,7 @@ const money = cents => (Number(cents || 0) / 100).toFixed(2)
      <section v-if="preview" class="preview"><h3>确认本次处理</h3><p>处理后：{{ resolutionStatus(preview.plan.status, form.action === 'hold') }}；应收冲减 ¥{{ money(preview.plan.credit_cents) }}；实际退款需另行确认。</p><ul v-if="preview.plan.tasks.length"><li v-for="(task,i) in preview.plan.tasks" :key="i">待处理：{{ task.label }}</li></ul><button type="button" class="primary" :disabled="busy" @click="submit">{{ pending ? '确认更新处理方案' : '确认提交处理单' }}</button></section>
      <OrderResolutionBalance :order-id="orderId" :balances="loaded.balances || []" :history="loaded.balance_history || []" :targets="loaded.balance_targets || []" :permissions="loaded.permissions" :options="options" @changed="stepChanged" />
      <section v-if="loaded.history?.length"><h3>处理记录</h3><article v-for="r in loaded.history" :key="r.id" class="history"><strong>处理单 #{{ r.id }} · {{ ({pending:'处理中',completed:'已完成',withdrawn:'已撤回'})[r.status] || r.status }}</strong><p>{{ options.action.find(v => v.value === r.command.action)?.label }} · {{ options.reason.find(v => v.value === r.command.reason)?.label }} · {{ r.command.note }}</p><p v-if="r.applied && r.status === 'pending'" class="hint">履约已按本次方案处理，以下清算待办尚未全部完成。</p>
+      <div v-for="transfer in r.reassignments || []" :key="transfer.id" class="notice"><strong>已转供 · {{ transfer.source_order_no }} → {{ transfer.target_order_no }}</strong><p>{{ transfer.quantity }} {{ transfer.unit }} · 原投料、在制品和成本来源保留</p><button type="button" class="btn secondary" @click="relatedWork(transfer)">查看原工单</button></div>
       <div v-for="loss in r.scraps || []" :key="loss.id" class="notice"><strong>已报损 · {{ loss.batch_code }}</strong><p>{{ loss.quantity }} {{ loss.unit }} · 原成本 ¥{{ money(loss.cost_cents) }} · {{ loss.posting_date }}</p><p>{{ options.scrap_cost?.find(v => v.value === loss.cost_treatment)?.label }} · {{ loss.reason }}</p></div>
       <OrderResolutionStep v-for="step in r.steps" :key="step.id" :order-id="orderId" :request-id="r.id" :step="step" :options="options" :permissions="loaded.permissions" :targets="loaded.targets || []" @changed="stepChanged" @refresh="load()" />
       <div v-if="r.can_withdraw && loaded.permissions?.['orders.resolve']" class="withdraw"><label>撤回原因<input v-model="withdrawalNotes[r.id]" placeholder="仅在尚未执行处置时可撤回" /></label><button type="button" :disabled="busy || !withdrawalNotes[r.id]?.trim()" @click="withdraw(r)">撤回处理单</button></div>

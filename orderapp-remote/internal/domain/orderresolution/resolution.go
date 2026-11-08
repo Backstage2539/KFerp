@@ -23,6 +23,7 @@ type Line struct {
 	ClosedCents          int64   `json:"closed_cents"`
 }
 type Dependency struct {
+	ReassignWorkOrders []ReassignWorkOrder  `json:"reassign_work_orders,omitempty"`
 	StopWorkOrders     []StopWorkOrder      `json:"stop_work_orders,omitempty"`
 	BatchID            int64                `json:"batch_id,omitempty"`
 	CompanyStock       []CompanyStockSource `json:"company_stock,omitempty"`
@@ -81,6 +82,7 @@ type Selection struct {
 	Quantity float64 `json:"quantity"`
 }
 type Disposition struct {
+	Reassignments   []ReassignSelection `json:"reassignments,omitempty"`
 	CostTreatment   string              `json:"cost_treatment,omitempty"`
 	Stops           []StopSelection     `json:"stops,omitempty"`
 	StockSelections []StockSelection    `json:"stock_selections,omitempty"`
@@ -283,7 +285,7 @@ func preview(c Context, cmd Command) (Plan, error) {
 		if !AllowedChoice(d.Kind, d.Choice) {
 			return fail("处置选项无效")
 		}
-		if oneOf(d.Choice, "allocate", "reassign", "offset") && d.TargetID <= 0 && !(d.Kind == "production" && d.Choice == "allocate") {
+		if oneOf(d.Choice, "allocate", "reassign", "offset") && d.TargetID <= 0 && !(d.Kind == "production" && oneOf(d.Choice, "allocate", "reassign")) {
 			return fail("请选择明确的替代货源或目标单据")
 		}
 		if d.SourceFeeID < 0 || (d.SourceFeeID > 0 && d.Kind != "funds") || d.AmountCents < 0 || math.IsNaN(d.Quantity) || math.IsInf(d.Quantity, 0) || d.Quantity < 0 {
@@ -377,6 +379,13 @@ func preview(c Context, cmd Command) (Plan, error) {
 				}
 				label += "；成本处理：" + map[string]string{"retain_cost": "保留原生产成本，报损单列不重复计费", "reclassify_loss": "原生产成本重分类为损失费用，不重复增加总成本"}[choice.CostTreatment]
 				p.Tasks = append(p.Tasks, Task{Kind: "production_finance", SourceID: d.ID, Choice: choice.CostTreatment, Label: d.Label + label, Permission: "finance.resolve"})
+			}
+			d.Label += label
+		}
+		if d.Kind == "production" && choice.Choice == "reassign" {
+			label, err := validateProductionReassign(d, choice, cmd, p.Lines)
+			if err != nil {
+				return Plan{}, err
 			}
 			d.Label += label
 		}

@@ -18,6 +18,9 @@ func (r Repository) revalidatePlan(ctx context.Context, tx pgx.Tx, orderID, requ
 	if err = verifyCompanySelectionIdentity(original, current, cmd); err != nil {
 		return err
 	}
+	if err = verifyProductionReassignIdentity(original, current, cmd); err != nil {
+		return err
+	}
 	if err = verifyProductionStopIdentity(original, current, cmd); err != nil {
 		return err
 	}

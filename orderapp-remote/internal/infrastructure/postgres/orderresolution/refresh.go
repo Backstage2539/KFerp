@@ -106,7 +106,7 @@ func (r Repository) Refresh(ctx context.Context, orderID, requestID int64, cmd d
 				continue
 			}
 			if one(task.Kind, "production", "production_finance") || task.Kind == "approval" {
-				if verifyCompanySelectionIdentity(original, current, cmd) != nil {
+				if verifyCompanySelectionIdentity(original, current, cmd) != nil || verifyProductionReassignIdentity(original, current, cmd) != nil {
 					continue
 				}
 			}
@@ -136,7 +136,7 @@ func (r Repository) Refresh(ctx context.Context, orderID, requestID int64, cmd d
 		}
 	}
 	for _, step := range out.Steps {
-		if !kept[step.ID] && (one(step.Status, "pending", "failed") || (step.Status == "completed" && (one(step.Kind, "approval", "production_finance") || (one(step.Kind, "production", "production_stock") && one(step.Choice, "stop", "allocate", "scrap"))))) {
+		if !kept[step.ID] && (one(step.Status, "pending", "failed") || (step.Status == "completed" && (one(step.Kind, "approval", "production_finance") || (one(step.Kind, "production", "production_stock") && one(step.Choice, "stop", "allocate", "scrap", "reassign"))))) {
 			if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.order_resolution_steps SET status='superseded',updated_at=now() WHERE id=$1`, r.schema), step.ID); err != nil {
 				return out, err
 			}
