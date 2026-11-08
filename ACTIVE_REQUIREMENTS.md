@@ -13,7 +13,7 @@
 - 手册：`orderapp-remote/docs/OP_MANUAL_ORDER_RESOLUTION.md`（Vue 订单处理手册入口）。验收及各批发布回执：`orderapp-remote/docs/acceptance/2026-11-07-order-resolution.md`。
 
 ### PR-ORDER-DATE-SAVE-20261104 留厂及代发订单日期保存
-- 2026-11-08 跟进 SO-20261104-0006：原单历史生产版本与当前目录不同，编辑页面自动更新规格和报价导致日期保存被关联保护拦截。分支 `codex/retained-order-date-snapshot`；隔离组件复现 RED，修复后保留原版本与报价，显式换表仍按新选择；隔离 PostgreSQL 原日期保存/实际修改保护回归通过。正式订单只读核查，未修改；集成、部署及现场验收待完成。
+- 2026-11-08 跟进 SO-20261104-0006：原单历史生产版本与当前目录不同，编辑页面自动更新规格和报价导致日期保存被关联保护拦截。分支 `codex/retained-order-date-snapshot`；隔离组件复现 RED，修复后保留原版本与报价，显式换表仍按新选择；隔离 PostgreSQL 原日期保存/实际修改保护回归及前端 1765 项通过。已合入 develop 并部署开发环境 `8c270204cde1cacb7659d86e28240759797c9fb0`；服务健康，登录页面/表单/手册/需求 API 与源码核对通过。正式订单只读核查，未修改；正式发布及现场验收待完成。发布后仅补充本回执，不重新构建。
 - Branch: `codex/order-date-save-20261104`; base `origin/main` 873ab8a41。
 - 留厂销售已有代发、生产或入库关联时，保存未更改的商品明细；历史代发地址与冻结运费地区一致时，修改日期沿用原有费用依据。
 - 验证：隔离 PostgreSQL 与员工 API 先 RED 后 GREEN，检查日期、商品身份、库存权益、运费快照、操作日志及真实变更限制；不改动正式订单。
