@@ -10,7 +10,8 @@ label="$(docker image inspect --format '{{index .Config.Labels "io.kferp.order-r
 mixed_label="$(docker image inspect --format '{{index .Config.Labels "io.kferp.order-resolution-mixed-supply-aware"}}' "$old_image" 2>/dev/null || true)"
 company_label="$(docker image inspect --format '{{index .Config.Labels "io.kferp.order-resolution-company-stock-aware"}}' "$old_image" 2>/dev/null || true)"
 return_label="$(docker image inspect --format '{{index .Config.Labels "io.kferp.order-resolution-return-aware"}}' "$old_image" 2>/dev/null || true)"
-if [ "$return_label" = 1 ] && [ "$label" = 1 ] && [ "$mixed_label" = 1 ] && [ "$company_label" = 1 ]; then exit 0; fi
+ownership_label="$(docker image inspect --format '{{index .Config.Labels "io.kferp.order-resolution-ownership-return-aware"}}' "$old_image" 2>/dev/null || true)"
+if [ "$ownership_label" = 1 ] && [ "$return_label" = 1 ] && [ "$label" = 1 ] && [ "$mixed_label" = 1 ] && [ "$company_label" = 1 ]; then exit 0; fi
 schema="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$app_container" | sed -n 's/^DB_SCHEMA=//p' | tail -1)"
 if ! [[ "$schema" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
  echo 'Cannot verify the order resolution schema; refusing rollback.' >&2;exit 1
@@ -21,6 +22,12 @@ query(){
 }
 has_table="$(query "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema='$schema' AND table_name='order_resolution_requests')")"
 case "$has_table" in f) exit 0;; t) ;; *) echo 'Cannot verify order resolution records; refusing rollback.' >&2;exit 1;; esac
+if [ "$ownership_label" != 1 ]; then
+ has_ownership="$(query "SELECT EXISTS(SELECT 1 FROM \"$schema\".order_resolution_requests r CROSS JOIN LATERAL jsonb_array_elements(COALESCE(r.command_json->'return_selections','[]'::jsonb)) s WHERE s->>'source_kind'='ownership')")"
+ if [ "$has_ownership" != f ]; then
+  echo 'Customer ownership return records exist or cannot be verified; refusing an incompatible rollback image.' >&2;exit 1
+ fi
+fi
 if [ "$return_label" != 1 ]; then
  has_return="$(query "SELECT EXISTS(SELECT 1 FROM \"$schema\".order_resolution_requests r WHERE COALESCE(r.command_json->>'return_settlement','')<>'')")"
  if [ "$has_return" != f ]; then

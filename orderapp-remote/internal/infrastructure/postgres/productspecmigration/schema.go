@@ -650,6 +650,48 @@ BEGIN
 			      OR (to_jsonb(NEW)->>'source_batch_code'=move.source_batch_code AND to_jsonb(NEW)->>'warehouse'=item.from_warehouse AND (to_jsonb(NEW)->>'qty_change_units')::bigint=move.qty_units AND (to_jsonb(NEW)->>'qty_change_g')::bigint=move.qty_g)
 			     END)
 			) INTO frozen_production_identity_derived;
+        ELSIF to_regclass('%[1]s.order_resolution_stock_returns') IS NOT NULL
+          AND ((TG_TABLE_NAME IN('stock_batches','stock_ledger_entries') AND to_jsonb(NEW)->>'source_doc_type' IN('order_resolution_return','order_resolution_ownership_return_out'))
+           OR (TG_TABLE_NAME='finished_inventory' AND COALESCE(current_setting('kferp.order_return_id',true),'')<>''))
+          AND EXISTS(SELECT 1 FROM %[1]s.order_resolution_stock_returns x WHERE x.source_kind='ownership' AND x.id=CASE WHEN TG_TABLE_NAME='finished_inventory' THEN COALESCE(NULLIF(current_setting('kferp.order_return_id',true),'')::bigint,0) ELSE COALESCE((to_jsonb(NEW)->>'source_doc_id')::bigint,0) END) THEN
+          -- A customer receipt transfers ownership only through an explicit
+          -- warehouse task. Both sides retain the original frozen identity.
+          SELECT EXISTS(
+           SELECT 1 FROM %[1]s.order_resolution_stock_returns x
+           JOIN %[1]s.order_resolution_requests request ON request.id=x.request_id AND request.order_id=x.order_id AND request.status='pending' AND request.command_json->>'action'='return'
+           JOIN %[1]s.order_resolution_steps step ON step.id=x.step_id AND step.request_id=request.id AND step.kind='return_stock' AND step.choice='receive' AND step.permission='stock.resolve' AND step.status IN('pending','failed')
+           JOIN %[1]s.stock_batches source ON source.id=x.batch_id AND source.item_type='finished_product' AND source.item_id=x.product_id AND source.bom_spec_id=x.bom_spec_id AND source.bom_variant_id=x.bom_variant_id AND source.spec_g=0 AND source.owner_customer_id=x.source_owner_customer_id AND source.unit_cost=x.unit_cost
+           JOIN %[1]s.customer_stock_entitlement_receipts receipt ON receipt.id=x.source_id AND receipt.stock_batch_id=source.id AND receipt.batch_code=source.batch_code AND receipt.warehouse_code=x.source_warehouse
+           JOIN %[1]s.customer_stock_entitlements e ON e.id=receipt.entitlement_id AND e.source_order_id=x.order_id AND e.source_order_item_id=x.order_item_id AND e.customer_id=x.source_owner_customer_id AND e.product_id=x.product_id AND e.bom_spec_id=x.bom_spec_id AND e.bom_variant_id=x.bom_variant_id AND e.spec_g=0 AND e.warehouse_code=x.source_warehouse AND e.received_qty>=receipt.quantity
+           JOIN %[1]s.orders sale ON sale.id=x.order_id AND sale.customer_id=e.customer_id AND sale.delivery_mode='customer_stock' AND NOT sale.is_void
+           JOIN %[1]s.order_items item ON item.id=x.order_item_id AND item.order_id=x.order_id AND item.product_id=x.product_id AND item.bom_spec_id=x.bom_spec_id AND item.bom_variant_id=x.bom_variant_id
+           JOIN %[1]s.warehouses destination ON destination.code=x.target_warehouse AND destination.active AND COALESCE(destination.customer_id,0)=0 AND destination.kind IN('finished','customer_finished','customer_processing','customer')
+           WHERE x.id=CASE WHEN TG_TABLE_NAME='finished_inventory' THEN COALESCE(NULLIF(current_setting('kferp.order_return_id',true),'')::bigint,0) ELSE COALESCE((to_jsonb(NEW)->>'source_doc_id')::bigint,0) END
+            AND x.status='posting' AND x.source_kind='ownership' AND x.source_owner_customer_id>0 AND x.target_owner_customer_id=0 AND x.target_warehouse<>x.source_warehouse
+            AND x.product_id=business_product_id AND x.bom_spec_id=business_bom_spec_id AND x.bom_variant_id=business_bom_variant_id AND COALESCE((to_jsonb(NEW)->>'spec_g')::bigint,0)=0
+            AND x.quantity<=receipt.quantity-COALESCE((SELECT sum(previous.quantity) FROM %[1]s.order_resolution_stock_returns previous WHERE previous.source_kind='ownership' AND previous.source_id=x.source_id AND previous.status='posted'),0)
+            AND EXISTS(SELECT 1 FROM %[1]s.stock_ledger_entries original WHERE original.source_doc_type=source.source_doc_type AND original.source_doc_id=source.source_doc_id AND original.source_batch_code=source.batch_code AND original.item_type='finished_product' AND original.item_id=x.product_id AND original.bom_spec_id=x.bom_spec_id AND original.bom_variant_id=x.bom_variant_id AND original.spec_g=0 AND original.owner_customer_id=x.source_owner_customer_id AND original.warehouse=x.source_warehouse AND original.qty_change_units>=receipt.quantity AND original.qty_change_g=0)
+            AND EXISTS(SELECT 1 FROM jsonb_array_elements(request.command_json->'return_selections') selected WHERE selected->>'source_kind'='ownership' AND (selected->>'source_id')::bigint=x.source_id AND (selected->>'batch_id')::bigint=x.batch_id AND (selected->>'quantity')::bigint=x.quantity AND selected->>'warehouse'=x.target_warehouse AND selected->>'quality'=x.quality AND selected->>'ownership'='company')
+            AND EXISTS(SELECT 1 FROM jsonb_array_elements(request.command_json->'dispositions') selected WHERE selected->>'kind'='customer_stock' AND (selected->>'id')::bigint=e.id AND selected->>'choice'='ownership_return')
+            AND CASE WHEN TG_TABLE_NAME='stock_batches' THEN
+              COALESCE((to_jsonb(NEW)->>'owner_customer_id')::bigint,0)=0 AND to_jsonb(NEW)->>'source_doc_type'='order_resolution_return'
+              AND x.target_batch_id=0 AND to_jsonb(NEW)->>'batch_code'='ORRET-'||x.id::text AND to_jsonb(NEW)->>'source_batch_id'=source.batch_code
+              AND (to_jsonb(NEW)->>'qty_units')::bigint=x.quantity AND (to_jsonb(NEW)->>'remaining_units')::bigint=x.quantity AND COALESCE((to_jsonb(NEW)->>'qty_g')::bigint,0)=0
+              AND (to_jsonb(NEW)->>'unit_cost')::numeric=x.unit_cost AND to_jsonb(NEW)->>'quality_status'=CASE WHEN x.quality='restock' THEN 'passed' ELSE 'hold' END
+            WHEN TG_TABLE_NAME='stock_ledger_entries' THEN
+              COALESCE((to_jsonb(NEW)->>'qty_change_g')::bigint,0)=0 AND to_jsonb(NEW)->>'source_batch_id'=source.batch_code
+              AND (to_jsonb(NEW)->>'qty_after_units')::bigint=(to_jsonb(NEW)->>'qty_before_units')::bigint+(to_jsonb(NEW)->>'qty_change_units')::bigint
+              AND NOT EXISTS(SELECT 1 FROM %[1]s.stock_ledger_entries prior WHERE prior.source_doc_type=to_jsonb(NEW)->>'source_doc_type' AND prior.source_doc_id=x.id)
+              AND ((to_jsonb(NEW)->>'source_doc_type'='order_resolution_ownership_return_out' AND to_jsonb(NEW)->>'source_batch_code'=source.batch_code AND to_jsonb(NEW)->>'warehouse'=x.source_warehouse AND (to_jsonb(NEW)->>'owner_customer_id')::bigint=x.source_owner_customer_id AND (to_jsonb(NEW)->>'qty_change_units')::bigint=-x.quantity)
+                OR (to_jsonb(NEW)->>'source_doc_type'='order_resolution_return' AND to_jsonb(NEW)->>'source_batch_code'=x.target_batch_code AND to_jsonb(NEW)->>'warehouse'=x.target_warehouse AND (to_jsonb(NEW)->>'owner_customer_id')::bigint=0 AND (to_jsonb(NEW)->>'qty_change_units')::bigint=x.quantity
+                 AND EXISTS(SELECT 1 FROM %[1]s.stock_batches target WHERE target.id=x.target_batch_id AND target.batch_code=x.target_batch_code AND target.source_doc_type='order_resolution_return' AND target.source_doc_id=x.id AND target.item_id=x.product_id AND target.bom_spec_id=x.bom_spec_id AND target.bom_variant_id=x.bom_variant_id AND target.owner_customer_id=0 AND target.qty_units=x.quantity)))
+              AND (to_jsonb(NEW)->>'qty_after_units')::bigint=(SELECT onhand_units FROM %[1]s.finished_inventory f WHERE f.product_id=x.product_id AND f.bom_spec_id=x.bom_spec_id AND f.spec_g=0 AND f.warehouse=to_jsonb(NEW)->>'warehouse' AND f.owner_customer_id=(to_jsonb(NEW)->>'owner_customer_id')::bigint)
+            ELSE
+              ((to_jsonb(NEW)->>'warehouse'=x.source_warehouse AND (to_jsonb(NEW)->>'owner_customer_id')::bigint=x.source_owner_customer_id AND (to_jsonb(NEW)->>'onhand_units')::bigint=(SELECT f.onhand_units FROM %[1]s.finished_inventory f WHERE f.product_id=x.product_id AND f.bom_spec_id=x.bom_spec_id AND f.spec_g=0 AND f.warehouse=x.source_warehouse AND f.owner_customer_id=x.source_owner_customer_id)-x.quantity)
+               OR (to_jsonb(NEW)->>'warehouse'=x.target_warehouse AND (to_jsonb(NEW)->>'owner_customer_id')::bigint=0 AND (to_jsonb(NEW)->>'onhand_units')::bigint=x.quantity+COALESCE((SELECT f.onhand_units FROM %[1]s.finished_inventory f WHERE f.product_id=x.product_id AND f.bom_spec_id=x.bom_spec_id AND f.spec_g=0 AND f.warehouse=x.target_warehouse AND f.owner_customer_id=0),0)))
+              AND COALESCE((to_jsonb(NEW)->>'onhand_loose_g')::bigint,0)=COALESCE((SELECT f.onhand_loose_g FROM %[1]s.finished_inventory f WHERE f.product_id=x.product_id AND f.bom_spec_id=x.bom_spec_id AND f.spec_g=0 AND f.warehouse=to_jsonb(NEW)->>'warehouse' AND f.owner_customer_id=(to_jsonb(NEW)->>'owner_customer_id')::bigint),0)
+            END
+          ) INTO frozen_production_identity_derived;
 		ELSIF to_regclass('%[1]s.order_resolution_stock_returns') IS NOT NULL AND (
           (TG_TABLE_NAME IN('stock_batches','stock_ledger_entries') AND to_jsonb(NEW)->>'source_doc_type'='order_resolution_return')
           OR (TG_TABLE_NAME='finished_inventory' AND COALESCE(current_setting('kferp.order_return_id',true),'')<>'')) THEN

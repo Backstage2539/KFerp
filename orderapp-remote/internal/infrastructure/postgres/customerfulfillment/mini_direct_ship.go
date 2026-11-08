@@ -162,12 +162,15 @@ func (r *Repository) MiniDirectShipCatalog(ctx context.Context, query app.MiniDi
 			if !total.HistoryComplete {
 				continue
 			}
-			purchased, received := total.PurchasedQty, total.ReceivedQty
+			purchased, received, returned := total.PurchasedQty, total.ReceivedQty, total.ReturnedQty
 			if summaries[i].PurchasedQty != nil {
 				purchased += *summaries[i].PurchasedQty
 				received += *summaries[i].ReceivedQty
+				if summaries[i].ReturnedQty != nil {
+					returned += *summaries[i].ReturnedQty
+				}
 			}
-			summaries[i].PurchasedQty, summaries[i].ReceivedQty = &purchased, &received
+			summaries[i].PurchasedQty, summaries[i].ReceivedQty, summaries[i].ReturnedQty = &purchased, &received, &returned
 		}
 	}
 	productIDs := make([]int64, 0, len(summaries))
@@ -348,7 +351,7 @@ func (r *Repository) MiniDirectShipCatalog(ctx context.Context, query app.MiniDi
 				return "bag"
 			}(),
 			"available_qty":          inventory.AvailableQty,
-			"physical_available_qty": inventory.PhysicalAvailableQty, "pending_inbound_qty": inventory.PendingInboundQty, "pending_reserved_qty": inventory.PendingReservedQty, "purchased_qty": inventory.PurchasedQty, "received_qty": inventory.ReceivedQty, "spec_g": inventory.SpecG,
+			"physical_available_qty": inventory.PhysicalAvailableQty, "pending_inbound_qty": inventory.PendingInboundQty, "pending_reserved_qty": inventory.PendingReservedQty, "purchased_qty": inventory.PurchasedQty, "received_qty": inventory.ReceivedQty, "returned_qty": inventory.ReturnedQty, "spec_g": inventory.SpecG,
 		})
 	}
 	outFamilies := make([]map[string]any, 0, len(families))

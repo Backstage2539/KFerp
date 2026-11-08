@@ -12,6 +12,13 @@ import (
 // inbound quantities. The pending warehouse task and its exact command must
 // authorize this record; ordinary stock endpoints cannot supply such a record.
 func (r Repository) PostOrderReturnTx(ctx context.Context, tx pgx.Tx, id int64, actor string) (int64, error) {
+	var kind string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT source_kind FROM %s.order_resolution_stock_returns WHERE id=$1`, r.schema), id).Scan(&kind); err != nil {
+		return 0, err
+	}
+	if kind == "ownership" {
+		return r.postOrderOwnershipReturnTx(ctx, tx, id, actor)
+	}
 	var product, spec, variant, owner, quantity, sourceBatch int64
 	var warehouse, name, code, quality string
 	var cost float64

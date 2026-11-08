@@ -429,7 +429,7 @@ func preview(c Context, cmd Command) (Plan, error) {
 		case "fee", "invoice", "billing":
 			permission = "finance.resolve"
 		}
-		if choice.Choice != "keep_company_stock" && choice.Choice != "keep_sale" && choice.Choice != "keep_fulfilled" {
+		if choice.Choice != "keep_company_stock" && choice.Choice != "keep_sale" && choice.Choice != "keep_fulfilled" && !(cmd.Action == "return" && d.Kind == "customer_stock" && choice.Choice == "ownership_return") {
 			p.Tasks = append(p.Tasks, Task{Kind: d.Kind, SourceID: d.ID, Choice: choice.Choice, Label: d.Label, Permission: permission})
 		}
 	}

@@ -16,7 +16,7 @@ const component = (await import(`data:text/javascript;base64,${Buffer.from(code)
 
 const stock = (sources = []) => ({ inventory_type:'finished_product', item_id:10, bom_spec_id:12, spec_g:0, item_name:'咖啡', unit:'袋', warehouses:[], batches:[], order_sources:sources })
 test('库存明细显示各留厂订单付款状态并在数据刷新后更新，不混淆库存余量', async () => {
-  const rows = ref([stock([{order_id:1,order_no:'SO-PAID',pay_status:'已付款',pending_inbound_qty:2,received_qty:4},{order_id:2,order_no:'SO-DUE',pay_status:'未付款',pending_inbound_qty:6,received_qty:0}])])
+  const rows = ref([stock([{order_id:1,order_no:'SO-PAID',pay_status:'已付款',pending_inbound_qty:2,received_qty:4,returned_qty:2},{order_id:2,order_no:'SO-DUE',pay_status:'未付款',pending_inbound_qty:6,received_qty:0}])])
   const app = createApp({render:()=>h(component,{rows:rows.value})})
   try {
     app.mount('#app'); await nextTick()
@@ -25,7 +25,9 @@ test('库存明细显示各留厂订单付款状态并在数据刷新后更新�
     assert.match(drawer.textContent,/SO-PAID.*已付款.*2.*4/s)
     assert.match(drawer.textContent,/SO-DUE.*未付款.*6.*0/s)
     assert.match(drawer.textContent,/累计入库不是当前库存余量/)
-    rows.value=[stock([{order_id:1,order_no:'SO-PAID',pay_status:'已付款',pending_inbound_qty:2,received_qty:4},{order_id:2,order_no:'SO-DUE',pay_status:'已付款',pending_inbound_qty:6,received_qty:0}])]
+    assert.match(drawer.textContent,/货权已退回/)
+    assert.match(drawer.textContent,/SO-PAID.*4.*2/s)
+    rows.value=[stock([{order_id:1,order_no:'SO-PAID',pay_status:'已付款',pending_inbound_qty:2,received_qty:4,returned_qty:2},{order_id:2,order_no:'SO-DUE',pay_status:'已付款',pending_inbound_qty:6,received_qty:0}])]
     await nextTick(); await nextTick()
     drawer=document.querySelector('.inventory-drawer')
     assert.match(drawer.textContent,/SO-DUE.*已付款/)

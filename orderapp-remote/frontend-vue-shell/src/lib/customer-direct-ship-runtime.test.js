@@ -176,7 +176,7 @@ test('同一规格不同历史版本的多行合并计算补购，并保留累�
   editor.selectFamily(editor.lines.value[0], family)
   editor.lines.value[0].qty = 7
   const next = editor.newLine(); editor.selectFamily(next, family); next.spec_key = editor.specKey(family.specs[1]); next.qty = 8; editor.lines.value.push(next)
-  assert.deepEqual(editor.purchasedFor(next), { purchased: 20, received: 8 })
+  assert.deepEqual(editor.purchasedFor(next), { purchased: 20, received: 8, returned: 0 })
   assert.equal(editor.shortageFor(next), 2)
   assert.equal(editor.shortageFor(editor.lines.value[0]), 2)
 })

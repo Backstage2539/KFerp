@@ -168,7 +168,11 @@ func (r Repository) load(ctx context.Context, q querier, id int64) (domain.Conte
 			if int64(num(e, "source_order_item_id")) == l.ID {
 				l.Delivered = num(e, "received_qty")
 				if l.Delivered > 0 {
-					c.Dependencies = append(c.Dependencies, domain.Dependency{Kind: "customer_stock", ID: int64(num(e, "id")), Label: fmt.Sprintf("客户库存权益 #%d · %s", int64(num(e, "id")), l.Name), Status: str(e, "status"), Quantity: l.Delivered})
+					status := str(e, "status")
+					if l.Delivered == num(e, "returned_qty") {
+						status = "released"
+					}
+					c.Dependencies = append(c.Dependencies, domain.Dependency{Kind: "customer_stock", ID: int64(num(e, "id")), Label: fmt.Sprintf("客户库存权益 #%d · %s · 原入库 %g · 货权已退回 %g %s", int64(num(e, "id")), l.Name, l.Delivered, num(e, "returned_qty"), l.Unit), Status: status, Quantity: l.Delivered - num(e, "returned_qty")})
 				}
 			}
 		}
