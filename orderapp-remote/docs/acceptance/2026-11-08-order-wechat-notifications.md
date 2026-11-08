@@ -50,6 +50,7 @@
 
 - 通过服务器读取服务号 API 配置并成功读取私有模板列表；仅返回“订阅模板消息”，内容为 `{{content.DATA}}`，尚无适用的持续订单业务模板。本功能拒绝把该一次性模板当作订单模板。
 - 此前桌面微信只暴露窗口/菜单，未暴露可靠的聊天控件。尝试控制时出现重新登录提示；用户后续确认已登录。没有继续盲输、没有绕过安全提示，也没有发送任何真实测试消息。
+- 重新登录后的只读检查发现微信停在“Insufficient storage space”弹窗；尝试点击“Do not remind today”返回 `AXError.notImplemented`，弹窗仍在。没有清理聊天记录或继续发送操作，已请求用户手动关闭提示。本机可用空间约 1.6 GiB。
 - 尚缺准确测试群名称、服务号身份和适用业务模板；需完成同环境回调、测试账号关注绑定、六类真实送达、内容与具体订单跳转验收。
 - 当前没有微信控件适配配置；原微信群自动发送不可启用。发送端成功编译与模拟回报不构成真实微信群送达证明。
 - 真实订单流程、断网/锁屏/退出/恢复等桌面场景、微信真机跳转仍待验收。
@@ -58,4 +59,19 @@
 
 工作分支：`codex/order-wechat-notifications-20261108`。产品/开发追踪：PR-750，DEV-PR750-01～04。手册：`docs/OP_MANUAL_NOTIFICATIONS.md`，前端使用现有通知配置手册入口及页面帮助。
 
-开发合并和部署记录待填。两个自动发送开关默认关闭；正式环境、小程序平台上传/发布及真实微信发送未执行。完成真实验收前不得把此需求标记完成。
+功能提交 `2dee342c1` 已推送，合入已验证的最新 `origin/develop@15eeea3e1` 后，开发运行版本为 `184ae0944e34bf8d33e8726ba2ece0cbbcb4e7f1`。原 develop 工作目录存在其他未提交工作，使用独立干净集成目录 `/private/tmp/kferp-notifications-develop-20261108` 完成快进、推送及 `./deploy_orderapp.sh development`，没有改动原目录。
+
+2026-11-08 开发发布回执：
+
+- 服务器前端 1761 测试、构建，小程序 446 测试、类型检查与构建，以及两轮后端测试/镜像构建均通过。
+- 源码备份：`/opt/stacks/erp/orderapp.backup.deploy-20261108173725-184ae0944e34`。
+- 回滚镜像：`kferp-orderapp-rollback:development-20261108173725-184ae0944e34`。仅开发 orderapp 重建/重启。
+- `erp_orderapp` running、重启次数 0；`erp_postgres` running/healthy。启动日志未发现通知 worker 错误。
+- 登录页 200；认证后的通知页面、配置、手册、PR/DEV 查询 200；未认证管理通知、小程序偏好、设备心跳均 401。两个自动发送开关关闭，设备数 0、发送记录数 0。
+- 原检查脚本把 `/app/` 预期写为 401，初次因自动跟随重定向得到 200 而失败。核对当前源码与 `TestVueShellCanLoadBeforeBearerAPIAuth` 后确认入口实际为 303 → `/orders` → Vue 壳；改为禁止自动重定向并分别验证入口 303 与受保护 API 401，未改变认证实现。
+- 服务器通知页面文件 `NotificationSettingsView-BUybJKk_.js` 包含本功能；服务端与本机小程序 `RELEASE_INFO` 均为上述运行提交、`development`、`https://dev.qacoohee.com/app`。
+- 本机开发小程序包：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；清单 100 文件、25 页面，包含 `pages/order-notifications/order-notifications`。原包备份：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20261108174902-184ae0944e34`。
+- 本机证据：`/private/tmp/kferp-notifications-development-deploy.log`、`/private/tmp/kferp-notifications-runtime-result.json`、`/private/tmp/kferp-notifications-integrated-backend.log`、`/private/tmp/kferp-notifications-integrated-db.log`。PR/DEV 保持 doing，开发发布回执与实际微信验收分别记录。
+- 开发 PR 与四条 DEV 的证据说明已在同一事务更新，新增 5 条操作审计；通过需求查询与 `/api/audit` 读回确认，状态仍为 doing。未修改订单、库存、款项或通知配置。
+
+后续回执提交仅更新跟踪说明与证据，不改变运行功能。两个自动发送开关默认关闭；正式环境、小程序平台上传/发布及真实微信发送未执行。完成真实验收前不得把此需求标记完成。

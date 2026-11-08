@@ -6478,11 +6478,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-750-ORDER-WECHAT-NOTIFICATIONS
 - Branch: codex/order-wechat-notifications-20261108
 - Owner/session: Codex / order-wechat-notifications
-- Status: automated verification passed; live WeChat acceptance pending
+- Status: automated verification and development deployment passed; live WeChat acceptance pending
 - Scope: 六节点服务号通知、原微信群 Mac 发送端、身份授权、可靠投递与订单深链。
 - Verifier: Go unit/API/PostgreSQL integration; Vue/miniapp node tests/build; Swift tests; six real channel notifications with test-only recipients.
 - Manual: orderapp-remote/docs/OP_MANUAL_NOTIFICATIONS.md
-- Deployment: not deployed; external delivery stays disabled until verified.
+- Deployment: feature pushed and integrated into develop; development runtime `184ae0944e34bf8d33e8726ba2ece0cbbcb4e7f1` via `./deploy_orderapp.sh development`. Source backup `/opt/stacks/erp/orderapp.backup.deploy-20261108173725-184ae0944e34`; rollback image `kferp-orderapp-rollback:development-20261108173725-184ae0944e34`. External delivery stays disabled until verified.
+- Runtime evidence: notification APIs reject anonymous access (401); authenticated configuration/manual/PR/DEV/shell return 200. App running with 0 restarts; database healthy; notification static bundle and development Mini Program release identity match. Both automatic switches off, 0 devices, 0 deliveries. Root entry redirects 303 to the existing public Vue shell; API auth is verified separately.
+- Mini Program: development artifact exported to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`, 100 manifest files and 25 pages. No platform upload/review/publication. Prior artifact retained at `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20261108174902-184ae0944e34`.
 - Last update: 2026-11-08
-- Notes: reserved PR-750 after macOS awk claim failure. User has re-logged into WeChat. Desktop chat accessibility was unavailable; no real notification sent. Existing OA API only exposed a one-time subscription template; suitable order templates and exact test group/account are pending.
+- Notes: reserved PR-750 after macOS awk claim failure. User has re-logged into WeChat; current storage warning could not be dismissed by the UI tool. No real notification sent. Existing OA API only exposed a one-time subscription template; suitable order templates and exact test group/account are pending. Production was not deployed.
 - Evidence: orderapp-remote/docs/acceptance/2026-11-08-order-wechat-notifications.md; DEV-PR750-01 through 04 remain doing for live acceptance.

@@ -265,7 +265,7 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-PR750-01", title: "六类状态事务消息、权限、重试和回执", status: "doing", assignee: "Codex", evidence: "order_notifications_integration_test.go；隔离数据库与模拟微信接口已验证"},
 		{table: "req_dev", code: "DEV-PR750-02", title: "服务号关注授权、小程序订单跳转与通知设置", status: "doing", assignee: "Codex", evidence: "OP_MANUAL_NOTIFICATIONS.md；服务号业务模板及真机跳转待验证"},
 		{table: "req_dev", code: "DEV-PR750-03", title: "专用 Mac 群发送端、设备配对及逐条读回", status: "doing", assignee: "Codex", evidence: "tools/wechat-notifier；当前微信控件不支持，真实发送未通过"},
-		{table: "req_dev", code: "DEV-PR750-04", title: "六类通知双渠道验收与开发交付", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-11-08-order-wechat-notifications.md；未启用自动发送、未部署"},
+		{table: "req_dev", code: "DEV-PR750-04", title: "六类通知双渠道验收与开发交付", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-11-08-order-wechat-notifications.md；自动发送未启用，开发发布回执与真实验收分别记录"},
 		{table: "req_product", code: "PR-747-TRANSFER-FROZEN-OWNER", title: "历史成品批次转仓及客户货权确认", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-04-transfer-frozen-owner.md"},
 		{table: "req_dev", code: "DEV-PR747-01", title: "历史批次身份校验与客户货权事务和审计", status: "done", assignee: "Codex", evidence: "bom_spec_finished_writes_postgres_api_test.go; transfer_availability.go"},
 		{table: "req_dev", code: "DEV-PR747-02", title: "转仓货权确认界面、手册和回归", status: "done", assignee: "Codex", evidence: "StockEntriesView.vue; stock-transfer-options-runtime.test.js; docs/OP_MANUAL_STOCK.md"},
