@@ -2385,3 +2385,14 @@ func TestOrdersPaginationRetainsCustomerScope(t *testing.T) {
 		t.Fatalf("query=%+v page=%+v", r.serviceQuery, page)
 	}
 }
+
+func TestNotificationOrderFilterKeepsAuthenticatedCustomer(t *testing.T) {
+	repo := &fakeRepository{context: CurrentContext{CurrentCustomerID: 7, Capabilities: []Capability{{Code: CapabilityProductOrder, Enabled: true}}}, servicePage: ServicePage{Key: ServiceKeyOrders}}
+	_, err := NewService(repo, fakeIdentityProvider{}).GetServicePage(context.Background(), "mini-token", ServiceKeyOrders, ServicePageFilter{OrderID: 42})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.serviceQuery.OrderID != 42 || repo.serviceQuery.CustomerID != 7 {
+		t.Fatalf("notification query lost scope: %+v", repo.serviceQuery)
+	}
+}

@@ -430,7 +430,7 @@ func requiredPermissionForRequest(method, path string) string {
 	if strings.HasPrefix(path, "/api/sample-requests") {
 		return "samples.read"
 	}
-	if strings.HasPrefix(path, "/api/message-center/rules") {
+	if strings.HasPrefix(path, "/api/message-center/rules") || strings.HasPrefix(path, "/api/message-center/external") {
 		return "settings.write"
 	}
 	if strings.HasPrefix(path, "/api/message-center") {

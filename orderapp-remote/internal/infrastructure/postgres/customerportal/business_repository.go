@@ -1950,8 +1950,15 @@ func mallProductPublicCatalogSQL(productAlias string) string {
 }
 
 func (r Repository) listCustomerOrders(ctx context.Context, query customerportalapp.ServicePageQuery, limit int, includeItems bool) ([]customerportalapp.CustomerOrderSummary, error) {
-	where := []string{"o.customer_id=$1", "o.is_void=false"}
+	where := []string{"o.customer_id=$1"}
 	args := []any{query.CustomerID}
+	if query.OrderID > 0 {
+		args = append(args, query.OrderID)
+		where = append(where, "o.id=$2")
+	} else {
+		where = append(where, "o.is_void=false")
+	}
+
 	if keyword := strings.TrimSpace(query.Query); keyword != "" {
 		args = append(args, "%"+strings.ToLower(keyword)+"%")
 		placeholder := fmt.Sprintf("$%d", len(args))
@@ -2012,7 +2019,7 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 		       COALESCE(to_jsonb(o)->>'delivery_mode','ship'),
 		       COALESCE(to_jsonb(o)->>'delivery_warehouse_code',''),
 		       COALESCE(to_jsonb(o)->>'delivery_status',''),
-		       COALESCE(to_jsonb(o)->>'fulfillment_mode','')
+		       COALESCE(to_jsonb(o)->>'fulfillment_mode',''),o.is_void
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id=o.customer_id
 		LEFT JOIN %s.order_process_statuses ops ON ops.id=o.process_status_id
@@ -2030,7 +2037,7 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 	orderIDs := make([]int64, 0)
 	for rows.Next() {
 		var row customerportalapp.CustomerOrderSummary
-		if err := rows.Scan(&row.ID, &row.OrderNo, &row.OrderDate, &row.ReceiverName, &row.ReceiverPhone, &row.ReceiverAddress, &row.ProcessStatus, &row.PayStatus, &row.PaymentMethod, &row.PrepaymentAmount, &row.ShipStatus, &row.ShipTrackingNo, &row.GrandTotal, &row.ShippingAmount, &row.DeliveryMode, &row.DeliveryWarehouseCode, &row.DeliveryStatus, &row.FulfillmentMode); err != nil {
+		if err := rows.Scan(&row.ID, &row.OrderNo, &row.OrderDate, &row.ReceiverName, &row.ReceiverPhone, &row.ReceiverAddress, &row.ProcessStatus, &row.PayStatus, &row.PaymentMethod, &row.PrepaymentAmount, &row.ShipStatus, &row.ShipTrackingNo, &row.GrandTotal, &row.ShippingAmount, &row.DeliveryMode, &row.DeliveryWarehouseCode, &row.DeliveryStatus, &row.FulfillmentMode, &row.IsVoid); err != nil {
 			return nil, err
 		}
 		deposit, _ := strconv.ParseFloat(row.PrepaymentAmount, 64)

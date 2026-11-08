@@ -8,6 +8,7 @@
       <button type="button" class="primary" @click="load">刷新</button>
     </header>
 
+    <OrderNotificationSettings />
     <div class="settings-grid">
       <form class="rule-form" @submit.prevent="save">
         <label><span>规则编码</span><input v-model.trim="form.code" required placeholder="order_shipped_customer_im" /></label>
@@ -83,6 +84,7 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
+import OrderNotificationSettings from '../components/OrderNotificationSettings.vue'
 import { fetchNotificationRules, saveNotificationRule } from '../api/message-center.js'
 
 const rules = ref([])

@@ -13,6 +13,7 @@
 - 手册：`orderapp-remote/docs/OP_MANUAL_ORDER_RESOLUTION.md`（Vue 订单处理手册入口）。验收及各批发布回执：`orderapp-remote/docs/acceptance/2026-11-07-order-resolution.md`。
 
 ### PR-ORDER-DATE-SAVE-20261104 留厂及代发订单日期保存
+- 2026-11-08 跟进 SO-20261104-0006：原单历史生产版本与当前目录不同，编辑页面自动更新规格和报价导致日期保存被关联保护拦截。分支 `codex/retained-order-date-snapshot`；隔离组件复现 RED，修复后保留原版本与报价，显式换表仍按新选择；隔离 PostgreSQL 原日期保存/实际修改保护回归及前端 1765 项通过。已合入 develop 并部署开发环境 `8c270204cde1cacb7659d86e28240759797c9fb0`；服务健康，登录页面/表单/手册/需求 API 与源码核对通过。正式订单只读核查，未修改；正式发布及现场验收待完成。发布后仅补充本回执，不重新构建。
 - Branch: `codex/order-date-save-20261104`; base `origin/main` 873ab8a41。
 - 留厂销售已有代发、生产或入库关联时，保存未更改的商品明细；历史代发地址与冻结运费地区一致时，修改日期沿用原有费用依据。
 - 验证：隔离 PostgreSQL 与员工 API 先 RED 后 GREEN，检查日期、商品身份、库存权益、运费快照、操作日志及真实变更限制；不改动正式订单。
@@ -6474,3 +6475,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - 转仓商品和 BOM 规格按每条明细出库仓库存筛选；切仓清除商品；完整读取库存分页。保留过账时库存/质检校验。
 - Verifier: `node --test orderapp-remote/frontend-vue-shell/src/lib/stock-transfer-options*.test.js`; `scripts/verify_kferp.sh frontend-tests`; `scripts/verify_kferp.sh frontend-build`; `go test ./internal/interfaces/http/stock ./internal/application/stock`.
 - GREEN: frontend tests 1681/1681, frontend build, full backend, stock API, and local browser fixture. Production observed read-only; no production stock document or business data changed. Development/production deployment not performed.
+
+### PR-750-ORDER-WECHAT-NOTIFICATIONS
+- Branch: codex/order-wechat-notifications-20261108
+- Owner/session: Codex / order-wechat-notifications
+- Status: automated verification and development deployment passed; live WeChat acceptance pending
+- Scope: 六节点服务号通知、原微信群 Mac 发送端、身份授权、可靠投递与订单深链。
+- Verifier: Go unit/API/PostgreSQL integration; Vue/miniapp node tests/build; Swift tests; six real channel notifications with test-only recipients.
+- Manual: orderapp-remote/docs/OP_MANUAL_NOTIFICATIONS.md
+- Deployment: feature pushed and integrated into develop; development runtime `184ae0944e34bf8d33e8726ba2ece0cbbcb4e7f1` via `./deploy_orderapp.sh development`. Source backup `/opt/stacks/erp/orderapp.backup.deploy-20261108173725-184ae0944e34`; rollback image `kferp-orderapp-rollback:development-20261108173725-184ae0944e34`. External delivery stays disabled until verified.
+- Runtime evidence: notification APIs reject anonymous access (401); authenticated configuration/manual/PR/DEV/shell return 200. App running with 0 restarts; database healthy; notification static bundle and development Mini Program release identity match. Both automatic switches off, 0 devices, 0 deliveries. Root entry redirects 303 to the existing public Vue shell; API auth is verified separately.
+- Mini Program: development artifact exported to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`, 100 manifest files and 25 pages. No platform upload/review/publication. Prior artifact retained at `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20261108174902-184ae0944e34`.
+- Last update: 2026-11-08
+- Notes: reserved PR-750 after macOS awk claim failure. Van confirmed test group “口加生产” and official account “棵凡咖啡-服务号”, and manually closed the storage warning. Current WeChat observation is still a blank window with no readable chat controls, including after raising it. Public-platform browser access was explicitly blocked by the site safety policy; no workaround attempted. No real notification sent; suitable order templates, readable target chat and live acceptance remain pending. Production was not deployed.
+- Evidence: orderapp-remote/docs/acceptance/2026-11-08-order-wechat-notifications.md; DEV-PR750-01 through 04 remain doing for live acceptance.

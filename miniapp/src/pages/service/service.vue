@@ -44,7 +44,7 @@ import {
   updateCustomerProductCategory,
 } from '../../api/customerPortal'
 import { buildAPIURL, isAuthenticationExpiredRequestError } from '../../api/client'
-import { fetchMe } from '../../api/customerPortal'
+import { fetchMe, switchCurrentCustomer } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import CustomerBillsPanel from '../../components/CustomerBillsPanel.vue'
 import CustomerDirectShipPanel from '../../components/CustomerDirectShipPanel.vue'
@@ -120,6 +120,7 @@ const customerCategoryName = ref('')
 const selectedCustomerCategoryID = ref(0)
 const categoryNameEdits = ref<Record<number, string>>({})
 const expandedCustomerPriceTableTypes = ref<string[]>([])
+const noticeOrderID=ref(0), noticeCustomerID=ref(0)
 const orderPage=ref(1)
 const orderSearch = ref<OrderSearchForm>(emptyOrderSearch())
 
@@ -239,7 +240,7 @@ async function changePriceTable(group: PriceTableGroup, event: { detail: { value
   }
 }
 
-function serviceReturnURL() { return `/pages/service/service?key=${serviceKey.value}${officialOrders.value ? '&source=official' : ''}${directShipEntryMode.value ? `&fulfillment_mode=${directShipEntryMode.value}` : ''}${stockPurchase.value ? '&stock_purchase=1' : ''}` }
+function serviceReturnURL() { if(noticeOrderID.value && noticeCustomerID.value) return `/pages/service/service?key=orders&source=notice&order_id=${noticeOrderID.value}&customer_id=${noticeCustomerID.value}`; return `/pages/service/service?key=${serviceKey.value}${officialOrders.value ? '&source=official' : ''}${directShipEntryMode.value ? `&fulfillment_mode=${directShipEntryMode.value}` : ''}${stockPurchase.value ? '&stock_purchase=1' : ''}` }
 function openCustomerLogin(){session.clearSession();uni.reLaunch({url:loginRouteFor(serviceReturnURL())+'&mode=password'})}
 let beanListRequest = 0
 let beanListActive=true
@@ -271,13 +272,17 @@ async function loadPage(pageNumber=1) {
   loading.value = true
   errorMessage.value = ''
   try {
-    if (officialOrders.value) session.applyContext(await fetchMe(session.token))
+    if (officialOrders.value || noticeOrderID.value) session.applyContext(await fetchMe(session.token))
+    if(noticeOrderID.value && noticeCustomerID.value !== session.currentCustomerID) {
+      session.applyContext(await switchCurrentCustomer(session.token,noticeCustomerID.value))
+    }
 
-    const filters = serviceKey.value === 'orders' ? {...buildOrderServiceFilters(orderSearch.value),page:orderPage.value,page_size:20} : { selected_price_table_ids: selectedPriceTableIDs.value }
+    const filters = serviceKey.value === 'orders' ? (noticeOrderID.value ? {order_id:noticeOrderID.value,page:1,page_size:1} : {...buildOrderServiceFilters(orderSearch.value),page:orderPage.value,page_size:20}) : { selected_price_table_ids: selectedPriceTableIDs.value }
     const token=session.token, customerID=session.currentCustomerID
     const response = await fetchServicePage(token, serviceKey.value, filters)
     if(request && (request!==beanListRequest || token!==session.token || customerID!==session.currentCustomerID)) return
     page.value = response
+    if(noticeOrderID.value && !response.orders?.length) errorMessage.value="该订单不存在或当前账号无权查看。"
     if (serviceKey.value === 'productOrder') selectedPriceTableIDs.value = page.value.selected_price_table_ids || []
     if (page.value.theme_key) {
       session.applyContext({
@@ -922,7 +927,11 @@ onLoad((query) => {
   serviceKey.value = normalizeServiceKey(String(query?.key || 'beanList'))
   directShipEntryMode.value = query?.fulfillment_mode === 'stock' || query?.fulfillment_mode === 'on_demand' ? query.fulfillment_mode : undefined
   stockPurchase.value = serviceKey.value === 'productOrder' && query?.stock_purchase === '1'
-  officialOrders.value = serviceKey.value === 'orders' && query?.source === 'official'
+  officialOrders.value = serviceKey.value === 'orders' && (query?.source === 'official'||query?.source === 'notice')
+  if(serviceKey.value==='orders' && query?.source==='notice') {
+    noticeOrderID.value=/^[1-9][0-9]{0,14}$/.test(String(query.order_id||''))?Number(query.order_id):0
+    noticeCustomerID.value=/^[1-9][0-9]{0,14}$/.test(String(query.customer_id||''))?Number(query.customer_id):0
+  }
   prefillProductID.value = Number(query?.product_id || 0)
   prefillSpecG.value = Number(query?.spec_g || 0)
   prefillBomSpecID.value = Number(query?.bom_spec_id || 0)
@@ -1235,7 +1244,7 @@ onShow(() => { void refreshMiniappShareMenu() })
         <text class="panel-title">{{ orderPanelTitle }}</text>
         <view v-for="item in page.orders" :key="item.id" class="list-row">
           <view class="row-head">
-            <text class="row-main">{{ item.order_no || '未编号订单' }}</text>
+            <text class="row-main">{{ item.order_no || '未编号订单' }}{{item.is_void ? ' · 已取消' : ''}}</text>
             <text class="price">¥{{ customerOrderAmounts(item).payable }}</text>
           </view>
           <OrderDetailsCopyButton v-if="!isProcessingCustomer || officialOrders" :order-id="item.id" />
@@ -1264,7 +1273,7 @@ onShow(() => { void refreshMiniappShareMenu() })
         </view>
       </view>
 
-      <view v-if="serviceKey==='orders' && page" class="panel"><button :disabled="loading || orderPage<=1" @tap="loadPage(orderPage-1)">上一页</button><text>第 {{orderPage}} 页</text><button :disabled="loading || !page.has_more" @tap="loadPage(orderPage+1)">下一页</button></view>
+      <view v-if="serviceKey==='orders' && page && !noticeOrderID" class="panel"><button :disabled="loading || orderPage<=1" @tap="loadPage(orderPage-1)">上一页</button><text>第 {{orderPage}} 页</text><button :disabled="loading || !page.has_more" @tap="loadPage(orderPage+1)">下一页</button></view>
       <view v-if="page?.direct_ship_batches?.length" class="panel">
         <text class="panel-title">一件代发批次</text>
         <view v-for="item in page.direct_ship_batches" :key="item.id" class="list-row">
