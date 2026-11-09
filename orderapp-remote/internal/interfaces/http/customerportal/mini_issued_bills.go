@@ -10,9 +10,9 @@ import (
 
 	fulfillment "orderapp/internal/application/customerfulfillment"
 	portal "orderapp/internal/application/customerportal"
+	"orderapp/internal/infrastructure/billingseal"
 	excelinfra "orderapp/internal/infrastructure/excel"
 	pdfinfra "orderapp/internal/infrastructure/pdf"
-	fulfillmenthttp "orderapp/internal/interfaces/http/customerfulfillment"
 
 	"github.com/labstack/echo/v4"
 )
@@ -91,7 +91,7 @@ func registerMiniIssuedBills(e *echo.Echo, svc Service, source MiniCustomerFulfi
 			if settingsErr != nil {
 				return miniInternalError(c)
 			}
-			seal, sealErr := fulfillmenthttp.ReadBillingSeal(c.Request().Context(), sales, assetDir, settings.SealAssetID)
+			seal, sealErr := billingseal.Read(c.Request().Context(), sales, assetDir, settings.SealAssetID)
 			if sealErr != nil {
 				return miniInternalError(c)
 			}
