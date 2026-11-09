@@ -31,6 +31,18 @@ async function loadComponent(relative) {
 const response = data => ({ok:true,status:200,json:async()=>data})
 async function flush(){for(let i=0;i<5;i++){await nextTick();await new Promise(r=>setImmediate(r))}}
 const button = text => [...document.querySelectorAll('button')].find(b=>b.textContent.trim()===text)
+test('运费清单和历史账单显示运单号而非内部来源编号', async () => {
+ const {component}=await loadComponent('../views/CustomerFulfillmentView.vue');const original=globalThis.fetch
+ const freight={id:15,charge_type:'shipping',source_type:'customer_fee_item',source_id:17,source_no:'SF1224903286779',description:'运费',occurred_at:'2026-10-10',receivable_cents:1810,amount_cents:1810,due_cents:1810,confirmation_status:'confirmed',detail:{order_id:190,order_no:'SO-20260922-000190',shipments:[{tracking_no:'SF1224903286779'}]}}
+ const bill={batch_id:9,customer_id:8,settlement_no:'CB-9',customer_name:'测试客户',period_from:'2026-10-01',period_to:'2026-10-31',status:'confirmed',total_amount_cents:1810,current_due_amount_cents:1810,lines:[freight]}
+ globalThis.fetch=async url=>{const path=String(url);if(path.includes('/overview'))return response({customer_id:8,customer_name:'测试客户',capabilities:['settlement'],operations:{},assets:[]});if(path.includes('/customers'))return response({customers:[{id:8,name:'测试客户'}]});if(path.endsWith('/billing/bills/9'))return response(bill);if(path.includes('/billing/bills'))return response({rows:[bill],total:1});if(path.includes('/billing/unbilled'))return response({rows:[freight],total:1});return response({rows:[],summary:{orders:0},modes:[]})}
+ const app=createApp(component,{customerContextId:8,actor:{basic_auth_admin:true}});app.config.warnHandler=()=>{}
+ try{app.mount(document.querySelector('#app'));await flush();button('费用').click();await flush()
+  const table=document.querySelector('.billing-workspace .billing-table');assert.match(table.textContent,/单号/);assert.doesNotMatch(table.textContent,/来源单号/);assert.match(table.textContent,/SF1224903286779/)
+  button('已出账').click();await flush();button('费用明细').click();await flush()
+  const drawer=document.querySelector('.billing-bill-drawer');const first=drawer.querySelector('tbody tr');assert.match(drawer.textContent,/单号/);assert.match(first.textContent,/SF1224903286779/);assert.doesNotMatch(first.textContent,/SO-20260922-000190/)
+ }finally{app.unmount();globalThis.fetch=original;document.body.innerHTML='<div id="app"></div>'}
+})
 test('留厂订单主状态为生产进度，详情无收件与发货区域，库存代发仍可见', async () => {
  const {component}=await loadComponent('../views/CustomerFulfillmentView.vue')
  const original=globalThis.fetch

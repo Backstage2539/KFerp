@@ -37,7 +37,7 @@ func renderCustomerBill(bill app.BillingBill, settings app.BillingPDFSettings, s
 		width float64
 		title string
 	}{
-		{25, "类型"}, {21, "发生日期"}, {31, "来源单号"}, {57, "费用名称"},
+		{25, "类型"}, {21, "发生日期"}, {31, "单号"}, {57, "费用名称"},
 		{25, "应收"}, {24, "出账金额"}, {27, "出账前已收"}, {27, "出账后已收"}, {25, "当前未收"},
 	}
 	pageHeader := func() {

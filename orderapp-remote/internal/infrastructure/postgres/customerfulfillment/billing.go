@@ -32,7 +32,7 @@ func (r *Repository) ListUnbilledCharges(ctx context.Context, query app.BillingQ
 	return pageBillingCharges(rows, query.Page, query.Limit), nil
 }
 
-func (r *Repository) loadUnbilledCharges(ctx context.Context, q billingRows, query app.BillingQuery) ([]app.BillingCharge, error) {
+func (r *Repository) loadUnbilledCharges(ctx context.Context, q billingReader, query app.BillingQuery) ([]app.BillingCharge, error) {
 	from, to := query.DateFrom, query.DateTo
 	if from == "" {
 		from = "1900-01-01"
@@ -55,13 +55,20 @@ func (r *Repository) loadUnbilledCharges(ctx context.Context, q billingRows, que
 		}
 		out = append(out, app.BillingCharge{ID: billingSourceID(line.ChargeType, line.SourceType, line.SourceID), BillingSource: app.BillingSource{ChargeType: line.ChargeType, SourceType: line.SourceType, SourceID: line.SourceID}, SourceNo: line.SourceNo, Description: line.Description, OccurredAt: line.OccurredAt, ReceivableCents: line.ReceivableCents, ReceivedCents: line.ReceivedCents, DueCents: line.DueCents, ConfirmationStatus: line.ConfirmationStatus, SettlementStatus: "unsettled"})
 	}
+	freightJoin, sourceNo := "", "COALESCE(o.order_no,'')"
+	if relationExists(ctx, q, r.schema+".freight_actual_entries") && relationExists(ctx, q, r.schema+".freight_actual_shipments") {
+		freightJoin = fmt.Sprintf(`LEFT JOIN %[1]s.freight_actual_entries fe ON f.source_type='freight_actual' AND fe.id=f.source_id
+		LEFT JOIN %[1]s.freight_actual_shipments fs ON fs.id=fe.shipment_id AND fs.customer_id=f.customer_id`, r.schema)
+		sourceNo = "CASE WHEN f.fee_type='shipping' AND f.source_type='freight_actual' THEN COALESCE(fs.tracking_no,'') ELSE COALESCE(o.order_no,'') END"
+	}
 	fees, err := q.Query(ctx, fmt.Sprintf(`
 		SELECT f.id,coalesce(f.source_type,''),coalesce(f.source_id,0),f.fee_type,coalesce(f.note,''),
 		       (round(f.amount*100)::bigint-COALESCE((to_jsonb(f)->>'resolution_credit_cents')::bigint,0)),to_char(f.occurred_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD'),
-		       COALESCE(o.order_no,''),CASE WHEN f.fee_type='shipping' AND f.source_type<>'freight_actual' THEN 'pending_billing' ELSE 'confirmed' END,
+		       %s,CASE WHEN f.fee_type='shipping' AND f.source_type<>'freight_actual' THEN 'pending_billing' ELSE 'confirmed' END,
 		       CASE WHEN b.status='draft' THEN 'draft' ELSE 'unsettled' END
 		FROM %s.customer_fee_items f
 		LEFT JOIN %s.orders o ON f.source_type='order' AND o.id=f.source_id AND o.customer_id=f.customer_id
+		%s
 		LEFT JOIN %s.customer_settlement_batches b ON b.id=f.settlement_batch_id AND b.customer_id=f.customer_id
 		WHERE f.customer_id=$1 AND f.fee_type<>'order_goods'
 		  AND (f.status='unsettled' OR (f.status='settled' AND b.status='draft' AND COALESCE(b.processing_billing_run_id,0)=0))
@@ -69,7 +76,7 @@ func (r *Repository) loadUnbilledCharges(ctx context.Context, q billingRows, que
 		  AND ($4='' OR f.fee_type=$4)
 		  AND NOT (f.fee_type='shipping' AND f.source_type<>'freight_actual')
 		ORDER BY f.occurred_at DESC,f.id DESC
-	`, r.schema, r.schema, r.schema), query.CustomerID, from, to, query.FeeType)
+	`, sourceNo, r.schema, r.schema, freightJoin, r.schema), query.CustomerID, from, to, query.FeeType)
 	if err != nil {
 		return nil, err
 	}
@@ -85,6 +92,9 @@ func (r *Repository) loadUnbilledCharges(ctx context.Context, q billingRows, que
 		}
 		row.ID = billingSourceID(row.ChargeType, "customer_fee_item", feeID)
 		row.SourceType, row.SourceID = "customer_fee_item", feeID
+		if row.ChargeType == "shipping" {
+			row.Description = "运费"
+		}
 		row.ReceivableCents, row.DueCents = row.DueCents, row.DueCents
 		out = append(out, row)
 	}
@@ -251,6 +261,24 @@ func (r *Repository) getIssuedBill(ctx context.Context, query billingReader, cus
 	}
 	if err = r.hydrateBillingLineDetails(ctx, query, customerID, lines); err != nil {
 		return out, err
+	}
+	for i := range lines {
+		line := &lines[i]
+		if line.ChargeType != "shipping" {
+			continue
+		}
+		line.Description = "运费"
+		// A freight charge refers to one shipment; use its original snapshot.
+		if line.Detail != nil && len(line.Detail.Shipments) == 1 && line.Detail.Shipments[0].TrackingNo != "" {
+			line.SourceNo = line.Detail.Shipments[0].TrackingNo
+		} else if line.SourceType == "customer_fee_item" && relationExists(ctx, query, r.schema+".freight_actual_entries") && relationExists(ctx, query, r.schema+".freight_actual_shipments") {
+			var tracking string
+			err := query.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(s.tracking_no,'') FROM %[1]s.customer_fee_items f JOIN %[1]s.freight_actual_entries e ON f.source_type='freight_actual' AND e.id=f.source_id JOIN %[1]s.freight_actual_shipments s ON s.id=e.shipment_id AND s.customer_id=f.customer_id WHERE f.id=$1 AND f.customer_id=$2`, r.schema), line.SourceID, customerID).Scan(&tracking)
+			if err != nil && err != pgx.ErrNoRows {
+				return out, err
+			}
+			line.SourceNo = tracking
+		}
 	}
 	sort.SliceStable(lines, func(i, j int) bool {
 		left, right := int64(0), int64(0)

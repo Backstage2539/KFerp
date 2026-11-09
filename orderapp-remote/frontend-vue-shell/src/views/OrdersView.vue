@@ -470,6 +470,7 @@ import OrderPaymentSummary from '../components/OrderPaymentSummary.vue'
 import OrderCombinedPaymentRecords from '../components/OrderCombinedPaymentRecords.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import { shippingReturnUploadMessage } from '../lib/shipping-return-upload.js'
 import PaginationControls from '../components/PaginationControls.vue'
 import { combinedDocumentSelectionSummary, selectedOrdersShareSameCustomer } from '../lib/combined-order-documents'
 import { customerFulfillmentOrderFees } from '../lib/customer-fulfillment'
@@ -1113,7 +1114,7 @@ async function uploadTrackingExcel() {
     const data = await apiSend('/api/orders/shipping-tracking-excel', { body })
     returnReport.value = data.rows || []
     returnBatchID.value = Number(data.batch_id || 0)
-    shippingMessage.value = data.rematched ? `已重新匹配；待选择 ${Number(data.pending||0)} 条。本次未执行发货。` : `已回填 ${Number(data.updated||0)} 条；待选择 ${Number(data.pending||0)} 条；跳过 ${Number(data.skipped||0)} 条`
+    shippingMessage.value = shippingReturnUploadMessage(data)
     trackingExcelFile.value = null
     await load()
   } catch (err) {

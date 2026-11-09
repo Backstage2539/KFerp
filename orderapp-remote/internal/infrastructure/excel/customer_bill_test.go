@@ -23,7 +23,7 @@ func TestRenderCustomerBillIncludesSnapshotAndCurrentBalances(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer book.Close()
-	for cell, want := range map[string]string{"B1": "吴国宏", "D1": "CB-488-001", "A5": "费用类型分类小计", "A6": "运费", "B6": "18", "A7": "费用类型", "D8": "顺丰运费", "E8": "20", "F8": "18", "G8": "2", "H8": "5", "I8": "13"} {
+	for cell, want := range map[string]string{"B1": "吴国宏", "D1": "CB-488-001", "A5": "费用类型分类小计", "A6": "运费", "B6": "18", "A7": "费用类型", "C7": "单号", "D8": "顺丰运费", "E8": "20", "F8": "18", "G8": "2", "H8": "5", "I8": "13"} {
 		got, err := book.GetCellValue("费用明细", cell)
 		if err != nil || got != want {
 			t.Fatalf("%s=%q err=%v want %q", cell, got, err, want)
