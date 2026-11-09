@@ -120,18 +120,18 @@ describe('customer closed-loop miniapp pages', () => {
     expect(page).not.toContain('createCustomerStatementDispute')
   })
 
-  it('routes processing customers to a shipment-only fulfillment center', () => {
+  it('keeps fulfillment services available while routing customers to one order list', () => {
     const service = source('src/pages/service/service.vue')
 
     expect(service).toContain('CustomerDirectShipPanel')
     expect(service).toContain('CustomerProcessingPanel')
     expect(service).toContain('CustomerInventoryPanel')
     expect(service).toContain('CustomerBillsPanel')
-    expect(service).toContain('isProcessingCustomer')
-    expect(service).toContain('customerDestinations.processingShipments.label')
     expect(service).toContain('inventory:${session.currentCustomerID}')
-    expect(service).not.toContain('closedLoopRefreshKey')
-    expect(service).toContain('v-if="!isProcessingCustomer"')
+    expect(service).toContain('orderKind')
+    expect(service).toContain('orderProgress')
+    expect(service).not.toContain('customerDestinations.processingShipments.label')
+    expect(service).not.toContain('fulfillment-center:${session.currentCustomerID}')
   })
 
   it('shows the current customer, ERP business contact, shared recipient address book and service explanation', () => {

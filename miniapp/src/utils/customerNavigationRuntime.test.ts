@@ -113,19 +113,21 @@ describe('real customer navigation interactions', () => {
     finally { page.app.unmount() }
   })
 
-  it('offers processing shipments from official orders and keeps that destination read-only', async () => {
+  it('uses one searchable order page for processing customers from either existing entry', async () => {
     const { app, root } = mount(Service)
     try {
-      await openPage({ key: 'orders', source: 'official' })
-      expect(find(root, node => node.type === 'text' && node.props.class === 'title').map(text)).toEqual(['我的订单'])
-      const button = find(root, node => node.type === 'button' && text(node) === '代加工发货')[0]
-      expect(button).toBeDefined(); click(button)
-      expect(uni.navigateTo).toHaveBeenCalledWith({ url: '/pages/service/service?key=orders' })
-      await openPage({ key: 'orders' })
-      expect(find(root, node => node.type === 'text' && node.props.class === 'title').map(text)).toEqual(['代加工发货'])
-      expect(find(root, node => node.props['data-shipment-panel']).map(text)).toEqual(['创建表单:false'])
-      click(find(root, node => String(node.props.class || '').includes('tab-item') && text(node) === '我的订单')[0])
-      expect(uni.reLaunch).toHaveBeenCalledWith({ url: '/pages/service/service?key=orders&source=official' })
+      for (const query of [{ key: 'orders', source: 'official' }, { key: 'orders' }]) {
+        await openPage(query)
+        expect(find(root, node => node.type === 'text' && node.props.class === 'title').map(text)).toEqual(['我的订单'])
+        expect(find(root, node => node.props['data-shipment-panel'])).toHaveLength(0)
+        expect(find(root, node => node.type === 'button' && text(node) === '代加工发货')).toHaveLength(0)
+        expect(find(root, node => node.type === 'button' && text(node) === '订货')).toHaveLength(1)
+        const dropship = find(root, node => node.type === 'button' && text(node) === '代发')[0]
+        expect(dropship).toBeDefined()
+        click(dropship)
+        await settle()
+        expect(api.services).toHaveBeenLastCalledWith('isolated', 'orders', expect.objectContaining({ order_kind: 'dropship', page: 1 }))
+      }
     } finally { app.unmount() }
   })
 
