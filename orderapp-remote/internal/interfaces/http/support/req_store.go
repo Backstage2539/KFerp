@@ -261,6 +261,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-PRODUCTION-FOUR-FIXES-20261109", title: "包装补料、生产需求显示及工位产能校验修复", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-09-production-four-fixes.md；待用户验收"},
+		{table: "req_dev", code: "DEV-PRODUCTION-FOUR-FIXES-01", title: "包装组合卡直接打开本组补料抽屉", status: "review", assignee: "Codex", evidence: "工位 Vue 行为与领料 API 回归"},
+		{table: "req_dev", code: "DEV-PRODUCTION-FOUR-FIXES-02", title: "待计划异常布局及移除库存充足展示区", status: "review", assignee: "Codex", evidence: "生产需求 Vue 测试和布局验证"},
+		{table: "req_dev", code: "DEV-PRODUCTION-FOUR-FIXES-03", title: "工位产能非负整数分钟前后端校验", status: "review", assignee: "Codex", evidence: "工位产能 Vue 和 HTTP 测试"},
 		{table: "req_product", code: "PR-753-FULFILLMENT-SHIPPING-ADDRESS", title: "履约运费清单展示订单收货地址及寄件重量", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-09-fulfillment-shipping-address.md；业务验收待完成"},
 		{table: "req_dev", code: "DEV-PR753-01", title: "隔离客户的地址读取、出账快照和历史回显", status: "review", assignee: "Codex", evidence: "账单地址隔离及历史快照回归"},
 		{table: "req_dev", code: "DEV-PR753-02", title: "费用页面和账单导出显示地址与结算重量", status: "review", assignee: "Codex", evidence: "Vue、Excel、PDF和PNG验证"},

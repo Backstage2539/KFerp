@@ -335,42 +335,6 @@
 
     <!-- Creation ends here; every saved plan uses the detail workspace above. -->
 
-    <section v-if="stockSufficientRows.length" class="panel">
-      <div class="section-title">库存充足（只提示）</div>
-      <div class="muted section-hint">以下订单已有成品库存覆盖，不进入生产计划；录单时确认使用批次后会进入库存待发货。</div>
-      <div class="table-wrap drag-scroll-wrap" aria-label="库存充足商品横向滚动表格">
-        <table>
-          <thead>
-            <tr>
-              <th>商品</th>
-              <th>订单号</th>
-              <th>规格(g)</th>
-              <th>需求(件)</th>
-              <th>需求(g)</th>
-              <th>库存(件)</th>
-              <th>库存散装(g)</th>
-              <th>库存合计(g)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in stockSufficientRows" :key="rowKey(row)">
-              <td>{{ row.product }}</td>
-              <td class="muted">{{ row.order_nos }}</td>
-              <td>{{ row.spec_g }}</td>
-              <td>{{ row.need_units }}</td>
-              <td>{{ row.need_g }}</td>
-              <td>{{ row.inv_units }}</td>
-              <td>{{ row.inv_loose_g }}</td>
-              <td>{{ row.inv_g }}</td>
-            </tr>
-            <tr v-if="!stockSufficientRows.length">
-              <td colspan="8" class="muted">暂无库存充足商品</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
     <section v-if="planRecordsOpen" class="panel" id="plan-records" data-plan-records>
       <div class="panel-head">
         <h2>生产计划单据</h2>
@@ -937,16 +901,6 @@ const productionPlanFilters = reactive({
   limit: 50,
 })
 
-function rowKey(row) {
-  return [
-	productionDemandSelectionKey(row),
-    row.demand_status || 'unplanned',
-    row.production_plan_id || 0,
-    row.work_order_id || 0,
-    row.order_nos || '',
-  ].join('|')
-}
-
 function productionDemandSelectionKey(row) {
 	const scoped = String(row?.selection_id || row?.selection_key || '').trim()
 	if (scoped) return scoped
@@ -962,7 +916,6 @@ const computedPlanRows = computed(() => planRows.value || [])
 const productionPlanDetailManufacturingRows = computed(() => manufacturingPlanRows(productionPlanDetail.value || {}))
 const hasSelectedRows = computed(() => selectedKeys().length > 0)
 const stockInsufficientRows = computed(() => rows.value.filter((row) => String(row.blocking_reason || '').trim() || productionDemandGapQuantity(row) > 0 || String(row.demand_status || 'unplanned') !== 'unplanned'))
-const stockSufficientRows = computed(() => rows.value.filter((row) => !String(row.blocking_reason || '').trim() && productionDemandGapQuantity(row) <= 0 && String(row.demand_status || 'unplanned') === 'unplanned'))
 const filteredStockInsufficientRows = computed(() => {
   const keyword = demandKeyword.value.trim().toLocaleLowerCase('zh-CN')
   const sourceRows = demandSourceFilter.value
@@ -2542,7 +2495,6 @@ onBeforeUnmount(() => {
 .compact-head { margin-bottom: 8px; }
 .empty-state { border: 1px dashed #d1d5db; border-radius: 8px; padding: 14px; display: grid; gap: 6px; background: #fafafa; }
 .collapsed-panel-summary { border: 1px dashed #d1d5db; border-radius: 8px; padding: 10px; color: #666; background: #fafafa; font-size: 13px; }
-.demand-status-cell { min-width: 220px; }
 .demand-blocking-reason { margin: 6px 0 0; max-width: 320px; white-space: normal; overflow-wrap: anywhere; color: #9a3412; font-size: 13px; line-height: 1.5; }
 .panel-head-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .collapse-button { white-space: nowrap; }
@@ -2639,7 +2591,6 @@ input.bulk-checkbox:disabled { cursor: not-allowed; opacity: 0.45; }
 .drag-scroll-wrap { cursor: grab; overscroll-behavior: auto; scrollbar-gutter: stable; -webkit-overflow-scrolling: touch; }
 .drag-scroll-wrap.is-dragging-scroll { cursor: grabbing; user-select: none; }
 table { width: 100%; border-collapse: collapse; min-width: 980px; }
-.demand-table { min-width: 860px; }
 .materials-table { min-width: 760px; }
 .plan-preview-table { min-width: 1040px; }
 .component-source-table { min-width: 920px; }
@@ -2722,13 +2673,15 @@ td small { display: block; color: #666; line-height: 1.6; }
 .advanced-filters summary { color:#2563a5; font-size:13px; }
 .advanced-filters .filters { margin-top:12px; }
 .demand-panel .demand-search { width:220px; padding:7px 10px; font-size:13px; border-color:var(--plan-border); }
-.demand-table { min-width:780px; width:100%; table-layout:fixed; font-size:13px; }
+.demand-table { min-width:1100px; width:100%; table-layout:fixed; font-size:13px; }
 .demand-table th:nth-child(1) { width:44px; }
 .demand-table th:nth-child(2) { width:135px; }
 .demand-table th:nth-child(3) { width:155px; }
 .demand-table th:nth-child(4) { width:75px; }
 .demand-table th:nth-child(5),.demand-table th:nth-child(6),.demand-table th:nth-child(7) { width:78px; }
-.demand-table td:nth-child(4),.demand-table td:nth-child(5),.demand-table td:nth-child(6),.demand-table td:nth-child(7) { white-space:nowrap; }
+.demand-table th:nth-child(8) { width:90px; }
+.demand-table th:nth-child(9) { width:240px; }
+.demand-table td:nth-child(4),.demand-table td:nth-child(5),.demand-table td:nth-child(6),.demand-table td:nth-child(7),.demand-table td:nth-child(8) { white-space:nowrap; }
 .demand-table th { white-space:nowrap; }
 .demand-orders { overflow-wrap:anywhere; }
 .demand-product-row { background:#f4f6f8; }

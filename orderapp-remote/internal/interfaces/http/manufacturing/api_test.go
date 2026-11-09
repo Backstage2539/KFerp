@@ -21,6 +21,63 @@ type apiRepo struct {
 	publishedID              int64
 }
 
+func TestWorkstationCapacityAPIStandardMinutesValidation(t *testing.T) {
+	const reportedBody = `{"id":9,"workstation_id":4,"name":"泰禾","code":"taihe01","status":"active","batch_size_qty":1,"batch_size_unit":"kg","standard_minutes":0.1,"cost_method":"time","piece_rate":0,"production_capacity":1,"sort_order":0,"note":"","workstation":"色选机","hourly_rate":0,"applicable_operation_ids":[2],"created_at":"2026-07-30 14:50","updated_at":"2026-07-30 14:50","workstation_status":"active"}`
+	for _, id := range []string{"0", "9"} {
+		for _, tc := range []struct {
+			name      string
+			minutes   string
+			want      int
+			wantError bool
+		}{
+			{name: "reported fraction", minutes: "0.1", wantError: true},
+			{name: "negative", minutes: "-1", wantError: true},
+			{name: "string", minutes: `"invalid"`, wantError: true},
+			{name: "boolean", minutes: "true", wantError: true},
+			{name: "zero", minutes: "0", want: 0},
+			{name: "one", minutes: "1", want: 1},
+			{name: "integer", minutes: "15", want: 15},
+		} {
+			t.Run("id="+id+"/"+tc.name, func(t *testing.T) {
+				repo := &apiRepo{}
+				e := echo.New()
+				RegisterRoutes(e, Dependencies{Manufacturing: manufacturingapp.NewService(repo)})
+				body := strings.Replace(reportedBody, `"id":9`, `"id":`+id, 1)
+				body = strings.Replace(body, `"standard_minutes":0.1`, `"standard_minutes":`+tc.minutes, 1)
+				req := httptest.NewRequest(http.MethodPost, "/api/manufacturing-workstation-capacities", strings.NewReader(body))
+				req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+				rec := httptest.NewRecorder()
+				e.ServeHTTP(rec, req)
+				if tc.wantError {
+					if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "标准分钟/批必须为大于或等于 0 的整数") {
+						t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+					}
+					if repo.workstationCapacitySaved.Name != "" {
+						t.Fatalf("invalid minutes reached repository: %+v", repo.workstationCapacitySaved)
+					}
+					return
+				}
+				if rec.Code != http.StatusOK || repo.workstationCapacitySaved.StandardMinutes != tc.want || !strings.Contains(rec.Body.String(), `"standard_minutes":`+tc.minutes) {
+					t.Fatalf("status=%d body=%s saved=%+v", rec.Code, rec.Body.String(), repo.workstationCapacitySaved)
+				}
+			})
+		}
+	}
+}
+
+func TestWorkstationCapacityAPIBindErrorDoesNotMislabelOtherFields(t *testing.T) {
+	repo := &apiRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Manufacturing: manufacturingapp.NewService(repo)})
+	req := httptest.NewRequest(http.MethodPost, "/api/manufacturing-workstation-capacities", strings.NewReader(`{"workstation_id":4,"name":"泰禾","batch_size_qty":"invalid","standard_minutes":1}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || strings.Contains(rec.Body.String(), "标准分钟") || repo.workstationCapacitySaved.Name != "" {
+		t.Fatalf("status=%d body=%s saved=%+v", rec.Code, rec.Body.String(), repo.workstationCapacitySaved)
+	}
+}
+
 func (r *apiRepo) ListManufacturingOperations(ctx context.Context) ([]manufacturingapp.ManufacturingOperation, error) {
 	return []manufacturingapp.ManufacturingOperation{{ID: 1, Name: "烘焙", Code: "roast", Status: "active", StandardOperationCost: 8.5}}, nil
 }

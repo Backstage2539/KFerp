@@ -23,13 +23,12 @@ func TestOrderStockBatchConfirmRequirementSeeds(t *testing.T) {
 	}
 }
 
-func TestProducePlanSplitsStockSufficientAndInsufficientWithBulkCheckbox(t *testing.T) {
+func TestProducePlanKeepsInsufficientBulkSelectionWithoutCoveredStockPanel(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue")))
 	for _, want := range []string{
 		"库存不足",
 		"库存充足",
 		"stockInsufficientRows",
-		"stockSufficientRows",
 		"toggleAllInsufficient",
 		"allInsufficientSelected",
 		"insufficientHeaderCheckbox",
@@ -37,6 +36,9 @@ func TestProducePlanSplitsStockSufficientAndInsufficientWithBulkCheckbox(t *test
 		if !strings.Contains(src, want) {
 			t.Fatalf("ProducePlanView.vue missing %q", want)
 		}
+	}
+	if strings.Contains(src, "库存充足（只提示）") {
+		t.Fatal("ProducePlanView.vue still renders the removed covered-stock panel")
 	}
 }
 

@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc'
 import * as Vue from 'vue'
 import { renderToString } from '@vue/server-renderer'
+import { JSDOM } from 'jsdom'
 import * as plan from './produce-plan.js'
 
 test('complete plan setup initializes real Vue watchers and keeps group pagination in range', async () => {
@@ -41,6 +42,14 @@ test('complete plan setup initializes real Vue watchers and keeps group paginati
     await Vue.nextTick()
     assert.equal(state.demandPage.value, 1)
     assert.equal(state.pagedDemandGroups.value.length, 2)
+    state.rows.value = [
+      demand({ selection_key: 'needs-production' }),
+      demand({ selection_key: 'covered', gap_inventory_qty: 0, gap_sales_spec_count: 0 }),
+      demand({ selection_key: 'blocked', blocking_reason: 'BOM 配置待完善：最新可用 BOM 版本未配置工艺路线' }),
+    ]
+    await Vue.nextTick()
+    assert.deepEqual(state.stockInsufficientRows.value.map(row => row.selection_key), ['needs-production', 'blocked'])
+    assert.deepEqual(plan.buildProductionGroupSelection(state.rows.value, {}, true), { 'needs-production': true })
   } finally {
     scope.stop()
   }
@@ -144,6 +153,39 @@ test('configuration reasons are visible without expanding orders and known BOM e
   ]) {
     assert.ok(plan.productionDemandBlockingReasons([demand({ blocking_reason: raw })])[0].includes(expected))
   }
+})
+
+test('demand table reserves readable exception and quantity columns at its minimum width', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+  const { descriptor } = parse(source)
+  const header = source.match(/<table class="demand-table"[^>]*>([\s\S]*?<\/thead>)/)[1]
+  const dom = new JSDOM(`<style>${descriptor.styles.map(style => style.content).join('\n')}</style><div class="table-wrap"><table class="demand-table">${header}<tbody><tr>${'<td>20 pic</td>'.repeat(8)}<td class="demand-status-cell"><p class="demand-blocking-reason">BOM 配置待完善：最新可用 BOM 版本未配置工艺路线</p></td></tr></tbody></table></div>`)
+  try {
+    const style = selector => dom.window.getComputedStyle(dom.window.document.querySelector(selector))
+    assert.ok(parseFloat(style('.demand-table th:nth-child(9)').width) >= 220, 'configuration messages need an explicit readable column width in the fixed table')
+    assert.ok(parseFloat(style('.demand-table th:nth-child(8)').width) >= 80, 'gap quantities need space for both the number and unit')
+    assert.ok(parseFloat(style('.demand-table').minWidth) >= 1100, 'the table must scroll instead of squeezing the final two columns')
+    assert.equal(style('.demand-table td:nth-child(8)').whiteSpace, 'nowrap')
+    assert.equal(style('.demand-blocking-reason').whiteSpace, 'normal')
+    assert.equal(style('.table-wrap').overflow, 'auto')
+  } finally {
+    dom.window.close()
+  }
+})
+
+test('production plan omits the stock-covered informational table', async () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+  const start = source.indexOf('<!-- Creation ends here;')
+  const end = source.indexOf('<section v-if="planRecordsOpen"', start)
+  assert.ok(start > 0 && end > start, 'locate the area between plan creation and saved records')
+  const { code, errors } = compileTemplate({ source: source.slice(start, end), filename: 'ProducePlanView.vue', id: 'covered-demand-removal' })
+  assert.deepEqual(errors, [])
+  const js = code.replace(/import \{([^}]+)\} from "vue"/g, (_, names) => `const {${names.replace(/ as /g, ':')}} = Vue`).replace('export function render', 'function render')
+  const render = new Function('Vue', js + '\nreturn render')(Vue)
+  const html = await renderToString(Vue.createSSRApp({ render, setup: () => ({
+    stockSufficientRows: [demand({ product: '库存覆盖商品', gap_inventory_qty: 0 })], rowKey: row => row.selection_key,
+  }) }))
+  assert.doesNotMatch(html, /库存充足（只提示）|库存覆盖商品|库存充足商品横向滚动表格/)
 })
 
 test('actual demand table renders backend order quantities and customer traceability', async () => {

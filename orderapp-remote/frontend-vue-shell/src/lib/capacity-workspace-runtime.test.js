@@ -79,3 +79,45 @@ test('closing an unsaved workstation editor can keep or discard its form without
   assert.deepEqual(rows,[{planned_batch_count:6,planned_qty:120}])
  } finally {if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow}
 })
+
+async function capacityEditorForMinutesTest(id) {
+ const station = { id: 4, name: '色选机', status: 'active', applicable_operation_ids: [2], backup_employee_ids: [] }
+ let capacity = { id, workstation_id: 4, name: '泰禾', code: 'taihe01', batch_size_qty: 1, batch_size_unit: 'kg', standard_minutes: 15, cost_method: 'time', status: 'active' }
+ const requests = []
+ const api = {
+  apiGet: async path => ({ rows: path === '/api/manufacturing-workstations' ? [station] : path === '/api/manufacturing-workstation-capacities' ? [capacity] : [] }),
+  apiSend: async (path, { body }) => { requests.push({ path, body }); capacity = { ...body, id: id || 9 }; return capacity },
+ }
+ const { state, events } = await loadSetup('ManufacturingWorkstationEditor', { embedded: true, workstationId: 4, capacityId: id }, api)
+ state.editWorkstation(station)
+ if (id) state.editCapacity(capacity)
+ else { state.newCapacity(); state.capacityForm.name = '泰禾' }
+ return { state, events, requests }
+}
+
+for (const id of [0, 9]) {
+ test(`capacity ${id ? 'update' : 'create'} rejects invalid minutes without sending or rounding`, async () => {
+  const { state, events, requests } = await capacityEditorForMinutesTest(id)
+  for (const minutes of [0.1, -1, 'invalid', NaN, Infinity]) {
+   state.capacityForm.standard_minutes = minutes
+   await state.saveCapacity()
+   assert.equal(requests.length, 0)
+   assert.equal(state.error.value, '标准分钟/批必须为大于或等于 0 的整数')
+   assert.equal(state.capacityForm.standard_minutes, minutes)
+   assert.equal(state.hasUnsavedChanges.value, true)
+   assert.equal(events.some(([name]) => name === 'updated'), false)
+  }
+ })
+
+ test(`capacity ${id ? 'update' : 'create'} keeps zero, integer and empty-minute compatibility`, async () => {
+  const { state, requests } = await capacityEditorForMinutesTest(id)
+  for (const minutes of [0, 1, 15, '']) {
+   state.capacityForm.standard_minutes = minutes
+   await state.saveCapacity()
+   assert.equal(requests.at(-1).body.standard_minutes, Number(minutes))
+   assert.equal(state.capacityForm.standard_minutes, Number(minutes))
+   assert.equal(state.error.value, '')
+  }
+  assert.equal(requests.length, 4)
+ })
+}
