@@ -14,7 +14,8 @@ type Querier interface {
 }
 
 // StockReadySQL counts the order's own allocation, using stable BOM spec identity.
-// All active allocations sharing a batch must fit its physical remaining balance.
+// All unshipped allocations sharing a batch must fit its physical remaining balance.
+// Completed shipment deductions retain allocation rows as history, not live holds.
 func StockReadySQL(s string) string {
 	return fmt.Sprintf(`EXISTS(SELECT 1 FROM %[1]s.order_items i WHERE i.order_id=o.id AND i.qty>0) AND NOT EXISTS(
  SELECT 1 FROM %[1]s.order_items i WHERE i.order_id=o.id AND i.qty>0 AND COALESCE((
@@ -29,8 +30,8 @@ func StockReadySQL(s string) string {
  AND (SELECT l.warehouse FROM %[1]s.stock_ledger_entries l WHERE l.source_batch_code=b.batch_code AND l.item_type=b.item_type AND l.item_id=b.item_id AND l.bom_spec_id=b.bom_spec_id AND l.spec_g=b.spec_g ORDER BY l.id DESC LIMIT 1)=a.warehouse_code
  AND COALESCE(NULLIF(to_jsonb(b)->>'owner_customer_id','')::bigint,0) IN(0,o.customer_id)
  AND (a.allocated_units>0 OR a.allocated_g>0)
- AND b.remaining_g >= (SELECT COALESCE(SUM(all_a.allocated_g),0) FROM %[1]s.customer_direct_ship_request_allocations all_a WHERE all_a.batch_id=b.id AND all_a.status='reserved')
- AND b.remaining_units >= (SELECT COALESCE(SUM(all_a.allocated_units),0) FROM %[1]s.customer_direct_ship_request_allocations all_a WHERE all_a.batch_id=b.id AND all_a.status='reserved')
+ AND b.remaining_g >= (SELECT COALESCE(SUM(all_a.allocated_g),0) FROM %[1]s.customer_direct_ship_request_allocations all_a WHERE all_a.batch_id=b.id AND all_a.status='reserved' AND NOT EXISTS(SELECT 1 FROM %[1]s.order_stock_deductions d WHERE d.order_id=all_a.order_id))
+ AND b.remaining_units >= (SELECT COALESCE(SUM(all_a.allocated_units),0) FROM %[1]s.customer_direct_ship_request_allocations all_a WHERE all_a.batch_id=b.id AND all_a.status='reserved' AND NOT EXISTS(SELECT 1 FROM %[1]s.order_stock_deductions d WHERE d.order_id=all_a.order_id))
  ),0)<i.qty)`, s)
 }
 
