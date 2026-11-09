@@ -6,7 +6,7 @@
 - DEV-PR752-02: 寄件表 P 列结算重量兼容实际表头，并安全处理历史文件重传。
 - DEV-PR752-03: 隔离测试、页面及输出验证、操作手册与交付。
 - Verifier: PostgreSQL/API import and billing regression; 23 frontend tests; Go full suite without business DB; Vue build; Excel/PDF tests and rendered PDF; manuals and acceptance document.
-- Deployment: not deployed; no production business data written.
+- Deployment: development ERP-only `668d6eb2e1cf79003e9fe52173bfb3f9c6f0c7c7`; login 200, PR-752 API visible, app running, Postgres healthy. Backup `/opt/stacks/erp/orderapp.backup.deploy-20261109203613-668d6eb2e1cf`. Production not deployed and no production business data written.
 
 ### PR-751-SHIPPING-RETURN-CANDIDATES
 - 2026-11-09 follow-up completed: 按 Van 明确选择完成公司转喜沁 4 袋（SE-0000000149），两张运单已分别回填至订单 190/173 并扣减 14/12 袋。喜沁余量 17 袋，对应旧单 165/167 的 12/5 袋占用，未挪用其他订单。转仓、显式分配、实际运费和回填均有日志。
