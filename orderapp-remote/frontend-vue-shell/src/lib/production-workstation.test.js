@@ -113,7 +113,7 @@ test('workstation exposes one material action and one completion form per compat
   const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
   const form = readFileSync(new URL('../components/WorkstationPackagingCompletionForm.vue', import.meta.url), 'utf8')
   assert.match(source, /workstationPackagingGroups\(section\.tasks\)/)
-  assert.match(source, /@click="openBatchIssueForTasks\(group\.tasks\)"\>补齐物料/)
+  assert.match(source, /@click="openPackagingGroupIssue\(group\)"\>补齐物料/)
   assert.match(source, /!groupHasShortage\(group\)/)
   assert.match(source, /openGroupStart\(group\).*openGroupCompletion\(group\)/)
   assert.match(source,/OperationStartGroupForm/)

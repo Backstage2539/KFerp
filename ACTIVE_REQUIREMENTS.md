@@ -1,3 +1,9 @@
+### PR-PRODUCTION-FOUR-FIXES-20261109
+- Branch: `codex/production-workstation-four-fixes-20261109`; base: `origin/develop`.
+- Scope: 包装组工位补料、待计划异常布局、移除库存充足提示区、标准分钟非负整数校验。
+- Status: 前端全量 1779 项、后端、Vue 构建及隔离 PostgreSQL 三工单 44 件补料/重试/日志验证通过；用户验收待完成，不部署，不修改真实业务数据。
+- DEV: `DEV-PRODUCTION-FOUR-FIXES-01` / `02` / `03`；验收证据见 `orderapp-remote/docs/acceptance/2026-11-09-production-four-fixes.md`。
+
 ### PR-753-FULFILLMENT-SHIPPING-ADDRESS
 - Branch: `codex/fulfillment-shipping-address-20261109`
 - Status: implementation and isolated verification passed; user acceptance pending.

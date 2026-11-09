@@ -130,7 +130,11 @@
               <input v-if="capacityForm.cost_method === 'piece'" value="件" type="text" readonly />
               <input v-else v-model.trim="capacityForm.batch_size_unit" placeholder="kg / g" />
             </label>
-            <label><span>{{ capacityForm.cost_method === 'piece' ? '标准分钟/批（排产用）' : '标准分钟/批' }}</span><input v-model.number="capacityForm.standard_minutes" type="number" min="0" step="1" /></label>
+            <label>
+              <span>{{ capacityForm.cost_method === 'piece' ? '标准分钟/批（排产用）' : '标准分钟/批' }}</span>
+              <input v-model.number="capacityForm.standard_minutes" type="number" min="0" step="1" />
+              <small>仅支持大于或等于 0 的整数分钟。</small>
+            </label>
             <label v-if="capacityForm.cost_method === 'piece'">
               <span>计件成本（元/销售规格件）</span>
               <input v-model.number="capacityForm.piece_rate" type="number" min="0" step="0.0001" />
@@ -404,6 +408,11 @@ async function saveCapacity() {
     error.value = '请填写工位产能名称'
     return
   }
+  const standardMinutes = Number(capacityForm.standard_minutes ?? 0)
+  if (!Number.isInteger(standardMinutes) || standardMinutes < 0) {
+    error.value = '标准分钟/批必须为大于或等于 0 的整数'
+    return
+  }
   if (normalizeCapacityCostMethod(capacityForm) === 'piece' && Number(capacityForm.piece_rate || 0) <= 0) {
     error.value = '请填写大于 0 的计件成本'
     return
@@ -418,7 +427,7 @@ async function saveCapacity() {
         ...capacityForm,
         workstation_id: Number(form.id || 0),
         batch_size_qty: Number(capacityForm.batch_size_qty || 0),
-        standard_minutes: Number(capacityForm.standard_minutes || 0),
+        standard_minutes: standardMinutes,
         cost_method: normalizeCapacityCostMethod(capacityForm),
         piece_rate: normalizeCapacityCostMethod(capacityForm) === 'piece' ? Number(capacityForm.piece_rate || 0) : 0,
         hourly_rate: 0,
