@@ -53,3 +53,23 @@ test('start form locks while replenishment drawer is open and warns that success
  assert.match(html,/补料成功后.*重新读取.*重置/)
  state.openIssue();assert.equal(events.length,0)
 })
+test('zero WIP omitted by the API still shows replenishment and the full reserved-material deficit',async()=>{
+ const events=[];const Component=await loadForm({apiGet:async()=>({}),apiSend:async()=>({})})
+ const props=reactive({jobCardId:67});let state
+ await renderToString(createSSRApp({setup(){state=Component.setup(props,{expose(){},emit:(...args)=>events.push(args)});return()=>h('div')}}))
+ // Production serializes zero available_qty with omitempty.
+ const preview={input_qty:98,input_unit:'袋',materials:[{key:'material:108:0:0',name:'曜石2.0-半成品',unit:'kg',qty:44.493,shortage_qty:44.493,warehouse:'wip',warehouse_name:'WIP在制仓'}]}
+ state.preview.value=preview;Object.assign(state.draft,startDraft(preview))
+ const html=()=>renderToString(createSSRApp({...Component,setup:()=>state},props))
+ assert.match(await html(),/补齐物料/)
+ assert.match(await html(),/可用 0/)
+ state.openIssue();assert.equal(events[0][0],'issue');assert.equal(events[0][1][0].shortage_qty,44.493)
+ state.draft.actual_input_qty=49;state.recalculate()
+ assert.equal(state.startShortages.value[0].shortage_qty,22.247)
+ state.draft.materials[0].available_qty=0
+ assert.equal(state.startShortages.value[0].shortage_qty,22.247)
+ state.draft.materials[0].available_qty=22.247
+ assert.doesNotMatch(await html(),/补齐物料/)
+ state.draft.materials[0].available_qty='invalid'
+ assert.doesNotMatch(await html(),/补齐物料/)
+})
