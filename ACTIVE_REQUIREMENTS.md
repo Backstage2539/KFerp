@@ -1,6 +1,6 @@
 ### PR-751-SHIPPING-RETURN-CANDIDATES
-- 2026-11-09 follow-up: 第二单获授权补入公司库存 4 袋，正式转仓 SE-0000000149 与 12 袋分配已完成；共用批次的前单历史分配被重复计作占用，第二单回填尚待本次校验修复。保留真实历史，不直接修库。
-- Follow-up verifier: `TestShippingReturnSharedBatchExcludesAlreadyDeductedOrders` RED 复现首单出库后第二单被误拦；隔离数据库候选/历史库存/共享批次回归及全包后端 GREEN，验证两单依次通过 HTTP 回填、重复提交不重扣、不超配和分配历史保留。待合并发布后完成已授权第二单。
+- 2026-11-09 follow-up completed: 按 Van 明确选择完成公司转喜沁 4 袋（SE-0000000149），两张运单已分别回填至订单 190/173 并扣减 14/12 袋。喜沁余量 17 袋，对应旧单 165/167 的 12/5 袋占用，未挪用其他订单。转仓、显式分配、实际运费和回填均有日志。
+- Follow-up verifier: `TestShippingReturnSharedBatchExcludesAlreadyDeductedOrders` RED 复现首单出库后第二单被误拦；隔离数据库候选/历史库存/共享批次回归及全包后端 GREEN，验证两单依次通过 HTTP 回填、重复提交不重扣、不超配和分配历史保留。修复已随功能提交 `d38be8ff8` 集成发布。
 - Branch: `codex/shipping-return-correct-candidates`; base `origin/develop` 79df1f424.
 - Scope: 实时收件信息候选与发货条件分开；显式客户现货补足待入库预订，保留原购货/批次/货权和历史数量；预览后保存，再选择运单。
 - DEV-PR751-01: 候选实时查询、未就绪原因、自动唯一匹配防误配。
@@ -8,8 +8,8 @@
 - DEV-PR751-03: Vue 操作、手册、隔离 API/组件验证及开发交付。
 - Verifier: targeted PostgreSQL `TestShippingReturn|TestFulfillmentOrderEdit|TestFulfillmentExplicitPhysicalReplenishment`; frontend shipping-return-runtime/fulfillment-full-edit-dom; backend and frontend build.
 - RED: 候选为空；显式补足后 StockReady=false；禁用候选仍触发提交。证据 `/tmp/kferp-return-verification`。
-- Status: implementation, isolated API verification, 1767 Vue tests and build passed; feature `2ceda2f95` pushed and integrated. Development runtime `65a896eee611d7090b115d362f536fb75fefb628`; production runtime `54f87c0846dbbf8579aa920a4d02b50ef77e01fb`, both ERP-only releases verified. Production order mapping needs Van to identify both waybills; no live stock/order/fee writes performed. PR/DEV remain review pending Van acceptance.
-- Production: service running with 0 restarts, Postgres healthy, login 200; candidate source hash and Vue bundle match. Read-only browser now shows two candidate waybills on SO-20260922-000190, separate dates and disabled actions for its unfilled physical allocation. Both rows remain pending, neither target order has a tracking number. Receipt-only commits after deployment do not change the stated runtime version.
+- Status: implementation, isolated API verification, 1767 Vue tests and build passed. Latest development runtime `9e49202b386445f0157218223c894e259d132a16`; production runtime `d9a9f5dd95f0a34d8d7b2e7cfd3e6b3a9b8fe9f9`, both ERP-only releases verified. Authorized production matching and shipment operations completed; PR/DEV remain review pending Van acceptance.
+- Production: service running with 0 restarts, Postgres healthy, login 200; order-progress source SHA256 matches tested code. Browser and database show both returns applied to the confirmed orders, both shipped with one set of deductions. Receipt-only commits after deployment do not change the stated runtime version. Detailed rollback and business evidence: `orderapp-remote/docs/acceptance/2026-11-08-shipping-return-candidates.md`.
 - Note: macOS reserve_req_id.sh awk failed before write; reserved PR-751 manually after inspecting next id.
 
 ### PR-749-ORDER-RESOLUTION 订单取消、关闭与更正
