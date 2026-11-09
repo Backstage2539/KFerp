@@ -11,7 +11,7 @@ import {useSessionStore} from '../../stores/session'
 import MainTabBar from '../../components/MainTabBar.vue'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import CustomerPricePreview from '../../components/CustomerPricePreview.vue'
-import { fetchDirectShipCatalog } from '../../api/customerPortal'
+import { customerPriceUsages } from '../../utils/customerPriceUsages'
 import { loginRouteFor } from '../../utils/loginReturn'
 const saved=uni.getStorageSync(browseKey)||{}
 const session=useSessionStore(), rows=ref<BeanCard[]>([]),search=ref(String(saved.search||'')),busy=ref(false),error=ref('')
@@ -20,7 +20,7 @@ const authenticatedCustomer=computed(()=>hasAuthenticatedCustomerSession(session
 const priceUsage=ref<'product_order'|'direct_ship'>('product_order')
 const enabledPrices=ref<Array<'product_order'|'direct_ship'>>([])
 const priceError=ref('')
-async function loadCustomerPrices(){ priceError.value=''; enabledPrices.value=[]; try { const caps=session.capabilities.filter(c=>c.enabled).map(c=>c.code); let modes:string[]=[]; if(caps.includes('direct_ship')) { const catalog=await fetchDirectShipCatalog(session.token); modes=(catalog.fulfillment_settings?.modes||[]).filter(m=>m.enabled).map(m=>m.mode) } if(caps.includes('product_order') || modes.includes('stock')) enabledPrices.value.push('product_order'); if(modes.includes('on_demand')) enabledPrices.value.push('direct_ship'); priceUsage.value=enabledPrices.value[0] || 'product_order' } catch(e){ priceError.value=e instanceof Error?e.message:'价格表配置读取失败，请重试' } }
+function loadCustomerPrices(){ priceError.value=''; enabledPrices.value=customerPriceUsages(session.capabilities.filter(c=>c.enabled).map(c=>c.code), session.fulfillmentModes); priceUsage.value=enabledPrices.value[0] || 'product_order' }
 function samples(){uni.navigateTo({url:'/pages/sample-requests/sample-requests'})}
 function employeeHome(){uni.navigateTo({url:'/pages/home/home'})}
 const filtered=computed(()=>beanCards(rows.value,search.value))

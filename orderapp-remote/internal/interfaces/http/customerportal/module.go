@@ -133,7 +133,7 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	registerMiniEmployeePaymentVoucherAPI(e, deps.CustomerPortal, deps.EmployeeSales, deps.AssetDir)
 	registerMiniOrderCopyAPI(e, deps.CustomerPortal, deps.EmployeeSales)
 	registerMiniEmployeeShareSettingsAPI(e, deps.CustomerPortal, deps.EmployeeShareSettings)
-	registerMiniCustomerFulfillmentAPI(e, deps.CustomerPortal, deps.CustomerFulfillment)
+	registerMiniCustomerFulfillmentAPI(e, deps.CustomerPortal, deps.CustomerFulfillment, deps.EmployeeSales, deps.AssetDir)
 	registerAdminAPI(e, deps.CustomerPortal, deps.AssetDir)
 }
 

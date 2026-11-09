@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { customerOrderAmounts, customerOrderPaymentStatus, priceUsageForMode } from './customerOrderFees'
+import { customerOrderAmountDisplay, customerOrderAmounts, customerOrderPaymentStatus, priceUsageForMode } from './customerOrderFees'
 
 describe('customer order fees and price selection', () => {
+  it('distinguishes an issued zero bill from fees that have not been billed', () => {
+    const fee = { goods_cents: 0, shipping_cents: 0, service_cents: 0, payable_cents: 0, paid_cents: 0, unpaid_cents: 0 }
+    expect(customerOrderAmountDisplay({ order_kind: 'dropship', fee_summary: { ...fee, has_billed_fees: true } })).toBe('¥0.00')
+    expect(customerOrderAmountDisplay({ order_kind: 'dropship', fee_summary: { ...fee, has_billed_fees: false } })).toBe('费用待出账')
+  })
   it('uses the confirmed fee summary rather than a zero sales total', () => {
     expect(customerOrderAmounts({ grand_total: '0.00', fee_summary: { goods_cents: 0, shipping_cents: 1110, service_cents: 300, payable_cents: 1410, paid_cents: 0, unpaid_cents: 1410 } })).toEqual({ payable: '14.10', paid: '0.00', unpaid: '14.10', goods: '0.00', shipping: '11.10', service: '3.00' })
   })

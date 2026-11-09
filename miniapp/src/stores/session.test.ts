@@ -11,6 +11,27 @@ describe('miniapp session storage boundary', () => {
     expect(miniappTokenStorageKey('development')).not.toBe('kferp.mini.token')
   })
 
+  it('keeps modes for partial updates of the same customer and never carries them to another customer', () => {
+    vi.stubEnv('VITE_KFERP_ENVIRONMENT', 'development')
+    vi.stubEnv('VITE_KFERP_API_BASE', 'https://dev.qacoohee.com/app')
+    vi.stubGlobal('uni', { getStorageSync: vi.fn(), setStorageSync: vi.fn(), removeStorageSync: vi.fn() })
+    setActivePinia(createPinia())
+    const session = useSessionStore()
+    const context = { mini_user_id: 1, current_customer_id: 74, bindings: [], capabilities: [] }
+    session.applyContext({ ...context, fulfillment_modes: ['stock', 'on_demand'] })
+    session.applyContext(context)
+    expect(session.fulfillmentModes).toEqual(['stock', 'on_demand'])
+    session.applyContext({ ...context, fulfillment_modes: ['stock'] })
+    expect(session.fulfillmentModes).toEqual(['stock'])
+    session.applyContext({ ...context, fulfillment_modes: [] })
+    expect(session.fulfillmentModes).toEqual([])
+    session.applyContext({ ...context, fulfillment_modes: ['on_demand'] })
+    session.applyContext({ ...context, current_customer_id: 75 })
+    expect(session.fulfillmentModes).toEqual([])
+    session.applyContext({ ...context, current_customer_id: 76, fulfillment_modes: ['stock'] })
+    expect(session.fulfillmentModes).toEqual(['stock'])
+  })
+
   it('keeps an explicit logout across page reloads until a new deliberate login', () => {
     vi.stubEnv('VITE_KFERP_ENVIRONMENT', 'development')
     vi.stubEnv('VITE_KFERP_API_BASE', 'https://dev.qacoohee.com/app')

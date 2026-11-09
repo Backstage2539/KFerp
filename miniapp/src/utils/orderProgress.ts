@@ -12,3 +12,15 @@ export function directShipProgressLabel(request: {status?: string; packages?: Or
  if (labels.length && labels.length===request.packages?.length && new Set(labels).size===1) return labels[0]!
  return ({reserved:'待发货',pending:'待处理',shipped:'已发货',partially_shipped:'部分发货',delivered:'已签收',cancelled:'已取消'} as Record<string,string>)[request.status||''] || request.status || '待处理'
 }
+
+export type OrderLogisticsEvent = { status?: string; description?: string; event_time?: string; tracking_no?: string; location?: string }
+export function orderLogisticsLabel(order: { delivery_mode?: string; logistics_event?: OrderLogisticsEvent } = {}): string {
+ if (order.delivery_mode === 'customer_stock') return '无需发货'
+ const event = order.logistics_event
+ if (!event) return '物流待更新'
+ const description = String(event.description || '').trim()
+ if (description) return description
+ const status = String(event.status || '').trim()
+ const labels: Record<string,string> = { picked_up:'已揽收', in_transit:'运输中', delivering:'派送中', delivered:'已签收', signed:'已签收', exception:'物流异常', returned:'已退回' }
+ return labels[status] || status || '物流待更新'
+}

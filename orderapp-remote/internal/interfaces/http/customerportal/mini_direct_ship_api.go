@@ -45,7 +45,8 @@ type MiniOrderPriceTablePreviewer interface {
 	MiniOrderPriceTablePreview(context.Context, customerfulfillmentapp.MiniOrderPriceTablePreviewQuery) (customerfulfillmentapp.MiniOrderPriceTablePreview, error)
 }
 
-func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillment MiniCustomerFulfillment) {
+func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillment MiniCustomerFulfillment, sales any, assetDir string) {
+	registerMiniIssuedBills(e, portal, fulfillment, sales, assetDir)
 	e.GET("/api/mini/employee/freight-templates", func(c echo.Context) error {
 		if _, err := requireMiniEmployee(c.Request().Context(), c.Request().Header.Get(echo.HeaderAuthorization), portal, "orders.write"); err != nil {
 			return miniEmployeeAuthError(c, err)

@@ -209,7 +209,7 @@ func (r *Repository) BillingSummary(ctx context.Context, customerID int64) (app.
 }
 
 func (r *Repository) ListIssuedBills(ctx context.Context, query app.BillingQuery) (app.BillingBillsPage, error) {
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT id FROM %s.customer_settlement_batches WHERE customer_id=$1 AND status IN('confirmed','paid','settled') AND COALESCE(processing_billing_run_id,0)=0 ORDER BY COALESCE(confirmed_at,created_at) DESC,id DESC`, r.schema), query.CustomerID)
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT id FROM %s.customer_settlement_batches WHERE customer_id=$1 AND status IN('confirmed','paid','settled') AND COALESCE(processing_billing_run_id,0)=0 AND ($2='' OR (COALESCE(confirmed_at,created_at) AT TIME ZONE 'Asia/Shanghai')::date >= NULLIF($2,'')::date) AND ($3='' OR (COALESCE(confirmed_at,created_at) AT TIME ZONE 'Asia/Shanghai')::date <= NULLIF($3,'')::date) ORDER BY COALESCE(confirmed_at,created_at) DESC,id DESC`, r.schema), query.CustomerID, query.DateFrom, query.DateTo)
 	if err != nil {
 		return app.BillingBillsPage{}, err
 	}
@@ -253,7 +253,7 @@ func (r *Repository) ListIssuedBills(ctx context.Context, query app.BillingQuery
 	if end > len(out) {
 		end = len(out)
 	}
-	return app.BillingBillsPage{Rows: out[start:end], Total: len(out), Page: page, Limit: limit}, nil
+	return app.BillingBillsPage{Rows: out[start:end], Total: len(out), Page: page, Limit: limit, Summary: app.SummarizeIssuedBills(out)}, nil
 }
 
 func (r *Repository) GetIssuedBill(ctx context.Context, customerID, batchID int64) (app.BillingBill, error) {
@@ -263,7 +263,7 @@ func (r *Repository) GetIssuedBill(ctx context.Context, customerID, batchID int6
 func (r *Repository) getIssuedBill(ctx context.Context, query billingReader, customerID, batchID int64, receipts map[int64]int64) (app.BillingBill, error) {
 	var out app.BillingBill
 	var total int64
-	err := query.QueryRow(ctx, fmt.Sprintf(`SELECT b.settlement_no,COALESCE(to_char(b.period_from,'YYYY-MM-DD'),''),COALESCE(to_char(b.period_to,'YYYY-MM-DD'),''),b.status,round(b.total_amount*100)::bigint,COALESCE(to_char(b.confirmed_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI'),''),COALESCE(c.name,'') FROM %s.customer_settlement_batches b LEFT JOIN %s.customers c ON c.id=b.customer_id WHERE b.id=$1 AND b.customer_id=$2 AND b.status IN('confirmed','paid','settled') AND COALESCE(b.processing_billing_run_id,0)=0`, r.schema, r.schema), batchID, customerID).Scan(&out.SettlementNo, &out.PeriodFrom, &out.PeriodTo, &out.Status, &total, &out.IssuedAt, &out.CustomerName)
+	err := query.QueryRow(ctx, fmt.Sprintf(`SELECT b.settlement_no,COALESCE(to_char(b.period_from,'YYYY-MM-DD'),''),COALESCE(to_char(b.period_to,'YYYY-MM-DD'),''),b.status,round(b.total_amount*100)::bigint,COALESCE(to_char(COALESCE(b.confirmed_at,b.created_at) AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI'),''),COALESCE(c.name,'') FROM %s.customer_settlement_batches b LEFT JOIN %s.customers c ON c.id=b.customer_id WHERE b.id=$1 AND b.customer_id=$2 AND b.status IN('confirmed','paid','settled') AND COALESCE(b.processing_billing_run_id,0)=0`, r.schema, r.schema), batchID, customerID).Scan(&out.SettlementNo, &out.PeriodFrom, &out.PeriodTo, &out.Status, &total, &out.IssuedAt, &out.CustomerName)
 	if err != nil {
 		return out, err
 	}
