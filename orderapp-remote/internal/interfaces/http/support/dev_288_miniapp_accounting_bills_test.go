@@ -43,9 +43,9 @@ func TestMiniappAccountingBillsEvidenceExists(t *testing.T) {
 	} {
 		body := string(readOrderAppFileForTest(t, path))
 		for _, want := range []string{
-			"费用明细",
-			"PDF/Excel 始终导出当前账期全部费用",
-			"按订单归集的应付、已付、未付和费用分项",
+			"已出账账单",
+			"出账日期",
+			"账单 PDF／Excel",
 		} {
 			if !strings.Contains(body, want) {
 				t.Fatalf("%s missing replacement miniapp accounting bills manual marker %q", path, want)
@@ -71,10 +71,10 @@ func TestMiniappAccountingBillsSourceWiring(t *testing.T) {
 			"fetchCustomerBillDetail",
 		},
 		filepath.Join("..", "miniapp", "src", "components", "CustomerBillsPanel.vue"): {
-			"buildCustomerAccountDocumentPath",
-			"费用明细",
-			"商品货款 ·",
-			"折后",
+			"customerIssuedBillDocumentPath",
+			"fetchCustomerIssuedBill",
+			"已出账账单",
+			"下载 PDF",
 			"下载 Excel",
 		},
 	} {

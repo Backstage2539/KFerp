@@ -720,6 +720,7 @@ type CreateMallOrderCommand struct {
 }
 
 type CustomerOrderFeeSummary struct {
+	HasBilledFees bool  `json:"has_billed_fees"`
 	GoodsCents    int64 `json:"goods_cents"`
 	ShippingCents int64 `json:"shipping_cents"`
 	ServiceCents  int64 `json:"service_cents"`
@@ -729,6 +730,8 @@ type CustomerOrderFeeSummary struct {
 }
 
 type CustomerOrderSummary struct {
+	OrderKind             string                     `json:"order_kind"`
+	ConfirmationStatus    string                     `json:"confirmation_status"`
 	IsVoid                bool                       `json:"is_void"`
 	FeeSummary            *CustomerOrderFeeSummary   `json:"fee_summary,omitempty"`
 	FulfillmentProgress   *progressdomain.Progress   `json:"fulfillment_progress,omitempty"`
@@ -956,7 +959,14 @@ type SettlementBatch struct {
 	CreatedAt    string `json:"created_at"`
 }
 
+type OrderProgressCounts struct {
+	Accepted     int `json:"accepted"`
+	InProduction int `json:"in_production"`
+	Shipped      int `json:"shipped"`
+}
+
 type ServicePage struct {
+	ProgressCounts        *OrderProgressCounts             `json:"progress_counts,omitempty"`
 	Page                  int                              `json:"page"`
 	PageSize              int                              `json:"page_size"`
 	HasMore               bool                             `json:"has_more"`
@@ -984,6 +994,8 @@ type ServicePage struct {
 }
 
 type ServicePageQuery struct {
+	OrderKind             string
+	Progress              string
 	OrderID               int64
 	Offset                int
 	SelectedPriceTableIDs []int64
@@ -999,6 +1011,8 @@ type ServicePageQuery struct {
 }
 
 type ServicePageFilter struct {
+	OrderKind             string
+	Progress              string
 	OrderID               int64
 	Page                  int
 	PageSize              int
@@ -1620,6 +1634,7 @@ func (s *Service) GetServicePage(ctx context.Context, token, key string, filter 
 		offset = (pageNo - 1) * limit
 	}
 	page, err := s.repo.LoadServicePage(ctx, ServicePageQuery{
+		OrderKind: filter.OrderKind, Progress: filter.Progress,
 		OrderID:               filter.OrderID,
 		Offset:                offset,
 		SelectedPriceTableIDs: filter.SelectedPriceTableIDs,
@@ -3506,7 +3521,7 @@ func NormalizeMallTemplateKey(value string) string {
 
 func normalizeServicePageFilter(filter ServicePageFilter) ServicePageFilter {
 	out := ServicePageFilter{
-		Page: filter.Page, PageSize: filter.PageSize, OrderID: max(0, filter.OrderID),
+		Page: filter.Page, PageSize: filter.PageSize, OrderID: max(0, filter.OrderID), OrderKind: strings.TrimSpace(filter.OrderKind), Progress: strings.TrimSpace(filter.Progress),
 		Query:         strings.Join(strings.Fields(strings.TrimSpace(filter.Query)), " "),
 		DateFrom:      normalizeDateString(filter.DateFrom),
 		DateTo:        normalizeDateString(filter.DateTo),

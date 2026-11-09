@@ -18,10 +18,15 @@ type billingSealProvider interface {
 // Read the configured seal only on the server; bill readers never get access
 // to arbitrary system seal assets or to the seal file itself.
 func (a api) readBillingSeal(ctx context.Context, id int64) ([]byte, error) {
+	return ReadBillingSeal(ctx, a.sales, a.assetDir, id)
+}
+
+// ReadBillingSeal applies the same confined asset access for both ERP and customer bill exports.
+func ReadBillingSeal(ctx context.Context, sales any, assetDir string, id int64) ([]byte, error) {
 	if id == 0 {
 		return nil, nil
 	}
-	provider, ok := a.sales.(billingSealProvider)
+	provider, ok := sales.(billingSealProvider)
 	if !ok {
 		return nil, fmt.Errorf("账单公章资源不可用")
 	}
@@ -39,11 +44,11 @@ func (a api) readBillingSeal(ctx context.Context, id int64) ([]byte, error) {
 	if !strings.HasPrefix(key, "sales_order_assets/") {
 		return nil, fmt.Errorf("账单公章不存在")
 	}
-	root, err := filepath.EvalSymlinks(filepath.Join(a.assetDir, "sales_order_assets"))
+	root, err := filepath.EvalSymlinks(filepath.Join(assetDir, "sales_order_assets"))
 	if err != nil {
 		return nil, fmt.Errorf("账单公章资源不可用")
 	}
-	path, err := filepath.EvalSymlinks(filepath.Join(a.assetDir, filepath.FromSlash(key)))
+	path, err := filepath.EvalSymlinks(filepath.Join(assetDir, filepath.FromSlash(key)))
 	if err != nil {
 		return nil, fmt.Errorf("账单公章不存在")
 	}

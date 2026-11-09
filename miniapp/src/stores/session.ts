@@ -36,6 +36,7 @@ export const useSessionStore = defineStore('session', {
     entryMode: 'services' as MiniappEntryMode,
     bindings: [] as CustomerBinding[],
     capabilities: [] as Capability[],
+    fulfillmentModes: [] as ('stock' | 'on_demand')[],
     accountType: '' as string,
     employeeID: 0,
     employeeName: '',
@@ -69,6 +70,7 @@ export const useSessionStore = defineStore('session', {
       this.entryMode = 'services'
       this.bindings = []
       this.capabilities = []
+      this.fulfillmentModes = []
       this.accountType = ''
       this.employeeID = 0
       this.employeeName = ''
@@ -86,6 +88,7 @@ export const useSessionStore = defineStore('session', {
       miniapp_entry_mode?: string
       bindings: CustomerBinding[]
       capabilities: Capability[]
+      fulfillment_modes?: ('stock' | 'on_demand')[]
       account_type?: string
       employee_id?: number
       employee_name?: string
@@ -98,6 +101,7 @@ export const useSessionStore = defineStore('session', {
       this.currentCustomerName = context.current_customer_name || ''
       this.bindings = context.bindings || []
       this.capabilities = context.capabilities || []
+      this.fulfillmentModes = context.fulfillment_modes || []
       this.themeKey = normalizeMiniappThemeKey(context.theme_key)
       this.entryMode = context.miniapp_entry_mode === 'mall' ? 'mall' : 'services'
       this.accountType = context.account_type || 'customer'

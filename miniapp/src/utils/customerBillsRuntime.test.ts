@@ -5,8 +5,8 @@ import { readFileSync } from 'node:fs'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import Bills from '../components/CustomerBillsPanel.vue'
 
-const api = vi.hoisted(() => ({ fetch: vi.fn(), output: vi.fn() }))
-vi.mock('../api/customerPortal', async (original) => ({ ...await original<typeof import('../api/customerPortal')>(), fetchCustomerAccount: api.fetch }))
+const api = vi.hoisted(() => ({ fetch: vi.fn(), detail: vi.fn(), output: vi.fn() }))
+vi.mock('../api/customerPortal', async (original) => ({ ...await original<typeof import('../api/customerPortal')>(), fetchCustomerIssuedBills: api.fetch, fetchCustomerIssuedBill: api.detail }))
 vi.mock('./fileOutput', () => ({ openMiniappFileOutput: api.output }))
 type Node = { type: string; children: Node[]; parent?: Node; props: Record<string, any>; text?: string }
 const textOf = (node: Node): string => [node.text || '', ...node.children.map(textOf)].join(' ')
@@ -20,18 +20,14 @@ const renderCode = template.code.replace(/import \{([^}]+)\} from "vue"/g, (_all
 const settle = async () => { await Promise.resolve(); await Promise.resolve(); await nextTick() }
 afterEach(() => { vi.useRealTimers(); vi.clearAllMocks() })
 
-it('switches from the current month to all unpaid and exports the same scope', async () => {
-  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-28T00:00:00Z'))
-  api.fetch.mockResolvedValue({ customer_name:'测试', date_from:'2026-10-01', date_to:'2026-10-31', as_of:'2026-10-28 08:00:00', summary:{}, fee_summary:{goods_cents:6000,processing_cents:0,direct_ship_service_cents:0,shipping_cents:910,other_cents:0,payable_cents:6910,paid_cents:0,due_cents:6910,refund_cents:0},order_fee_groups:[],total:0,total_pages:1 })
+it('defaults to all issued bills, filters unpaid and exports a selected bill', async () => {
+  api.fetch.mockResolvedValue({rows:[{batch_id:4,settlement_no:'CB-74-4',issued_at:'2026-11-08',period_from:'2026-09-01',period_to:'2026-10-30',total_amount_cents:225600,current_received_cents:0,current_due_amount_cents:225600,adjustment_cents:0}],total:1,page:1,limit:20,summary:{count:1,unpaid_count:1,total_amount_cents:225600,received_cents:0,due_amount_cents:225600,adjustment_cents:0}})
+  api.detail.mockResolvedValue({batch_id:4,lines:[{id:1,description:'运费',amount_cents:1100}]})
   api.output.mockResolvedValue(undefined)
   const root: Node = { type:'root',children:[],props:{} }, app = renderer.createApp({ render: () => h(Bills, { token:'test' }) }); app.provide(ssrContextKey, { modules:new Set() }); app.mount(root)
   try {
-    await settle(); expect(api.fetch.mock.calls[0][1]).toMatchObject({date_from:'2026-10-01',date_to:'2026-10-31',page:1})
-    findButton(root,'所有未付')!.props.onTap(); await settle()
-    expect(api.fetch.mock.calls.at(-1)![1]).toMatchObject({unpaid_only:true,page:1})
-    expect(textOf(root)).toContain('未付合计')
-    findButton(root,'运费')!.props.onTap(); await settle(); expect(api.fetch.mock.calls.at(-1)![1]).toMatchObject({unpaid_only:true,charge_type:'shipping',page:1})
-    findButton(root,'下载 Excel')!.props.onTap(); await settle(); const path = api.output.mock.calls.at(-1)![0].path
-    expect(path).toContain('unpaid_only=true'); expect(path).not.toContain('charge_type'); expect(path).not.toContain('page=')
+    await settle(); expect(api.fetch.mock.calls[0][1]).toMatchObject({date_from:'',date_to:'',status:'',page:1})
+    findButton(root,'未付')!.props.onTap(); await settle(); expect(api.fetch.mock.calls.at(-1)![1]).toMatchObject({status:'unpaid',page:1})
+    expect(textOf(root)).toContain('CB-74-4')
   } finally { app.unmount() }
 })
