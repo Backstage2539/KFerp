@@ -37,7 +37,7 @@ async function load() {
 }
 function setPeriod(value: string) { period.value=value as Period; page.value=1; void load() }
 function setStatus(value: string) { status.value=value; page.value=1; void load() }
-function setDate(field: 'anchor' | 'from' | 'to', event: {detail?: {value?: string}}) { const value=String(event.detail?.value || ''); if(field==='anchor') anchor.value=value; else if(field==='from') from.value=value; else to.value=value; page.value=1; void load() }
+function setDate(field: 'anchor' | 'from' | 'to', event: {detail?: {value?: string}}) { let value=String(event.detail?.value || ''); if(field==='anchor' && /^\d{4}-\d{2}$/.test(value)) value += '-01'; if(!/^\d{4}-\d{2}-\d{2}$/.test(value)) return; if(field==='anchor') anchor.value=value; else if(field==='from') from.value=value; else to.value=value; page.value=1; void load() }
 async function toggle(bill: CustomerIssuedBill) {
  if (expanded.value === bill.batch_id) { expanded.value = null; return }
  expanded.value = bill.batch_id

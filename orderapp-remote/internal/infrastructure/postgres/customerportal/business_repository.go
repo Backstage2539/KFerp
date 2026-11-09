@@ -1958,9 +1958,11 @@ const validProgressOrderSQL = `COALESCE(NULLIF(to_jsonb(o)->>'confirmation_statu
 const orderKindSQL = `CASE WHEN COALESCE(to_jsonb(o)->>'delivery_mode','')='customer_stock' THEN 'purchase' WHEN COALESCE(to_jsonb(o)->>'portal_service_code','') IN ('direct_ship','processing_ship') OR COALESCE(to_jsonb(o)->>'fulfillment_mode','') IN ('stock','on_demand') THEN 'dropship' ELSE 'purchase' END`
 
 func orderProgressSQL(schema string, hasShipments bool) string {
-	shipped := "FALSE"
+	// Definitive ERP shipping states also cover historical orders predating
+	// shipment records. A tracking number alone must never imply shipment.
+	shipped := "TRIM(COALESCE(ss.name,'')) IN ('已发货','部分发货','已签收','已收货')"
 	if hasShipments {
-		shipped = fmt.Sprintf("EXISTS (SELECT 1 FROM %s.order_shipment_orders shipment WHERE shipment.order_id=o.id AND shipment.shipped_at IS NOT NULL)", schema)
+		shipped = fmt.Sprintf("(%s OR EXISTS (SELECT 1 FROM %s.order_shipment_orders shipment WHERE shipment.order_id=o.id AND shipment.shipped_at IS NOT NULL))", shipped, schema)
 	}
 	return `CASE WHEN ` + shipped + ` THEN 'shipped' WHEN COALESCE(ops.name,'') IN ('生产中','正在生产') AND (` + orderKindSQL + `)='purchase' THEN 'in_production' WHEN COALESCE(NULLIF(to_jsonb(o)->>'confirmation_status',''),'accepted') IN ('accepted','confirmed') AND COALESCE(ops.name,'') IN ('','待处理','待生产','未生产') AND COALESCE(to_jsonb(o)->>'delivery_status','') NOT IN ('received','partially_received') THEN 'accepted' ELSE '' END`
 }

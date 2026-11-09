@@ -36,3 +36,25 @@ it('defaults to all issued bills, filters unpaid and exports a selected bill', a
     findButton(root,'下载 Excel')!.props.onTap(); await settle(); expect(api.output).toHaveBeenCalledWith(expect.objectContaining({path:'/api/mini/customer-issued-bills/4.xlsx',token:'test',kind:'xlsx'}))
   } finally { app.unmount() }
 })
+
+
+it('keeps valid date ranges while switching all, month, week and custom', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date(2026,10,9,12))
+  api.fetch.mockResolvedValue({rows:[],total:0,page:1,limit:20,summary:{count:0,unpaid_count:0,total_amount_cents:0,received_cents:0,due_amount_cents:0,adjustment_cents:0}})
+  const root: Node = { type:'root',children:[],props:{} }, app = renderer.createApp({ render: () => h(Bills, { token:'test' }) }); app.provide(ssrContextKey, { modules:new Set() }); app.mount(root)
+  const pickers = (node: Node): Node[] => [...(node.type === 'picker' ? [node] : []), ...node.children.flatMap(pickers)]
+  try {
+    await settle(); expect(api.fetch.mock.calls.at(-1)![1]).toMatchObject({date_from:'',date_to:''})
+    findButton(root,'按月')!.props.onTap(); await settle()
+    expect(api.fetch.mock.calls.at(-1)![1]).toMatchObject({date_from:'2026-11-01',date_to:'2026-11-30'})
+    pickers(root)[0].props.onChange({detail:{value:'2026-10'}}); await settle()
+    expect(api.fetch.mock.calls.at(-1)![1]).toMatchObject({date_from:'2026-10-01',date_to:'2026-10-31'})
+    findButton(root,'按周')!.props.onTap(); await settle()
+    expect(api.fetch.mock.calls.at(-1)![1]).toMatchObject({date_from:'2026-09-28',date_to:'2026-10-04'})
+    findButton(root,'起止日期')!.props.onTap(); await settle()
+    expect(api.fetch.mock.calls.at(-1)![1]).toMatchObject({date_from:'2026-11-09',date_to:'2026-11-09'})
+    pickers(root)[0].props.onChange({detail:{value:'2026-10-25'}}); await settle()
+    pickers(root)[1].props.onChange({detail:{value:'2026-11-10'}}); await settle()
+    expect(api.fetch.mock.calls.at(-1)![1]).toMatchObject({date_from:'2026-10-25',date_to:'2026-11-10'})
+  } finally { app.unmount() }
+})
