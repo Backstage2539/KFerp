@@ -16,14 +16,16 @@ func ApplyBillingSealDefault(settings BillingPDFSettings, hasSaved bool) Billing
 
 // BillingLineDetail explains one existing receivable; it never creates another charge.
 type BillingLineDetail struct {
-	OrderID           int64              `json:"order_id,omitempty"`
-	OrderNo           string             `json:"order_no,omitempty"`
-	ChargeType        string             `json:"charge_type"`
-	AmountCents       int64              `json:"amount_cents"`
-	DiscountCents     int64              `json:"discount_cents,omitempty"`
-	InformationSource string             `json:"information_source"`
-	Items             []AccountOrderItem `json:"items,omitempty"`
-	Shipments         []AccountShipment  `json:"shipments,omitempty"`
+	OrderID               int64              `json:"order_id,omitempty"`
+	OrderNo               string             `json:"order_no,omitempty"`
+	ReceiverAddress       string             `json:"receiver_address,omitempty"`
+	ReceiverAddressSource string             `json:"receiver_address_source,omitempty"`
+	ChargeType            string             `json:"charge_type"`
+	AmountCents           int64              `json:"amount_cents"`
+	DiscountCents         int64              `json:"discount_cents,omitempty"`
+	InformationSource     string             `json:"information_source"`
+	Items                 []AccountOrderItem `json:"items,omitempty"`
+	Shipments             []AccountShipment  `json:"shipments,omitempty"`
 }
 
 // BuildBillingLineDetail only adds context to a selected bill line. In
@@ -31,6 +33,13 @@ type BillingLineDetail struct {
 // shipments from the same order.
 func BuildBillingLineDetail(line SettlementLineSummary, order AccountOrder, fee AccountFee, shipments []AccountShipment, source string) BillingLineDetail {
 	detail := BillingLineDetail{OrderID: order.ID, OrderNo: order.OrderNo, ChargeType: line.ChargeType, AmountCents: line.AmountCents, InformationSource: source}
+	if order.ID > 0 && strings.TrimSpace(order.ReceiverAddress) != "" {
+		detail.ReceiverAddress = order.ReceiverAddress
+		detail.ReceiverAddressSource = "订单当前收货地址"
+		if source == "出账快照" {
+			detail.ReceiverAddressSource = "出账时订单收货地址"
+		}
+	}
 	if line.ChargeType == "order_goods" || line.ChargeType == "product" {
 		detail.DiscountCents = order.DiscountCents
 		detail.Items = append(detail.Items, order.Items...)
@@ -62,6 +71,13 @@ func BillingDetailText(detail BillingLineDetail) []string {
 		return s
 	}
 	lines := []string{fmt.Sprintf("订单：%s（%s）", value(detail.OrderNo), value(detail.InformationSource))}
+	if detail.OrderID > 0 {
+		label := strings.TrimSpace(detail.ReceiverAddressSource)
+		if label == "" {
+			label = "订单收货地址"
+		}
+		lines = append(lines, fmt.Sprintf("%s：%s", label, value(detail.ReceiverAddress)))
+	}
 	for _, item := range detail.Items {
 		lines = append(lines, fmt.Sprintf("商品：%s　规格：%s　数量：%s%s　单价：%s　金额：%s", value(item.Name), value(item.Spec), value(item.Quantity), item.Unit, value(item.UnitPrice), value(item.LineTotal)))
 	}

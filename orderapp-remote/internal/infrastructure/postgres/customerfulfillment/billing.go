@@ -29,7 +29,19 @@ func (r *Repository) ListUnbilledCharges(ctx context.Context, query app.BillingQ
 	if err != nil {
 		return app.BillingPage{}, err
 	}
-	return pageBillingCharges(rows, query.Page, query.Limit), nil
+	page := pageBillingCharges(rows, query.Page, query.Limit)
+	for i := range page.Rows {
+		row := &page.Rows[i]
+		line := app.SettlementLineSummary{ChargeType: row.ChargeType, SourceType: row.SourceType, SourceID: row.SourceID, AmountCents: row.DueCents}
+		detail, detailErr := r.billingLineDetail(ctx, r.pool, query.CustomerID, line, "原单当前信息")
+		if detailErr != nil {
+			return app.BillingPage{}, detailErr
+		}
+		if detail != nil && detail.OrderID > 0 {
+			row.Detail = detail
+		}
+	}
+	return page, nil
 }
 
 func (r *Repository) loadUnbilledCharges(ctx context.Context, q billingReader, query app.BillingQuery) ([]app.BillingCharge, error) {
@@ -501,6 +513,9 @@ func (r *Repository) PreviewBilling(ctx context.Context, cmd app.BillingPreviewC
 	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT name FROM %s.customers WHERE id=$1`, r.schema), cmd.CustomerID).Scan(&preview.CustomerName); err != nil {
 		return app.BillingPreview{}, err
 	}
+	if err := r.fillBillingPreviewDetails(ctx, r.pool, cmd.CustomerID, preview.Lines); err != nil {
+		return app.BillingPreview{}, err
+	}
 	preview.FeeItems = len(preview.Lines)
 	preview.PreviewVersion = billingPreviewVersion(preview)
 	return preview, nil
@@ -508,11 +523,33 @@ func (r *Repository) PreviewBilling(ctx context.Context, cmd app.BillingPreviewC
 
 func billingPreviewVersion(p app.BillingPreview) string {
 	h := sha256.New()
+	// Previous previews did not include customer-visible address/weight and
+	// must be reviewed again after this contract changes.
+	fmt.Fprintln(h, "billing-preview-detail-v1")
 	fmt.Fprintf(h, "%d|%s|%s|%d\n", p.CustomerID, p.PeriodFrom, p.PeriodTo, p.TotalAmountCents)
 	for _, l := range p.Lines {
 		fmt.Fprintf(h, "%s|%s|%d|%s|%s|%s|%d|%d|%d\n", l.ChargeType, l.SourceType, l.SourceID, l.OccurredAt, l.SourceNo, l.Description, l.ReceivableCents, l.ReceivedCents, l.DueCents)
+		detail := billingPreviewDetailVersion(l.Detail)
+		fmt.Fprintf(h, "%d:%s\n", len(detail), detail)
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+func billingPreviewDetailVersion(detail *app.BillingLineDetail) string {
+	if detail == nil || detail.OrderID <= 0 {
+		return ""
+	}
+	type shipmentVersion struct{ TrackingNo, Weight string }
+	v := struct {
+		OrderID   int64
+		Address   string
+		Shipments []shipmentVersion
+	}{OrderID: detail.OrderID, Address: detail.ReceiverAddress}
+	for _, s := range detail.Shipments {
+		v.Shipments = append(v.Shipments, shipmentVersion{TrackingNo: s.TrackingNo, Weight: s.SettlementWeightKG})
+	}
+	raw, _ := json.Marshal(v)
+	return string(raw)
 }
 
 func (r *Repository) IssueBilling(ctx context.Context, cmd app.IssueBillingCommand) (app.BillingBill, error) {
@@ -588,6 +625,9 @@ func (r *Repository) IssueBilling(ctx context.Context, cmd app.IssueBillingComma
 		detail, detailErr := r.billingLineDetail(ctx, tx, cmd.CustomerID, line, "出账快照")
 		if detailErr != nil {
 			return app.BillingBill{}, detailErr
+		}
+		if billingPreviewDetailVersion(line.Detail) != billingPreviewDetailVersion(detail) {
+			return app.BillingBill{}, fmt.Errorf("billing preview changed; review again")
 		}
 		snapshot, detailErr := json.Marshal(detail)
 		if detailErr != nil {
@@ -671,9 +711,25 @@ func (r *Repository) previewBillingTx(ctx context.Context, tx pgx.Tx, cmd app.Bi
 	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT name FROM %s.customers WHERE id=$1`, r.schema), cmd.CustomerID).Scan(&p.CustomerName); err != nil {
 		return p, err
 	}
+	if err = r.fillBillingPreviewDetails(ctx, tx, cmd.CustomerID, p.Lines); err != nil {
+		return p, err
+	}
 	p.FeeItems = len(p.Lines)
 	p.PreviewVersion = billingPreviewVersion(p)
 	return p, nil
+}
+
+func (r *Repository) fillBillingPreviewDetails(ctx context.Context, q billingReader, customerID int64, lines []app.SettlementLineSummary) error {
+	for i := range lines {
+		detail, err := r.billingLineDetail(ctx, q, customerID, lines[i], "原单当前信息")
+		if err != nil {
+			return err
+		}
+		if detail != nil && detail.OrderID > 0 {
+			lines[i].Detail = detail
+		}
+	}
+	return nil
 }
 
 func (r *Repository) findIdempotentBill(ctx context.Context, customerID int64, key string) (app.BillingBill, error) {

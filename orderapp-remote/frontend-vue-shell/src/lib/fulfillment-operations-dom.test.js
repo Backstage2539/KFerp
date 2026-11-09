@@ -33,14 +33,16 @@ async function flush(){for(let i=0;i<5;i++){await nextTick();await new Promise(r
 const button = text => [...document.querySelectorAll('button')].find(b=>b.textContent.trim()===text)
 test('运费清单和历史账单显示运单号而非内部来源编号', async () => {
  const {component}=await loadComponent('../views/CustomerFulfillmentView.vue');const original=globalThis.fetch
- const freight={id:15,charge_type:'shipping',source_type:'customer_fee_item',source_id:17,source_no:'SF1224903286779',description:'运费',occurred_at:'2026-10-10',receivable_cents:1810,amount_cents:1810,due_cents:1810,confirmation_status:'confirmed',detail:{order_id:190,order_no:'SO-20260922-000190',shipments:[{tracking_no:'SF1224903286779'}]}}
- const bill={batch_id:9,customer_id:8,settlement_no:'CB-9',customer_name:'测试客户',period_from:'2026-10-01',period_to:'2026-10-31',status:'confirmed',total_amount_cents:1810,current_due_amount_cents:1810,lines:[freight]}
+ const freight={id:15,charge_type:'shipping',source_type:'customer_fee_item',source_id:17,source_no:'SF1224903286779',description:'运费',occurred_at:'2026-10-10',receivable_cents:1810,amount_cents:1810,due_cents:1810,confirmation_status:'confirmed',detail:{order_id:190,order_no:'SO-20260922-000190',receiver_address:'云南省昆明市测试路1号',receiver_address_source:'出账时订单收货地址',shipments:[{tracking_no:'SF1224903286779',settlement_weight_kg:'1.25'}]}}
+ const missing={...freight,id:16,source_id:18,source_no:'SF-NO-WEIGHT',detail:{order_id:191,order_no:'SO-191',information_source:'出账快照',shipments:[{tracking_no:'SF-NO-WEIGHT'}]}}
+ const bill={batch_id:9,customer_id:8,settlement_no:'CB-9',customer_name:'测试客户',period_from:'2026-10-01',period_to:'2026-10-31',status:'confirmed',total_amount_cents:1810,current_due_amount_cents:1810,lines:[freight,missing]}
  globalThis.fetch=async url=>{const path=String(url);if(path.includes('/overview'))return response({customer_id:8,customer_name:'测试客户',capabilities:['settlement'],operations:{},assets:[]});if(path.includes('/customers'))return response({customers:[{id:8,name:'测试客户'}]});if(path.endsWith('/billing/bills/9'))return response(bill);if(path.includes('/billing/bills'))return response({rows:[bill],total:1});if(path.includes('/billing/unbilled'))return response({rows:[freight],total:1});return response({rows:[],summary:{orders:0},modes:[]})}
  const app=createApp(component,{customerContextId:8,actor:{basic_auth_admin:true}});app.config.warnHandler=()=>{}
  try{app.mount(document.querySelector('#app'));await flush();button('费用').click();await flush()
-  const table=document.querySelector('.billing-workspace .billing-table');assert.match(table.textContent,/单号/);assert.doesNotMatch(table.textContent,/来源单号/);assert.match(table.textContent,/SF1224903286779/)
+  const table=document.querySelector('.billing-workspace .billing-table');assert.match(table.textContent,/单号/);assert.doesNotMatch(table.textContent,/来源单号/);assert.match(table.textContent,/SF1224903286779/);assert.match(table.textContent,/云南省昆明市测试路1号/);assert.match(table.textContent,/寄件重量：1\.25 kg/)
   button('已出账').click();await flush();button('费用明细').click();await flush()
-  const drawer=document.querySelector('.billing-bill-drawer');const first=drawer.querySelector('tbody tr');assert.match(drawer.textContent,/单号/);assert.match(first.textContent,/SF1224903286779/);assert.doesNotMatch(first.textContent,/SO-20260922-000190/)
+  const drawer=document.querySelector('.billing-bill-drawer');const first=drawer.querySelector('tbody tr');assert.match(drawer.textContent,/单号/);assert.match(first.textContent,/SF1224903286779/);assert.doesNotMatch(first.textContent,/SO-20260922-000190/);assert.match(drawer.textContent,/云南省昆明市测试路1号/);assert.match(drawer.textContent,/出账时订单收货地址/);assert.match(drawer.textContent,/寄件重量：1\.25 kg/)
+  assert.match(drawer.textContent,/订单收货地址：未记录/);assert.match(drawer.textContent,/寄件重量：未记录/)
  }finally{app.unmount();globalThis.fetch=original;document.body.innerHTML='<div id="app"></div>'}
 })
 test('留厂订单主状态为生产进度，详情无收件与发货区域，库存代发仍可见', async () => {
@@ -95,7 +97,7 @@ test('费用页按选择来源预览出账并生成已出账账单', async () =>
  const {component}=await loadComponent('../views/CustomerFulfillmentView.vue')
  const original=globalThis.fetch;let previewRequest=null;let issueRequest=null
  const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())
- const orderCharge={id:'order_goods:order:61',charge_type:'order_goods',source_type:'order',source_id:61,source_no:'SO-FEE-61',occurred_at:today,description:'订单款项',receivable_cents:10000,received_cents:7500,due_cents:2500,confirmation_status:'confirmed',settlement_status:'unsettled'}
+ const orderCharge={id:'order_goods:order:61',charge_type:'order_goods',source_type:'order',source_id:61,source_no:'SO-FEE-61',occurred_at:today,description:'订单款项',receivable_cents:10000,received_cents:7500,due_cents:2500,confirmation_status:'confirmed',settlement_status:'unsettled',detail:{order_id:61,order_no:'SO-FEE-61',receiver_address:'订单当前地址',receiver_address_source:'订单当前收货地址'}}
  const issuedBill={batch_id:9,customer_id:8,settlement_no:'CB-9',customer_name:'测试客户',period_from:today,period_to:today,fee_items:1,total_amount_cents:2500,current_received_cents:0,current_due_amount_cents:2500,lines:[{...orderCharge,amount_cents:2500,issued_received_cents:7500}]}
  globalThis.fetch=async (url,options={})=>{const path=String(url);if(path.includes('/overview'))return response({customer_id:8,customer_name:'测试客户',capabilities:['settlement','direct_ship'],operations:{},assets:[],fees:[]});if(path.includes('/customers'))return response({customers:[{id:8,name:'测试客户'}]});if(path.includes('/settings/sales-order/seals'))return response({rows:[]});if(path.includes('/settings'))return response({modes:[]});if(path.includes('/billing/summary'))return response({total_unpaid_cents:2500,unbilled_cents:2500,issued_cents:0});if(path.includes('/billing/unbilled'))return response({rows:[orderCharge],total:1,page:1,limit:25});if(path.endsWith('/settlements/preview')){previewRequest=JSON.parse(options.body);return response({preview_version:'version-1',customer_id:8,customer_name:'测试客户',period_from:today,period_to:today,fee_items:1,total_amount_cents:2500,lines:[{...orderCharge,amount_cents:2500,issued_received_cents:7500}]})}if(path.endsWith('/settlements/issue')){issueRequest=JSON.parse(options.body);return response(issuedBill)}if(path.endsWith('/billing/bills/9/pdf-settings'))return response({customer_id:8,settlement_id:9,seal_asset_id:0,placements:[]});if(path.endsWith('/billing/bills/9'))return response(issuedBill);if(path.includes('/billing/bills'))return response({rows:[issuedBill],total:1,page:1,limit:25});return response({imports:[],rows:[],summary:{orders:0}})}
  const app=createApp(component,{viewParams:{},customerContextId:8,actor:{basic_auth_admin:true}});app.config.warnHandler=()=>{}
@@ -103,6 +105,8 @@ test('费用页按选择来源预览出账并生成已出账账单', async () =>
   const sourceCheckbox=document.querySelector('input[aria-label="选择SO-FEE-61"]');assert.ok(sourceCheckbox);sourceCheckbox.checked=true;sourceCheckbox.dispatchEvent(new Event('change',{bubbles:true}));await flush()
   button('出账（1）').click();await flush()
   assert.match(document.querySelector('.billing-preview').textContent,/SO-FEE-61/)
+  assert.match(document.querySelector('.billing-preview').textContent,/订单当前地址/)
+  assert.match(document.querySelector('.billing-preview').textContent,/订单当前收货地址/)
   assert.match(document.querySelector('.billing-preview').textContent,/100\.00/)
   assert.match(document.querySelector('.billing-preview').textContent,/75\.00/)
   assert.match(document.querySelector('.billing-preview').textContent,/25\.00/)

@@ -108,14 +108,15 @@ type BillingSource struct {
 type BillingCharge struct {
 	ID string `json:"id"`
 	BillingSource
-	SourceNo           string `json:"source_no,omitempty"`
-	Description        string `json:"description,omitempty"`
-	OccurredAt         string `json:"occurred_at"`
-	ReceivableCents    int64  `json:"receivable_cents"`
-	ReceivedCents      int64  `json:"received_cents"`
-	DueCents           int64  `json:"due_cents"`
-	ConfirmationStatus string `json:"confirmation_status"`
-	SettlementStatus   string `json:"settlement_status"`
+	Detail             *BillingLineDetail `json:"detail,omitempty"`
+	SourceNo           string             `json:"source_no,omitempty"`
+	Description        string             `json:"description,omitempty"`
+	OccurredAt         string             `json:"occurred_at"`
+	ReceivableCents    int64              `json:"receivable_cents"`
+	ReceivedCents      int64              `json:"received_cents"`
+	DueCents           int64              `json:"due_cents"`
+	ConfirmationStatus string             `json:"confirmation_status"`
+	SettlementStatus   string             `json:"settlement_status"`
 }
 
 type BillingTotals struct {
