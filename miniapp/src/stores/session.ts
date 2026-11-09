@@ -96,12 +96,13 @@ export const useSessionStore = defineStore('session', {
       permissions?: string[]
     }) {
       if(context.registration_complete!==undefined){this.registrationComplete=context.registration_complete;this.registration=context.registration||null;this.registrationKnown=context.registration_complete;uni.setStorageSync(miniappStorageKey('registered',configuredMiniappEnvironment()),context.registration_complete)}
+      if (context.fulfillment_modes !== undefined) this.fulfillmentModes = context.fulfillment_modes
+      else if (this.currentCustomerID !== context.current_customer_id) this.fulfillmentModes = []
  this.miniUserID = context.mini_user_id
       this.currentCustomerID = context.current_customer_id
       this.currentCustomerName = context.current_customer_name || ''
       this.bindings = context.bindings || []
       this.capabilities = context.capabilities || []
-      this.fulfillmentModes = context.fulfillment_modes || []
       this.themeKey = normalizeMiniappThemeKey(context.theme_key)
       this.entryMode = context.miniapp_entry_mode === 'mall' ? 'mall' : 'services'
       this.accountType = context.account_type || 'customer'

@@ -246,14 +246,23 @@ async function changePriceTable(group: PriceTableGroup, event: { detail: { value
 function serviceReturnURL() { if(noticeOrderID.value && noticeCustomerID.value) return `/pages/service/service?key=orders&source=notice&order_id=${noticeOrderID.value}&customer_id=${noticeCustomerID.value}`; return `/pages/service/service?key=${serviceKey.value}${officialOrders.value ? '&source=official' : ''}${directShipEntryMode.value ? `&fulfillment_mode=${directShipEntryMode.value}` : ''}${stockPurchase.value ? '&stock_purchase=1' : ''}` }
 function openCustomerLogin(){session.clearSession();uni.reLaunch({url:loginRouteFor(serviceReturnURL())+'&mode=password'})}
 let beanListRequest = 0
+let orderRequest = 0
 let beanListActive=true
 onShow(()=>{beanListActive=true})
 watch([()=>session.token,()=>session.currentCustomerID],()=>{if(serviceKey.value==='beanList'){beanListRequest++;page.value=null;cachedBeanList.value=null}})
+watch([()=>session.token,()=>session.currentCustomerID],()=>{
+  if(serviceKey.value==='orders'){orderRequest++;page.value=null;errorMessage.value='';loading.value=false}
+},{flush:'sync'})
 onHide(()=>{beanListActive=false;if(serviceKey.value==='beanList'){beanListRequest++;page.value=null;cachedBeanList.value=null}})
 async function loadPage(pageNumber=1) {
   let request = 0
+  let orderRun = serviceKey.value === 'orders' ? ++orderRequest : 0
+  let orderToken = session.token
+  let orderCustomerID = session.currentCustomerID
+  const isCurrentOrderRequest = () => !orderRun || (serviceKey.value === 'orders' && orderRun === orderRequest && orderToken === session.token && orderCustomerID === session.currentCustomerID)
   if(serviceKey.value==='beanList'){page.value=null;cachedBeanList.value=null}
- try{await restoreRegistrationSession(session)}catch(e){errorMessage.value=e instanceof Error?e.message:"登录状态恢复失败";return}
+ try{await restoreRegistrationSession(session)}catch(e){if(isCurrentOrderRequest()) errorMessage.value=e instanceof Error?e.message:"登录状态恢复失败";return}
+  if (!isCurrentOrderRequest()) return
   orderPage.value=pageNumber
   if (selectedPriceTableCustomerID !== Number(session.currentCustomerID)) { selectedPriceTableIDs.value = []; selectedPriceTableCustomerID = Number(session.currentCustomerID) }
   if (!session.token) {
@@ -275,14 +284,23 @@ async function loadPage(pageNumber=1) {
   loading.value = true
   errorMessage.value = ''
   try {
-    if (officialOrders.value || noticeOrderID.value) session.applyContext(await fetchMe(session.token))
+    if (officialOrders.value || noticeOrderID.value) {
+      const context = await fetchMe(session.token)
+      if (!isCurrentOrderRequest()) return
+      session.applyContext(context)
+      if (orderRun) { orderRun = orderRequest; orderToken = session.token; orderCustomerID = session.currentCustomerID; loading.value = true }
+    }
     if(noticeOrderID.value && noticeCustomerID.value !== session.currentCustomerID) {
-      session.applyContext(await switchCurrentCustomer(session.token,noticeCustomerID.value))
+      const context = await switchCurrentCustomer(session.token,noticeCustomerID.value)
+      if (!isCurrentOrderRequest()) return
+      session.applyContext(context)
+      if (orderRun) { orderRun = orderRequest; orderToken = session.token; orderCustomerID = session.currentCustomerID; loading.value = true }
     }
 
     const filters = serviceKey.value === 'orders' ? (noticeOrderID.value ? {order_id:noticeOrderID.value,page:1,page_size:1} : {...buildOrderServiceFilters(orderSearch.value),order_kind:orderKind.value,progress:orderProgress.value,page:orderPage.value,page_size:20}) : { selected_price_table_ids: selectedPriceTableIDs.value }
     const token=session.token, customerID=session.currentCustomerID
     const response = await fetchServicePage(token, serviceKey.value, filters)
+    if (!isCurrentOrderRequest()) return
     if(request && (request!==beanListRequest || token!==session.token || customerID!==session.currentCustomerID)) return
     page.value = response
     if(noticeOrderID.value && !response.orders?.length) errorMessage.value="该订单不存在或当前账号无权查看。"
@@ -305,13 +323,14 @@ async function loadPage(pageNumber=1) {
       await loadResaleBeanListWorkspace()
     }
   } catch (error) {
+    if (!isCurrentOrderRequest()) return
     if(request && request!==beanListRequest) return
     page.value = null
     cachedBeanList.value = null
     if (isAuthenticationExpiredRequestError(error)) { session.clearSession(); uni.reLaunch({url:loginRouteFor(serviceReturnURL())}); return }
     errorMessage.value = error instanceof Error ? error.message : '服务数据加载失败'
   } finally {
-    loading.value = false
+    if (isCurrentOrderRequest()) loading.value = false
   }
 }
 
