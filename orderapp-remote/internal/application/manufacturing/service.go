@@ -455,7 +455,7 @@ func (s *Service) SaveManufacturingWorkstationCapacity(ctx context.Context, cmd 
 		return ManufacturingWorkstationCapacity{}, fmt.Errorf("batch_size_qty must be >= 0")
 	}
 	if cmd.StandardMinutes < 0 {
-		return ManufacturingWorkstationCapacity{}, fmt.Errorf("standard_minutes must be >= 0")
+		return ManufacturingWorkstationCapacity{}, fmt.Errorf("标准分钟/批必须为大于或等于 0 的整数")
 	}
 	if cmd.PieceRate < 0 {
 		return ManufacturingWorkstationCapacity{}, fmt.Errorf("计件成本不能小于 0")
