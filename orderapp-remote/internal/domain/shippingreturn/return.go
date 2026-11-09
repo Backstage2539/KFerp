@@ -49,14 +49,16 @@ type Row struct {
 	OrderDate          string `json:"order_date,omitempty"`
 }
 type Batch struct {
-	Rematched bool    `json:"rematched,omitempty"`
-	ID        int64   `json:"batch_id"`
-	Updated   int     `json:"updated"`
-	Pending   int     `json:"pending"`
-	Skipped   int     `json:"skipped"`
-	Total     int     `json:"total"`
-	Rows      []Row   `json:"rows"`
-	OrderIDs  []int64 `json:"order_ids"`
+	Rematched        bool    `json:"rematched,omitempty"`
+	WeightBackfilled int     `json:"weight_backfilled,omitempty"`
+	WeightSkipped    int     `json:"weight_skipped,omitempty"`
+	ID               int64   `json:"batch_id"`
+	Updated          int     `json:"updated"`
+	Pending          int     `json:"pending"`
+	Skipped          int     `json:"skipped"`
+	Total            int     `json:"total"`
+	Rows             []Row   `json:"rows"`
+	OrderIDs         []int64 `json:"order_ids"`
 }
 
 func DefaultTemplate() Template {
@@ -119,6 +121,27 @@ func money(s string) (int64, error) {
 	c, _ := strconv.ParseInt(frac, 10, 64)
 	return whole*100 + c, nil
 }
+
+// The carrier has exported both of these labels for the same settlement-weight
+// column. Keep unrelated/custom column headers exact, and continue using the
+// configured weight unit rather than guessing it from the label.
+func returnHeaderMatches(key, configured, actual string) bool {
+	configured, actual = strings.TrimSpace(configured), strings.TrimSpace(actual)
+	if configured == actual {
+		return true
+	}
+	if key != "settlement_weight" {
+		return false
+	}
+	standard := func(s string) bool {
+		switch s {
+		case "结算重量", "结算重量（kg）", "结算重量(kg)":
+			return true
+		}
+		return false
+	}
+	return standard(configured) && standard(actual)
+}
 func Parse(reader io.Reader, t Template) ([]Row, error) {
 	if e := t.Validate(); e != nil {
 		return nil, e
@@ -132,7 +155,7 @@ func Parse(reader io.Reader, t Template) ([]Row, error) {
 	optional := map[string]bool{"settlement_weight": true, "pickup_time": true}
 	for key, c := range t.Columns {
 		v, err := f.GetCellValue(t.Sheet, fmt.Sprintf("%s%d", c.Column, t.HeaderRow))
-		if err == nil && strings.TrimSpace(v) == c.Header {
+		if err == nil && returnHeaderMatches(key, c.Header, v) {
 			resolved[key] = c
 			continue
 		}
@@ -140,7 +163,7 @@ func Parse(reader io.Reader, t Template) ([]Row, error) {
 			if c.Header != "" {
 				cols, _ := f.GetCols(t.Sheet)
 				for n, values := range cols {
-					if t.HeaderRow-1 < len(values) && strings.TrimSpace(values[t.HeaderRow-1]) == c.Header {
+					if t.HeaderRow-1 < len(values) && returnHeaderMatches(key, c.Header, values[t.HeaderRow-1]) {
 						name, _ := excelize.ColumnNumberToName(n + 1)
 						c.Column = name
 						resolved[key] = c
@@ -224,7 +247,7 @@ func Parse(reader io.Reader, t Template) ([]Row, error) {
 			if _, exists := resolved[k]; !exists {
 				continue
 			}
-			formula, err := f.GetCellFormula(t.Sheet, fmt.Sprintf("%s%d", t.Columns[k].Column, i))
+			formula, err := f.GetCellFormula(t.Sheet, fmt.Sprintf("%s%d", resolved[k].Column, i))
 			if err != nil {
 				return nil, err
 			}

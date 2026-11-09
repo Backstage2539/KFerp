@@ -2,11 +2,13 @@ package customerfulfillment
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	fd "orderapp/internal/domain/freight"
 	d "orderapp/internal/domain/shippingreturn"
 	fp "orderapp/internal/infrastructure/postgres/freight"
 	sp "orderapp/internal/infrastructure/postgres/sales"
+	"strings"
 	"testing"
 )
 
@@ -64,13 +66,60 @@ func TestShippingReturnAtomicCandidatesAndReceipts(t *testing.T) {
 	if e != nil || b.Updated != 1 {
 		t.Fatalf("import %+v %v", b, e)
 	}
+	for _, changed := range []d.Template{func() d.Template { v := cfg; v.Revision++; return v }(), func() d.Template { v := cfg; v.ID = "different-template"; return v }()} {
+		if _, err := r.ImportShippingReturn(ctx, "tester", "test.xlsx", "hash1", changed, []d.Row{row("SF-RETURN-1")}); err == nil || !strings.Contains(err.Error(), "模板") {
+			t.Fatalf("same bytes with another template must be rejected, err=%v", err)
+		}
+	}
 	view, e := fr.OrderViews(ctx, pool, []int64{oid})
 	if e != nil || view[oid] == nil || view[oid].FinalReceivableCents == nil || *view[oid].FinalReceivableCents != 1400 {
 		t.Fatalf("view %+v %v", view, e)
 	}
-	b, e = r.ImportShippingReturn(ctx, "tester", "test.xlsx", "hash1", cfg, []d.Row{row("SF-RETURN-1")})
+	// The same file was first parsed by an older parser that ignored its weight.
+	// A later replay may fill that missing metadata without executing shipping again.
+	reparsed := row("SF-RETURN-1")
+	reparsed.SettlementWeightKG = "7.000"
+	b, e = r.ImportShippingReturn(ctx, "tester", "test.xlsx", "hash1", cfg, []d.Row{reparsed})
 	if e != nil || len(b.OrderIDs) != 0 {
 		t.Fatalf("replay %+v %v", b, e)
+	}
+	var wire struct {
+		WeightBackfilled int `json:"weight_backfilled"`
+		WeightSkipped    int `json:"weight_skipped"`
+	}
+	raw, _ := json.Marshal(b)
+	if err := json.Unmarshal(raw, &wire); err != nil || wire.WeightBackfilled != 1 || wire.WeightSkipped != 0 {
+		t.Fatalf("missing metadata backfill count: %s %v", raw, err)
+	}
+	var storedWeight string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT payload->>'settlement_weight_kg' FROM %s.shipping_return_rows WHERE batch_id=$1`, schema), b.ID).Scan(&storedWeight); err != nil || storedWeight != "7.000" {
+		t.Fatalf("replayed weight=%q %v", storedWeight, err)
+	}
+	b, e = r.ImportShippingReturn(ctx, "tester", "test.xlsx", "hash1", cfg, []d.Row{reparsed})
+	raw, _ = json.Marshal(b)
+	wire = struct {
+		WeightBackfilled int `json:"weight_backfilled"`
+		WeightSkipped    int `json:"weight_skipped"`
+	}{}
+	if e != nil || json.Unmarshal(raw, &wire) != nil || wire.WeightBackfilled != 0 || wire.WeightSkipped != 0 {
+		t.Fatalf("identical replay %s %v", raw, e)
+	}
+	reparsed.SettlementWeightKG = "8.000"
+	b, e = r.ImportShippingReturn(ctx, "tester", "test.xlsx", "hash1", cfg, []d.Row{reparsed})
+	raw, _ = json.Marshal(b)
+	wire = struct {
+		WeightBackfilled int `json:"weight_backfilled"`
+		WeightSkipped    int `json:"weight_skipped"`
+	}{}
+	if e != nil || json.Unmarshal(raw, &wire) != nil || wire.WeightBackfilled != 0 || wire.WeightSkipped != 1 {
+		t.Fatalf("conflicting replay %s %v", raw, e)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT payload->>'settlement_weight_kg' FROM %s.shipping_return_rows WHERE batch_id=$1`, schema), b.ID).Scan(&storedWeight); err != nil || storedWeight != "7.000" {
+		t.Fatalf("weight overwritten: %q %v", storedWeight, err)
+	}
+	var auditCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.audit_logs WHERE entity_type='shipping_return' AND entity_id=$1 AND action='backfill_settlement_weight'`, schema), b.ID).Scan(&auditCount); err != nil || auditCount != 1 {
+		t.Fatalf("backfill audit count=%d %v", auditCount, err)
 	}
 	var count int
 	if e = pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.freight_actual_entries`, schema)).Scan(&count); e != nil || count != 1 {

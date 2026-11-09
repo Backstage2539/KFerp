@@ -50,7 +50,7 @@ func RenderCustomerBill(bill app.BillingBill) ([]byte, error) {
 		}
 	}
 	headerRow := 6 + len(chargeTypes)
-	if err := f.SetSheetRow("费用明细", fmt.Sprintf("A%d", headerRow), &[]any{"费用类型", "发生日期", "来源单号", "费用名称", "应收", "出账金额", "出账前已收", "当前已收", "当前未收", "订单及发货明细"}); err != nil {
+	if err := f.SetSheetRow("费用明细", fmt.Sprintf("A%d", headerRow), &[]any{"费用类型", "发生日期", "单号", "费用名称", "应收", "出账金额", "出账前已收", "当前已收", "当前未收", "订单及发货明细"}); err != nil {
 		return nil, err
 	}
 	for i, line := range bill.Lines {

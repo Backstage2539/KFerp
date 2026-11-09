@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"math"
 	app "orderapp/internal/application/sales"
 	d "orderapp/internal/domain/shippingreturn"
 	freight "orderapp/internal/infrastructure/postgres/freight"
 	progresspg "orderapp/internal/infrastructure/postgres/orderprogress"
+	"strconv"
 	"strings"
 )
 
@@ -142,11 +144,30 @@ func (r Repository) ImportShippingReturn(ctx context.Context, actor, name, hash 
 	key := fmt.Sprintf("%s:%s:%d", hash, t.ID, t.Revision)
 	e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.shipping_return_batches WHERE file_key=$1`, r.schema), key).Scan(&b.ID)
 	if e == nil {
-		tx.Rollback(ctx)
-		return r.RematchShippingReturn(ctx, actor, b.ID, nil)
+		backfilled, skipped, err := r.backfillReturnWeightsTx(ctx, tx, actor, b.ID, items)
+		if err != nil {
+			return b, err
+		}
+		if err = r.rematchShippingReturnTx(ctx, tx, actor, b.ID, nil); err != nil {
+			return b, err
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return b, err
+		}
+		out, err := r.returnBatch(ctx, b.ID)
+		out.Rematched, out.OrderIDs = true, nil
+		out.WeightBackfilled, out.WeightSkipped = backfilled, skipped
+		return out, err
 	}
 	if e != pgx.ErrNoRows {
 		return b, e
+	}
+	var differentTemplate bool
+	if e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.shipping_return_batches WHERE split_part(file_key, ':', 1)=$1 AND file_key<>$2)`, r.schema), hash, key).Scan(&differentTemplate); e != nil {
+		return b, e
+	}
+	if differentTemplate {
+		return b, fmt.Errorf("该文件已使用其他模板或版本导入，请使用原模板版本；未重复发货或收费")
 	}
 	raw, _ := json.Marshal(t)
 	e = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.shipping_return_batches(file_key,filename,template,created_by)VALUES($1,$2,$3,$4)RETURNING id`, r.schema), key, name, raw, actor).Scan(&b.ID)
@@ -253,6 +274,87 @@ func (r Repository) ImportShippingReturn(ctx context.Context, actor, name, hash 
 		}
 	}
 	return r.returnBatch(ctx, b.ID)
+}
+
+// A repeated upload uses the same hash, template ID and revision. Only fill
+// missing metadata on uniquely matching file rows; never rerun shipment/fees.
+func (r Repository) backfillReturnWeightsTx(ctx context.Context, tx pgx.Tx, actor string, batchID int64, incoming []d.Row) (int, int, error) {
+	type existingRow struct {
+		id     int64
+		status string
+		row    d.Row
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id,status,payload FROM %s.shipping_return_rows WHERE batch_id=$1 ORDER BY id FOR UPDATE`, r.schema), batchID)
+	if err != nil {
+		return 0, 0, err
+	}
+	stored := []existingRow{}
+	storedRows, storedTracks := map[int]int{}, map[string]int{}
+	for rows.Next() {
+		var v existingRow
+		var raw []byte
+		if err = rows.Scan(&v.id, &v.status, &raw); err == nil {
+			err = json.Unmarshal(raw, &v.row)
+		}
+		if err != nil {
+			rows.Close()
+			return 0, 0, err
+		}
+		stored = append(stored, v)
+		storedRows[v.row.RowNo]++
+		storedTracks[v.row.TrackingNo]++
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return 0, 0, err
+	}
+	newRows, newTracks := map[int]int{}, map[string]int{}
+	byRow := map[int]d.Row{}
+	for _, v := range incoming {
+		newRows[v.RowNo]++
+		newTracks[v.TrackingNo]++
+		byRow[v.RowNo] = v
+	}
+	changes := []map[string]any{}
+	skipped := 0
+	for _, old := range stored {
+		v, found := byRow[old.row.RowNo]
+		if !found {
+			if old.row.SettlementWeightKG == "" && (old.status == "applied" || old.status == "pending") {
+				skipped++
+			}
+			continue
+		}
+		if strings.TrimSpace(v.SettlementWeightKG) == "" {
+			if v.Error != "" {
+				skipped++
+			}
+			continue
+		}
+		weight, parseErr := strconv.ParseFloat(v.SettlementWeightKG, 64)
+		valid := parseErr == nil && !math.IsNaN(weight) && !math.IsInf(weight, 0) && weight >= 0 && weight <= 1000
+		if !valid || v.Error != "" || v.Status != "pending" || (old.status != "applied" && old.status != "pending") || old.row.Error != "" || v.RowNo <= 1 || v.TrackingNo == "" || v.TrackingNo != old.row.TrackingNo || v.ActualCents != old.row.ActualCents || newRows[v.RowNo] != 1 || newTracks[v.TrackingNo] != 1 || storedRows[old.row.RowNo] != 1 || storedTracks[old.row.TrackingNo] != 1 {
+			skipped++
+			continue
+		}
+		if old.row.SettlementWeightKG != "" {
+			if old.row.SettlementWeightKG != v.SettlementWeightKG {
+				skipped++
+			}
+			continue
+		}
+		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.shipping_return_rows SET payload=jsonb_set(payload,'{settlement_weight_kg}',to_jsonb($2::text),true) WHERE id=$1`, r.schema), old.id, v.SettlementWeightKG); err != nil {
+			return 0, 0, err
+		}
+		changes = append(changes, map[string]any{"row_id": old.id, "row_no": v.RowNo, "tracking_no": v.TrackingNo, "weight_kg": v.SettlementWeightKG})
+	}
+	if len(changes) > 0 {
+		if err = freight.NewRepository(r.pool, r.schema).Audit(ctx, tx, actor, "shipping_return", batchID, "backfill_settlement_weight", nil, map[string]any{"rows": changes, "skipped": skipped}); err != nil {
+			return 0, 0, err
+		}
+	}
+	return len(changes), skipped, nil
 }
 func (r Repository) returnBatch(ctx context.Context, id int64) (d.Batch, error) {
 	b := d.Batch{ID: id, Rows: []d.Row{}}

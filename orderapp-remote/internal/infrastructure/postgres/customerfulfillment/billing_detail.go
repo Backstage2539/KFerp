@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	app "orderapp/internal/application/customerfulfillment"
@@ -165,6 +166,9 @@ func (r *Repository) hydrateBillingLineDetails(ctx context.Context, q billingRea
 			if err := json.Unmarshal(raw, &d); err != nil {
 				return err
 			}
+			if err := r.fillMissingSnapshotWeights(ctx, q, customerID, &d); err != nil {
+				return err
+			}
 			lines[i].Detail = &d
 			continue
 		}
@@ -173,6 +177,35 @@ func (r *Repository) hydrateBillingLineDetails(ctx context.Context, q billingRea
 			return err
 		}
 		lines[i].Detail = detail
+	}
+	return nil
+}
+
+// Only enrich missing shipment metadata in the read model; the issued bill's
+// snapshot, amounts, and existing values remain untouched. An order/waybill
+// pair with multiple applied return rows is ambiguous and cannot be inferred.
+func (r *Repository) fillMissingSnapshotWeights(ctx context.Context, q billingReader, customerID int64, d *app.BillingLineDetail) error {
+	if d.OrderID <= 0 || len(d.Shipments) == 0 || !relationExists(ctx, q, r.schema+".shipping_return_rows") {
+		return nil
+	}
+	for i := range d.Shipments {
+		s := &d.Shipments[i]
+		tracking := strings.TrimSpace(s.TrackingNo)
+		if strings.TrimSpace(s.SettlementWeightKG) != "" || tracking == "" || (s.OrderID > 0 && s.OrderID != d.OrderID) {
+			continue
+		}
+		var weight string
+		err := q.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(MAX(NULLIF(btrim(sr.payload->>'settlement_weight_kg'),'')),'')
+FROM %[1]s.shipping_return_rows sr JOIN %[1]s.orders o ON o.id=sr.selected_order_id
+WHERE sr.status='applied' AND sr.selected_order_id=$1 AND sr.payload->>'tracking_no'=$2 AND o.customer_id=$3
+HAVING COUNT(*)=1`, r.schema), d.OrderID, tracking, customerID).Scan(&weight)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		s.SettlementWeightKG = weight
 	}
 	return nil
 }
