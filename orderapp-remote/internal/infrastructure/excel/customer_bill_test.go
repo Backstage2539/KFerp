@@ -2,6 +2,7 @@ package excel
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -55,10 +56,36 @@ func TestRenderCustomerBillIncludesOrderAndWaybillDetails(t *testing.T) {
 	if amount != "11.1" {
 		t.Fatalf("amount=%q", amount)
 	}
-	for cell, want := range map[string]string{"A2": "SO-117", "C2": "11.1", "M2": "SF-123", "N2": "1.2"} {
+	for cell, want := range map[string]string{"A2": "SO-117", "C2": "11.1", "M2": "SF-123", "N2": "1.2", "O1": "订单收货地址", "P1": "地址来源", "O2": "未记录"} {
 		got, err := book.GetCellValue("订单明细", cell)
 		if err != nil || got != want {
 			t.Fatalf("订单明细 %s=%q err=%v, want %q", cell, got, err, want)
 		}
+	}
+}
+
+func TestRenderCustomerBillShowsOrderAddressSource(t *testing.T) {
+	var detail app.BillingLineDetail
+	if err := json.Unmarshal([]byte(`{"order_id":190,"order_no":"SO-190","charge_type":"shipping","information_source":"出账快照","receiver_address":"云南省昆明市测试路1号","receiver_address_source":"出账时订单收货地址","shipments":[{"tracking_no":"SF123","settlement_weight_kg":"1.25"}]}`), &detail); err != nil {
+		t.Fatal(err)
+	}
+	body, err := RenderCustomerBill(app.BillingBill{SettlementResult: app.SettlementResult{Lines: []app.SettlementLineSummary{{ChargeType: "shipping", AmountCents: 100, Detail: &detail}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	book, err := excelize.OpenReader(bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer book.Close()
+	for cell, want := range map[string]string{"N2": "1.25", "O2": "云南省昆明市测试路1号", "P2": "出账时订单收货地址"} {
+		got, err := book.GetCellValue("订单明细", cell)
+		if err != nil || got != want {
+			t.Fatalf("订单明细 %s=%q err=%v want %q", cell, got, err, want)
+		}
+	}
+	text, err := book.GetCellValue("费用明细", "J8")
+	if err != nil || !strings.Contains(text, "云南省昆明市测试路1号") || !strings.Contains(text, "出账时订单收货地址") || !strings.Contains(text, "1.25 kg") {
+		t.Fatalf("费用明细 J8=%q err=%v", text, err)
 	}
 }

@@ -1,3 +1,12 @@
+### PR-753-FULFILLMENT-SHIPPING-ADDRESS
+- Branch: `codex/fulfillment-shipping-address-20261109`
+- Status: implementation and isolated verification passed; user acceptance pending.
+- Scope: 展示费用出账相关运费的订单收货地址、寄件结算重量，严格隔离客户并区分历史快照与当前订单信息。
+- DEV-PR753-01: 订单收货地址安全读取、出账冻结及历史只读回显。
+- DEV-PR753-02: 待出账、预览、已出账及导出显示地址和寄件重量。
+- DEV-PR753-03: 手册、API和用户流程验证及环境交付。
+- Production business action: 已按用户授权重传4个原文件，仅补录7条重量，留有操作日志，未重复发货扣费。
+
 ### PR-752-FULFILLMENT-FREIGHT-DETAILS
 - Branch: `codex/fulfillment-freight-details-20261109`
 - Status: implementation and isolated verification passed; Van acceptance pending.
