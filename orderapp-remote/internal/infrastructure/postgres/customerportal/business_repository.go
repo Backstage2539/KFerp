@@ -2081,6 +2081,13 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	logistics, e := r.loadCustomerOrderLogisticsEvents(ctx, orderIDs)
+	if e != nil {
+		return nil, e
+	}
+	for i := range out {
+		out[i].LogisticsEvent = logistics[out[i].ID]
+	}
 	progress, e := progresspg.Load(ctx, r.pool, r.schema, orderIDs)
 	if e != nil {
 		return nil, e

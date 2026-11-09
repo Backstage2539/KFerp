@@ -116,7 +116,7 @@ describe('real customer navigation interactions', () => {
   it('uses one searchable order page for processing customers from either existing entry', async () => {
     const { app, root } = mount(Service)
     try {
-      for (const query of [{ key: 'orders', source: 'official' }, { key: 'orders' }]) {
+      for (const query of [{ key: 'orders', source: 'official' }, { key: 'orders' }] as Array<Record<string, string>>) {
         await openPage(query)
         expect(find(root, node => node.type === 'text' && node.props.class === 'title').map(text)).toEqual(['我的订单'])
         expect(find(root, node => node.props['data-shipment-panel'])).toHaveLength(0)

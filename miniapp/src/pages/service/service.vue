@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {orderProgressLabel} from '../../utils/orderProgress'
+import {orderProgressLabel, orderLogisticsLabel} from '../../utils/orderProgress'
 import {freightLabel} from '../../utils/freight'
 import OrderDetailsCopyButton from '../../components/OrderDetailsCopyButton.vue'
 import OrderItemWeights from '../../components/OrderItemWeights.vue'
@@ -1205,7 +1205,7 @@ onShow(() => { void refreshMiniappShareMenu() })
             <text class="price">{{ customerOrderAmountDisplay(item) }}</text>
           </view>
           <text class="row-sub">收件地址：{{ item.receiver_address || '未填写' }}</text>
-          <text class="row-sub">{{ orderProgressLabel(item) }} · {{ item.ship_status || '未发货' }} · {{ item.delivery_mode === 'customer_stock' ? '无需发货' : '物流待更新' }} · {{ customerOrderPaymentStatus(item) }}</text>
+          <text class="row-sub">{{ orderProgressLabel(item) }} · {{ item.ship_status || '未发货' }} · {{ orderLogisticsLabel(item) }} · {{ customerOrderPaymentStatus(item) }}</text>
           <button class="secondary compact" @tap="toggleOrder(item.id)">{{ expandedOrders.includes(item.id) ? '收起详情' : '展开详情' }}</button>
           <view v-if="expandedOrders.includes(item.id)">
             <OrderDetailsCopyButton :order-id="item.id" />
@@ -1215,7 +1215,7 @@ onShow(() => { void refreshMiniappShareMenu() })
             <text v-if="item.fee_summary" class="row-sub">货款 ¥{{ customerOrderAmounts(item).goods }} · 运费 ¥{{ customerOrderAmounts(item).shipping }} · 代发服务费 ¥{{ customerOrderAmounts(item).service }}</text>
             <view v-if="item.items?.length" class="order-items"><view v-for="line in item.items" :key="line.id" class="item-line"><text>{{ line.item_name }} {{ line.spec }}</text><text>{{ line.qty }}{{ line.unit }} x ¥{{ line.unit_price }} = ¥{{ line.line_total }}</text><OrderItemWeights :item="line" /><text v-if="line.bean_list_version_no" class="line-meta">价格表版本：{{ line.bean_list_version_no }}</text></view></view>
             <text class="row-sub">{{item.freight?freightLabel(item.freight):`运费：¥${item.shipping_amount || '0.00'}`}}</text>
-            <text v-if="item.delivery_mode !== 'customer_stock'" class="row-sub">物流：{{ item.ship_tracking_no || '暂无单号' }} · 物流待更新</text>
+            <text v-if="item.delivery_mode !== 'customer_stock'" class="row-sub">物流：{{ item.logistics_event?.tracking_no || item.ship_tracking_no || '暂无单号' }} · {{ orderLogisticsLabel(item) }}{{ item.logistics_event?.event_time ? ` · ${item.logistics_event.event_time}` : '' }}{{ item.logistics_event?.location ? ` · ${item.logistics_event.location}` : '' }}</text>
           </view>
         </view>
       </view>

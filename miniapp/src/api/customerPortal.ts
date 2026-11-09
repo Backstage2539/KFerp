@@ -340,6 +340,7 @@ export type ProductSummary = {
 }
 
 export type CustomerOrderSummary = {
+  logistics_event?: { tracking_no?: string; event_time?: string; status?: string; description?: string; location?: string }
   order_kind?: 'purchase' | 'dropship'
   confirmation_status?: string
   is_void?: boolean
@@ -2428,7 +2429,7 @@ export function fetchEmployeeFreightTemplates(token:string){return miniRequest<{
 
 export type IssuedBillLine = {
   id: number; description: string; charge_type: string; source_no?: string; amount_cents: number
-  detail?: { order_no?: string; receiver_address?: string; items?: Array<{ name: string; spec: string; quantity: string; unit: string; unit_price: string; line_total: string }>; shipments?: Array<{ tracking_no: string; shipped_at: string }> }
+  detail?: { order_no?: string; receiver_address?: string; items?: Array<{ item_name: string; spec: string; qty: string; unit: string; unit_price: string; line_total: string }>; shipments?: Array<{ tracking_no: string; shipped_at: string }> }
 }
 export type CustomerIssuedBill = { batch_id: number; settlement_no: string; issued_at: string; period_from: string; period_to: string; total_amount_cents: number; current_received_cents: number; current_due_amount_cents: number; adjustment_cents: number; lines?: IssuedBillLine[] }
 export type CustomerIssuedBillSummary = { count: number; unpaid_count: number; total_amount_cents: number; received_cents: number; due_amount_cents: number; adjustment_cents: number }

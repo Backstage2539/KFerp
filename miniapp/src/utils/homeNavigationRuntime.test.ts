@@ -84,7 +84,7 @@ async function settle() { for (let index = 0; index < 30; index++) await Promise
 const allCapabilities = ['product_order', 'direct_ship', 'processing', 'inventory_custody', 'settlement'].map(code => ({ code, enabled: true }))
 function context(extra: Record<string, unknown> = {}) {
   return { mini_user_id: 91, current_customer_id: 901, current_customer_name: '测试客户', account_type: 'customer', theme_key: 'coffee_factory',
-    bindings: [{ customer_id: 901, customer_name: '测试客户', role: 'owner', status: 'approved' }], capabilities: allCapabilities, fulfillment_modes: ['stock', 'on_demand'], ...extra }
+    bindings: [{ customer_id: 901, customer_name: '测试客户', role: 'owner', status: 'approved' }], capabilities: allCapabilities, fulfillment_modes: ['stock', 'on_demand'] as Array<'stock' | 'on_demand'>, ...extra }
 }
 function mount(component: any, value = context(), signedIn = true) {
   const root: Node = { type: 'root', children: [], props: {} }
