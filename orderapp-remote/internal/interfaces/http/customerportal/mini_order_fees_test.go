@@ -79,3 +79,29 @@ func TestPhoneLoginWithoutCustomerBindingReturnsActionableForbidden(t *testing.T
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestMiniOrdersReturnsOnlyPersistedLogisticsEvent(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{service: portal.ServicePage{CurrentCustomerID: 9, Orders: []portal.CustomerOrderSummary{
+		{ID: 117, LogisticsEvent: &portal.CustomerOrderLogisticsEvent{TrackingNo: "SF-1", Status: "delivered", Description: "已签收", EventTime: "2026-11-09 11:00:00"}},
+		{ID: 118},
+	}}}})
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/services/orders", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Orders []struct {
+			LogisticsEvent *portal.CustomerOrderLogisticsEvent `json:"logistics_event"`
+		} `json:"orders"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Orders) != 2 || body.Orders[0].LogisticsEvent == nil || body.Orders[0].LogisticsEvent.Description != "已签收" || body.Orders[1].LogisticsEvent != nil {
+		t.Fatalf("orders=%+v", body.Orders)
+	}
+}

@@ -18,7 +18,7 @@ import { useSessionStore } from '../stores/session'
 const lifecycle = vi.hoisted(() => ({ show: [] as Array<() => unknown> }))
 const api = vi.hoisted(() => ({
   me: vi.fn(), account: vi.fn(), assets: vi.fn(), service: vi.fn(), processing: vi.fn(),
-  staff: vi.fn(), switchCustomer: vi.fn(), employeeShare: vi.fn(),
+  staff: vi.fn(), switchCustomer: vi.fn(), employeeShare: vi.fn(), bills: vi.fn(),
 }))
 vi.mock('@dcloudio/uni-app', () => ({
   onShow: (callback: () => unknown) => { lifecycle.show.push(callback) },
@@ -27,6 +27,7 @@ vi.mock('@dcloudio/uni-app', () => ({
 vi.mock('../api/customerPortal', () => ({
   fetchMe: api.me, fetchCustomerAccount: api.account, fetchCustomerAssetInventory: api.assets,
   fetchServicePage: api.service, fetchProcessingRequests: api.processing,
+  fetchCustomerIssuedBills: api.bills,
   switchCurrentCustomer: api.switchCustomer, fetchEmployeeShareSettings: api.employeeShare,
   saveEmployeeShareSettings: vi.fn(), saveEmployeeShareScope: vi.fn(),
 }))
@@ -83,7 +84,7 @@ async function settle() { for (let index = 0; index < 30; index++) await Promise
 const allCapabilities = ['product_order', 'direct_ship', 'processing', 'inventory_custody', 'settlement'].map(code => ({ code, enabled: true }))
 function context(extra: Record<string, unknown> = {}) {
   return { mini_user_id: 91, current_customer_id: 901, current_customer_name: '测试客户', account_type: 'customer', theme_key: 'coffee_factory',
-    bindings: [{ customer_id: 901, customer_name: '测试客户', role: 'owner', status: 'approved' }], capabilities: allCapabilities, fulfillment_modes: ['stock', 'on_demand'], ...extra }
+    bindings: [{ customer_id: 901, customer_name: '测试客户', role: 'owner', status: 'approved' }], capabilities: allCapabilities, fulfillment_modes: ['stock', 'on_demand'] as Array<'stock' | 'on_demand'>, ...extra }
 }
 function mount(component: any, value = context(), signedIn = true) {
   const root: Node = { type: 'root', children: [], props: {} }
@@ -109,12 +110,13 @@ beforeEach(() => {
   })
   api.account.mockResolvedValue({ settlements: [], summary: { due_cents: 0 } })
   api.assets.mockResolvedValue({ rows: [] })
-  api.service.mockResolvedValue({ orders: [] })
+  api.service.mockResolvedValue({ orders: [], progress_counts: { accepted: 2, in_production: 3, shipped: 4 } })
+  api.bills.mockResolvedValue({ summary: { unpaid_count: 2, due_amount_cents: 236610 } })
   api.processing.mockResolvedValue({ rows: [] })
   api.staff.mockResolvedValue({ unread_count: 2 })
 })
 
-it.each(['coffee_factory', 'clean_ops', 'premium_partner'])('composed %s customer home keeps capability entries once without overview or price banners', async theme => {
+it.each(['coffee_factory', 'clean_ops', 'premium_partner'])('composed %s customer home shows customer progress and no price banner', async theme => {
   const view = mount(Home, context({ theme_key: theme }))
   try {
     await view.show()
@@ -122,16 +124,23 @@ it.each(['coffee_factory', 'clean_ops', 'premium_partner'])('composed %s custome
     expect(labels(view.root, 'tab-label')).toEqual(['首页', '价格表', '我的订单', '费用', '我的'])
     expect(find(view.root, node => hasClass(node, `theme-${theme.replaceAll('_', '-')}`))).toHaveLength(1)
     for (const duplicate of ['待处理订单', '生产进度', '客户库存', '待对账', '业务摘要加载中', '价格表中心 · 查看咖啡价格表']) expect(text(view.root)).not.toContain(duplicate)
-    expect(find(view.root, node => hasClass(node, 'overview-grid') || hasClass(node, 'bean-entry'))).toHaveLength(0)
+    expect(text(view.root)).toContain('已接单')
+    expect(text(view.root)).toContain('生产中')
+    expect(text(view.root)).toContain('已发货')
+    expect(text(view.root)).toContain('待付款账单')
+    expect(text(view.root)).toContain('2366.10')
+    expect(find(view.root, node => hasClass(node, 'bean-entry'))).toHaveLength(0)
   } finally { view.app.unmount() }
 })
 
-it('customer home refresh requests identity only and never the removed overview APIs', async () => {
+it('customer home obtains full progress and unpaid bill summaries', async () => {
   const view = mount(Home)
   try {
     await view.show()
     expect(api.me).toHaveBeenCalledTimes(1)
-    for (const request of [api.account, api.assets, api.service, api.processing]) expect(request).not.toHaveBeenCalled()
+    expect(api.service).toHaveBeenCalledWith('isolated-session', 'orders', { page: 1, page_size: 1 })
+    expect(api.bills).toHaveBeenCalledWith('isolated-session', { status: 'unpaid', page: 1, limit: 1 })
+    for (const request of [api.account, api.assets, api.processing]) expect(request).not.toHaveBeenCalled()
   } finally { view.app.unmount() }
 })
 

@@ -36,6 +36,7 @@ export const useSessionStore = defineStore('session', {
     entryMode: 'services' as MiniappEntryMode,
     bindings: [] as CustomerBinding[],
     capabilities: [] as Capability[],
+    fulfillmentModes: [] as ('stock' | 'on_demand')[],
     accountType: '' as string,
     employeeID: 0,
     employeeName: '',
@@ -69,6 +70,7 @@ export const useSessionStore = defineStore('session', {
       this.entryMode = 'services'
       this.bindings = []
       this.capabilities = []
+      this.fulfillmentModes = []
       this.accountType = ''
       this.employeeID = 0
       this.employeeName = ''
@@ -86,6 +88,7 @@ export const useSessionStore = defineStore('session', {
       miniapp_entry_mode?: string
       bindings: CustomerBinding[]
       capabilities: Capability[]
+      fulfillment_modes?: ('stock' | 'on_demand')[]
       account_type?: string
       employee_id?: number
       employee_name?: string
@@ -93,6 +96,8 @@ export const useSessionStore = defineStore('session', {
       permissions?: string[]
     }) {
       if(context.registration_complete!==undefined){this.registrationComplete=context.registration_complete;this.registration=context.registration||null;this.registrationKnown=context.registration_complete;uni.setStorageSync(miniappStorageKey('registered',configuredMiniappEnvironment()),context.registration_complete)}
+      if (context.fulfillment_modes !== undefined) this.fulfillmentModes = context.fulfillment_modes
+      else if (this.currentCustomerID !== context.current_customer_id) this.fulfillmentModes = []
  this.miniUserID = context.mini_user_id
       this.currentCustomerID = context.current_customer_id
       this.currentCustomerName = context.current_customer_name || ''

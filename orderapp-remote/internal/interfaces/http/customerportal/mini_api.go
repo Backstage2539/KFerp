@@ -226,8 +226,8 @@ func registerMiniAPIWithFees(e *echo.Echo, svc Service, messages MessagePublishe
 		}
 		orderID, _ := strconv.ParseInt(c.QueryParam("order_id"), 10, 64)
 		result, err := svc.GetServicePage(c.Request().Context(), token, c.Param("key"), customerportalapp.ServicePageFilter{
-			OrderID: orderID,
-			Page:    miniPageNumber(c.QueryParam("page")), PageSize: miniPageNumber(c.QueryParam("page_size")),
+			OrderID: orderID, OrderKind: c.QueryParam("order_kind"), Progress: c.QueryParam("progress"),
+			Page: miniPageNumber(c.QueryParam("page")), PageSize: miniPageNumber(c.QueryParam("page_size")),
 			SelectedPriceTableIDs: selected,
 			Query:                 c.QueryParam("q"),
 			DateFrom:              c.QueryParam("date_from"),
@@ -255,6 +255,9 @@ func registerMiniAPIWithFees(e *echo.Echo, svc Service, messages MessagePublishe
 				}
 				summary := &customerportalapp.CustomerOrderFeeSummary{PayableCents: group.PayableCents, PaidCents: group.PaidCents, UnpaidCents: group.DueCents}
 				for _, line := range group.FeeLines {
+					if line.SettlementID > 0 && (line.SettlementStatus == "confirmed" || line.SettlementStatus == "paid" || line.SettlementStatus == "settled") {
+						summary.HasBilledFees = true
+					}
 					switch line.Category {
 					case "product":
 						summary.GoodsCents += line.AmountCents

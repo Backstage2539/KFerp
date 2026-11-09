@@ -43,7 +43,7 @@ func TestMiniappBillingOrderReceivablesEvidenceExists(t *testing.T) {
 		body := string(readOrderAppFileForTest(t, path))
 		for _, want := range []string{
 			"商品货款",
-			"不提供客户侧确认对账或异议入口",
+			"不提供确认对账或异议入口",
 		} {
 			if !strings.Contains(body, want) {
 				t.Fatalf("%s missing replacement billing manual marker %q", path, want)
@@ -69,12 +69,10 @@ func TestMiniappBillingOrderReceivablesSourceWiring(t *testing.T) {
 			"serviceKey.value === 'settlement'",
 		},
 		filepath.Join("..", "miniapp", "src", "components", "CustomerBillsPanel.vue"): {
-			"fetchCustomerAccount",
-			"商品货款",
-			"代发服务费",
-			"view: 'order_fees'",
-			"费用明细",
-			"按订单展示本账期全部费用",
+			"fetchCustomerIssuedBills",
+			"fetchCustomerIssuedBill",
+			"已出账账单",
+			"未付",
 		},
 	} {
 		body := string(readOrderAppFileForTest(t, path))
