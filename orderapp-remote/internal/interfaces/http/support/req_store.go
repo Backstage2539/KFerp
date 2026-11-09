@@ -261,6 +261,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-752-FULFILLMENT-FREIGHT-DETAILS", title: "履约费用出账清单运费名称、单号和寄件重量准确展示", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-09-fulfillment-freight-details.md；业务验收待完成"},
+		{table: "req_dev", code: "DEV-PR752-01", title: "费用清单与已出账单据运费名称及单号", status: "review", assignee: "Codex", evidence: "billing_freight_display_test.go；账单页面及导出"},
+		{table: "req_dev", code: "DEV-PR752-02", title: "寄件表结算重量识别及历史数据补充", status: "review", assignee: "Codex", evidence: "shipping_return_test.go；billing_historical_weight_test.go"},
+		{table: "req_dev", code: "DEV-PR752-03", title: "测试、手册与交付验收", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-11-09-fulfillment-freight-details.md"},
 		{table: "req_product", code: "PR-751-SHIPPING-RETURN-CANDIDATES", title: "寄件回填实时匹配与客户现货补足", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-08-shipping-return-candidates.md；真实运单归属待确认"},
 		{table: "req_dev", code: "DEV-PR751-01", title: "候选与发货条件分开并防止误配旧订单", status: "review", assignee: "Codex", evidence: "shipping_return_candidate_inventory_test.go"},
 		{table: "req_dev", code: "DEV-PR751-02", title: "显式现货补足及历史身份事务校验", status: "review", assignee: "Codex", evidence: "shipping_return_candidate_inventory_test.go；隔离 API 和日志回滚"},

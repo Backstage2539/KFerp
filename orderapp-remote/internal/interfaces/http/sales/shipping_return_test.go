@@ -89,6 +89,8 @@ func TestShippingReturnAPI(t *testing.T) {
 	for col, v := range map[string]string{"C": "SF0001", "J": "张*", "K": "138****1234", "S": "0"} {
 		f.SetCellValue(cfg.Sheet, col+"2", v)
 	}
+	f.SetCellValue(cfg.Sheet, "P1", "结算重量")
+	f.SetCellValue(cfg.Sheet, "P2", "7.000")
 	xlsx, _ := f.WriteToBuffer()
 	body := new(bytes.Buffer)
 	m := multipart.NewWriter(body)
@@ -96,8 +98,12 @@ func TestShippingReturnAPI(t *testing.T) {
 	part, _ := m.CreateFormFile("file", "test.xlsx")
 	part.Write(xlsx.Bytes())
 	m.Close()
+	denied := call(http.MethodPost, "/api/orders/shipping-tracking-excel", m.FormDataContentType(), bytes.NewBuffer(append([]byte(nil), body.Bytes()...)), false)
+	if denied.Code != 400 || r.imported != 0 {
+		t.Fatalf("unbound employee must not import/backfill: %d %s", denied.Code, denied.Body)
+	}
 	res := call(http.MethodPost, "/api/orders/shipping-tracking-excel", m.FormDataContentType(), body, true)
-	if res.Code != 200 || r.imported != 1 || !strings.Contains(res.Body.String(), `"actual_cents":0`) {
+	if res.Code != 200 || r.imported != 1 || !strings.Contains(res.Body.String(), `"actual_cents":0`) || !strings.Contains(res.Body.String(), `"settlement_weight_kg":"7.000"`) {
 		t.Fatal(res.Code, res.Body, r.imported)
 	}
 	res = call(http.MethodPost, "/api/orders/3/shipping-return-selection", "application/json", bytes.NewBufferString(`{"candidate_id":1,"version":"v1"}`), true)

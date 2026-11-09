@@ -135,3 +135,64 @@ func TestParseRejectsInvalidSettlementWeight(t *testing.T) {
 		t.Fatalf("invalid weight rows=%+v err=%v", rows, err)
 	}
 }
+
+func TestParseSettlementWeightWithActualCarrierHeaders(t *testing.T) {
+	for _, tc := range []struct {
+		name, configured, actual, column, value, want string
+	}{
+		{"carrier P header without unit", "结算重量（kg）", "结算重量", "P", "7.000", "7.000"},
+		{"old configured header with fullwidth unit", "结算重量", "结算重量（kg）", "P", "1.25", "1.250"},
+		{"halfwidth unit", "结算重量（kg）", "结算重量(kg)", "P", "1.25", "1.250"},
+		{"moved optional weight column", "结算重量（kg）", "结算重量", "AH", "2.5", "2.500"},
+		{"unrelated header not interpreted as weight", "结算重量（kg）", "下单重量", "P", "9", ""},
+		{"custom template not broadened", "客户重量", "结算重量", "P", "7", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := DefaultTemplate()
+			cfg.Columns["settlement_weight"] = Column{"P", tc.configured}
+			f := excelize.NewFile()
+			defer f.Close()
+			f.SetSheetName("Sheet1", cfg.Sheet)
+			for key, col := range cfg.Columns {
+				if key != "settlement_weight" {
+					f.SetCellValue(cfg.Sheet, col.Column+"1", col.Header)
+				}
+			}
+			for cell, value := range map[string]string{"C2": "SF1224903286779", "J2": "张三", "K2": "138****1234", "S2": "20.20", tc.column + "1": tc.actual, tc.column + "2": tc.value} {
+				f.SetCellValue(cfg.Sheet, cell, value)
+			}
+			buf, err := f.WriteToBuffer()
+			if err != nil {
+				t.Fatal(err)
+			}
+			rows, err := Parse(bytes.NewReader(buf.Bytes()), cfg)
+			if err != nil || len(rows) != 1 || rows[0].Error != "" || rows[0].SettlementWeightKG != tc.want {
+				t.Fatalf("rows=%+v err=%v, want weight %q", rows, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseRejectsFormulaInRelocatedSettlementWeight(t *testing.T) {
+	cfg := DefaultTemplate()
+	f := excelize.NewFile()
+	defer f.Close()
+	f.SetSheetName("Sheet1", cfg.Sheet)
+	for key, col := range cfg.Columns {
+		if key != "settlement_weight" {
+			f.SetCellValue(cfg.Sheet, col.Column+"1", col.Header)
+		}
+	}
+	for cell, value := range map[string]string{"C2": "SF1224903286779", "J2": "张三", "K2": "138****1234", "S2": "20.20", "AH1": "结算重量"} {
+		f.SetCellValue(cfg.Sheet, cell, value)
+	}
+	f.SetCellFormula(cfg.Sheet, "AH2", "1+1")
+	buf, err := f.WriteToBuffer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := Parse(bytes.NewReader(buf.Bytes()), cfg)
+	if err != nil || len(rows) != 1 || rows[0].Status != "skipped" {
+		t.Fatalf("formula rows=%+v err=%v", rows, err)
+	}
+}
