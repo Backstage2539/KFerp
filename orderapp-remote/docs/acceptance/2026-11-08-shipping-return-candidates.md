@@ -8,7 +8,14 @@
 - RED：新增 `TestShippingReturnSharedBatchExcludesAlreadyDeductedOrders`，两个订单共用 8 袋批次；首单 HTTP 出库 4 袋后，第二单拥有剩余 4 袋却 `CanShip=false`。日志 `/tmp/kferp-return-verification/shared-batch-red.log`。
 - GREEN：隔离 PostgreSQL `TestShippingReturn|TestOrderProgress|TestFulfillmentExplicitPhysicalReplenishment|TestDirectShipHistorical` 通过（13.510s）；全包后端 verifier 通过。新增测试覆盖未出库两单仍累计占用、库存不足继续拦截、两单顺序 HTTP 回填、各自重复提交、8 袋总扣减、2 条日志、2 条运单及分配历史保留。前端实现未改动。
 - 仅调整只读发货条件；不删除历史分配、不修改历史 BOM 或库存余额，不新增迁移。手册补充共享批次说明。
-- 后续发布与第二单实际回填回执待补充；以上真实操作属于 Van 已明确授权的业务处理，不作自动测试。
+- 功能提交 `d38be8ff8` 已推送，开发运行版本 `9e49202b386445f0157218223c894e259d132a16` 已 ERP-only 部署；前端 1767/1767、构建及后端检查通过，服务 running/restart=0，数据库 healthy，登录页 200。源码 SHA256 `fd3e032db90cc4d7abf938020d55b8496ba567b420be3a343eccb75f31d21558` 与测试源一致。
+- 开发回滚锚点：源码 `/opt/stacks/erp/orderapp.backup.deploy-20261109095545-9e49202b3864`，镜像 `kferp-orderapp-rollback:development-20261109095545-9e49202b3864`。
+- 正式真实订单只读执行修复后的库存就绪查询，订单 173 返回 true。`main@d9a9f5dd95f0a34d8d7b2e7cfd3e6b3a9b8fe9f9` 已推送并 ERP-only 部署成功；前端 1767/1767、后端及镜像检查通过，服务 running/restart=0、数据库 healthy、登录页 200。正式源码哈希与上述测试源一致，镜像 `sha256:d5adb0919a1141ed291aab4bc58d4a603919eb87bf7bb4d714684971aaabfae5`。
+- 正式回滚锚点：源码 `/opt/stacks/erp-production/orderapp.backup.deploy-20261109100726-d9a9f5dd95f0`，镜像 `kferp-orderapp-rollback:production-20261109100726-d9a9f5dd95f0`。
+- 发布后员工页面显示第二单「库存充足 · 可以发货」，核对唯一候选 SF5146788624713 后提交成功，页面显示「已发货」及正确单号。回传行 10/11 均为 applied，分别关联 SO-20260922-000190 / SO-20261031-000173；扣减分别为 14/12 袋，每单两个实际批次。
+- 实际物流成本分别 13.10 / 13.50 元，按原规则含 5 元附加费确认客户运费 18.10 / 18.50 元，运费确认 revision 均为 1。公司同规格余量 128 袋、喜沁 17 袋；旧单 165/167 的预留仍为 12/5 袋。
+- 操作日志核对：10677/10678 为 SE-149 创建及提交，10679 为第二单现货分配，10681 为第二单 shipping_return；首单回填日志 10676 保留。未重复转仓、扣减或回填。
+- 以上真实写入均属于 Van 已明确授权的业务处理，不作自动测试。截图在本机交付目录：`xiqin-transfer-four-20261109.jpg`、`shipping-return-173-success-20261109.jpg`。此回执为发布后的文档更新，运行版本仍为上述 d9a9f5dd9。
 
 ## 问题与范围
 
@@ -37,11 +44,11 @@
 - `docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`；Vue 编辑页面与回填弹窗同步提示。
 - PR-751-SHIPPING-RETURN-CANDIDATES，DEV-PR751-01 至 03：待 Van 现场验收，不代验收。
 
-## 生产业务边界
+## 2026-11-08 生产业务边界（当时只读核查）
 
 只读核查批次 2 的两张运单仍待选择。SF1224903286779 的 10 月 10 日记录与订单 SO-20260922-000190 日期和收件信息相符，但同收件人还有多张订单；SF5146788624713 的收件信息与 SO-20261031-000173 不同。已经请求 Van 明确两张运单的订单号。在归属确认前，不替用户选择、补足或发货，也不改变真实库存、运费、订单日期或收件人。结算重量未在本次修复中推断或补写。
 
-## 发布回执
+## 2026-11-08 首次发布回执
 
 - 功能提交 `2ceda2f95` 已推送；集成至 `develop@65a896eee611d7090b115d362f536fb75fefb628`，开发环境 ERP-only 部署成功。
 - 开发回滚锚点：源码 `/opt/stacks/erp/orderapp.backup.deploy-20261108233503-65a896eee611`，镜像 `kferp-orderapp-rollback:development-20261108233503-65a896eee611`。
