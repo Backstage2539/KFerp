@@ -141,7 +141,7 @@ func TestCustomerPortalOrderBackboneUsesSharedOrdersAndExcludesVoided(t *testing
 		"page.Orders, err = r.listCustomerOrders(ctx, query, limit, true)",
 		"page.Orders, err = r.listCustomerOrders(ctx, query, limit, false)",
 		`where := []string{"o.customer_id=$1"}`,
-		`where = append(where, "o.is_void=false")`,
+		`where = append(where, "COALESCE(o.is_void,false)=false")`,
 		`where = append(where, "o.id=$2")`,
 		"FROM %s.orders o",
 		"WHERE id=$1 AND customer_id=$2 AND is_void=false",

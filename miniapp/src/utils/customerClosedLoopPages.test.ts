@@ -113,36 +113,25 @@ describe('customer closed-loop miniapp pages', () => {
     expect(list).toContain('processingPrefill.stage')
   })
 
-  it('shows one order-grouped fee ledger and exports the full selected period', () => {
+  it('shows issued bills and exports the selected bill', () => {
     const page = source('src/components/CustomerBillsPanel.vue')
-
-    expect(page).toContain('fetchCustomerAccount')
-    expect(page).toContain("download('pdf')")
-    expect(page).toContain("download('xlsx')")
-    expect(page).toContain('商品货款')
-    expect(page).toContain('加工费')
-    expect(page).toContain('代发服务费')
-    expect(page).toContain('运单号')
-    expect(page).toContain('未记录')
-    expect(page).toContain('order_fees')
+    for (const text of ['fetchCustomerIssuedBills', 'fetchCustomerIssuedBill', 'customerIssuedBillDocumentPath', '所有', '按月', '按周', '起止日期', '已出账账单', '下载 PDF', '下载 Excel']) expect(page).toContain(text)
     expect(page).not.toContain('confirmCustomerStatement')
     expect(page).not.toContain('createCustomerStatementDispute')
-    expect(page).not.toContain('对账单')
-    expect(page).not.toContain('确认对账')
   })
 
-  it('routes processing customers to a shipment-only fulfillment center', () => {
+  it('keeps fulfillment services available while routing customers to one order list', () => {
     const service = source('src/pages/service/service.vue')
 
     expect(service).toContain('CustomerDirectShipPanel')
     expect(service).toContain('CustomerProcessingPanel')
     expect(service).toContain('CustomerInventoryPanel')
     expect(service).toContain('CustomerBillsPanel')
-    expect(service).toContain('isProcessingCustomer')
-    expect(service).toContain('customerDestinations.processingShipments.label')
     expect(service).toContain('inventory:${session.currentCustomerID}')
-    expect(service).not.toContain('closedLoopRefreshKey')
-    expect(service).toContain('v-if="!isProcessingCustomer"')
+    expect(service).toContain('orderKind')
+    expect(service).toContain('orderProgress')
+    expect(service).not.toContain('customerDestinations.processingShipments.label')
+    expect(service).not.toContain('fulfillment-center:${session.currentCustomerID}')
   })
 
   it('shows the current customer, ERP business contact, shared recipient address book and service explanation', () => {

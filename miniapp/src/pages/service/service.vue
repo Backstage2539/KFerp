@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {orderProgressLabel} from '../../utils/orderProgress'
+import {orderProgressLabel, orderLogisticsLabel} from '../../utils/orderProgress'
 import {freightLabel} from '../../utils/freight'
 import OrderDetailsCopyButton from '../../components/OrderDetailsCopyButton.vue'
 import OrderItemWeights from '../../components/OrderItemWeights.vue'
@@ -43,7 +43,7 @@ import {
   type ServicePageResponse,
   updateCustomerProductCategory,
 } from '../../api/customerPortal'
-import { buildAPIURL, isAuthenticationExpiredRequestError } from '../../api/client'
+import { isAuthenticationExpiredRequestError } from '../../api/client'
 import { fetchMe, switchCurrentCustomer } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import CustomerBillsPanel from '../../components/CustomerBillsPanel.vue'
@@ -59,7 +59,7 @@ import { useSessionStore } from '../../stores/session'
 import PriceListContent from '../../components/PriceListContent.vue'
 import { priceListSearchScope } from '../../utils/priceListSearch'
 import { configuredMiniappEnvironment } from '../../config/environment'
-import { customerOrderAmounts, customerOrderPaymentStatus } from '../../utils/customerOrderFees'
+import { customerOrderAmountDisplay, customerOrderAmounts, customerOrderPaymentStatus } from '../../utils/customerOrderFees'
 import {
   beanListPageCacheChanged,
   beanListPageCacheStorageKey,
@@ -122,6 +122,13 @@ const categoryNameEdits = ref<Record<number, string>>({})
 const expandedCustomerPriceTableTypes = ref<string[]>([])
 const noticeOrderID=ref(0), noticeCustomerID=ref(0)
 const orderPage=ref(1)
+const orderKind = ref('')
+const orderProgress = ref('')
+const billInitialStatus = ref('')
+const expandedOrders = ref<number[]>([])
+const progressLabels: Record<string, string> = { accepted: '已接单', in_production: '生产中', shipped: '已发货' }
+function toggleOrder(id: number) { expandedOrders.value = expandedOrders.value.includes(id) ? expandedOrders.value.filter(value => value !== id) : [...expandedOrders.value, id] }
+async function selectOrderKind(kind: string) { orderKind.value = kind; await loadPage() }
 const orderSearch = ref<OrderSearchForm>(emptyOrderSearch())
 
 
@@ -136,12 +143,9 @@ const processingPrefillItems = ref<ProcessingPrefillItem[]>([])
 const officialOrders = ref(false)
 const directShipEntryMode = ref<'stock' | 'on_demand'>()
 const stockPurchase = ref(false)
-const isProcessingCustomer = computed(() => session.capabilities.some((item) => item.code === 'processing' && item.enabled))
 const title = computed(() => {
   if (serviceKey.value === 'directShip' && directShipEntryMode.value === 'on_demand') return '无库存代发'
-  if (serviceKey.value === 'orders') return isProcessingCustomer.value && !officialOrders.value
-    ? customerDestinations.processingShipments.label
-    : customerDestinations.orders.label
+  if (serviceKey.value === 'orders') return customerDestinations.orders.label
   return page.value?.title || serviceTitle(serviceKey.value)
 })
 const isClosedLoopService = computed(() => (
@@ -150,7 +154,6 @@ const isClosedLoopService = computed(() => (
   || serviceKey.value === 'processing'
   || serviceKey.value === 'inventory'
   || serviceKey.value === 'settlement'
-  || (serviceKey.value === 'orders' && isProcessingCustomer.value && !officialOrders.value)
 ))
 const mainTab = computed(() => {
   if (serviceKey.value === 'orders') return 'orders'
@@ -243,14 +246,23 @@ async function changePriceTable(group: PriceTableGroup, event: { detail: { value
 function serviceReturnURL() { if(noticeOrderID.value && noticeCustomerID.value) return `/pages/service/service?key=orders&source=notice&order_id=${noticeOrderID.value}&customer_id=${noticeCustomerID.value}`; return `/pages/service/service?key=${serviceKey.value}${officialOrders.value ? '&source=official' : ''}${directShipEntryMode.value ? `&fulfillment_mode=${directShipEntryMode.value}` : ''}${stockPurchase.value ? '&stock_purchase=1' : ''}` }
 function openCustomerLogin(){session.clearSession();uni.reLaunch({url:loginRouteFor(serviceReturnURL())+'&mode=password'})}
 let beanListRequest = 0
+let orderRequest = 0
 let beanListActive=true
 onShow(()=>{beanListActive=true})
 watch([()=>session.token,()=>session.currentCustomerID],()=>{if(serviceKey.value==='beanList'){beanListRequest++;page.value=null;cachedBeanList.value=null}})
+watch([()=>session.token,()=>session.currentCustomerID],()=>{
+  if(serviceKey.value==='orders'){orderRequest++;page.value=null;errorMessage.value='';loading.value=false}
+},{flush:'sync'})
 onHide(()=>{beanListActive=false;if(serviceKey.value==='beanList'){beanListRequest++;page.value=null;cachedBeanList.value=null}})
 async function loadPage(pageNumber=1) {
   let request = 0
+  let orderRun = serviceKey.value === 'orders' ? ++orderRequest : 0
+  let orderToken = session.token
+  let orderCustomerID = session.currentCustomerID
+  const isCurrentOrderRequest = () => !orderRun || (serviceKey.value === 'orders' && orderRun === orderRequest && orderToken === session.token && orderCustomerID === session.currentCustomerID)
   if(serviceKey.value==='beanList'){page.value=null;cachedBeanList.value=null}
- try{await restoreRegistrationSession(session)}catch(e){errorMessage.value=e instanceof Error?e.message:"登录状态恢复失败";return}
+ try{await restoreRegistrationSession(session)}catch(e){if(isCurrentOrderRequest()) errorMessage.value=e instanceof Error?e.message:"登录状态恢复失败";return}
+  if (!isCurrentOrderRequest()) return
   orderPage.value=pageNumber
   if (selectedPriceTableCustomerID !== Number(session.currentCustomerID)) { selectedPriceTableIDs.value = []; selectedPriceTableCustomerID = Number(session.currentCustomerID) }
   if (!session.token) {
@@ -272,14 +284,23 @@ async function loadPage(pageNumber=1) {
   loading.value = true
   errorMessage.value = ''
   try {
-    if (officialOrders.value || noticeOrderID.value) session.applyContext(await fetchMe(session.token))
+    if (officialOrders.value || noticeOrderID.value) {
+      const context = await fetchMe(session.token)
+      if (!isCurrentOrderRequest()) return
+      session.applyContext(context)
+      if (orderRun) { orderRun = orderRequest; orderToken = session.token; orderCustomerID = session.currentCustomerID; loading.value = true }
+    }
     if(noticeOrderID.value && noticeCustomerID.value !== session.currentCustomerID) {
-      session.applyContext(await switchCurrentCustomer(session.token,noticeCustomerID.value))
+      const context = await switchCurrentCustomer(session.token,noticeCustomerID.value)
+      if (!isCurrentOrderRequest()) return
+      session.applyContext(context)
+      if (orderRun) { orderRun = orderRequest; orderToken = session.token; orderCustomerID = session.currentCustomerID; loading.value = true }
     }
 
-    const filters = serviceKey.value === 'orders' ? (noticeOrderID.value ? {order_id:noticeOrderID.value,page:1,page_size:1} : {...buildOrderServiceFilters(orderSearch.value),page:orderPage.value,page_size:20}) : { selected_price_table_ids: selectedPriceTableIDs.value }
+    const filters = serviceKey.value === 'orders' ? (noticeOrderID.value ? {order_id:noticeOrderID.value,page:1,page_size:1} : {...buildOrderServiceFilters(orderSearch.value),order_kind:orderKind.value,progress:orderProgress.value,page:orderPage.value,page_size:20}) : { selected_price_table_ids: selectedPriceTableIDs.value }
     const token=session.token, customerID=session.currentCustomerID
     const response = await fetchServicePage(token, serviceKey.value, filters)
+    if (!isCurrentOrderRequest()) return
     if(request && (request!==beanListRequest || token!==session.token || customerID!==session.currentCustomerID)) return
     page.value = response
     if(noticeOrderID.value && !response.orders?.length) errorMessage.value="该订单不存在或当前账号无权查看。"
@@ -302,13 +323,14 @@ async function loadPage(pageNumber=1) {
       await loadResaleBeanListWorkspace()
     }
   } catch (error) {
+    if (!isCurrentOrderRequest()) return
     if(request && request!==beanListRequest) return
     page.value = null
     cachedBeanList.value = null
     if (isAuthenticationExpiredRequestError(error)) { session.clearSession(); uni.reLaunch({url:loginRouteFor(serviceReturnURL())}); return }
     errorMessage.value = error instanceof Error ? error.message : '服务数据加载失败'
   } finally {
-    loading.value = false
+    if (isCurrentOrderRequest()) loading.value = false
   }
 }
 
@@ -383,6 +405,7 @@ async function applyDatePreset(preset: OrderDatePreset) {
 
 async function clearOrderFilters() {
   orderSearch.value = emptyOrderSearch()
+  orderKind.value = ''; orderProgress.value = ''
   await loadPage()
 }
 
@@ -392,9 +415,7 @@ function openOrderFromBill(orderNo?: string) {
   uni.navigateTo({ url: customerDestinationURL('orders', { q: keyword }) })
 }
 
-function openProcessingShipments() {
-  uni.navigateTo({ url: customerDestinationURL('processingShipments') })
-}
+
 
 function paymentMethodText(payStatus?: string, paymentMethod?: string): string {
   const method = String(paymentMethod || '').trim()
@@ -402,44 +423,6 @@ function paymentMethodText(payStatus?: string, paymentMethod?: string): string {
   const status = normalizeStatusText(payStatus)
   if (status.includes('已付') || status.includes('已收')) return '未填写'
   return '未付款'
-}
-
-function openOrderDocument(path?: string) {
-  if (!path) {
-    uni.showToast({ title: '单据暂不可用', icon: 'none' })
-    return
-  }
-  if (!session.token) {
-    uni.reLaunch({ url: loginRouteFor(serviceReturnURL()) })
-    return
-  }
-  uni.showLoading({ title: '打开中' })
-  uni.downloadFile({
-    url: buildAPIURL(path),
-    header: {
-      Authorization: `Bearer ${session.token}`,
-    },
-    success: (res) => {
-      if (res.statusCode !== 200 || !res.tempFilePath) {
-        uni.showToast({ title: '单据暂不可用', icon: 'none' })
-        return
-      }
-      uni.openDocument({
-        filePath: res.tempFilePath,
-        fileType: 'pdf',
-        showMenu: true,
-        fail: () => {
-          uni.showToast({ title: '单据打开失败', icon: 'none' })
-        },
-      })
-    },
-    fail: () => {
-      uni.showToast({ title: '单据下载失败', icon: 'none' })
-    },
-    complete: () => {
-      uni.hideLoading()
-    },
-  })
 }
 
 async function loadCustomerProductsWorkspace() {
@@ -925,6 +908,8 @@ async function confirmBeanListUpdateIfNeeded(): Promise<boolean> {
 
 onLoad((query) => {
   serviceKey.value = normalizeServiceKey(String(query?.key || 'beanList'))
+  orderProgress.value = ['accepted','in_production','shipped'].includes(String(query?.progress || '')) ? String(query?.progress) : ''
+  billInitialStatus.value = String(query?.status || '')
   directShipEntryMode.value = query?.fulfillment_mode === 'stock' || query?.fulfillment_mode === 'on_demand' ? query.fulfillment_mode : undefined
   stockPurchase.value = serviceKey.value === 'productOrder' && query?.stock_purchase === '1'
   officialOrders.value = serviceKey.value === 'orders' && (query?.source === 'official'||query?.source === 'notice')
@@ -972,10 +957,6 @@ onShow(() => { void refreshMiniappShareMenu() })
       <text class="subtitle">{{ page?.current_customer_name || session.currentCustomerName || '客户中心' }}</text>
     </view>
 
-    <view v-if="serviceKey === 'orders' && officialOrders && isProcessingCustomer" class="panel">
-      <button class="secondary" @tap="openProcessingShipments">{{ customerDestinations.processingShipments.label }}</button>
-    </view>
-
     <view v-if="loading" class="state">
       <text>加载中...</text>
     </view>
@@ -1001,13 +982,6 @@ onShow(() => { void refreshMiniappShareMenu() })
         order-mode="product_order"
         :stock-purchase="stockPurchase"
       />
-      <CustomerDirectShipPanel
-        v-else-if="serviceKey === 'orders' && isProcessingCustomer && !officialOrders"
-        :key="`fulfillment-center:${session.currentCustomerID}`"
-        :token="session.token"
-        :customer-id="session.currentCustomerID"
-        :show-create="false"
-      />
       <CustomerProcessingPanel
         v-else-if="serviceKey === 'processing'"
         :key="`processing:${session.currentCustomerID}`"
@@ -1027,7 +1001,7 @@ onShow(() => { void refreshMiniappShareMenu() })
         :token="session.token"
         :customer-id="session.currentCustomerID"
       />
-      <CustomerBillsPanel v-else-if="serviceKey === 'settlement'" :key="`settlement:${session.currentCustomerID}`" :token="session.token" />
+      <CustomerBillsPanel v-else-if="serviceKey === 'settlement'" :key="`settlement:${session.currentCustomerID}`" :token="session.token" :initial-status="billInitialStatus" />
 
       <template v-if="!isClosedLoopService">
 
@@ -1205,6 +1179,8 @@ onShow(() => { void refreshMiniappShareMenu() })
 
       <view v-if="serviceKey === 'orders'" class="panel filter-panel">
         <text class="panel-title">订单查询</text>
+        <view class="date-presets"><button v-for="option in [{key:'',label:'全部'},{key:'purchase',label:'订货'},{key:'dropship',label:'代发'}]" :key="option.key" class="chip" :class="{active:orderKind===option.key}" @tap="selectOrderKind(option.key)">{{option.label}}</button></view>
+        <view v-if="orderProgress" class="date-presets"><text>进度：{{ progressLabels[orderProgress] }}</text><button class="chip" @tap="orderProgress=''; loadPage()">清除进度</button></view>
         <input
           v-model="orderSearch.keyword"
           class="input"
@@ -1244,31 +1220,21 @@ onShow(() => { void refreshMiniappShareMenu() })
         <text class="panel-title">{{ orderPanelTitle }}</text>
         <view v-for="item in page.orders" :key="item.id" class="list-row">
           <view class="row-head">
-            <text class="row-main">{{ item.order_no || '未编号订单' }}{{item.is_void ? ' · 已取消' : ''}}</text>
-            <text class="price">¥{{ customerOrderAmounts(item).payable }}</text>
+            <text class="row-main">{{ item.order_kind === 'dropship' ? '代发' : '订货' }} · {{ item.order_no || '未编号订单' }}{{item.is_void ? ' · 已取消' : ''}}</text>
+            <text class="price">{{ customerOrderAmountDisplay(item) }}</text>
           </view>
-          <OrderDetailsCopyButton v-if="!isProcessingCustomer || officialOrders" :order-id="item.id" />
-          <text v-if="item.receiver_name || item.receiver_phone || item.receiver_address" class="row-sub">
-            收件人：{{ item.receiver_name || '未填写' }} {{ item.receiver_phone || '' }} {{ item.receiver_address || '' }}
-          </text>
-          <PaymentSummary :order="item" />
-          <text class="row-sub">{{ item.order_date || '未填写日期' }} / {{ orderProgressLabel(item) }} / {{ customerOrderPaymentStatus(item) }}</text>
-          <text v-if="item.delivery_mode === 'customer_stock'" class="row-sub">购货留厂代发</text>
-          <text v-if="item.fulfillment_mode" class="row-sub">{{ item.fulfillment_mode === 'stock' ? '库存代发' : '无库存代发' }}</text>
-          <text v-if="item.fee_summary" class="row-sub">货款 ¥{{ customerOrderAmounts(item).goods }} · 运费 ¥{{ customerOrderAmounts(item).shipping }} · 代发服务费 ¥{{ customerOrderAmounts(item).service }}</text>
-          <view v-if="item.items?.length" class="order-items">
-            <view v-for="line in item.items" :key="line.id" class="item-line">
-              <text>{{ line.item_name }} {{ line.spec }}</text>
-              <text>{{ line.qty }}{{ line.unit }} x ¥{{ line.unit_price }} = ¥{{ line.line_total }}</text>
-              <OrderItemWeights :item="line" />
-              <text v-if="line.bean_list_version_no" class="line-meta">价格表版本：{{ line.bean_list_version_no }}</text>
-            </view>
-          </view>
-          <text class="row-sub">{{item.freight?freightLabel(item.freight):`运费：¥${item.shipping_amount || '0.00'}`}}</text>
-          <text v-if="item.delivery_mode !== 'customer_stock'" class="row-sub">物流：{{ item.ship_tracking_no || '暂无单号' }}</text>
-          <view v-if="!isProcessingCustomer" class="document-actions">
-            <button class="secondary compact" @tap="openOrderDocument(item.sales_order_url)">销售单</button>
-            <button v-if="item.delivery_mode !== 'customer_stock'" class="secondary compact" @tap="openOrderDocument(item.delivery_note_url)">出库单</button>
+          <text class="row-sub">收件地址：{{ item.receiver_address || '未填写' }}</text>
+          <text class="row-sub">{{ orderProgressLabel(item) }} · {{ item.ship_status || '未发货' }} · {{ orderLogisticsLabel(item) }} · {{ customerOrderPaymentStatus(item) }}</text>
+          <button class="secondary compact" @tap="toggleOrder(item.id)">{{ expandedOrders.includes(item.id) ? '收起详情' : '展开详情' }}</button>
+          <view v-if="expandedOrders.includes(item.id)">
+            <OrderDetailsCopyButton :order-id="item.id" />
+            <text class="row-sub">收件人：{{ item.receiver_name || '未填写' }} {{ item.receiver_phone || '' }}</text>
+            <PaymentSummary :order="item" />
+            <text class="row-sub">{{ item.order_date || '未填写日期' }}</text>
+            <text v-if="item.fee_summary" class="row-sub">货款 ¥{{ customerOrderAmounts(item).goods }} · 运费 ¥{{ customerOrderAmounts(item).shipping }} · 代发服务费 ¥{{ customerOrderAmounts(item).service }}</text>
+            <view v-if="item.items?.length" class="order-items"><view v-for="line in item.items" :key="line.id" class="item-line"><text>{{ line.item_name }} {{ line.spec }}</text><text>{{ line.qty }}{{ line.unit }} x ¥{{ line.unit_price }} = ¥{{ line.line_total }}</text><OrderItemWeights :item="line" /><text v-if="line.bean_list_version_no" class="line-meta">价格表版本：{{ line.bean_list_version_no }}</text></view></view>
+            <text class="row-sub">{{item.freight?freightLabel(item.freight):`运费：¥${item.shipping_amount || '0.00'}`}}</text>
+            <text v-if="item.delivery_mode !== 'customer_stock'" class="row-sub">物流：{{ item.logistics_event?.tracking_no || item.ship_tracking_no || '暂无单号' }} · {{ orderLogisticsLabel(item) }}{{ item.logistics_event?.event_time ? ` · ${item.logistics_event.event_time}` : '' }}{{ item.logistics_event?.location ? ` · ${item.logistics_event.location}` : '' }}</text>
           </view>
         </view>
       </view>

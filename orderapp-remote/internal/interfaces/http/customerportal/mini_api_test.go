@@ -945,7 +945,7 @@ func TestMiniOrdersServicePageAPIParsesKeywordAndDateFilters(t *testing.T) {
 		},
 	}})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/mini/services/orders?q=%E4%B9%8C%E6%8B%89%E5%98%8E&date_from=2026-05-01&date_to=2026-05-03&process_status=%E7%94%9F%E4%BA%A7%E4%B8%AD&pay_status=%E5%B7%B2%E6%94%B6%E6%AC%BE&ship_status=%E5%BE%85%E5%8F%91%E8%B4%A7", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/services/orders?q=%E4%B9%8C%E6%8B%89%E5%98%8E&date_from=2026-05-01&date_to=2026-05-03&process_status=%E7%94%9F%E4%BA%A7%E4%B8%AD&pay_status=%E5%B7%B2%E6%94%B6%E6%AC%BE&ship_status=%E5%BE%85%E5%8F%91%E8%B4%A7&order_kind=dropship&progress=shipped", nil)
 	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -957,7 +957,7 @@ func TestMiniOrdersServicePageAPIParsesKeywordAndDateFilters(t *testing.T) {
 		gotFilter.DateTo != "2026-05-03" ||
 		gotFilter.ProcessStatus != "生产中" ||
 		gotFilter.PayStatus != "已收款" ||
-		gotFilter.ShipStatus != "待发货" {
+		gotFilter.ShipStatus != "待发货" || gotFilter.OrderKind != "dropship" || gotFilter.Progress != "shipped" {
 		t.Fatalf("filter=%+v", gotFilter)
 	}
 }

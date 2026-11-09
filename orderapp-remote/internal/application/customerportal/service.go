@@ -720,6 +720,7 @@ type CreateMallOrderCommand struct {
 }
 
 type CustomerOrderFeeSummary struct {
+	HasBilledFees bool  `json:"has_billed_fees"`
 	GoodsCents    int64 `json:"goods_cents"`
 	ShippingCents int64 `json:"shipping_cents"`
 	ServiceCents  int64 `json:"service_cents"`
@@ -728,34 +729,45 @@ type CustomerOrderFeeSummary struct {
 	UnpaidCents   int64 `json:"unpaid_cents"`
 }
 
+type CustomerOrderLogisticsEvent struct {
+	TrackingNo  string `json:"tracking_no"`
+	EventTime   string `json:"event_time"`
+	Status      string `json:"status"`
+	Description string `json:"description"`
+	Location    string `json:"location"`
+}
+
 type CustomerOrderSummary struct {
-	IsVoid                bool                       `json:"is_void"`
-	FeeSummary            *CustomerOrderFeeSummary   `json:"fee_summary,omitempty"`
-	FulfillmentProgress   *progressdomain.Progress   `json:"fulfillment_progress,omitempty"`
-	Freight               *freightdomain.OrderView   `json:"freight,omitempty"`
-	DeliveryMode          string                     `json:"delivery_mode"`
-	DeliveryWarehouseCode string                     `json:"delivery_warehouse_code"`
-	DeliveryStatus        string                     `json:"delivery_status"`
-	FulfillmentMode       string                     `json:"fulfillment_mode"`
-	PrepaymentAmount      string                     `json:"prepayment_amount"`
-	PaidAmount            string                     `json:"paid_amount"`
-	UnpaidAmount          string                     `json:"unpaid_amount"`
-	ID                    int64                      `json:"id"`
-	OrderNo               string                     `json:"order_no"`
-	OrderDate             string                     `json:"order_date"`
-	ReceiverName          string                     `json:"receiver_name"`
-	ReceiverPhone         string                     `json:"receiver_phone"`
-	ReceiverAddress       string                     `json:"receiver_address"`
-	ProcessStatus         string                     `json:"process_status"`
-	PayStatus             string                     `json:"pay_status"`
-	PaymentMethod         string                     `json:"payment_method"`
-	ShipStatus            string                     `json:"ship_status"`
-	ShipTrackingNo        string                     `json:"ship_tracking_no"`
-	GrandTotal            string                     `json:"grand_total"`
-	ShippingAmount        string                     `json:"shipping_amount"`
-	SalesOrderURL         string                     `json:"sales_order_url,omitempty"`
-	DeliveryNoteURL       string                     `json:"delivery_note_url,omitempty"`
-	Items                 []CustomerOrderItemSummary `json:"items,omitempty"`
+	LogisticsEvent        *CustomerOrderLogisticsEvent `json:"logistics_event,omitempty"`
+	OrderKind             string                       `json:"order_kind"`
+	ConfirmationStatus    string                       `json:"confirmation_status"`
+	IsVoid                bool                         `json:"is_void"`
+	FeeSummary            *CustomerOrderFeeSummary     `json:"fee_summary,omitempty"`
+	FulfillmentProgress   *progressdomain.Progress     `json:"fulfillment_progress,omitempty"`
+	Freight               *freightdomain.OrderView     `json:"freight,omitempty"`
+	DeliveryMode          string                       `json:"delivery_mode"`
+	DeliveryWarehouseCode string                       `json:"delivery_warehouse_code"`
+	DeliveryStatus        string                       `json:"delivery_status"`
+	FulfillmentMode       string                       `json:"fulfillment_mode"`
+	PrepaymentAmount      string                       `json:"prepayment_amount"`
+	PaidAmount            string                       `json:"paid_amount"`
+	UnpaidAmount          string                       `json:"unpaid_amount"`
+	ID                    int64                        `json:"id"`
+	OrderNo               string                       `json:"order_no"`
+	OrderDate             string                       `json:"order_date"`
+	ReceiverName          string                       `json:"receiver_name"`
+	ReceiverPhone         string                       `json:"receiver_phone"`
+	ReceiverAddress       string                       `json:"receiver_address"`
+	ProcessStatus         string                       `json:"process_status"`
+	PayStatus             string                       `json:"pay_status"`
+	PaymentMethod         string                       `json:"payment_method"`
+	ShipStatus            string                       `json:"ship_status"`
+	ShipTrackingNo        string                       `json:"ship_tracking_no"`
+	GrandTotal            string                       `json:"grand_total"`
+	ShippingAmount        string                       `json:"shipping_amount"`
+	SalesOrderURL         string                       `json:"sales_order_url,omitempty"`
+	DeliveryNoteURL       string                       `json:"delivery_note_url,omitempty"`
+	Items                 []CustomerOrderItemSummary   `json:"items,omitempty"`
 }
 
 type CustomerOrderItemSummary struct {
@@ -956,7 +968,14 @@ type SettlementBatch struct {
 	CreatedAt    string `json:"created_at"`
 }
 
+type OrderProgressCounts struct {
+	Accepted     int `json:"accepted"`
+	InProduction int `json:"in_production"`
+	Shipped      int `json:"shipped"`
+}
+
 type ServicePage struct {
+	ProgressCounts        *OrderProgressCounts             `json:"progress_counts,omitempty"`
 	Page                  int                              `json:"page"`
 	PageSize              int                              `json:"page_size"`
 	HasMore               bool                             `json:"has_more"`
@@ -984,6 +1003,8 @@ type ServicePage struct {
 }
 
 type ServicePageQuery struct {
+	OrderKind             string
+	Progress              string
 	OrderID               int64
 	Offset                int
 	SelectedPriceTableIDs []int64
@@ -999,6 +1020,8 @@ type ServicePageQuery struct {
 }
 
 type ServicePageFilter struct {
+	OrderKind             string
+	Progress              string
 	OrderID               int64
 	Page                  int
 	PageSize              int
@@ -1620,6 +1643,7 @@ func (s *Service) GetServicePage(ctx context.Context, token, key string, filter 
 		offset = (pageNo - 1) * limit
 	}
 	page, err := s.repo.LoadServicePage(ctx, ServicePageQuery{
+		OrderKind: filter.OrderKind, Progress: filter.Progress,
 		OrderID:               filter.OrderID,
 		Offset:                offset,
 		SelectedPriceTableIDs: filter.SelectedPriceTableIDs,
@@ -3506,7 +3530,7 @@ func NormalizeMallTemplateKey(value string) string {
 
 func normalizeServicePageFilter(filter ServicePageFilter) ServicePageFilter {
 	out := ServicePageFilter{
-		Page: filter.Page, PageSize: filter.PageSize, OrderID: max(0, filter.OrderID),
+		Page: filter.Page, PageSize: filter.PageSize, OrderID: max(0, filter.OrderID), OrderKind: strings.TrimSpace(filter.OrderKind), Progress: strings.TrimSpace(filter.Progress),
 		Query:         strings.Join(strings.Fields(strings.TrimSpace(filter.Query)), " "),
 		DateFrom:      normalizeDateString(filter.DateFrom),
 		DateTo:        normalizeDateString(filter.DateTo),

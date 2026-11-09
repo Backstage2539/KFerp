@@ -192,6 +192,15 @@ func seedReqRow(ctx context.Context, pool *pgxpool.Pool, schema string, row reqS
 	if row.status == "" {
 		row.status = "todo"
 	}
+	// Preserve updates and Van's acceptance when this requirement is seeded again.
+	if strings.Contains(row.code, "MINIAPP-FULFILLMENT-") {
+		if row.table == "req_review" {
+			_, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.req_review(code,pr_code,title,status,assignee,evidence) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(code) DO NOTHING`, schema), row.code, row.prCode, row.title, row.status, row.assignee, row.evidence)
+			return err
+		}
+		_, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.%s(code,title,status,assignee,evidence) VALUES($1,$2,$3,$4,$5) ON CONFLICT(code) DO NOTHING`, schema, row.table), row.code, row.title, row.status, row.assignee, row.evidence)
+		return err
+	}
 	// Delivery and Van's review happen after startup. Preserve their actual
 	// progress when subsequent restarts re-run the built-in requirement seeds.
 	if row.code == "PR-751-SHIPPING-RETURN-CANDIDATES" || strings.HasPrefix(row.code, "DEV-PR751-") || row.code == "PR-750-ORDER-WECHAT-NOTIFICATIONS" || strings.HasPrefix(row.code, "DEV-PR750-") || row.code == "PR-748-BOM-START-CONSUMPTION" || strings.HasPrefix(row.code, "DEV-PR748-") || row.code == "PR-DIRECTSHIP-REGION-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-REGION-") || row.code == "PR-DIRECTSHIP-HISTORICAL-STOCK-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-HISTORICAL-STOCK-") || row.code == "PR-ORDER-DATE-SAVE-20261104" || strings.HasPrefix(row.code, "DEV-ORDER-DATE-SAVE-") {
@@ -261,6 +270,14 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-MINIAPP-FULFILLMENT-20261109", title: "履约客户小程序首页、价格表、订单与账单优化", status: "doing", assignee: "Van", evidence: "客户要求及验收口径；开发中"},
+		{table: "req_dev", code: "DEV-MINIAPP-FULFILLMENT-HOME", title: "首页订单进度与全时间待付款账单", status: "doing", assignee: "Codex", evidence: "开发中"},
+		{table: "req_dev", code: "DEV-MINIAPP-FULFILLMENT-ORDERS", title: "订货与代发筛选及订单精简", status: "doing", assignee: "Codex", evidence: "开发中"},
+		{table: "req_dev", code: "DEV-MINIAPP-FULFILLMENT-PRICE", title: "客户绑定价格表直接展示", status: "doing", assignee: "Codex", evidence: "开发中"},
+		{table: "req_dev", code: "DEV-MINIAPP-FULFILLMENT-BILLS", title: "已出账账单日期筛选、明细和下载", status: "doing", assignee: "Codex", evidence: "开发中"},
+		{table: "req_unit", code: "UT-MINIAPP-FULFILLMENT-20261109", title: "订单进度、价表、账单范围与金额单测", status: "todo", assignee: "Codex", evidence: "待执行"},
+		{table: "req_api", code: "API-MINIAPP-FULFILLMENT-20261109", title: "客户隔离、筛选和账单余额接口测试", status: "todo", assignee: "Codex", evidence: "待执行"},
+		{table: "req_review", code: "REV-MINIAPP-FULFILLMENT-20261109", prCode: "PR-MINIAPP-FULFILLMENT-20261109", title: "喜沁咖啡小程序生产数据与操作验收", status: "todo", assignee: "Van", evidence: "待 DevTools 点验及用户验收"},
 		{table: "req_product", code: "PR-PRODUCTION-FOUR-FIXES-20261109", title: "包装补料、生产需求显示及工位产能校验修复", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-09-production-four-fixes.md；待用户验收"},
 		{table: "req_dev", code: "DEV-PRODUCTION-FOUR-FIXES-01", title: "包装组合卡直接打开本组补料抽屉", status: "review", assignee: "Codex", evidence: "工位 Vue 行为与领料 API 回归"},
 		{table: "req_dev", code: "DEV-PRODUCTION-FOUR-FIXES-02", title: "待计划异常布局及移除库存充足展示区", status: "review", assignee: "Codex", evidence: "生产需求 Vue 测试和布局验证"},
