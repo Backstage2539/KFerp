@@ -1,10 +1,11 @@
 ### PR-754-OPERATION-REPORTING-MODES
 - Branch: `codex/production-operation-modes-20261109`; base: `origin/develop`.
-- Status: 自动及隔离数据库回归通过；待最新 develop 集成与开发环境验收，用户验收待完成。
+- Status: 已合入 develop 并发布开发环境，自动及隔离数据库回归通过；用户验收待完成。
 - Scope: 烘焙、来料加工、按件包装的数量安排、报工及余料结算。
 - DEV: `DEV-PR754-01` 排产与产能；`DEV-PR754-02` 色选报工；`DEV-PR754-03` 包装余料；`DEV-PR754-04` 手册与验证。
 - Verifier: RED/GREEN 前端、接口、数据库与库存成本回归，Vue 构建及桌面/窄屏验收。
-- Notes: macOS `reserve_req_id.sh --claim` 因 awk 多行参数失败，已核对编号并手动登记。
+- Deployment: 开发 ERP 运行版本 `dabda990b70f7aae159f6dfffea435f93e41c9ff`；保留既有小程序包，正式环境未部署。备份 `/opt/stacks/erp/orderapp.backup.deploy-20261110015307-dabda990b70f`。
+- Notes: macOS `reserve_req_id.sh --claim` 因 awk 多行参数失败，已核对编号并手动登记；页面验收误停用开发工位 #6 后已恢复，详见验收记录。
 
 ### PR-PRODUCTION-FOUR-FIXES-20261109
 - Branch: `codex/production-workstation-four-fixes-20261109`; base: `origin/develop`.
