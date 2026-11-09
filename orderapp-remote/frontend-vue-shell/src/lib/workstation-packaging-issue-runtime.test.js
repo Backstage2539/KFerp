@@ -84,3 +84,28 @@ test('ordinary merged issue keeps its existing stock-action eligibility filter',
   assert.equal(state.batchIssue.open, true)
   assert.deepEqual(state.batchIssue.ids, [1])
 })
+
+test('non-Chinese piece tasks render the packaging group and open all sources', async () => {
+  const { state, tree } = await harness()
+  state.overview.value = { tasks: packagingTasks().map(task => ({...task,operation:'assembly',reporting_type:'piece'})) }
+  const button = findNode(await tree(), node => node.type === 'button' && node.children === '补齐物料')
+  assert.ok(button);button.props.onClick();assert.deepEqual(state.batchIssue.ids,[101,102,103])
+})
+
+test('all configured operation types use the simplified workstation flow regardless of name', async () => {
+  const { state } = await harness()
+  for (const mode of ['batch','incoming','piece']) assert.equal(state.isSimplifiedTask({operation:'process-A',reporting_type:mode,automatic_completion:false}),true)
+  assert.equal(state.isSimplifiedTask({operation:'包装',reporting_type:'unknown',automatic_completion:true}),false)
+  assert.equal(state.isSimplifiedTask({operation:'包装',reporting_type:'',automatic_completion:false}),true)
+  const wrongType=packagingTasks().map(task=>({...task,reporting_type:'incoming'}))
+  assert.deepEqual(state.packagingGroups({tasks:wrongType}),[])
+})
+
+test('multiple cards from one work order render individually instead of a duplicated packaging group',async()=>{
+ const {state,tree}=await harness()
+ const tasks=packagingTasks().map((task,index)=>({...task,operation:'assembly',reporting_type:'piece',work_order_id:index<2?201:203}))
+ state.overview.value={tasks}
+ assert.deepEqual(state.packagingGroups({tasks}),[])
+ assert.equal(state.ungroupedTasks({tasks}).length,3)
+ assert.equal(findNode(await tree(),node=>node.type==='button'&&node.children==='补齐物料'),null)
+})

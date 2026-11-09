@@ -95,6 +95,9 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	if err := customerstock.LockRunningFulfillmentCustomersTx(ctx, tx, schema, id); err != nil {
 		return productionapp.FinishResult{}, err
 	}
+	if err := lockProductionFinancePeriodTx(ctx, tx, schema); err != nil {
+		return productionapp.FinishResult{}, err
+	}
 	// Resolve the owner work order even for legacy /finish callers.
 	var receiptWorkOrderID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE((SELECT id FROM %s.work_orders WHERE running_item_id=$1 LIMIT 1),0)`, schema), id).Scan(&receiptWorkOrderID); err != nil {

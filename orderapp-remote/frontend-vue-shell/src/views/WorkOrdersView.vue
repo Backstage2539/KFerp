@@ -88,6 +88,7 @@
           </div>
           <button class="secondary compact" type="button" @click="closeWorkOrderSplitDrawer">关闭</button>
         </div>
+        <OperationReportingRecheck kind="work_order" :id="Number(workOrderSplitRow.id || workOrderSplitRow.work_order_id)" @updated="closeWorkOrderSplitDrawer(); load()" />
         <div v-if="workOrderSplitError" class="error">{{ workOrderSplitError }}</div>
         <div v-for="operation in workOrderSplitOperations" :key="`${operation.seq || operation.sequence_no || operation.operation}-${operation.operation_id || 0}`" class="split-operation-block">
           <div class="split-operation-head">
@@ -108,17 +109,17 @@
               <span>承担产量{{ splitQuantityUnit(split) }}</span>
               <input v-model.number="split.planned_qty" type="number" min="0" :step="splitQuantityStep(split)" />
             </label>
-            <div class="split-metric">
+            <div v-if="split.scheduling_mode !== 'quantity'" class="split-metric">
               <span>自动批次数</span>
               <strong>{{ plannedCapacitySplitMetrics(split).planned_batch_count || 0 }}</strong>
             </div>
             <div class="split-metric">
               <span>计划分钟</span>
-              <strong>{{ plannedCapacitySplitMetrics(split).planned_minutes || 0 }}</strong>
+              <strong>{{ plannedCapacitySplitMetrics(split).planned_minutes ?? '未配置参考速度' }}</strong>
             </div>
             <div class="split-metric">
               <span>计划工序成本</span>
-              <strong>{{ plannedCapacitySplitMetrics(split).planned_operation_cost || 0 }}</strong>
+              <strong>{{ plannedCapacitySplitMetrics(split).planned_operation_cost ?? '未配置参考速度' }}</strong>
             </div>
             <button class="secondary compact danger-text" type="button" @click="removeWorkOrderOperationSplit(split)">删除</button>
             <div v-if="splitBatchCards(split).length" class="split-batch-cards" aria-label="自动批次卡片">
@@ -207,6 +208,8 @@ import { computed, onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDrawer.vue'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
+import OperationReportingRecheck from '../components/OperationReportingRecheck.vue'
+import { weightUnit } from '../lib/operation-completion.js'
 import { formatPercent } from '../lib/manufacturing-loss'
 import { workOrderStatusLabel } from '../lib/manufacturing-execution'
 import { clearRecordedOutputReceiptAttempt, readRecordedOutputReceiptAttempt, recordedOutputReceiptPayload, saveRecordedOutputReceiptAttempt } from '../lib/recorded-output-receipt.js'
@@ -716,6 +719,7 @@ function splitQuantityUnit(split) {
 function splitQuantityStep(split) {
   const unit = String(split?.batch_size_unit || '').trim().toLowerCase()
   if (unit === 'g' || unit === '克') return '1'
+  if (!weightUnit(unit)) return '1'
   return '0.001'
 }
 
@@ -773,6 +777,8 @@ function normalizeWorkOrderSplit(row = {}) {
     batch_size_qty: Number(row.batch_size_qty || 0),
     batch_size_unit: row.batch_size_unit || '',
     standard_minutes: Number(row.standard_minutes || 0),
+    scheduling_mode: row.scheduling_mode || 'batch',
+    throughput_per_hour: Number(row.throughput_per_hour || 0),
     hourly_rate: Number(row.hourly_rate || 0),
     cost_method: normalizeCapacityCostMethod(row),
     piece_rate: Number(row.piece_rate || 0),
@@ -780,7 +786,7 @@ function normalizeWorkOrderSplit(row = {}) {
     spec_g: Number(row.spec_g || workOrderSplitRow.value?.spec_g || 0),
     sales_spec_count: Number(row.sales_spec_count || workOrderSplitRow.value?.sales_spec_count || 0),
     item_target_g: Number(row.item_target_g || productionPlanItemOutputTargetG(workOrderSplitRow.value || {})),
-    planned_qty: Number(row.planned_qty || qtyFromGForSplitUnit(Number(row.planned_input_qty || row.planned_qty_g || 0), row.batch_size_unit)),
+    planned_qty: row.scheduling_mode === 'quantity' ? Number(row.planned_qty ?? row.planned_input_qty ?? 0) : Number(row.planned_qty || qtyFromGForSplitUnit(Number(row.planned_input_qty || row.planned_qty_g || 0), row.batch_size_unit)),
     planned_qty_g: Number(row.planned_qty_g || row.planned_input_qty || 0),
     planned_minutes: Number(row.planned_minutes || 0),
     planned_operation_cost: Number(row.planned_operation_cost || 0),
@@ -812,6 +818,8 @@ function applyWorkOrderSplitCapacity(split) {
   split.batch_size_qty = Number(capacity.batch_size_qty || 0)
   split.batch_size_unit = capacity.batch_size_unit || ''
   split.standard_minutes = Number(capacity.standard_minutes || 0)
+  split.scheduling_mode = capacity.scheduling_mode || 'batch'
+  split.throughput_per_hour = Number(capacity.throughput_per_hour || 0)
   split.hourly_rate = Number(capacity.hourly_rate || 0)
   split.cost_method = normalizeCapacityCostMethod(capacity)
   split.piece_rate = Number(capacity.piece_rate || 0)

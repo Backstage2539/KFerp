@@ -29,6 +29,7 @@ func (s *Service) PreviewOperationCompletion(ctx context.Context, id int64) (Ope
 // OperationExecution is frozen with a route node, never resolved from live
 // configuration while completing an existing work order.
 type OperationExecution struct {
+	ReportingType    string `json:"reporting_type,omitempty"`
 	Version          int    `json:"version"`
 	NodeKey          string `json:"node_key"`
 	ReceiptEnabled   bool   `json:"receipt_enabled"`
@@ -224,11 +225,23 @@ type OperationMaterialUse struct {
 	RatioPct        float64                  `json:"ratio_pct,omitempty"`
 }
 
+type IncomingAllocation struct {
+	JobCardID   int64   `json:"job_card_id"`
+	Workstation string  `json:"workstation"`
+	Quantity    float64 `json:"quantity"`
+	Unit        string  `json:"unit"`
+	Frozen      bool    `json:"frozen"`
+}
+
 type OperationCompletionPreview struct {
-	StartedInputs             []StartedInputDetail   `json:"started_inputs"`
-	StartedMaterials          []OperationMaterialUse `json:"started_materials"`
-	MaterialConsumptionPolicy string                 `json:"material_consumption_policy"`
-	StartedInputQty           float64                `json:"started_input_qty"`
+	PackagingUnissuedCandidates []PackagingUnissuedRemainder `json:"packaging_unissued_candidates,omitempty"`
+	PackagingAvailableG         float64                      `json:"packaging_available_g,omitempty"`
+	PackagingStandardGPerPiece  float64                      `json:"packaging_standard_g_per_piece,omitempty"`
+	IncomingAllocations         []IncomingAllocation         `json:"incoming_allocations,omitempty"`
+	StartedInputs               []StartedInputDetail         `json:"started_inputs"`
+	StartedMaterials            []OperationMaterialUse       `json:"started_materials"`
+	MaterialConsumptionPolicy   string                       `json:"material_consumption_policy"`
+	StartedInputQty             float64                      `json:"started_input_qty"`
 
 	LegacyExecution           bool                    `json:"legacy_execution,omitempty"`
 	LegacyPackaging           bool                    `json:"legacy_packaging,omitempty"`
@@ -291,6 +304,7 @@ type OperationCompletionReceipt struct {
 	Message          string                       `json:"message"`
 	InventoryWarning string                       `json:"inventory_warning,omitempty"`
 	EstimatedCost    bool                         `json:"estimated_cost"`
+	CostUnavailable  bool                         `json:"cost_unavailable,omitempty"`
 }
 
 // Frozen weights are numeric snapshots. Display labels are never parsed.

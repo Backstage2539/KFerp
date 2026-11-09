@@ -31,6 +31,9 @@ func (r Repository) correctOperationOutputOnce(ctx context.Context, c app.Correc
 			return out, err
 		}
 	}
+	if err = lockProductionFinancePeriodTx(ctx, tx, r.schema); err != nil {
+		return out, err
+	}
 	if err = lockReceiptWorkOrderTx(ctx, tx, r.schema, workID); err != nil {
 		return out, err
 	}
@@ -120,6 +123,15 @@ func (r Repository) correctOperationOutputOnce(ctx context.Context, c app.Correc
 	if err = app.ValidateOperationQuantity(c.ActualOutputQty, unit); err != nil {
 		return out, err
 	}
+	if math.Abs(c.ActualOutputQty-previous) > 1e-8 {
+		preview, _, previewErr := r.operationCompletionContextTx(ctx, tx, c.ID, true)
+		if previewErr != nil {
+			return out, previewErr
+		}
+		if preview.Execution.ReportingType == "piece" {
+			return out, fmt.Errorf("按件报工数量已结算，不能直接更改；请先通过冲销、退料或补料流程处理材料和成本")
+		}
+	}
 	wo, err := loadWorkOrderExecutionRowTx(ctx, tx, r.schema, workID)
 	if err != nil {
 		return out, err
@@ -170,6 +182,13 @@ func (r Repository) correctOperationOutputOnce(ctx context.Context, c app.Correc
 			return out, err
 		}
 	} else {
+		var downstreamFrozen bool
+		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.job_cards WHERE work_order_id=$1 AND sequence_no>$2 AND status<>'cancelled' AND metrics_json ? 'incoming_allocation')`, r.schema), workID, seq).Scan(&downstreamFrozen); err != nil {
+			return out, err
+		}
+		if downstreamFrozen {
+			return out, fmt.Errorf("后序来料已分配，请先处理关联工序后再更正前序产出")
+		}
 		var used float64
 		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT (COALESCE((SELECT SUM(qty) FROM %[1]s.production_operation_movements WHERE source_balance_id IN(SELECT id FROM %[1]s.production_operation_balances WHERE event_id=$1)),0)+COALESCE((SELECT SUM(remaining_qty) FROM %[1]s.production_started_handoffs WHERE source_balance_id IN(SELECT id FROM %[1]s.production_operation_balances WHERE event_id=$1) AND status='posted'),0))::float8`, r.schema), original).Scan(&used); err != nil {
 			return out, err

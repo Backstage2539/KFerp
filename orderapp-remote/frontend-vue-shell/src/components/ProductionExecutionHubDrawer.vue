@@ -62,7 +62,7 @@
             <div class="section-head record-heading"><div><span class="step-no">02</span><strong>工序记录</strong></div><span class="muted">原“工序卡”记录已合入这里</span></div>
             <p class="record-help">展开已执行任务，可查看人员、投入、产出、耗时和损耗。旧工序卡链接仍可定位到对应任务。</p>
             <details class="folded"><summary>冻结 BOM 与工艺路线</summary><p>{{ hub.bom_summary || '-' }}</p><p>{{ hub.route_summary || '-' }}</p></details>
-            <details class="folded"><summary>配方、成本与订单追溯</summary><p>成本 {{ money(hub.cost_summary?.total_cost) }} · 关联订单 {{ header.order_nos || '-' }}</p><div v-for="item in hub.trace_timeline || []" :key="`${item.type}-${item.ref_id}-${item.at}`" class="trace-row"><strong>{{ item.title }}</strong><span>{{ item.at || '-' }} · {{ item.summary || '-' }}</span></div></details>
+            <details class="folded"><summary>配方、成本与订单追溯</summary><p>成本 {{ hub.cost_summary?.actual_cost_unavailable ? '待核算' : money(hub.cost_summary?.total_cost) }} · 关联订单 {{ header.order_nos || '-' }}</p><div v-for="item in hub.trace_timeline || []" :key="`${item.type}-${item.ref_id}-${item.at}`" class="trace-row"><strong>{{ item.title }}</strong><span>{{ item.at || '-' }} · {{ item.summary || '-' }}</span></div></details>
           </main>
 
           <aside class="todo-column">

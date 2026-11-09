@@ -48,6 +48,9 @@ func (r Repository) startOperation(ctx context.Context, cmd app.JobCardActionCom
 				return out, err
 			}
 		}
+		if err = lockProductionFinancePeriodTx(ctx, tx, r.schema); err != nil {
+			return out, err
+		}
 		if err = lockReceiptWorkOrderTx(ctx, tx, r.schema, workID); err != nil {
 			return out, err
 		}
@@ -72,6 +75,13 @@ func (r Repository) startOperation(ctx context.Context, cmd app.JobCardActionCom
 
 func (r Repository) startOperationLockedTx(ctx context.Context, tx pgx.Tx, cmd app.JobCardActionCommand) (app.JobCardActionResult, error) {
 	var out app.JobCardActionResult
+	var replanRequired bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.job_cards current JOIN %[1]s.job_cards sibling ON sibling.work_order_id=current.work_order_id WHERE current.id=$1 AND COALESCE((sibling.metrics_json->>'reporting_replan_required')::boolean,false))`, r.schema), cmd.ID).Scan(&replanRequired); err != nil {
+		return out, err
+	}
+	if replanRequired {
+		return out, fmt.Errorf("工序报工类型已更新，请先重新安排工位产能")
+	}
 	p, wo, err := r.operationCompletionContextTx(ctx, tx, cmd.ID, true)
 	if err != nil {
 		return out, err
@@ -81,6 +91,15 @@ func (r Repository) startOperationLockedTx(ctx context.Context, tx pgx.Tx, cmd a
 	}
 	if p.Version != cmd.ExpectedVersion {
 		return out, fmt.Errorf("任务或库存已变化，请刷新；本次未扣料")
+	}
+	if p.Execution.ReportingType == "incoming" && p.PredecessorRequired {
+		var seq int
+		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT sequence_no FROM %s.job_cards WHERE id=$1`, r.schema), cmd.ID).Scan(&seq); err != nil {
+			return out, err
+		}
+		if err = ensureJobCardPredecessorCompletedTx(ctx, tx, r.schema, wo.ID, seq); err != nil {
+			return out, err
+		}
 	}
 	if !p.Enabled || p.BlockedReason != "" {
 		return out, fmt.Errorf("不能开工：%s", p.BlockedReason)
@@ -112,6 +131,22 @@ func (r Repository) startOperationLockedTx(ctx context.Context, tx pgx.Tx, cmd a
 	}
 	if cmd.InputUnit != p.InputUnit || cmd.ActualInputQty <= 0 {
 		return out, fmt.Errorf("请确认本批实际投入数量和单位")
+	}
+	if p.Execution.ReportingType == "incoming" && p.PredecessorRequired {
+		if math.Abs(cmd.ActualInputQty-p.InputQty) > 1e-8 {
+			return out, fmt.Errorf("实际投入必须等于本工位已确认的来料分配，请刷新核对")
+		}
+		var seq int
+		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT sequence_no FROM %s.job_cards WHERE id=$1`, r.schema), cmd.ID).Scan(&seq); err != nil {
+			return out, err
+		}
+		allocations, allocErr := r.incomingAllocationsTx(ctx, tx, p, seq, true)
+		if allocErr != nil {
+			return out, allocErr
+		}
+		if err = r.freezeIncomingAllocationsTx(ctx, tx, allocations); err != nil {
+			return out, err
+		}
 	}
 	if math.Round(cmd.ActualInputQty*1e8) != math.Round(p.InputQty*1e8) && strings.TrimSpace(cmd.DifferenceReason) == "" {
 		return out, fmt.Errorf("实际投入与建议数量不一致，请填写差异原因")

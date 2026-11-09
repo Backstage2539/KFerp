@@ -33,5 +33,6 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	registerProductionLogPages(e, deps.Production)
 	registerProduceBatchAPI(e, deps.Production)
 	registerWorkOrderAPI(e, deps.Production, deps.Stock)
+	registerReportingRecheckAPI(e, deps.Production)
 	registerManufacturingGapAPI(e, deps.Production)
 }

@@ -342,17 +342,29 @@ func splitCustomerProcessingFinishedBatchForIssueTx(ctx context.Context, tx pgx.
 	}
 	childCode := fmt.Sprintf("%s-CP-%d-%d", allocation.BatchCode, workOrderID, reservation.ID)
 	var childID int64
+	// Preserve each identity and cost attribute available on the source schema.
+	// Older compatibility schemas omit some of these additive columns.
+	identityColumns := ""
+	for _, name := range []string{"owner_customer_id", "bom_spec_id", "bom_variant_id", "cost_unavailable"} {
+		exists, err := schemaColumnExistsTx(ctx, tx, schema, "stock_batches", name)
+		if err != nil {
+			return customerProcessingFinishedBatchAllocation{}, err
+		}
+		if exists {
+			identityColumns += "," + name
+		}
+	}
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.stock_batches(
 			batch_code,item_type,item_id,item_name,spec_g,source_doc_type,source_doc_id,source_batch_id,
-			qty_g,qty_units,operator,created_at,remaining_g,remaining_units,unit_cost,quality_status
+			qty_g,qty_units,operator,created_at,remaining_g,remaining_units,unit_cost,quality_status%s
 		)
 		SELECT $2,item_type,item_id,item_name,spec_g,'',0,batch_code,
-		       $3,$4,$5,created_at,$3,$4,unit_cost,quality_status
+		       $3,$4,$5,created_at,$3,$4,unit_cost,quality_status%s
 		FROM %s.stock_batches
 		WHERE id=$1
 		RETURNING id
-	`, schema, schema), allocation.StockBatchID, childCode, allocation.QtyG, allocation.QtyUnits, strings.TrimSpace(operator)).Scan(&childID); err != nil {
+	`, schema, identityColumns, identityColumns, schema), allocation.StockBatchID, childCode, allocation.QtyG, allocation.QtyUnits, strings.TrimSpace(operator)).Scan(&childID); err != nil {
 		return customerProcessingFinishedBatchAllocation{}, err
 	}
 	allocation.StockBatchID = childID

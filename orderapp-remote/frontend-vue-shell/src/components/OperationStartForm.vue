@@ -8,6 +8,10 @@
       <p>本批计划产出 {{ preview.planned_qty }} {{ preview.output_unit }}。批次按冻结预留和可用批次顺序扣减，确认时重新核对。</p>
       <p v-if="preview.blocked_reason" role="alert" class="error">{{ preview.blocked_reason }}</p>
       <p v-if="preview.predecessor_required">本工序承接前序产出，不再扣本 BOM 原料。</p>
+      <div v-if="preview.incoming_allocations?.length" class="warning" role="status">
+        <p>按前序实际产出核对各工位来料，首次开工后冻结：</p>
+        <p v-for="allocation in preview.incoming_allocations" :key="allocation.job_card_id">{{ allocation.workstation || `任务 ${allocation.job_card_id}` }}：{{ allocation.quantity }} {{ allocation.unit }}</p>
+      </div>
       <p v-if="preview.bom_refresh_pending">确认开工后锁定配方 {{ preview.effective_bom_version_no }}。</p>
       <div v-if="startShortages.length" class="warning">
         <p v-for="m in startShortages" :key="m.key">本批开工缺口：{{ m.name }} {{ m.shortage_qty }} {{ m.unit }}</p>

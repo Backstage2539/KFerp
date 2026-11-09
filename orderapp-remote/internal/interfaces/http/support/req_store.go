@@ -261,6 +261,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-754-OPERATION-REPORTING-MODES", title: "三类工序分别排产报工及结算余料", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-09-operation-reporting-modes.md；用户验收待完成"},
+		{table: "req_dev", code: "DEV-PR754-01", title: "工序排产方式和参考处理速度", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR754-02", title: "来料工序废料报工及多工位校准", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR754-03", title: "按件包装余料结算与批次库存", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR754-04", title: "验证、操作手册和开发交付", status: "review", assignee: "Codex"},
 		{table: "req_product", code: "PR-PRODUCTION-FOUR-FIXES-20261109", title: "包装补料、生产需求显示及工位产能校验修复", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-09-production-four-fixes.md；待用户验收"},
 		{table: "req_dev", code: "DEV-PRODUCTION-FOUR-FIXES-01", title: "包装组合卡直接打开本组补料抽屉", status: "review", assignee: "Codex", evidence: "工位 Vue 行为与领料 API 回归"},
 		{table: "req_dev", code: "DEV-PRODUCTION-FOUR-FIXES-02", title: "待计划异常布局及移除库存充足展示区", status: "review", assignee: "Codex", evidence: "生产需求 Vue 测试和布局验证"},

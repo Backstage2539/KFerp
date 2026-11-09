@@ -119,3 +119,101 @@ func TestCapacityBatchAPIReadWriteCompatibility(t *testing.T) {
 		t.Fatal("submitted capacity snapshot changed")
 	}
 }
+
+func TestQuantityCapacityAPIPersistsExactQuantityAndTime(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedProductionPlanLifecycleData(t, ctx, pool, schema)
+	repo := postgresproduction.NewRepository(pool, schema)
+	plan, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{Selected: map[string]bool{"1-227": true}, Operator: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+ INSERT INTO %[1]s.manufacturing_workstations(id,name,status,hourly_rate) VALUES(719,'数量测试','active',120);
+ INSERT INTO %[1]s.manufacturing_workstation_capacities(id,workstation_id,name,status,batch_size_qty,batch_size_unit,standard_minutes,scheduling_mode,throughput_per_hour) VALUES(719,719,'色选','active',0,'kg',0,'quantity',600);
+ INSERT INTO %[1]s.manufacturing_operations(id,name,status) VALUES(719,'烘焙','active');
+ INSERT INTO %[1]s.manufacturing_workstation_operations(workstation_id,operation_id) VALUES(719,719);`, schema))
+	app := newProductionFlowTestEcho(pool, schema)
+	body := fmt.Sprintf(`{"items":[{"production_plan_item_id":%d,"operation_seq":1,"operation":"烘焙","workstation_capacity_id":719,"planned_qty":23}]}`, plan.Items[0].ID)
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/production-plans/%d/operation-splits", plan.ID), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("save: %d %s", rec.Code, rec.Body.String())
+	}
+	saved, err := repo.GetProductionPlan(ctx, plan.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.OperationSplits) != 1 {
+		t.Fatal(saved.OperationSplits)
+	}
+	split := saved.OperationSplits[0]
+	if split.SchedulingMode != "quantity" || split.ThroughputPerHour != 600 || (split.PlannedSeconds == nil || *split.PlannedSeconds != 138) || split.PlannedQty != 23 || split.PlannedBatchCount != 0 || split.PlannedOperationCost != 4.6 {
+		t.Fatalf("quantity split %+v", split)
+	}
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %s.manufacturing_workstation_capacities SET throughput_per_hour=0 WHERE id=719`, schema))
+	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/production-plans/%d/operation-splits", plan.ID), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("save without speed: %d %s", rec.Code, rec.Body.String())
+	}
+	saved, err = repo.GetProductionPlan(ctx, plan.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.OperationSplits[0].PlannedSeconds != nil || saved.OperationSplits[0].CostEstimateAvailable {
+		t.Fatalf("missing speed lost: %+v", saved.OperationSplits[0])
+	}
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %[1]s.production_plan_items SET process_route_snapshot_json = '{"operations":[{"seq":1,"operation":"烘焙","execution_json":"{\"reporting_type\":\"incoming\"}"}]}'::jsonb WHERE id=%[2]d; UPDATE %[1]s.manufacturing_workstation_capacities SET scheduling_mode='batch',batch_size_qty=10 WHERE id=719`, schema, plan.Items[0].ID))
+	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/production-plans/%d/operation-splits", plan.ID), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+	if rec.Code != 400 {
+		t.Fatalf("mismatched batch accepted: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestQuantityCostUnknownPersistsThroughJobCardsAndAnalytics(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+ INSERT INTO %[1]s.work_orders(id,work_order_no,product_name,status,running_item_id) VALUES(9001,'WO-UNKNOWN','测试','running',91);
+ INSERT INTO %[1]s.production_batch_costs(running_item_id,batch_id,product_name) VALUES(91,'unknown-batch','测试');
+ INSERT INTO %[1]s.job_cards(id,work_order_id,operation,status,scheduling_mode,throughput_per_hour,cost_method) VALUES(9002,9001,'处理','completed','quantity',0,'time');
+ INSERT INTO %[1]s.production_operation_events(work_order_id,job_card_id,status,request_id,expected_version,operator,input_unit,output_unit,warehouse,payload) VALUES(9001,9002,'posted','unknown-cost','v1','test','kg','kg','wip','{"cost_unavailable":true}');`, schema))
+	repo := postgresproduction.NewRepository(pool, schema)
+	cards, err := repo.ListJobCards(ctx, productionapp.JobCardQuery{WorkOrderID: 9001, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cards) != 1 || !cards[0].PlannedCostUnavailable || !cards[0].ActualCostUnavailable {
+		t.Fatalf("cost unknown lost in cards: %+v", cards)
+	}
+	orders, err := repo.ListWorkOrders(ctx, productionapp.WorkOrderQuery{ID: 9001, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(orders) != 1 || !orders[0].PlannedCostUnavailable || !orders[0].ActualCostUnavailable {
+		t.Fatalf("cost unknown lost in order: %+v", orders)
+	}
+	batches, err := repo.ListBatchCosts(ctx, productionapp.BatchCostQuery{RunningItemID: 91, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(batches) != 1 || !batches[0].ActualCostUnavailable {
+		t.Fatalf("cost unknown lost in batch costs: %+v", batches)
+	}
+	analytics, err := repo.ProductionTraceAnalytics(ctx, productionapp.ProductionTraceAnalyticsQuery{WorkOrderID: 9001, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(analytics.CostVariance) != 1 || !analytics.CostVariance[0].PlannedCostUnavailable || !analytics.CostVariance[0].ActualCostUnavailable || !analytics.TotalVarianceUnavailable {
+		t.Fatalf("cost unknown lost in analytics: %+v", analytics)
+	}
+}

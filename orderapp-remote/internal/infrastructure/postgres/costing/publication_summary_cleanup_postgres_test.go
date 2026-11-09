@@ -51,6 +51,7 @@ func publicationCleanupPostgres(t *testing.T) (Repository, context.Context) {
 		CREATE TABLE %[1]s.bean_list_publication_assets(id BIGSERIAL PRIMARY KEY, publication_id BIGINT NOT NULL REFERENCES %[1]s.bean_list_publications(id) ON DELETE CASCADE, asset_type TEXT, content_type TEXT, cache_key TEXT, payload BYTEA, created_by TEXT, created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now(), UNIQUE(publication_id,asset_type));
 		CREATE TABLE %[1]s.customer_bean_list_acknowledgements(id BIGSERIAL PRIMARY KEY, customer_id BIGINT NOT NULL, publication_id BIGINT NOT NULL REFERENCES %[1]s.bean_list_publications(id) ON DELETE CASCADE, acknowledged_by TEXT, acknowledged_at TIMESTAMPTZ DEFAULT now());
 		CREATE TABLE %[1]s.bean_list_publication_delete_previews(token_hash TEXT PRIMARY KEY, actor TEXT NOT NULL, publication_ids BIGINT[] NOT NULL, row_versions JSONB NOT NULL, expires_at TIMESTAMPTZ NOT NULL, completed_at TIMESTAMPTZ NULL, result_json JSONB NOT NULL DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+		CREATE TABLE %[1]s.customer_order_price_table_bindings(publication_id BIGINT NOT NULL,usage_code TEXT NOT NULL);
 		CREATE TABLE %[1]s.audit_logs(id BIGSERIAL PRIMARY KEY, actor TEXT, entity_type TEXT, entity_id BIGINT, action TEXT, field TEXT, old_value TEXT, new_value TEXT, meta JSONB, ts TIMESTAMPTZ DEFAULT now());
 	`, schema)
 	if _, err = pool.Exec(ctx, ddl); err != nil {

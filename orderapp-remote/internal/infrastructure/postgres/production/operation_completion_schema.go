@@ -8,6 +8,8 @@ import (
 
 func ensureOperationCompletionSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	_, err := pool.Exec(ctx, fmt.Sprintf(`
+ALTER TABLE IF EXISTS %[1]s.stock_batches ADD COLUMN IF NOT EXISTS cost_unavailable BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE IF EXISTS %[1]s.material_batches ADD COLUMN IF NOT EXISTS cost_unavailable BOOLEAN NOT NULL DEFAULT false;
 CREATE TABLE IF NOT EXISTS %[1]s.production_operation_events (
  id BIGSERIAL PRIMARY KEY, work_order_id BIGINT NOT NULL, job_card_id BIGINT NOT NULL,
  kind TEXT NOT NULL DEFAULT 'complete', status TEXT NOT NULL DEFAULT 'posting',
@@ -76,10 +78,17 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_started_input_allocations (
  id BIGSERIAL PRIMARY KEY,
  input_id BIGINT NOT NULL REFERENCES %[1]s.production_started_inputs(id),
  event_id BIGINT NOT NULL REFERENCES %[1]s.production_operation_events(id),
- qty NUMERIC(20,8) NOT NULL CHECK(qty>0),
+ qty NUMERIC(20,8) NOT NULL CHECK(qty>=0),
  cost NUMERIC(20,6) NOT NULL CHECK(cost>=0),
  UNIQUE(input_id,event_id)
 );
+DO $packaging_allocation_migration$
+BEGIN
+ IF EXISTS (SELECT 1 FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid JOIN pg_namespace n ON n.oid=t.relnamespace WHERE n.nspname='%[1]s' AND t.relname='production_started_input_allocations' AND c.conname='production_started_input_allocations_qty_check' AND pg_get_constraintdef(c.oid) LIKE '%%qty > %%') THEN
+  ALTER TABLE %[1]s.production_started_input_allocations DROP CONSTRAINT production_started_input_allocations_qty_check;
+  ALTER TABLE %[1]s.production_started_input_allocations ADD CONSTRAINT production_started_input_allocations_qty_check CHECK(qty>=0);
+ END IF;
+END $packaging_allocation_migration$;
 CREATE TABLE IF NOT EXISTS %[1]s.production_started_input_components (
  id BIGSERIAL PRIMARY KEY,
  input_id BIGINT NOT NULL REFERENCES %[1]s.production_started_inputs(id),

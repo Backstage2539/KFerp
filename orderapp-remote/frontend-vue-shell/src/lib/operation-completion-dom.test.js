@@ -45,3 +45,28 @@ test('only a genuinely incomplete BOM links to BOM repair; execution blockers ex
  const incomplete=await mount('../components/OperationCompletionForm.vue',{jobCardId:1},{apiGet:async()=>({...structuredClone(preview),enabled:false,bom_id:88,blocked_code:'bom_incomplete',blocked_reason:'BOM 配料比例合计 70%，请在 BOM 中补齐后继续'}),apiSend:async()=>{throw new Error('blocked task must not submit')}})
  try{assert.match(incomplete.el.textContent,/BOM 配料比例合计 70%/);assert.ok(button(incomplete.el,'去 BOM 补齐配料'));let target;window.addEventListener('kferp:navigate-view',event=>{target=event.detail},{once:true});button(incomplete.el,'去 BOM 补齐配料').click();assert.equal(target.params.production_bom_id,88)}finally{incomplete.close()}
 })
+test('incoming completion shows waste and calculated output instead of editable output',async()=>{
+ const calls=[]
+ const p={...structuredClone(preview),execution:{reporting_type:'incoming'},material_consumption_policy:'bom_start_v1',input_qty:84,input_unit:'kg',output_unit:'kg',planned_qty:80}
+ const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:1},{apiGet:async()=>p,apiSend:async(path,{body})=>{calls.push(body);return {completion:{message:'完成'}}}})
+ try{
+  assert.match(view.el.textContent,/废料重量/);assert.match(view.el.textContent,/合格产出：84 kg/)
+  const inputs=view.el.querySelectorAll('fieldset input')
+  await input(inputs[1],1);assert.match(view.el.textContent,/合格产出：83 kg/)
+  await input(view.el.querySelector('textarea'),'色选废料');button(view.el,'确认工序完成').click();await settle()
+  assert.equal(calls[0].waste_qty,1);assert.equal(calls[0].actual_output_qty,83)
+ }finally{view.close()}
+})
+test('piece completion requests weighed remainder, warehouse and preserves a partial target',async()=>{
+ const calls=[]
+ const p={...structuredClone(preview),execution:{reporting_type:'piece'},material_consumption_policy:'bom_start_v1',input_qty:100,input_unit:'袋',output_unit:'袋',planned_qty:100,total_planned_qty:100,packaging_available_g:46400,packaging_standard_g_per_piece:454}
+ const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:1},{apiGet:async path=>path.includes('warehouses')?{rows:[{code:'wip',name:'WIP'},{code:'finished_goods',name:'成品仓'}]}:p,apiSend:async(path,{body})=>{calls.push(body);return {completion:{message:'完成'}}}})
+ try{
+  assert.match(view.el.textContent,/预计余料 1000 g/)
+  const fields=view.el.querySelectorAll('fieldset input');await input(fields[0],50)
+  assert.match(view.el.textContent,/预计余料 23700 g/)
+  button(view.el,'确认工序完成').click();await settle();assert.match(view.el.textContent,/称重/);assert.equal(calls.length,0)
+  const checkbox=view.el.querySelector('input[type=checkbox]');checkbox.click();await nextTick();button(view.el,'确认工序完成').click();await settle()
+  assert.equal(calls[0].actual_remainder_g,23700);assert.equal(calls[0].finish_operation,false);assert.equal(calls[0].remainder_warehouse,'wip')
+ }finally{view.close()}
+})

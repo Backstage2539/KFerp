@@ -85,6 +85,8 @@ type ManufacturingWorkstationCapacity struct {
 	Code                   string                   `json:"code"`
 	Name                   string                   `json:"name"`
 	Status                 string                   `json:"status"`
+	SchedulingMode         string                   `json:"scheduling_mode"`
+	ThroughputPerHour      float64                  `json:"throughput_per_hour"`
 	BatchSizeQty           float64                  `json:"batch_size_qty"`
 	BatchSizeUnit          string                   `json:"batch_size_unit"`
 	StandardMinutes        int                      `json:"standard_minutes"`
@@ -244,6 +246,8 @@ type SaveManufacturingWorkstationCommand struct {
 }
 
 type SaveWorkstationCapacityCommand struct {
+	SchedulingMode         string
+	ThroughputPerHour      float64
 	ID                     int64
 	WorkstationID          int64
 	Code                   string
@@ -440,6 +444,16 @@ func (s *Service) SaveManufacturingWorkstationCapacity(ctx context.Context, cmd 
 	cmd.Name = strings.TrimSpace(cmd.Name)
 	cmd.Status = normalizeStatus(cmd.Status, "active")
 	cmd.BatchSizeUnit = strings.TrimSpace(cmd.BatchSizeUnit)
+	cmd.SchedulingMode = strings.TrimSpace(cmd.SchedulingMode)
+	if cmd.SchedulingMode == "" {
+		cmd.SchedulingMode = "batch"
+	}
+	if cmd.SchedulingMode != "batch" && cmd.SchedulingMode != "quantity" {
+		return ManufacturingWorkstationCapacity{}, fmt.Errorf("无效的排产方式")
+	}
+	if cmd.ThroughputPerHour < 0 || math.IsNaN(cmd.ThroughputPerHour) || math.IsInf(cmd.ThroughputPerHour, 0) {
+		return ManufacturingWorkstationCapacity{}, fmt.Errorf("参考处理速度必须为非负数")
+	}
 	cmd.CostMethod = normalizeCapacityCostMethod(cmd.CostMethod)
 	cmd.Note = strings.TrimSpace(cmd.Note)
 	if cmd.WorkstationID <= 0 {
@@ -858,6 +872,13 @@ func (s *Service) applyStandardCostCapacitySnapshot(ctx context.Context, op Proc
 		if op.CostMethod == "piece" && row.PieceRate > 0 {
 			op.PlannedOperationCost = row.PieceRate
 			op.StandardCostSummary = fmt.Sprintf("%s：计件成本 %.4f元/销售规格件", row.Name, row.PieceRate)
+		} else if row.SchedulingMode == "quantity" {
+			if row.ThroughputPerHour > 0 {
+				op.PlannedOperationCost = roundMoney(row.HourlyRate / row.ThroughputPerHour)
+				op.StandardCostSummary = fmt.Sprintf("%s：小时成本 %.4f / 参考速度 %.4f%s/小时 = %.4f/%s", row.Name, row.HourlyRate, row.ThroughputPerHour, row.BatchSizeUnit, op.PlannedOperationCost, row.BatchSizeUnit)
+			} else {
+				op.StandardCostSummary = "未配置参考速度，无法估算标准成本"
+			}
 		} else if row.BatchSizeQty > 0 && row.StandardMinutes > 0 && row.HourlyRate > 0 {
 			op.PlannedOperationCost = roundMoney((float64(row.StandardMinutes) / 60 * row.HourlyRate) / row.BatchSizeQty)
 			op.StandardCostSummary = fmt.Sprintf("%s：%.4f × %d / 60 / %.4f%s = %.4f/%s", row.Name, row.HourlyRate, row.StandardMinutes, row.BatchSizeQty, row.BatchSizeUnit, op.PlannedOperationCost, row.BatchSizeUnit)
@@ -897,6 +918,9 @@ func (s *Service) applyWorkstationCapacitySnapshot(ctx context.Context, op Proce
 		op.PlannedMinutes = row.StandardMinutes
 		if op.CostMethod == "piece" && op.PieceRate > 0 {
 			op.PlannedOperationCost = op.PieceRate
+		} else if row.SchedulingMode == "quantity" && row.ThroughputPerHour > 0 {
+			op.PlannedBatchCount = 0
+			op.PlannedOperationCost = roundMoney(row.HourlyRate / row.ThroughputPerHour)
 		} else if op.BatchSizeQty > 0 && op.StandardMinutes > 0 && op.HourlyRate > 0 {
 			op.PlannedOperationCost = roundMoney((float64(op.StandardMinutes) / 60 * op.HourlyRate) / op.BatchSizeQty)
 		} else {

@@ -54,8 +54,10 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureQualityInspectionTables(ctx, pool, schema); err != nil {
 		return err
 	}
-	if err := ensureOperationCompletionSchema(ctx,pool,schema); err != nil { return err };
- return backfillQualityStatusesFromInspections(ctx, pool, schema)
+	if err := ensureOperationCompletionSchema(ctx, pool, schema); err != nil {
+		return err
+	}
+	return backfillQualityStatusesFromInspections(ctx, pool, schema)
 }
 
 func ensureProductCompatibilityColumns(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -411,6 +413,20 @@ CREATE INDEX IF NOT EXISTS work_center_capacity_calendar_lookup_idx ON %s.work_c
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS priority INT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS scheduling_note TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS work_center TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.production_batch_costs ADD COLUMN IF NOT EXISTS cost_unavailable BOOLEAN NOT NULL DEFAULT false`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.production_batch_costs ADD COLUMN IF NOT EXISTS cost_updated_at TIMESTAMPTZ`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.production_plan_operation_splits ADD COLUMN IF NOT EXISTS scheduling_mode TEXT NOT NULL DEFAULT 'batch'`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.production_plan_operation_splits ADD COLUMN IF NOT EXISTS throughput_per_hour NUMERIC(14,4) NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.production_plan_operation_splits ADD COLUMN IF NOT EXISTS planned_seconds NUMERIC(20,6)`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS scheduling_mode TEXT NOT NULL DEFAULT 'batch'`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS throughput_per_hour NUMERIC(14,4) NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.production_plan_operation_splits ALTER COLUMN planned_seconds TYPE NUMERIC(20,6)`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.production_plan_operation_splits ALTER COLUMN planned_seconds DROP NOT NULL`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.production_plan_operation_splits ALTER COLUMN planned_seconds DROP DEFAULT`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS planned_seconds NUMERIC(20,6)`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.job_cards ALTER COLUMN planned_seconds TYPE NUMERIC(20,6)`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.job_cards ALTER COLUMN planned_seconds DROP NOT NULL`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.job_cards ALTER COLUMN planned_seconds DROP DEFAULT`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.production_plan_operation_splits ADD COLUMN IF NOT EXISTS cost_method TEXT NOT NULL DEFAULT 'time'`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.production_plan_operation_splits ADD COLUMN IF NOT EXISTS piece_rate NUMERIC(14,4) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS sequence_no INT NOT NULL DEFAULT 1`, schema),

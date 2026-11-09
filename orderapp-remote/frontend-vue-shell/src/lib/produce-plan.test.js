@@ -1535,3 +1535,21 @@ test('production plan detail drawer retains the typed manufacturing dependency g
   assert.match(source, /manufacturing_plan/)
   assert.doesNotMatch(source, /两段式/)
 })
+
+test('quantity scheduling keeps the exact amount and estimates proportional time', () => {
+  const metrics = plannedCapacitySplitMetrics({ scheduling_mode: 'quantity', planned_qty: 23, batch_size_qty: 10, batch_size_unit: 'kg', standard_minutes: 10, throughput_per_hour: 600, hourly_rate: 120 })
+  assert.equal(metrics.planned_qty, 23)
+  assert.equal(metrics.planned_batch_count, 0)
+  assert.equal(metrics.planned_seconds, 138)
+  assert.equal(metrics.planned_operation_cost, 4.6)
+})
+
+test('quantity scheduling without speed has no estimated time or time cost', () => {
+  const metrics = plannedCapacitySplitMetrics({ scheduling_mode: 'quantity', planned_qty: 23, batch_size_unit: 'kg', hourly_rate: 120 })
+  assert.equal(metrics.planned_seconds, null)
+  assert.equal(metrics.planned_operation_cost, null)
+})
+test('quantity scheduling preserves sub-second estimates without batch rounding',()=>{
+ const m=plannedCapacitySplitMetrics({scheduling_mode:'quantity',throughput_per_hour:1000,batch_size_unit:'kg',planned_qty:0.001,hourly_rate:100})
+ assert.equal(m.planned_seconds,0.0036)
+})

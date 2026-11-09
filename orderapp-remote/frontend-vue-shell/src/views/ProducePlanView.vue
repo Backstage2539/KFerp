@@ -25,6 +25,9 @@
     </div>
 
     <div v-else-if="productionPlanSplitDrawer" class="production-plan-workspace-shell production-plan-capacity-shell">
+      <template v-if="!productionPlanSplitDirty && !productionPlanSplitDrawerLoading">
+        <div v-for="item in productionPlanSplitDrawer.items || []" :key="item.id"><strong>{{ item.output_name || item.product_name }}</strong><OperationReportingRecheck kind="plan_item" :id="Number(item.id)" @updated="closeProductionPlanSplitDrawer(true); reloadProductionPlanDetail()" /></div>
+      </template>
       <ProductionPlanCapacityWorkspace
         :detail="productionPlanSplitDrawer"
         :rows="productionPlanSplitRows"
@@ -45,6 +48,7 @@
         @remove="removeProductionPlanDrawerSplit"
         @capacity-change="changeProductionPlanDrawerSplitCapacity"
         @batch-change="changeProductionPlanDrawerSplitBatchCount"
+        @quantity-change="changeProductionPlanDrawerSplitQuantity"
         @take-all="takeAllProductionPlanDrawerBatches"
         @workstations-updated="refreshSplitWorkstations"
       />
@@ -685,6 +689,7 @@ import { IconClipboardList, IconChevronRight, IconAlertCircle, IconCheck } from 
 import ProductionSupplyAllocations from '../components/ProductionSupplyAllocations.vue'
 import ProductionPlanDetailWorkspace from '../components/ProductionPlanDetailWorkspace.vue'
 import ProductionPlanCapacityWorkspace from '../components/ProductionPlanCapacityWorkspace.vue'
+import OperationReportingRecheck from '../components/OperationReportingRecheck.vue'
 import ProductionReplanWorkspace from '../components/ProductionReplanWorkspace.vue'
 import { computed, nextTick, onActivated, onDeactivated, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect } from 'vue'
 import { apiGet, apiSend } from '../api/client'
@@ -1687,6 +1692,8 @@ function normalizeOperationSplit(row = {}) {
     workstation: row.workstation || '',
     workstation_capacity_id: Number(row.workstation_capacity_id || 0),
     workstation_capacity_name: row.workstation_capacity_name || '',
+    scheduling_mode: row.scheduling_mode || 'batch',
+    throughput_per_hour: Number(row.throughput_per_hour || 0),
     batch_size_qty: Number(row.batch_size_qty || 0),
     batch_size_unit: row.batch_size_unit || '',
     standard_minutes: Number(row.standard_minutes || 0),
@@ -1737,6 +1744,12 @@ function changeProductionPlanDrawerSplitCapacity(split, capacityID) {
 
 function changeProductionPlanDrawerSplitBatchCount(split, count) {
   Object.assign(split, withCapacityBatchCount(split, count, workstationCapacities.value.find(row => Number(row.id) === Number(split.workstation_capacity_id))))
+}
+
+function changeProductionPlanDrawerSplitQuantity(split, value) {
+  split.planned_qty = Number(value || 0)
+  split.batch_input = false
+  split.planned_batch_count = 0
 }
 
 function takeAllProductionPlanDrawerBatches(split, item) {

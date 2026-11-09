@@ -93,6 +93,23 @@ func TestProcessingBillingPreviewConfirmSnapshotsAndIdempotency(t *testing.T) {
 	if err := tx.Rollback(ctx); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_batches ADD COLUMN cost_unavailable BOOLEAN NOT NULL DEFAULT false`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	unknownTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = unknownTx.Exec(ctx, fmt.Sprintf(`UPDATE %s.material_batches SET cost_unavailable=true WHERE id=1`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	unknownErr := repo.validateFactoryMaterialActualCostTx(ctx, unknownTx, 91)
+	if err = unknownTx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if unknownErr == nil {
+		t.Fatal("unknown factory material cost accepted")
+	}
 	if err := repo.SaveOutsourceTemplate(ctx, salesapp.SaveOutsourceTemplateCommand{
 		Name: "实际代加工费", Actor: "财务甲", Rules: []salesapp.OutsourceTemplateRuleInput{
 			{FeeType: "roasting", Name: "产出加工费", Basis: salesapp.BillingBasisActualOutputKG, UnitPrice: 2, SortOrder: 10},

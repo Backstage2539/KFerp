@@ -123,3 +123,45 @@ func TestPackagingGroupKeyStillAllowsOnePackagingCardAcrossMultiOperationWorkOrd
 		t.Fatal("one packaging card in a multi-operation work order should be eligible for grouping")
 	}
 }
+
+func TestFrozenReportingTypeControlsPackagingGrouping(t *testing.T) {
+	cases := []struct {
+		mode, name string
+		group      bool
+	}{{"piece", "assembly", true}, {"incoming", "包装", false}, {"batch", "包装", false}, {"", "包装", true}, {"legacy", "包装", true}}
+	for _, tc := range cases {
+		t.Run(tc.mode+tc.name, func(t *testing.T) {
+			snapshot := `{"operations":[{"seq":1,"operation":"` + tc.name + `","execution_json":"{\"version\":1,\"reporting_type\":\"` + tc.mode + `\"}"}]}`
+			wo := WorkOrderRow{ID: 1, OutputProductID: 57, PlannedInventoryQty: 10, InventoryUnit: "袋", TargetWarehouse: "finished_goods", ProcessSnapshotJSON: snapshot}
+			card := JobCardRow{ID: 1, WorkOrderID: 1, SequenceNo: 1, Operation: tc.name, Workstation: "station", Status: "pending"}
+			task := productionTaskFromJobCard(card, wo)
+			task.TargetWarehouse = "finished_goods"
+			task.MaterialDataComplete = true
+			task.MaterialReadiness = []ProductionTaskMaterialReadiness{{MaterialID: 10, Unit: "袋", RequiredUnits: 10}}
+			if task.ReportingType != tc.mode {
+				t.Fatalf("type=%q want %q", task.ReportingType, tc.mode)
+			}
+			tasks := []ProductionTask{task}
+			applyPackagingGroupKeys(tasks, map[int64]WorkOrderRow{1: wo}, []JobCardRow{card})
+			if (tasks[0].PackagingGroupKey != "") != tc.group {
+				t.Fatalf("group=%q type=%q", tasks[0].PackagingGroupKey, tc.mode)
+			}
+		})
+	}
+}
+
+func TestPackagingGroupingDoesNotMixFrozenModes(t *testing.T) {
+	var tasks []ProductionTask
+	orders := map[int64]WorkOrderRow{}
+	var cards []JobCardRow
+	for i, mode := range []string{"piece", "legacy"} {
+		id := int64(i + 1)
+		tasks = append(tasks, ProductionTask{ReportingType: mode, JobCardID: id, WorkOrderID: id, SequenceNo: 1, Operation: "包装", Workstation: "台", Status: "pending", PlannedOutputInventoryQty: 1, InventoryUnit: "袋", TargetWarehouse: "wip", MaterialDataComplete: true, MaterialReadiness: []ProductionTaskMaterialReadiness{{MaterialID: 10, Unit: "袋", RequiredUnits: 1}}})
+		orders[id] = WorkOrderRow{ID: id, ProductID: 1}
+		cards = append(cards, JobCardRow{ID: id, WorkOrderID: id, SequenceNo: 1})
+	}
+	applyPackagingGroupKeys(tasks, orders, cards)
+	if tasks[0].PackagingGroupKey == "" || tasks[1].PackagingGroupKey == "" || tasks[0].PackagingGroupKey == tasks[1].PackagingGroupKey {
+		t.Fatalf("mixed modes: %+v", tasks)
+	}
+}

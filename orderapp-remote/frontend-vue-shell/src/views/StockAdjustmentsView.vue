@@ -133,7 +133,8 @@ function batchLabel(row) {
   const remaining = Number(row.remaining_units || 0) > 0
     ? `${Number(row.remaining_units || 0)}${selectedMaterialUnitLabel.value}`
     : `${(Number(row.remaining_g || 0) / 1000).toFixed(3)}kg`
-  return `${row.batch_code} · 剩余${remaining} · ${Number(row.unit_cost || 0).toFixed(2)}元/${selectedMaterialUnitLabel.value}`
+  const cost = row.cost_unavailable ? '成本待核算' : `${Number(row.unit_cost || 0).toFixed(2)}元/${selectedMaterialUnitLabel.value}`
+  return `${row.batch_code} · 剩余${remaining} · ${cost}`
 }
 
 async function loadOptions() {
