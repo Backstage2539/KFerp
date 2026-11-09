@@ -1,4 +1,6 @@
 ### PR-751-SHIPPING-RETURN-CANDIDATES
+- 2026-11-09 follow-up: 第二单获授权补入公司库存 4 袋，正式转仓 SE-0000000149 与 12 袋分配已完成；共用批次的前单历史分配被重复计作占用，第二单回填尚待本次校验修复。保留真实历史，不直接修库。
+- Follow-up verifier: `TestShippingReturnSharedBatchExcludesAlreadyDeductedOrders` RED 复现首单出库后第二单被误拦；隔离数据库候选/历史库存/共享批次回归及全包后端 GREEN，验证两单依次通过 HTTP 回填、重复提交不重扣、不超配和分配历史保留。待合并发布后完成已授权第二单。
 - Branch: `codex/shipping-return-correct-candidates`; base `origin/develop` 79df1f424.
 - Scope: 实时收件信息候选与发货条件分开；显式客户现货补足待入库预订，保留原购货/批次/货权和历史数量；预览后保存，再选择运单。
 - DEV-PR751-01: 候选实时查询、未就绪原因、自动唯一匹配防误配。
