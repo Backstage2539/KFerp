@@ -123,23 +123,7 @@ func registerMiniAPIWithFees(e *echo.Echo, svc Service, messages MessagePublishe
 	})
 
 	e.POST("/api/mini/login/password", func(c echo.Context) error {
-		if svc == nil {
-			return miniInternalError(c)
-		}
-		var req miniPasswordLoginRequest
-		if err := c.Bind(&req); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
-		}
-		login := strings.TrimSpace(req.Login)
-		password := strings.TrimSpace(req.Password)
-		if login == "" || password == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
-		}
-		result, err := svc.LoginWithPassword(c.Request().Context(), customerportalapp.PasswordLoginCommand{Login: login, Password: password})
-		if err != nil {
-			return miniPasswordLoginError(c, err)
-		}
-		return c.JSON(http.StatusOK, result)
+		return c.JSON(http.StatusGone, map[string]string{"error": "小程序账号密码登录已停用，请使用微信手机号登录"})
 	})
 
 	e.GET("/api/mini/me", func(c echo.Context) error {

@@ -33,6 +33,7 @@ func newHTTPServer(cfg appConfig, pool *pgxpool.Pool) *echo.Echo {
 		e.Use(supporthttp.BasicAuth(cfg.AuthUser, cfg.AuthPass, cfg.Schema, pool, erpLoginEligibility))
 	}
 	e.Use(supporthttp.EmployeeContextMiddleware(pool, cfg.Schema, erpLoginEligibility))
+	e.Use(supporthttp.LegacyMiniPasswordGuard(supporthttp.NewLegacyMiniPasswordChecker(pool, cfg.Schema)))
 	e.Renderer = supporthttp.NewTemplateRenderer(t)
 	return e
 }

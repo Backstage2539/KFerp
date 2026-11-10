@@ -34,7 +34,7 @@ func ExpireEmployeeSecuritySessions(ctx context.Context, q SessionSecurityQueryE
 					SELECT 1
 					FROM %[1]s.mini_users u
 					WHERE u.id=s.mini_user_id
-					  AND u.openid IN ('erp-employee:' || $1::bigint::text, 'erp-internal-employee:' || $1::bigint::text)
+					  AND (u.openid IN ('erp-employee:' || $1::bigint::text, 'erp-internal-employee:' || $1::bigint::text) OR u.openid LIKE ('wechat-internal-employee:' || $1::bigint::text || ':%%'))
 				)
 				OR EXISTS (
 					SELECT 1
@@ -62,6 +62,16 @@ func ExpireEmployeeSecuritySessions(ctx context.Context, q SessionSecurityQueryE
 		}
 	}
 	return nil
+}
+
+// Phone changes invalidate only sessions authenticated with that phone.
+func ExpireWechatEmployeeSessions(ctx context.Context, q SessionSecurityQueryExecer, schema string, employeeID int64) error {
+	hasMini, err := sessionSecurityRelationsExist(ctx, q, schema, "mini_sessions", "mini_users")
+	if err != nil || !hasMini {
+		return err
+	}
+	_, err = q.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.mini_sessions s SET expire_at=LEAST(s.expire_at,now()) WHERE s.expire_at>now() AND EXISTS (SELECT 1 FROM %[1]s.mini_users u WHERE u.id=s.mini_user_id AND u.openid LIKE ('wechat-internal-employee:' || $1::bigint::text || ':%%'))`, schema), employeeID)
+	return err
 }
 
 func ExpireCustomerSecuritySessions(ctx context.Context, q SessionSecurityQueryExecer, schema string, customerID int64) error {

@@ -22,7 +22,7 @@ func (r Repository) OfficialAccountContext(ctx context.Context, userID, customer
 	if err = tx.QueryRow(ctx, fmt.Sprintf("SELECT openid FROM %s.mini_users WHERE id=$1 AND active=true", r.schema), userID).Scan(&openID); err != nil {
 		return app.CurrentContext{}, app.ErrCustomerBindingNotFound
 	}
-	if strings.HasPrefix(openID, "erp-internal-employee:") {
+	if strings.HasPrefix(openID, "erp-internal-employee:") || strings.HasPrefix(openID, wechatEmployeePrefix) {
 		return app.CurrentContext{}, app.ErrCustomerBindingNotFound
 	}
 	v, err := r.validateProjectedMiniBindingsTx(ctx, tx, userID, openID, boundAt)

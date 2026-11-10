@@ -95,7 +95,8 @@ func (r Repository) UpdateEmployee(ctx context.Context, id int64, cmd companyapp
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var oldActive bool
-	if err := tx.QueryRow(ctx, "SELECT active FROM "+r.schema+".company_employees WHERE id=$1 FOR UPDATE", id).Scan(&oldActive); err != nil {
+	var oldPhone string
+	if err := tx.QueryRow(ctx, "SELECT active,COALESCE(phone,'') FROM "+r.schema+".company_employees WHERE id=$1 FOR UPDATE", id).Scan(&oldActive, &oldPhone); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("employee not found")
 		}
@@ -106,6 +107,11 @@ func (r Repository) UpdateEmployee(ctx context.Context, id int64, cmd companyapp
 	}
 	if oldActive != cmd.Active {
 		if err := postgresinfra.ExpireEmployeeSecuritySessions(ctx, tx, r.schema, id); err != nil {
+			return err
+		}
+	}
+	if oldPhone != cmd.Phone {
+		if err := postgresinfra.ExpireWechatEmployeeSessions(ctx, tx, r.schema, id); err != nil {
 			return err
 		}
 	}
