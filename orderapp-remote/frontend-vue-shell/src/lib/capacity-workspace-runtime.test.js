@@ -121,3 +121,14 @@ for (const id of [0, 9]) {
   assert.equal(requests.length, 4)
  })
 }
+
+test('capacity submit blocks until actual WIP covers non-upstream demand', async () => {
+ const {state}=await loadSetup('ProductionPlanCapacityWorkspace',{detail:{status:'draft',items:[],component_sources:[{component_name:'生豆',unit:'kg',required_g:10000,upstream_g:5000,wip_covered_g:9000},{component_name:'包装袋',unit:'件',required_units:3,wip_covered_units:3}]},rows:[],capacities:[],preview:{}})
+ assert.equal(state.pendingMaterials.value.length, 1)
+ assert.equal(state.pendingMaterials.value[0].missing_label, '1 kg')
+})
+
+test('capacity submit still blocks and identifies unposted transfer drafts when WIP is covered', async () => {
+ const {state}=await loadSetup('ProductionPlanCapacityWorkspace',{detail:{status:'draft',items:[],component_sources:[],material_transfer_documents:[{id:10,entry_no:'SE-10',status:'draft',source_id:1},{id:10,entry_no:'SE-10',status:'draft',source_id:2},{id:11,entry_no:'SE-11',status:'submitted'}]},rows:[],capacities:[],preview:{}})
+ assert.deepEqual(state.pendingTransferDocuments.value.map(row=>row.entry_no), ['SE-10'])
+})

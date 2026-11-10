@@ -162,6 +162,7 @@ WHERE fi.warehouse=$1 AND (fi.onhand_units>0 OR fi.onhand_loose_g>0)`, productCo
 	summaryMatches := make(map[string]bool)
 	for _, c := range all {
 		row := c.row
+		row.QualityStatus = c.quality
 		if q.ItemID > 0 && row.ItemID != q.ItemID || q.BomSpecID > 0 && row.BomSpecID != q.BomSpecID || q.SpecG > 0 && row.SpecG != q.SpecG {
 			continue
 		}
@@ -211,6 +212,9 @@ WHERE fi.warehouse=$1 AND (fi.onhand_units>0 OR fi.onhand_loose_g>0)`, productCo
 		}
 		if e != nil {
 			return stockapp.TransferOptionsResult{}, e
+		}
+		if !unbound && row.BatchID > 0 {
+			row.ReservedG, row.ReservedUnits = &rg, &rn
 		}
 		row.AvailableUnits = nonnegativeStockQty(row.QtyUnits - rn)
 		row.AvailableG = nonnegativeStockQty(row.QtyG - rg)

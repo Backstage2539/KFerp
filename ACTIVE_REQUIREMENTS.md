@@ -4,6 +4,13 @@
 - DEV: `DEV-MINIAPP-PHONE-IDENTITY` 身份校验与撤销；`DEV-MINIAPP-PHONE-ROUTING` 页面分流；`DEV-MINIAPP-ADMIN-CUSTOMER-READ` 管理员客户只读查看；`DEV-MINIAPP-PHONE-VERIFY` 手册与验收。
 - Status: 本地与隔离数据库验证通过；服务端预检、环境部署及真实微信授权待验收。生产不自动关闭旧版密码兼容。
 
+### PR-758-PRODUCTION-MATERIAL-PREPARATION
+- Branch: `codex/production-material-preparation-20261110`; base: `origin/develop` 23f15a7f54e4b256bb1cb8b07d39d032da295cf3.
+- Scope: 物料准备与产能安排两步、单项及批量调拨草稿、仓库确认和工单提交校验；正式发布不在本次范围。
+- DEV: `DEV-PR758-01` 页面与步骤；`DEV-PR758-02` 调拨关联及保护；`DEV-PR758-03` 抽屉及验收。
+- Status: 实施中；定向提交校验 RED 为 helper 未定义，GREEN 已通过。完整数据库、API、并发、前端及部署验证待完成。
+- Note: `reserve_req_id.sh --claim` 在 macOS awk 因换行报错；已查重并后续发现 PR-757 已被并行工作占用，重新核对并手工登记 PR-758。
+
 ### PR-756-PRODUCTION-LIVE-SUPPLY
 - Branch: `codex/production-live-supply-20261110`; base: `origin/develop`.
 - Scope: 草稿按冻结配方和实时供应增量更新上游工序，保护人工安排并在提交时复核；已提交工单保留快照。
