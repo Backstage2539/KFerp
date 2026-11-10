@@ -26,3 +26,12 @@ export function customerEntryRoute(context: { miniapp_entry_mode?: string; capab
   if(context.registration_complete && !context.current_customer_id)return '/pages/index/index'
  return '/pages/home/home'
 }
+
+// Phone authorization identifies an account before returning to visitor browsing.
+export function phoneVerifiedDestination(context: { account_type?: string; current_customer_id?: number; bindings?: Array<{ customer_id: number; status?: string }> }, visitorReturn = ''): string {
+  if (context.account_type === 'employee') return '/pages/home/home'
+  const approved = (context.bindings || []).filter(binding => binding.status === 'approved')
+  if (!approved.length) return visitorReturn || '/pages/index/index'
+  if (context.current_customer_id && approved.some(binding => binding.customer_id === context.current_customer_id)) return '/pages/home/home'
+  return '/pages/customer-select/customer-select?return_to=%2Fpages%2Fhome%2Fhome'
+}

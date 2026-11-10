@@ -7,7 +7,7 @@ import (
 
 func TestRegistrationAcceptsNewVisitorAndRejectsUnverifiedInput(t *testing.T) {
 	repo := &fakeRepository{phoneVerifiedLoginResult: LoginResult{RegistrationComplete: true}}
-	svc := NewService(repo, fakeIdentityProvider{identity: MiniIdentity{OpenID: "new-visitor"}, phone: MiniPhoneNumber{PhoneNumber: "13800000001"}})
+	svc := NewService(repo, fakeIdentityProvider{identity: MiniIdentity{OpenID: "new-visitor"}, phone: MiniPhoneNumber{PhoneNumber: "13800000001", CountryCode: "86"}})
 	result, err := svc.Login(context.Background(), LoginCommand{Mode: "register", Code: "wx-code", PhoneCode: "verified-code", Nickname: "访客"})
 	if err != nil {
 		t.Fatalf("new visitor registration: %v", err)
@@ -23,7 +23,7 @@ func TestRegistrationAcceptsNewVisitorAndRejectsUnverifiedInput(t *testing.T) {
 
 func TestRegistrationRepositoryFailureIsNotSwallowed(t *testing.T) {
 	repo := &fakeRepository{phoneVerifiedErr: ErrPhoneCredentialUsed}
-	svc := NewService(repo, fakeIdentityProvider{identity: MiniIdentity{OpenID: "visitor"}, phone: MiniPhoneNumber{PhoneNumber: "13800000001"}})
+	svc := NewService(repo, fakeIdentityProvider{identity: MiniIdentity{OpenID: "visitor"}, phone: MiniPhoneNumber{PhoneNumber: "13800000001", CountryCode: "86"}})
 	_, err := svc.Login(context.Background(), LoginCommand{Mode: "register", Code: "wx", PhoneCode: "duplicate", Nickname: "访客"})
 	if err != ErrPhoneCredentialUsed {
 		t.Fatalf("repository error swallowed: %v", err)

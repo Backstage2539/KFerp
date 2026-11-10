@@ -59,16 +59,17 @@ type Service interface {
 }
 
 type Dependencies struct {
-	CustomerPortal        Service
-	CustomerFulfillment   MiniCustomerFulfillment
-	Authz                 supporthttp.AuthzService
-	MessageCenter         MessagePublisher
-	BeanListPDFRenderer   BeanListPDFRenderer
-	SalesDocuments        SalesDocuments
-	EmployeeSales         EmployeeSales
-	CustomerMaintenance   CustomerMaintenance
-	EmployeeShareSettings EmployeeShareSettingsStore
-	AssetDir              string
+	CustomerPortal           Service
+	CustomerFulfillment      MiniCustomerFulfillment
+	Authz                    supporthttp.AuthzService
+	MessageCenter            MessagePublisher
+	BeanListPDFRenderer      BeanListPDFRenderer
+	SalesDocuments           SalesDocuments
+	EmployeeSales            EmployeeSales
+	CustomerMaintenance      CustomerMaintenance
+	EmployeeShareSettings    EmployeeShareSettingsStore
+	AssetDir                 string
+	DisableMiniPasswordLogin bool
 }
 
 type MessagePublisher interface {
@@ -120,12 +121,13 @@ type RecipientAddressService interface {
 }
 
 func RegisterRoutes(e *echo.Echo, deps Dependencies) {
+	registerAdminPreviewAPI(e, deps.CustomerPortal, deps.CustomerMaintenance)
 	registerRegistrationAPI(e, deps.CustomerPortal, deps.Authz)
 	renderer := deps.BeanListPDFRenderer
 	if renderer == nil {
 		renderer = pdfinfra.BeanListRenderer{}
 	}
-	registerMiniAPIWithFees(e, deps.CustomerPortal, deps.MessageCenter, renderer, deps.SalesDocuments, deps.CustomerFulfillment, deps.CustomerFulfillment != nil)
+	registerMiniAPIWithFees(e, deps.CustomerPortal, deps.MessageCenter, renderer, deps.SalesDocuments, deps.CustomerFulfillment, deps.CustomerFulfillment != nil, deps.DisableMiniPasswordLogin)
 	registerMiniProcessingCatalogAPI(e, deps.CustomerPortal, deps.EmployeeSales)
 	registerRecipientParseAPI(e, deps.CustomerPortal, deps.Authz)
 	registerRecipientAddressAPI(e, deps.CustomerPortal, deps.Authz)

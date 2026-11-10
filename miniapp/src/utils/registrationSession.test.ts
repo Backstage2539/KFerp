@@ -80,3 +80,47 @@ it('keeps public browsing available when a new guest cannot restore WeChat ident
  await expect(restoreRegistrationSession(s)).resolves.toBeUndefined()
  expect(s.setToken).not.toHaveBeenCalled()
 })
+
+it('returns to the employee session when an administrator preview expires without attempting WeChat login', async () => {
+  vi.resetAllMocks()
+  vi.stubEnv('VITE_KFERP_ENVIRONMENT', 'development')
+  vi.stubEnv('VITE_KFERP_API_BASE', 'https://dev.qacoohee.com/app')
+  vi.stubGlobal('uni', { getStorageSync: vi.fn(), setStorageSync: vi.fn(), removeStorageSync: vi.fn() })
+  setActivePinia(createPinia())
+  const s = useSessionStore()
+  s.setToken('employee-token')
+  s.applyContext({ mini_user_id: 9, current_customer_id: 0, bindings: [], capabilities: [], account_type: 'employee', roles: ['admin'] })
+  s.beginCustomerPreview('preview-token', { mini_user_id: 9, current_customer_id: 74, bindings: [], capabilities: [], account_type: 'preview' })
+  vi.mocked(fetchMe).mockRejectedValueOnce(new MiniRequestError('preview expired', 401)).mockResolvedValueOnce({mini_user_id:9,current_customer_id:0,bindings:[],capabilities:[],account_type:'employee',employee_id:55,roles:['admin']} as never)
+  vi.mocked(wechatLoginCode).mockResolvedValue('wechat-code')
+  await restoreRegistrationSession(s)
+  expect(s.token).toBe('employee-token')
+  expect(fetchMe).toHaveBeenLastCalledWith('employee-token')
+  expect(s.accountType).toBe('employee')
+  expect(s.employeeID).toBe(55)
+  expect(wechatLoginCode).not.toHaveBeenCalled()
+})
+
+it('ignores a late employee context after switching accounts during preview expiry recovery', async () => {
+  vi.resetAllMocks();vi.stubEnv('VITE_KFERP_ENVIRONMENT','development');vi.stubEnv('VITE_KFERP_API_BASE','https://dev.qacoohee.com/app')
+  vi.stubGlobal('uni',{getStorageSync:vi.fn(),setStorageSync:vi.fn(),removeStorageSync:vi.fn()});setActivePinia(createPinia())
+  const s=useSessionStore();s.setToken('employee-token');s.applyContext({mini_user_id:9,current_customer_id:0,bindings:[],capabilities:[],account_type:'employee',roles:['admin']})
+  s.beginCustomerPreview('preview-token',{mini_user_id:0,current_customer_id:74,bindings:[],capabilities:[],account_type:'preview'})
+  let finish!:(value:any)=>void
+  vi.mocked(fetchMe).mockRejectedValueOnce(new MiniRequestError('preview expired',401)).mockReturnValueOnce(new Promise(resolve=>{finish=resolve}))
+  const pending=restoreRegistrationSession(s)
+  await vi.waitFor(()=>expect(fetchMe).toHaveBeenCalledWith('employee-token'))
+  s.setToken('new-customer-token');s.applyContext({mini_user_id:20,current_customer_id:101,bindings:[],capabilities:[],account_type:'customer'})
+  finish({mini_user_id:9,current_customer_id:0,bindings:[],capabilities:[],account_type:'employee',roles:['admin']});await pending
+  expect(s.token).toBe('new-customer-token');expect(s.accountType).toBe('customer');expect(s.currentCustomerID).toBe(101)
+})
+
+it('does not silently reauthenticate when the underlying employee session has expired', async () => {
+  vi.resetAllMocks();vi.stubEnv('VITE_KFERP_ENVIRONMENT','development');vi.stubEnv('VITE_KFERP_API_BASE','https://dev.qacoohee.com/app')
+  vi.stubGlobal('uni',{getStorageSync:vi.fn(),setStorageSync:vi.fn(),removeStorageSync:vi.fn()});setActivePinia(createPinia())
+  const s=useSessionStore();s.setToken('employee-token');s.applyContext({mini_user_id:9,current_customer_id:0,bindings:[],capabilities:[],account_type:'employee',roles:['admin']})
+  s.beginCustomerPreview('preview-token',{mini_user_id:0,current_customer_id:74,bindings:[],capabilities:[],account_type:'preview'})
+  vi.mocked(fetchMe).mockRejectedValueOnce(new MiniRequestError('preview expired',401)).mockRejectedValueOnce(new MiniRequestError('employee expired',401))
+  await expect(restoreRegistrationSession(s)).rejects.toThrow('employee expired')
+  expect(s.token).toBe('');expect(wechatLoginCode).not.toHaveBeenCalled()
+})

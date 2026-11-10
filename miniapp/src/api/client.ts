@@ -9,6 +9,10 @@ export type RequestOptions = {
   data?: UniNamespace.RequestOptions['data']
 }
 
+const previewTokens = new Set<string>()
+export function markPreviewToken(token: string) { if (token) previewTokens.add(token) }
+export function unmarkPreviewToken(token: string) { previewTokens.delete(token) }
+
 export class MiniRequestError extends Error {
   readonly statusCode: number
   readonly code: string
@@ -47,6 +51,10 @@ export function buildAPIURL(path: string, base = configuredAPIBase()): string {
 
 export function miniRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   return new Promise((resolve, reject) => {
+    if (options.token && previewTokens.has(options.token) && (options.method || 'GET') !== 'GET' && !((options.method || 'GET') === 'POST' && path === '/api/mini/customer-preview/exit')) {
+      reject(new Error('客户预览为只读模式'))
+      return
+    }
     let url = ''
     try {
       url = buildAPIURL(path)
@@ -77,6 +85,7 @@ export function miniRequest<T>(path: string, options: RequestOptions = {}): Prom
 
 export function miniUpload<T>(path: string, filePath: string, token: string): Promise<T> {
   return new Promise((resolve, reject) => {
+    if (previewTokens.has(token)) { reject(new Error('客户预览为只读模式')); return }
     let url = ''
     try { url = buildAPIURL(path) } catch (cause) {
       reject(cause instanceof Error ? cause : new Error('小程序环境配置错误'))

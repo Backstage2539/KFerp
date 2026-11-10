@@ -244,7 +244,7 @@ async function changePriceTable(group: PriceTableGroup, event: { detail: { value
 }
 
 function serviceReturnURL() { if(noticeOrderID.value && noticeCustomerID.value) return `/pages/service/service?key=orders&source=notice&order_id=${noticeOrderID.value}&customer_id=${noticeCustomerID.value}`; return `/pages/service/service?key=${serviceKey.value}${officialOrders.value ? '&source=official' : ''}${directShipEntryMode.value ? `&fulfillment_mode=${directShipEntryMode.value}` : ''}${stockPurchase.value ? '&stock_purchase=1' : ''}` }
-function openCustomerLogin(){session.clearSession();uni.reLaunch({url:loginRouteFor(serviceReturnURL())+'&mode=password'})}
+function openCustomerLogin(){session.clearSession();uni.reLaunch({url:loginRouteFor(serviceReturnURL())})}
 let beanListRequest = 0
 let orderRequest = 0
 let beanListActive=true
@@ -308,6 +308,11 @@ async function loadPage(pageNumber=1) {
     if (page.value.theme_key) {
       session.applyContext({
         mini_user_id: session.miniUserID,
+        account_type: session.accountType,
+        employee_id: session.employeeID,
+        employee_name: session.employeeName,
+        roles: session.roles,
+        permissions: session.permissions,
         current_customer_id: page.value.current_customer_id || session.currentCustomerID,
         current_customer_name: page.value.current_customer_name || session.currentCustomerName,
         theme_key: page.value.theme_key,

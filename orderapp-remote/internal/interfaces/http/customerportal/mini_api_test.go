@@ -511,72 +511,16 @@ func TestMiniLoginAcceptsPhoneVerifyPayload(t *testing.T) {
 	}
 }
 
-func TestMiniPasswordLoginAPI(t *testing.T) {
+func TestMiniPasswordLoginIsDisabled(t *testing.T) {
 	var cmd customerportalapp.PasswordLoginCommand
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
-		login: customerportalapp.LoginResult{
-			Token:             "mini-token",
-			MiniUserID:        3,
-			ThemeKey:          customerportalapp.PortalThemePremiumPartner,
-			MiniappEntryMode:  customerportalapp.MiniappEntryModeMall,
-			CurrentCustomerID: 8,
-		},
-		passwordLoginCmd: &cmd,
-	}})
-
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{passwordLoginCmd: &cmd}, DisableMiniPasswordLogin: true})
 	req := httptest.NewRequest(http.MethodPost, "/api/mini/login/password", strings.NewReader(`{"login":"13800138075","password":"secret"}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK ||
-		!strings.Contains(rec.Body.String(), `"token":"mini-token"`) ||
-		!strings.Contains(rec.Body.String(), `"theme_key":"premium_partner"`) ||
-		!strings.Contains(rec.Body.String(), `"miniapp_entry_mode":"mall"`) {
-		t.Fatalf("password login status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if cmd.Login != "13800138075" || cmd.Password != "secret" {
-		t.Fatalf("LoginWithPassword cmd=%+v", cmd)
-	}
-}
-
-func TestMiniPasswordLoginRejectsMissingCredentials(t *testing.T) {
-	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{}})
-
-	req := httptest.NewRequest(http.MethodPost, "/api/mini/login/password", strings.NewReader(`{"login":"13800138075"}`))
-	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("missing password status=%d body=%s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestMiniPasswordLoginErrorMapping(t *testing.T) {
-	cases := []struct {
-		name string
-		err  error
-		want int
-		body string
-	}{
-		{name: "invalid login", err: customerportalapp.ErrMiniInvalidLogin, want: http.StatusUnauthorized, body: "invalid login"},
-		{name: "disabled", err: customerportalapp.ErrMiniAccountLoginDisabled, want: http.StatusForbidden, body: "login disabled"},
-		{name: "binding", err: customerportalapp.ErrCustomerBindingNotFound, want: http.StatusForbidden, body: "customer binding not found"},
-		{name: "invalid template", err: customerportalapp.ErrCapabilityTemplateInvalid, want: http.StatusConflict, body: "客户配置已更新，请联系管理员处理"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			e := echo.New()
-			RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{err: tc.err}})
-			req := httptest.NewRequest(http.MethodPost, "/api/mini/login/password", strings.NewReader(`{"login":"13800138075","password":"secret"}`))
-			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-			rec := httptest.NewRecorder()
-			e.ServeHTTP(rec, req)
-			if rec.Code != tc.want || !strings.Contains(rec.Body.String(), tc.body) {
-				t.Fatalf("%s status=%d body=%s, want %d containing %q", tc.name, rec.Code, rec.Body.String(), tc.want, tc.body)
-			}
-		})
+	if rec.Code != http.StatusGone || cmd.Login != "" || cmd.Password != "" {
+		t.Fatalf("password login must be disabled: status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -2384,4 +2328,55 @@ func validMiniProcessingRequestJSON() string {
 
 func validMiniFulfillmentOrderJSON(serviceCode string) string {
 	return `{"service_code":"` + serviceCode + `","recipient_name":"张三","recipient_phone":"13800138000","recipient_address":"上海市","product_id":8,"product_name":"乌拉嘎","spec_g":250,"qty":2}`
+}
+
+func TestMiniLoginAcceptsPhoneIdentifyWithoutNickname(t *testing.T) {
+	e := echo.New()
+	var cmd customerportalapp.LoginCommand
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{login: customerportalapp.LoginResult{Token: "mini-token"}, loginCmd: &cmd}})
+	req := httptest.NewRequest(http.MethodPost, "/api/mini/login", strings.NewReader(`{"mode":"phone_identify","code":"wx-code","phone_code":"phone-code"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || cmd.Mode != "phone_identify" || cmd.PhoneCode != "phone-code" || cmd.Nickname != "" {
+		t.Fatalf("identify status=%d cmd=%+v", rec.Code, cmd)
+	}
+}
+
+func TestMiniPasswordLoginRemainsAvailableByDefault(t *testing.T) {
+	var cmd customerportalapp.PasswordLoginCommand
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{login: customerportalapp.LoginResult{Token: "legacy-token"}, passwordLoginCmd: &cmd}})
+	req := httptest.NewRequest(http.MethodPost, "/api/mini/login/password", strings.NewReader(`{"login":"13800138075","password":"secret"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || cmd.Login != "13800138075" || !strings.Contains(rec.Body.String(), `"token":"legacy-token"`) {
+		t.Fatalf("default legacy login status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMiniPasswordCompatibilityErrorMappings(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		err    error
+		status int
+	}{
+		{"invalid", customerportalapp.ErrMiniInvalidLogin, http.StatusUnauthorized},
+		{"disabled account", customerportalapp.ErrMiniAccountLoginDisabled, http.StatusForbidden},
+		{"missing customer", customerportalapp.ErrCustomerBindingNotFound, http.StatusForbidden},
+		{"invalid template", customerportalapp.ErrCapabilityTemplateInvalid, http.StatusConflict},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := echo.New()
+			RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{err: tc.err}})
+			req := httptest.NewRequest(http.MethodPost, "/api/mini/login/password", strings.NewReader(`{"login":"13800138075","password":"secret"}`))
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != tc.status {
+				t.Fatalf("status=%d want=%d body=%s", rec.Code, tc.status, rec.Body.String())
+			}
+		})
+	}
 }

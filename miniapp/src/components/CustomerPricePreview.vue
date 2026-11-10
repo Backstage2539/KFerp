@@ -14,7 +14,10 @@ async function load() {
  catch(e) { if(version === request) error.value = e instanceof Error ? e.message : '价格表加载失败，请重试' }
  finally { if(version === request) loading.value = false }
 }
-watch(() => [props.usageCode, session.currentCustomerID, session.token], () => { if(session.token && session.currentCustomerID) void load() }, { immediate: true })
+watch(() => [props.usageCode, session.currentCustomerID, session.token], () => {
+ if(session.token && session.currentCustomerID) void load()
+ else { request++; preview.value = null; loading.value = false; error.value = '' }
+}, { immediate: true })
 function money(value?: number) { return Number(value || 0).toFixed(2) }
 function priceTableSpecLabel(row: { spec_name?: string }) { const name = String(row.spec_name || '').trim(); return name && name !== '默认规格' ? name : '规格待维护' }
 </script>

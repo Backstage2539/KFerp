@@ -1,11 +1,23 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useSessionStore } from '../stores/session'
+import { exitPreview } from '../api/customerPreview'
 
 import { customerMainTabs, type CustomerTabKey as MainTabKey } from '../utils/beanCenter'
 defineProps<{current:MainTabKey}>()
 const session = useSessionStore()
 const tabs = computed(()=>customerMainTabs(session.currentCustomerID>0, session.capabilities, session.accountType))
+const leaving = ref(false)
+
+async function returnToEmployee() {
+  if (!session.isCustomerPreview || leaving.value) return
+  const token = session.token
+  leaving.value = true
+  try { await exitPreview(token) } catch { /* Expired previews can still return safely. */ }
+  if (session.token === token && session.isCustomerPreview) session.endCustomerPreview()
+  leaving.value = false
+  uni.reLaunch({ url: '/pages/home/home' })
+}
 
 function openTab(tab: { key: MainTabKey; url: string }) {
   uni.reLaunch({ url: tab.url })
@@ -13,6 +25,7 @@ function openTab(tab: { key: MainTabKey; url: string }) {
 </script>
 
 <template>
+  <view v-if="session.isCustomerPreview" class="preview-banner"><text>客户只读预览 · {{ session.currentCustomerName }}</text><button :disabled="leaving" @tap="returnToEmployee">返回员工工作台</button></view>
   <view v-if="tabs.length" class="main-tabbar">
     <view
       v-for="tab in tabs"
@@ -26,6 +39,9 @@ function openTab(tab: { key: MainTabKey; url: string }) {
 </template>
 
 <style scoped>
+.preview-banner { position: fixed; z-index: 1000; bottom: 124rpx; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; gap: 12rpx; padding: 12rpx 20rpx; background: #e8f3ec; color: #194f37; font-size: 23rpx; }
+.preview-banner text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview-banner button { flex-shrink: 0; margin: 0; font-size: 22rpx; color: #fff; background: #225941; }
 .main-tabbar {
   position: fixed;
   left: 0;

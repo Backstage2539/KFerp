@@ -28,7 +28,7 @@ func (registrationIdentity) ResolvePhoneNumber(_ context.Context, code string) (
 	if code == "invalid" {
 		return app.MiniPhoneNumber{}, app.ErrMiniInvalidLogin
 	}
-	return app.MiniPhoneNumber{PhoneNumber: strings.Split(code, ":")[0]}, nil
+	return app.MiniPhoneNumber{PhoneNumber: strings.Split(code, ":")[0], CountryCode: "86"}, nil
 }
 func TestBeanCenterRegistrationPostgres(t *testing.T) {
 	dsn := os.Getenv("ORDERAPP_TEST_DATABASE_URL")

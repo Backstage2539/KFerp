@@ -41,7 +41,7 @@ func TestDev277MiniappPasswordSkuAliasDocs(t *testing.T) {
 		body := string(readOrderAppFileForTest(t, path))
 		for _, want := range []string{
 			"密码",
-			"掩码",
+			"微信手机号",
 			"定制 SKU",
 			"基础款",
 		} {
@@ -55,15 +55,15 @@ func TestDev277MiniappPasswordSkuAliasDocs(t *testing.T) {
 func TestDev277MiniappPasswordSkuAliasSourceGuards(t *testing.T) {
 	login := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "pages", "login", "login.vue")))
 	for _, want := range []string{
-		`password placeholder="密码"`,
-		"loginWithPassword",
+		`open-type="getPhoneNumber"`,
+		"loginWithPhoneIdentify",
 	} {
 		if !strings.Contains(login, want) {
 			t.Fatalf("login.vue missing %q", want)
 		}
 	}
-	if strings.Contains(login, `type="text" placeholder="密码"`) {
-		t.Fatalf("login.vue must not expose password as plain text input")
+	if strings.Contains(login, `placeholder="密码"`) || strings.Contains(login, "loginWithPassword") {
+		t.Fatalf("login.vue must not offer password login")
 	}
 
 	repository := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "customerportal", "business_repository.go")))
