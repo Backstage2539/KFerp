@@ -3,6 +3,7 @@
 - Scope: 成品库存表将现货占用改名为待发订单占用，数量计算保持不变；原料、包材、半成品仍使用现货占用。
 - DEV-PR755-01: 类型区分与用户手册；目标 DOM 回归测试和 Vue 构建。
 - Status: targeted frontend tests, Vue build and support API tests passed; user acceptance pending.
+- Development: ERP-only `a84eede23cda9c3c5adad6ca04397fc4d8205fd2`; login HTTP 200, PR-755 API visible, Vue bundle/manual marker present, application running and database healthy. Backup `/opt/stacks/erp/orderapp.backup.deploy-20261110105725-a84eede23cda`; user acceptance pending.
 
 ### PR-754-OPERATION-REPORTING-MODES
 - Branch: `codex/production-operation-modes-20261109`; base: `origin/develop`.
