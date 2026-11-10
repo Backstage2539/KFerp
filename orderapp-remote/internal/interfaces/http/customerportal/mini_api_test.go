@@ -514,7 +514,7 @@ func TestMiniLoginAcceptsPhoneVerifyPayload(t *testing.T) {
 func TestMiniPasswordLoginIsDisabled(t *testing.T) {
 	var cmd customerportalapp.PasswordLoginCommand
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{passwordLoginCmd: &cmd}})
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{passwordLoginCmd: &cmd}, DisableMiniPasswordLogin: true})
 	req := httptest.NewRequest(http.MethodPost, "/api/mini/login/password", strings.NewReader(`{"login":"13800138075","password":"secret"}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -2340,5 +2340,18 @@ func TestMiniLoginAcceptsPhoneIdentifyWithoutNickname(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || cmd.Mode != "phone_identify" || cmd.PhoneCode != "phone-code" || cmd.Nickname != "" {
 		t.Fatalf("identify status=%d cmd=%+v", rec.Code, cmd)
+	}
+}
+
+func TestMiniPasswordLoginRemainsAvailableByDefault(t *testing.T) {
+	var cmd customerportalapp.PasswordLoginCommand
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{login: customerportalapp.LoginResult{Token: "legacy-token"}, passwordLoginCmd: &cmd}})
+	req := httptest.NewRequest(http.MethodPost, "/api/mini/login/password", strings.NewReader(`{"login":"13800138075","password":"secret"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || cmd.Login != "13800138075" || !strings.Contains(rec.Body.String(), `"token":"legacy-token"`) {
+		t.Fatalf("default legacy login status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }

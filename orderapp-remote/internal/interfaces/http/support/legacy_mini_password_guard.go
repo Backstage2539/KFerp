@@ -16,7 +16,7 @@ func LegacyMiniPasswordGuard(check func(context.Context, string) (bool, error)) 
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			path := c.Request().URL.Path
-			if !(strings.HasPrefix(path, "/api/mini/") || strings.HasPrefix(path, "/api/pages/")) {
+			if !(strings.HasPrefix(path, "/api/mini/") || strings.HasPrefix(path, "/api/pages/") || path == "/api/customer-recipient/parse") {
 				return next(c)
 			}
 			if CurrentEmployeeID(c) > 0 {

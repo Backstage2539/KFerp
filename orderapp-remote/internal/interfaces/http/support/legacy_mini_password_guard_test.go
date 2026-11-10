@@ -21,6 +21,8 @@ func TestLegacyMiniPasswordGuard(t *testing.T) {
 		{"mini old", "/api/mini/me", "Bearer old", "", true, false, 401, true},
 		{"price bypass", "/api/pages/document", "Bearer old", "", true, false, 401, true},
 		{"sample bypass", "/api/mini/sample-requests", "Bearer old", "", true, false, 401, true},
+		{"recipient parse old mini token", "/api/customer-recipient/parse", "Bearer old", "", true, false, 401, true},
+		{"recipient parse wechat token", "/api/customer-recipient/parse", "Bearer wechat", "", false, false, 200, true},
 		{"new wechat", "/api/mini/me", "Bearer wechat", "", false, false, 200, true},
 		{"erp bearer", "/api/orders", "Bearer erp", "", false, false, 200, false},
 		{"cookie web", "/api/page-auth/me", "", "session=x", false, false, 200, false},
@@ -96,6 +98,14 @@ func TestLegacyMiniPasswordGuardDoesNotCheckAuthenticatedERP(t *testing.T) {
 	if rec.Code != 200 || called {
 		t.Fatalf("authenticated ERP request blocked: status=%d checker=%v", rec.Code, called)
 	}
+	e.POST("/api/customer-recipient/parse", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
+	req = httptest.NewRequest(http.MethodPost, "/api/customer-recipient/parse", nil)
+	req.Header.Set("Authorization", "Bearer erp-token")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != 200 || called {
+		t.Fatalf("authenticated ERP recipient parse blocked: status=%d checker=%v", rec.Code, called)
+	}
 }
 
 func TestLegacyGuardRegistrationAllMethods(t *testing.T) {
@@ -110,6 +120,27 @@ func TestLegacyGuardRegistrationAllMethods(t *testing.T) {
 			e.ServeHTTP(rec, req)
 			if rec.Code != 401 {
 				t.Fatalf("legacy %s registration status=%d", method, rec.Code)
+			}
+		})
+	}
+}
+
+func TestLegacyGuardRecipientParsePost(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		legacy bool
+		want   int
+	}{{"old password", true, 401}, {"wechat", false, 200}} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := echo.New()
+			e.Use(LegacyMiniPasswordGuard(func(context.Context, string) (bool, error) { return tc.legacy, nil }))
+			e.POST("/api/customer-recipient/parse", func(c echo.Context) error { return c.NoContent(200) })
+			req := httptest.NewRequest(http.MethodPost, "/api/customer-recipient/parse", nil)
+			req.Header.Set("Authorization", "Bearer example")
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != tc.want {
+				t.Fatalf("recipient parse status=%d want=%d", rec.Code, tc.want)
 			}
 		})
 	}
