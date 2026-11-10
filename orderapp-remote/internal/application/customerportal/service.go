@@ -1409,6 +1409,8 @@ func (s *Service) Login(ctx context.Context, cmd LoginCommand) (LoginResult, err
 	return normalizeLoginResult(result), nil
 }
 
+var explicitInternationalPhone = regexp.MustCompile(`^\+[1-9][0-9]{1,14}$`)
+
 // Non-mainland numbers must retain a verified country prefix: a bare national
 // number from another country must never match a mainland customer account.
 func normalizeVerifiedMiniPhone(number MiniPhoneNumber) string {
@@ -1430,10 +1432,16 @@ func normalizeVerifiedMiniPhone(number MiniPhoneNumber) string {
 		}
 		return ""
 	}
-	if full != "" {
-		return full
+	// An absent country code is ambiguous unless the full number itself has
+	// an explicit international prefix. Never treat an unqualified number as
+	// a local account identifier merely because its digits happen to match.
+	if !explicitInternationalPhone.MatchString(full) {
+		return ""
 	}
-	return pure
+	if strings.HasPrefix(full, "+86") && len(full) > len("+86") {
+		return strings.TrimPrefix(full, "+86")
+	}
+	return full
 }
 
 func (s *Service) LoginWithPassword(ctx context.Context, cmd PasswordLoginCommand) (LoginResult, error) {

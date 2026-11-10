@@ -907,7 +907,7 @@ func TestLoginWithPhoneVerifyCreatesERPBoundSession(t *testing.T) {
 	repo := &fakeRepository{phoneVerifiedLoginResult: LoginResult{Token: "mini-phone-token", MiniUserID: 11}}
 	svc := NewService(repo, fakeIdentityProvider{
 		identity: MiniIdentity{OpenID: " openid-verify ", UnionID: " union-verify "},
-		phone:    MiniPhoneNumber{PhoneNumber: " 13800138000 ", PurePhoneNumber: "13800138000"},
+		phone:    MiniPhoneNumber{PhoneNumber: " 13800138000 ", PurePhoneNumber: "13800138000", CountryCode: "86"},
 	})
 	got, err := svc.Login(context.Background(), LoginCommand{Mode: "phone_verify", Code: "wx-code", PhoneCode: " phone-code ", Nickname: " 渠道客户 "})
 	if err != nil {
@@ -2400,7 +2400,7 @@ func TestNotificationOrderFilterKeepsAuthenticatedCustomer(t *testing.T) {
 
 func TestPhoneIdentifyExchangesOnceWithoutRequiringNickname(t *testing.T) {
 	repo := &fakeRepository{phoneVerifiedLoginResult: LoginResult{Token: "identified", MiniUserID: 1}}
-	svc := NewService(repo, fakeIdentityProvider{identity: MiniIdentity{OpenID: "wx-open-id"}, phone: MiniPhoneNumber{PhoneNumber: "13800138000"}})
+	svc := NewService(repo, fakeIdentityProvider{identity: MiniIdentity{OpenID: "wx-open-id"}, phone: MiniPhoneNumber{PhoneNumber: "13800138000", CountryCode: "86"}})
 	result, err := svc.Login(context.Background(), LoginCommand{Mode: "phone_identify", Code: "wx-code", PhoneCode: "one-use-phone-code"})
 	if err != nil {
 		t.Fatalf("phone identification should not require nickname: %v", err)
@@ -2421,11 +2421,35 @@ func TestNormalizeVerifiedMiniPhonePreservesCountry(t *testing.T) {
 		{"different country same digits", MiniPhoneNumber{PhoneNumber: "13800138000", PurePhoneNumber: "13800138000", CountryCode: "1"}, "+113800138000"},
 		{"foreign full only", MiniPhoneNumber{PhoneNumber: "+113800138000", CountryCode: "1"}, "+113800138000"},
 		{"foreign ambiguous full", MiniPhoneNumber{PhoneNumber: "13800138000", CountryCode: "1"}, ""},
-		{"legacy no country", MiniPhoneNumber{PhoneNumber: "13800138000"}, "13800138000"},
+		{"ambiguous no country", MiniPhoneNumber{PhoneNumber: "13800138000", PurePhoneNumber: "13800138000"}, ""},
+		{"explicit mainland with no country", MiniPhoneNumber{PhoneNumber: "+8613800138000"}, "13800138000"},
+		{"explicit foreign with no country", MiniPhoneNumber{PhoneNumber: "+113800138000"}, "+113800138000"},
+		{"missing country pure only", MiniPhoneNumber{PurePhoneNumber: "13800138000"}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := normalizeVerifiedMiniPhone(tc.in); got != tc.want {
 				t.Fatalf("got %q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPhoneAuthenticationRequiresCountryOrExplicitInternationalPrefix(t *testing.T) {
+	for _, mode := range []string{"phone_identify", "phone_verify"} {
+		t.Run(mode+" rejects ambiguous", func(t *testing.T) {
+			repo := &fakeRepository{}
+			svc := NewService(repo, fakeIdentityProvider{identity: MiniIdentity{OpenID: "openid"}, phone: MiniPhoneNumber{PhoneNumber: "13800138000", PurePhoneNumber: "13800138000"}})
+			_, err := svc.Login(context.Background(), LoginCommand{Mode: mode, Code: "wx", PhoneCode: "phone"})
+			if err == nil || repo.phoneVerifiedCommand.Phone != "" {
+				t.Fatalf("ambiguous phone accepted: %v %+v", err, repo.phoneVerifiedCommand)
+			}
+		})
+		t.Run(mode+" accepts explicit +86", func(t *testing.T) {
+			repo := &fakeRepository{}
+			svc := NewService(repo, fakeIdentityProvider{identity: MiniIdentity{OpenID: "openid"}, phone: MiniPhoneNumber{PhoneNumber: "+8613800138000"}})
+			_, err := svc.Login(context.Background(), LoginCommand{Mode: mode, Code: "wx", PhoneCode: "phone"})
+			if err != nil || repo.phoneVerifiedCommand.Phone != "13800138000" {
+				t.Fatalf("explicit phone not accepted: %v %+v", err, repo.phoneVerifiedCommand)
 			}
 		})
 	}
