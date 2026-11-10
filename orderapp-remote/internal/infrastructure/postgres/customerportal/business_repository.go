@@ -1978,17 +1978,17 @@ func (r Repository) customerOrderProgressCounts(ctx context.Context, customerID 
 	return counts, err
 }
 
-// Some legacy test databases do not install the portal schema. Production
-// installs the marker table at startup; old databases without it remain valid.
+// The existing app_config store keeps one visibility marker per customer and
+// order. Some legacy databases do not install app_config and stay compatible.
 func (r Repository) visibleCustomerOrderSQL(ctx context.Context, orderAlias string) (string, error) {
 	var exists bool
-	if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, r.schema+".customer_portal_hidden_orders").Scan(&exists); err != nil {
+	if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, r.schema+".app_config").Scan(&exists); err != nil {
 		return "", err
 	}
 	if !exists {
 		return "TRUE", nil
 	}
-	return fmt.Sprintf(`NOT EXISTS (SELECT 1 FROM %s.customer_portal_hidden_orders hidden WHERE hidden.customer_id=%s.customer_id AND hidden.order_id=%s.id AND hidden.restored_at IS NULL)`, r.schema, orderAlias, orderAlias), nil
+	return fmt.Sprintf(`NOT EXISTS (SELECT 1 FROM %s.app_config hidden WHERE hidden.key='customer_portal.hidden_order.' || %s.customer_id::text || '.' || %s.id::text AND hidden.value='hidden')`, r.schema, orderAlias, orderAlias), nil
 }
 
 func (r Repository) listCustomerOrders(ctx context.Context, query customerportalapp.ServicePageQuery, limit int, includeItems bool) ([]customerportalapp.CustomerOrderSummary, error) {
