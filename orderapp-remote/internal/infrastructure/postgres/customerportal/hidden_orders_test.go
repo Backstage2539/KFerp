@@ -12,12 +12,10 @@ func TestCustomerHiddenOrderDoesNotAppearInListCountsOrDetails(t *testing.T) {
 	ctx := context.Background()
 	pool, schema := newCustomerPortalTestDB(t)
 	repo := NewRepository(pool, schema)
-	// Create the contract first so this test exposes the missing query filtering
-	// before the schema and implementation are added.
-	_, err := pool.Exec(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %[1]s.customer_portal_hidden_orders (
-		customer_id bigint NOT NULL, order_id bigint NOT NULL, reason text NOT NULL,
-		hidden_by text NOT NULL, hidden_at timestamptz NOT NULL DEFAULT now(),
-		restored_at timestamptz, PRIMARY KEY(customer_id,order_id));`, schema))
+	// Mirror the pre-existing app_config contract, without a new portal table.
+	_, err := pool.Exec(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %[1]s.app_config (
+		key text PRIMARY KEY, value text NOT NULL, updated_at timestamptz NOT NULL DEFAULT now(),
+		updated_by text NOT NULL DEFAULT '');`, schema))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,14 +62,14 @@ func TestCustomerHiddenOrderDoesNotAppearInListCountsOrDetails(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A marker for a different customer cannot hide the owner's order.
-	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_portal_hidden_orders(customer_id,order_id,reason,hidden_by) VALUES($1,$2,'wrong customer','test')`, schema), b, hiddenID); err != nil {
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.app_config(key,value,updated_by) VALUES('customer_portal.hidden_order.' || $1::bigint::text || '.' || $2::bigint::text,'hidden','test')`, schema), b, hiddenID); err != nil {
 		t.Fatal(err)
 	}
 	rows, err := repo.listCustomerOrders(ctx, app.ServicePageQuery{CustomerID: a}, 50, false)
 	if err != nil || len(rows) != 2 {
 		t.Fatalf("cross-customer marker changed visibility: rows=%+v err=%v", rows, err)
 	}
-	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_portal_hidden_orders(customer_id,order_id,reason,hidden_by) VALUES($1,$2,'用户要求隐藏','test')`, schema), a, hiddenID); err != nil {
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.app_config(key,value,updated_by) VALUES('customer_portal.hidden_order.' || $1::bigint::text || '.' || $2::bigint::text,'hidden','test')`, schema), a, hiddenID); err != nil {
 		t.Fatal(err)
 	}
 	rows, err = repo.listCustomerOrders(ctx, app.ServicePageQuery{CustomerID: a}, 50, false)
@@ -110,7 +108,7 @@ func TestCustomerHiddenOrderDoesNotAppearInListCountsOrDetails(t *testing.T) {
 	if err != nil || len(settlement.SettlementBatches) != 1 || settlement.SettlementBatches[0].ID != batchID {
 		t.Fatalf("issued bill became inaccessible: batches=%+v err=%v", settlement.SettlementBatches, err)
 	}
-	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_portal_hidden_orders SET restored_at=now() WHERE customer_id=$1 AND order_id=$2`, schema), a, hiddenID); err != nil {
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.app_config SET value='visible' WHERE key='customer_portal.hidden_order.' || $1::bigint::text || '.' || $2::bigint::text`, schema), a, hiddenID); err != nil {
 		t.Fatal(err)
 	}
 	rows, err = repo.listCustomerOrders(ctx, app.ServicePageQuery{CustomerID: a}, 50, false)
@@ -130,9 +128,7 @@ func TestHiddenOrderVisibilityLegacySchemaAndLookupFailure(t *testing.T) {
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.orders(order_no,customer_id,is_void,order_date) VALUES('LEGACY',$1,false,CURRENT_DATE) RETURNING id`, schema), customerID).Scan(&orderID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, fmt.Sprintf(`DROP TABLE %s.customer_portal_hidden_orders`, schema)); err != nil {
-		t.Fatal(err)
-	}
+	// No app_config table is present in legacy fixtures.
 	rows, err := repo.listCustomerOrders(ctx, app.ServicePageQuery{CustomerID: customerID}, 20, false)
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("legacy list: rows=%+v err=%v", rows, err)

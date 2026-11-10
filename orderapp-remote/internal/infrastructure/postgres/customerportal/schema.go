@@ -84,9 +84,6 @@ ALTER TABLE %s.customer_portal_profiles
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
-	if err := ensureHiddenOrderSchema(ctx, pool, schema); err != nil {
-		return err
-	}
 	if err := ensureRegistrationSchema(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -112,22 +109,6 @@ ALTER TABLE %s.customer_portal_profiles
 		return err
 	}
 	return ensureCapabilityConfigConstraint(ctx, pool, schema)
-}
-
-// A visibility marker does not alter the underlying order or its accounting.
-// Setting restored_at restores the order to the customer-facing views.
-func ensureHiddenOrderSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
-	_, err := pool.Exec(ctx, fmt.Sprintf(`
-CREATE TABLE IF NOT EXISTS %[1]s.customer_portal_hidden_orders (
-	customer_id BIGINT NOT NULL REFERENCES %[1]s.customers(id),
-	order_id BIGINT NOT NULL REFERENCES %[1]s.orders(id),
-	reason TEXT NOT NULL,
-	hidden_by TEXT NOT NULL,
-	hidden_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-	restored_at TIMESTAMPTZ,
-	PRIMARY KEY (customer_id, order_id)
-);`, schema))
-	return err
 }
 
 func ensureSettlementSourceLineSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
