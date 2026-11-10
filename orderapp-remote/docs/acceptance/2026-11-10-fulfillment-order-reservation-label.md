@@ -6,3 +6,4 @@
 - 手册：`orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`。
 - 无新增 API 或业务写操作；用户验收待完成。
 - 开发环境 ERP-only 运行版本 `a84eede23cda9c3c5adad6ca04397fc4d8205fd2`；登录 200、需求 API 可见、页面资源与手册含新表头，数据库健康。正式环境未部署。
+- 正式环境 ERP-only 运行版本 `a778e8f79f752deffe6b8ead66e8c1457a84d499`；登录 200、需求 API 可见、页面资源与手册含新表头，数据库健康；小程序包沿用原版。
