@@ -21,7 +21,7 @@ async function setup(url = 'https://dev.example/app/vue-shell?view=productionFlo
     addEventListener: (name, fn) => events.set(name, fn), removeEventListener: name => events.delete(name),
     history: { state: {}, replaceState(state, _, href) { this.state = state; window.location.href = new URL(href, window.location.href).href }, pushState(state, _, href) { histories.push(href); this.replaceState(state, _, href) } },
   }
-  globalThis.document = { querySelector: () => ({ scrollIntoView() {} }), getElementById: () => null }
+  globalThis.document = { visibilityState: 'hidden', addEventListener() {}, removeEventListener() {}, querySelector: () => ({ scrollIntoView() {} }), getElementById: () => null }
   const calls = []
   const cleanups = []
   const mounted = []
@@ -106,6 +106,138 @@ test('failed supply refresh preserves input and never marks it as saved', async 
     assert.equal(app.state.productionPlanDetailDirty.value, true)
     assert.equal(app.state.productionPlanDetail.value.items[0].target_warehouse, 'wip')
     assert.match(app.state.productionPlanDetailError.value, /供应暂时不可用/)
+  } finally { app.close() }
+})
+
+test('manual supply refresh accepts wrapped and legacy details with the current version token', async () => {
+  for (const wrapped of [true, false]) {
+    const calls = []
+    const updated = { ...draft, draft_token: 'v2', items: [{ id: 7, output_name: '半成品' }] }
+    const app = await setup(undefined, { apiSend: async (endpoint, options) => { calls.push(options.body); return wrapped ? { plan: updated, changed: true } : updated } })
+    try {
+      await app.state.openProductionPlanDetail(draft)
+      await app.state.refreshProductionPlanDetailSupply()
+      assert.equal(calls[0].draft_token, 'v1')
+      assert.equal(app.state.productionPlanDetail.value.id, 113)
+      assert.equal(app.state.productionPlanDetail.value.items[0].output_name, '半成品')
+    } finally { app.close() }
+  }
+})
+
+test('visible draft automatically updates supply and retains the returned tasks', async () => {
+  const calls = []
+  const app = await setup(undefined, { apiSend: async (endpoint, options) => {
+    calls.push([endpoint, options])
+    return { plan: { ...draft, draft_token: 'v2', items: [{ id: 7, output_name: '半成品' }] }, changed: true, summary: '新增烘焙、色选' }
+  } })
+  try {
+    globalThis.document.visibilityState = 'visible'
+    await app.state.openProductionPlanDetail(draft)
+    assert.equal(calls.length, 1)
+    assert.deepEqual(calls[0][1].body, { check_only: false, draft_token: 'v1' })
+    assert.equal(app.state.productionPlanDetail.value.items[0].output_name, '半成品')
+    assert.match(app.state.productionSupplyStatus.value, /新增烘焙、色选/)
+  } finally { app.close() }
+})
+
+test('supply check during editing does not overwrite user input', async () => {
+  const calls = []
+  const app = await setup(undefined, { apiSend: async (endpoint, options) => {
+    calls.push(options.body)
+    return { plan: structuredClone(draft), changed: true, summary: '库存变化' }
+  } })
+  try {
+    await app.state.openProductionPlanDetail(draft)
+    app.state.productionPlanDetail.value.items.push({ id: 1, target_warehouse: 'wip' })
+    globalThis.document.visibilityState = 'visible'
+    await app.state.syncProductionPlanSupply()
+    assert.equal(calls[0].check_only, true)
+    assert.equal(app.state.productionPlanDetail.value.items[0].target_warehouse, 'wip')
+    assert.equal(app.state.productionPlanDetailDirty.value, true)
+    assert.match(app.state.productionSupplyStatus.value, /保存后自动更新/)
+  } finally { app.close() }
+})
+
+test('supply response arriving after editing starts never replaces local input', async () => {
+  let resolveSync
+  const app = await setup(undefined, { apiSend: () => new Promise(resolve => { resolveSync = resolve }) })
+  try {
+    await app.state.openProductionPlanDetail(draft)
+    globalThis.document.visibilityState = 'visible'
+    const pending = app.state.syncProductionPlanSupply()
+    app.state.productionPlanDetail.value.items.push({ id: 1, target_warehouse: 'wip' })
+    resolveSync({ plan: { ...draft, draft_token: 'v2', items: [{ id: 7 }] }, changed: true })
+    await pending
+    assert.equal(app.state.productionPlanDetail.value.items[0].target_warehouse, 'wip')
+    assert.equal(app.state.productionPlanDetailDirty.value, true)
+    assert.match(app.state.productionSupplyStatus.value, /当前输入已保留/)
+  } finally { app.close() }
+})
+
+test('failed automatic supply check keeps the draft and exposes a retry state', async () => {
+  const app = await setup(undefined, { apiSend: async () => { throw new Error('网络中断') } })
+  try {
+    await app.state.openProductionPlanDetail(draft)
+    globalThis.document.visibilityState = 'visible'
+    await app.state.syncProductionPlanSupply()
+    assert.equal(app.state.productionPlanDetail.value.id, 113)
+    assert.equal(app.state.productionSupplyError.value, true)
+    assert.match(app.state.productionSupplyStatus.value, /网络中断/)
+  } finally { app.close() }
+})
+
+test('batch submit obtains a version token for every selected plan', async () => {
+  const app = await setup(undefined, { apiGet: async endpoint => ({ draft_token: `v-${String(endpoint).split('/').pop()}` }) })
+  try {
+    assert.deepEqual(await app.state.loadProductionPlanSubmitTokens([41, 42]), { '41': 'v-41', '42': 'v-42' })
+  } finally { app.close() }
+})
+
+test('explicit workstation review sends acknowledgement while ordinary draft save does not', async () => {
+  const writes = []
+  const app = await setup(undefined, { apiSend: async (endpoint, options) => { writes.push(options.body); return structuredClone(draft) } })
+  try {
+    await app.state.openProductionPlanDetail(draft)
+    app.state.productionPlanDetail.value.items.push({ id: 1, target_warehouse: 'wip' })
+    await app.state.saveProductionPlanDetailDraft()
+    assert.equal(writes[0].ack_supply_recheck, undefined)
+    await app.state.saveProductionPlanDetailDraft(true)
+    assert.equal(writes[1].ack_supply_recheck, true)
+  } finally { app.close() }
+})
+
+test('successful supply reconciliation clears the pending submit-conflict message', async () => {
+  const app = await setup(undefined, { apiSend: async endpoint => {
+    if (String(endpoint).endsWith('/submit')) throw Object.assign(new Error('供应已变化'), { status: 409 })
+    return { plan: { ...draft, draft_token: 'v2' }, changed: true, summary: '工序已更新，请核对' }
+  } })
+  try {
+    await app.state.openProductionPlanDetail(draft)
+    app.state.productionPlanDetail.value.readiness.can_submit = true
+    globalThis.document.visibilityState = 'visible'
+    await app.state.submitProductionPlanDetail()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    assert.equal(app.state.productionPlanDetailError.value, '')
+    assert.match(app.state.productionSupplyStatus.value, /工序已更新/)
+  } finally { app.close() }
+})
+
+test('failed post-submit reconciliation shows the failure and clears it after a successful retry', async () => {
+  let fail = true
+  const app = await setup(undefined, { apiSend: async endpoint => {
+    if (String(endpoint).endsWith('/submit')) throw Object.assign(new Error('供应已变化'), { status: 409 })
+    if (fail) { fail = false; throw new Error('网络故障') }
+    return { plan: { ...draft, draft_token: 'v2' }, changed: true, summary: '已更新' }
+  } })
+  try {
+    await app.state.openProductionPlanDetail(draft)
+    app.state.productionPlanDetail.value.readiness.can_submit = true
+    globalThis.document.visibilityState = 'visible'
+    await app.state.submitProductionPlanDetail()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    assert.match(app.state.productionPlanDetailError.value, /网络故障/)
+    await app.state.syncProductionPlanSupply()
+    assert.equal(app.state.productionPlanDetailError.value, '')
   } finally { app.close() }
 })
 

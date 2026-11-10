@@ -385,7 +385,10 @@ func loadFrozenPickingProgressTx(ctx context.Context, tx pgx.Tx, schema string, 
 }
 
 func pickingAdjustmentIdentity(item app.ProductionPlanItem, s app.ProductionPlanComponentSource) string {
-	return fmt.Sprintf("%s:%d:%d:%d:%d:%s:%s:%d:%d:%d", item.OutputType, item.OutputProductID, item.OutputMaterialID, item.BomVersionID, item.CustomerID, item.TargetWarehouse, s.ComponentType, s.ComponentID, s.ComponentBOMSpecID, s.ComponentSpecG)
+	// Source selections belong to a specific draft task. Multiple frozen
+	// demands can share the same product, BOM and owner while selecting different
+	// warehouses; never copy one task's choice onto another task.
+	return fmt.Sprintf("%d:%s:%d:%d:%d:%d", item.ID, s.ComponentType, s.ComponentID, s.ComponentBOMSpecID, s.ComponentBOMVariantID, s.ComponentSpecG)
 }
 func preservedPickingAdjustmentsTx(ctx context.Context, tx pgx.Tx, schema string, planID int64, items []app.ProductionPlanItem) (map[string][]app.ProductionPlanSourceAllocation, error) {
 	sources, err := loadProductionPlanComponentSourcesTx(ctx, tx, schema, planID)

@@ -25,6 +25,7 @@
     </div>
 
     <div v-else-if="productionPlanSplitDrawer" class="production-plan-workspace-shell production-plan-capacity-shell">
+      <div v-if="productionPlanSplitDrawerDraft" :class="['supply-status', { 'supply-error': productionSupplyError }]" role="status">{{ productionSupplyStatus }} <button v-if="productionSupplyError" type="button" @click="syncProductionPlanSupply">重试</button></div>
       <template v-if="!productionPlanSplitDirty && !productionPlanSplitDrawerLoading">
         <div v-for="item in productionPlanSplitDrawer.items || []" :key="item.id"><strong>{{ item.output_name || item.product_name }}</strong><OperationReportingRecheck kind="plan_item" :id="Number(item.id)" @updated="closeProductionPlanSplitDrawer(true); reloadProductionPlanDetail()" /></div>
       </template>
@@ -39,6 +40,7 @@
         :error="productionPlanSplitDrawerError"
         :preview-error="productionPlanSplitPreviewError"
         :dirty="productionPlanSplitDirty"
+        :needs-supply-recheck="productionPlanSplitNeedsSupplyRecheck"
         @back="closeProductionPlanSplitDrawer"
         @refresh="loadProductionPlanSplitPreview"
         @save="saveProductionPlanSplitDrawer(false)"
@@ -55,6 +57,7 @@
     </div>
 
     <div v-else-if="productionPlanDetail" class="production-plan-workspace-shell">
+      <div v-if="productionPlanSelectable(productionPlanDetail)" :class="['supply-status', { 'supply-error': productionSupplyError }]" role="status">{{ productionSupplyStatus }} <button v-if="productionSupplyError" type="button" @click="syncProductionPlanSupply">重试</button></div>
       <ProductionPlanDetailWorkspace
         :detail="productionPlanDetail"
         :warehouses="warehouses"
@@ -854,6 +857,11 @@ const productionPlanSplitSavedFingerprint = ref('')
 const productionPlanSplitPreview = ref(null)
 const productionPlanSplitPreviewLoading = ref(false)
 const productionPlanSplitPreviewError = ref('')
+const productionSupplyStatus = ref('等待核对库存与在产供应')
+const productionSupplyError = ref(false)
+const productionSupplySyncing = ref(false)
+let productionSupplyTimer = 0
+let submitSupplyReconciliationPending = false
 const postSubmitActions = ref([])
 const insufficientHeaderCheckbox = ref(null)
 const productionPlanHeaderCheckbox = ref(null)
@@ -953,6 +961,7 @@ const hasSelectedProductionPlans = computed(() => productionPlanSelection.value.
 const currentPlanDraft = computed(() => productionPlanSelectable(currentPlan.value))
 const productionPlanSplitDrawerDraft = computed(() => productionPlanSelectable(productionPlanSplitDrawer.value))
 const productionPlanSplitDirty = computed(() => productionPlanSplitFingerprint(productionPlanSplitRows.value) !== productionPlanSplitSavedFingerprint.value)
+const productionPlanSplitNeedsSupplyRecheck = computed(() => (productionPlanSplitDrawer.value?.operation_splits || []).some(row => String(row.note || '').includes('[[SUPPLY_RECHECK_REQUIRED]]')))
 const productionPlanDetailDirty = computed(() => {
   if (!productionPlanSelectable(productionPlanDetail.value) || !productionPlanDetailSavedFingerprint.value) return false
   return JSON.stringify(buildProductionPlanDraftPayload(productionPlanDetail.value)) !== productionPlanDetailSavedFingerprint.value
@@ -1915,6 +1924,7 @@ async function openProductionPlanDetail(plan, { history = 'push' } = {}) {
   if (!productionPlanDetailEndpoint(plan)) return
   if (productionPlanDetail.value && Number(plan.id) !== Number(productionPlanDetail.value.id) && !confirmPlanningLeave()) return
   stopCreationPreview()
+  submitSupplyReconciliationPending = false
   const requestID = ++detailRequestSeq
   productionPlanDetail.value = { ...plan, items: [], material_summary: [], related_work_orders: [], job_card_count: 0 }
   currentPlan.value = null
@@ -1939,6 +1949,7 @@ async function openProductionPlanDetail(plan, { history = 'push' } = {}) {
   } finally {
     if (requestID === detailRequestSeq) productionPlanDetailLoading.value = false
   }
+  if (requestID === detailRequestSeq && !productionPlanDetailError.value) await syncProductionPlanSupply()
 }
 
 async function reloadProductionPlanDetail() {
@@ -1970,14 +1981,16 @@ function changeProductionPlanDetailWarehouse(itemID, warehouse) {
   if (item) item.target_warehouse = String(warehouse || '').trim()
 }
 
-async function saveProductionPlanDetailDraft() {
+async function saveProductionPlanDetailDraft(ackSupplyRecheck = false) {
   if (productionPlanDetailSaving.value || saving.value) return null
   const endpoint = productionPlanDraftEndpoint(productionPlanDetail.value)
-  if (!endpoint || !productionPlanSelectable(productionPlanDetail.value) || !productionPlanDetailDirty.value) return null
+  if (!endpoint || !productionPlanSelectable(productionPlanDetail.value) || (!productionPlanDetailDirty.value && !ackSupplyRecheck)) return null
   productionPlanDetailSaving.value = true
   productionPlanDetailError.value = ''
   try {
-    const saved = normalizeProductionPlanDetailForSplitEditor(await apiSend(endpoint, { method: 'PATCH', body: buildProductionPlanDraftPayload(productionPlanDetail.value) }))
+    const payload = buildProductionPlanDraftPayload(productionPlanDetail.value)
+    if (ackSupplyRecheck) payload.ack_supply_recheck = true
+    const saved = normalizeProductionPlanDetailForSplitEditor(await apiSend(endpoint, { method: 'PATCH', body: payload }))
     productionPlanDetail.value = saved
     productionPlanDetailSavedFingerprint.value = JSON.stringify(buildProductionPlanDraftPayload(saved))
     if (Number(currentPlan.value?.id || 0) === Number(saved.id || 0)) {
@@ -1993,6 +2006,7 @@ async function saveProductionPlanDetailDraft() {
     return null
   } finally {
     productionPlanDetailSaving.value = false
+    if (!productionPlanDetailError.value) void syncProductionPlanSupply()
   }
 }
 
@@ -2003,8 +2017,9 @@ async function submitProductionPlanDetail() {
   if (!endpoint || !productionPlanSelectable(plan) || productionPlanDetailDirty.value || !plan?.readiness?.can_submit) return
   productionPlanDetailSaving.value = true
   productionPlanDetailError.value = ''
+  let needsSupplySync = false
   try {
-    const result = await apiSend(endpoint, { body: {} })
+    const result = await apiSend(endpoint, { body: { draft_token: plan.draft_token || '' } })
     const submitted = normalizeProductionPlanDetailForSplitEditor(result.plan || plan)
     productionPlanDetail.value = submitted
     productionPlanDetailSavedFingerprint.value = JSON.stringify(buildProductionPlanDraftPayload(submitted))
@@ -2013,15 +2028,18 @@ async function submitProductionPlanDetail() {
     notice.value = `${submitted.plan_no || '生产计划'} 已提交，生成 ${result.work_orders?.length || 0} 张工单。`
     await Promise.all([loadProductionPlans(), refreshProductionDemandAfterDraftCancel(true)])
   } catch (err) {
-    productionPlanDetailError.value = err.message || '提交生成工单失败'
+    productionPlanDetailError.value = err.status === 409 ? '库存、在产或草稿已变化，正在重新核对，请检查生产安排后再次提交。' : err.message || '提交生成工单失败'
+    needsSupplySync = err.status === 409
+    submitSupplyReconciliationPending = needsSupplySync
   } finally {
     productionPlanDetailSaving.value = false
+    if (needsSupplySync) void syncProductionPlanSupply()
   }
 }
 
 async function refreshProductionPlanDetailSupply() {
   if (!productionPlanSelectable(productionPlanDetail.value)) return
-  if (!window.confirm('刷新供应会按当前库存和在途重新生成上游任务与工序拆分，确认继续吗？')) return
+  if (!window.confirm('刷新供应会按当前库存和在途更新上游任务，保留仍适用的工位安排。确认继续吗？')) return
   await refreshPlanSupply(productionPlanDetail.value, 'detail')
 }
 
@@ -2053,6 +2071,8 @@ async function openProductionPlanSplitDrawer(plan, returnTarget = '') {
     if (productionPlanDetailError.value) return
     return openProductionPlanSplitDrawer(productionPlanDetail.value, 'detail')
   }
+  await syncProductionPlanSupply()
+  plan = productionPlanDetail.value || plan
   productionPlanSplitReturnTarget.value = returnTarget
   productionPlanSplitDrawer.value = normalizeProductionPlanDetailForSplitEditor({
     ...plan,
@@ -2136,7 +2156,7 @@ async function saveProductionPlanSplitDrawer(closeAfterSave = false) {
     const payload = buildProductionPlanOperationSplitPayload(productionPlanSplitRows.value)
     if (productionPlanSplitReturnTarget.value === 'detail' && Number(productionPlanDetail.value?.id || 0) === Number(productionPlanSplitDrawer.value?.id || 0)) {
       productionPlanDetail.value = { ...productionPlanDetail.value, operation_splits: payload.items.map(normalizeOperationSplit) }
-      const saved = await saveProductionPlanDetailDraft()
+      const saved = await saveProductionPlanDetailDraft(true)
       if (!saved) throw new Error(productionPlanDetailError.value || '保存生产计划草稿失败')
       productionPlanSplitDrawer.value = saved
       const savedRows = (saved.operation_splits || []).map(normalizeOperationSplit)
@@ -2165,11 +2185,12 @@ async function saveProductionPlanSplitDrawer(closeAfterSave = false) {
     return false
   } finally {
     productionPlanSplitDrawerSaving.value = false
+    if (!productionPlanSplitDrawerError.value) void syncProductionPlanSupply()
   }
 }
 
 async function confirmProductionPlanSplitWorkspace() {
-  if (productionPlanSplitDirty.value) {
+  if (productionPlanSplitDirty.value || productionPlanSplitNeedsSupplyRecheck.value) {
     await saveProductionPlanSplitDrawer(true)
     return
   }
@@ -2229,7 +2250,8 @@ async function refreshPlanSupply(plan, target) {
   if (hasUnsavedPlanningChanges() && !window.confirm('刷新供应将重新读取草稿，未保存的修改会丢失。确认继续吗？')) return
   saving.value = true
   try {
-    const updated = normalizeProductionPlanDetailForSplitEditor(await apiSend(`/api/production-plans/${plan.id}/refresh-supply`, { body: {} }))
+    const response = await apiSend(`/api/production-plans/${plan.id}/refresh-supply`, { body: { draft_token: plan.draft_token || '', check_only: false } })
+    const updated = normalizeProductionPlanDetailForSplitEditor(response.plan || response)
     if (target === 'detail') {
       productionPlanDetail.value = updated
       productionPlanDetailSavedFingerprint.value = JSON.stringify(buildProductionPlanDraftPayload(updated))
@@ -2242,6 +2264,58 @@ async function refreshPlanSupply(plan, target) {
     if (target === 'detail') productionPlanDetailError.value = message
     else error.value = message
   } finally { saving.value = false }
+}
+
+// Reconciliation is a guarded business write. Never replace in-progress input,
+// and keep GET detail requests read-only.
+async function syncProductionPlanSupply() {
+  const plan = productionPlanDetail.value || productionPlanSplitDrawer.value
+  if (!planningViewActive || document.visibilityState === 'hidden' || !productionPlanSelectable(plan) || productionSupplySyncing.value || saving.value || productionPlanDetailSaving.value || productionPlanSplitDrawerSaving.value || productionPlanDetailLoading.value || productionPlanSplitDrawerLoading.value) return
+  const planID = Number(plan.id)
+  const dirty = !!hasUnsavedPlanningChanges()
+  productionSupplySyncing.value = true
+  productionSupplyError.value = false
+  productionSupplyStatus.value = '正在核对库存与在产供应…'
+  try {
+    const result = await apiSend(`/api/production-plans/${planID}/refresh-supply`, { body: { check_only: dirty, draft_token: plan.draft_token || '' } })
+    const current = productionPlanDetail.value || productionPlanSplitDrawer.value
+    if (Number(current?.id) !== planID) return
+    if (current.draft_token !== plan.draft_token) return
+    if (dirty || hasUnsavedPlanningChanges() || saving.value || productionPlanDetailSaving.value || productionPlanSplitDrawerSaving.value) {
+      productionSupplyStatus.value = result.changed ? (dirty ? '库存或在产已变化，保存后自动更新工序；当前输入已保留。' : '供应已更新，当前输入已保留；若保存提示版本冲突，请重新加载后核对。') : '供应已核对，当前输入已保留。'
+      return
+    }
+    const updated = normalizeProductionPlanDetailForSplitEditor(result.plan || result)
+    productionPlanDetail.value = updated
+    productionPlanDetailSavedFingerprint.value = JSON.stringify(buildProductionPlanDraftPayload(updated))
+    if (submitSupplyReconciliationPending) {
+      productionPlanDetailError.value = ''
+      submitSupplyReconciliationPending = false
+    }
+    if (Number(currentPlan.value?.id || 0) === planID) {
+      currentPlan.value = updated
+      manufacturingPlan.value = updated
+      operationSplits.value = updated.operation_splits || []
+    }
+    if (productionPlanSplitDrawer.value && Number(productionPlanSplitDrawer.value.id) === planID) {
+      productionPlanSplitDrawer.value = updated
+      const savedRows = (updated.operation_splits || []).map(normalizeOperationSplit)
+      productionPlanSplitRows.value = savedRows
+      productionPlanSplitSavedFingerprint.value = productionPlanSplitFingerprint(savedRows)
+      scheduleProductionPlanSplitPreview()
+    }
+    productionSupplyStatus.value = result.changed ? (result.summary || '供应已变化，生产安排已更新，请核对受影响工序。') : `已按最新库存与在产供应核对 · ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
+  } catch (err) {
+    productionSupplyError.value = true
+    productionSupplyStatus.value = err.status === 409 ? '草稿已被其他操作更新，当前输入已保留，请重新加载并核对。' : `供应更新失败：${err.message || '请重试'}`
+    if (submitSupplyReconciliationPending) productionPlanDetailError.value = productionSupplyStatus.value
+  } finally {
+    productionSupplySyncing.value = false
+  }
+}
+
+function handleProductionSupplyVisibility() {
+  if (document.visibilityState !== 'hidden') void syncProductionPlanSupply()
 }
 
 async function createProductionPlan() {
@@ -2278,6 +2352,7 @@ async function createProductionPlan() {
     previewError.value = err.message || '创建生产计划失败，请重试；同一次请求不会重复创建。'
   } finally {
     saving.value = false
+    if (productionPlanDetail.value && !productionPlanDetailError.value) void syncProductionPlanSupply()
   }
 }
 
@@ -2288,6 +2363,7 @@ async function submitCurrentProductionPlan() {
   previewError.value = ''
   try {
     await saveCurrentPlanOperationSplits()
+    payload.draft_tokens = await loadProductionPlanSubmitTokens(payload.ids)
     const result = await apiSend(productionPlanBatchSubmitEndpoint(), { body: payload })
     const firstSuccess = Array.isArray(result.success) ? result.success[0] : null
     if (firstSuccess?.plan) currentPlan.value = firstSuccess.plan
@@ -2310,6 +2386,7 @@ async function submitSelectedProductionPlans() {
   saving.value = true
   error.value = ''
   try {
+    payload.draft_tokens = await loadProductionPlanSubmitTokens(payload.ids)
     const result = await apiSend(productionPlanBatchSubmitEndpoint(), { body: payload })
     const firstSuccess = Array.isArray(result.success) ? result.success[0] : null
     if (firstSuccess?.plan) await openProductionPlanDetail(firstSuccess.plan)
@@ -2324,6 +2401,16 @@ async function submitSelectedProductionPlans() {
   } finally {
     saving.value = false
   }
+}
+
+async function loadProductionPlanSubmitTokens(ids) {
+  const plans = await Promise.all(ids.map(id => apiGet(`/api/production-plans/${id}`)))
+  const tokens = {}
+  for (let index = 0; index < ids.length; index += 1) {
+    if (!plans[index]?.draft_token) throw new Error(`生产计划 ${ids[index]} 无法核对草稿版本，请重新加载后重试。`)
+    tokens[String(ids[index])] = plans[index].draft_token
+  }
+  return tokens
 }
 
 async function cancelProductionPlanDraft(plan, source = 'list') {
@@ -2429,8 +2516,11 @@ onMounted(async () => {
   window.addEventListener('beforeunload', handlePlanningBeforeUnload)
   window.addEventListener('popstate', handlePlanningPopState)
   window.addEventListener('kferp:before-navigate', handlePlanningNavigation)
+  document.addEventListener('visibilitychange', handleProductionSupplyVisibility)
+  window.addEventListener('focus', handleProductionSupplyVisibility)
+  productionSupplyTimer = setInterval(() => syncProductionPlanSupply(), 15000)
 })
-onActivated(() => { planningViewActive = true })
+onActivated(() => { planningViewActive = true; void syncProductionPlanSupply() })
 onDeactivated(() => { planningViewActive = false })
 
 watch(() => [props.viewParams?.customer_id, props.customerContextId], async () => {
@@ -2467,6 +2557,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', handlePlanningBeforeUnload)
   window.removeEventListener('popstate', handlePlanningPopState)
   window.removeEventListener('kferp:before-navigate', handlePlanningNavigation)
+  window.removeEventListener('focus', handleProductionSupplyVisibility)
+  document.removeEventListener('visibilitychange', handleProductionSupplyVisibility)
+  if (productionSupplyTimer) clearInterval(productionSupplyTimer)
   detailRequestSeq += 1
   stopCreationPreview()
   if (previewTimer) clearTimeout(previewTimer)
@@ -2479,6 +2572,9 @@ onBeforeUnmount(() => {
 .page.detail-open { padding: 0; background: #f7f9f7; }
 .page.detail-open > :not(.production-plan-workspace-shell) { display: none !important; }
 .production-plan-workspace-shell { min-width: 0; }
+.supply-status { padding: 10px 28px; color: #205b43; background: #eef8f1; font-size: 13px; overflow-wrap: anywhere; }
+.supply-status.supply-error { color: #9a3428; background: #fff2ef; }
+.supply-status button { margin-left: 10px; cursor: pointer; }
 .page:not(.detail-open) { display:flex; flex-direction:column; min-height:calc(100dvh - 56px); }
 .page.embedded:not(.detail-open) { min-height:calc(100dvh - 196px); }
 .page:not(.detail-open) > * { flex-shrink:0; }
