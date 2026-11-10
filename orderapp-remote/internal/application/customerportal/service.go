@@ -1477,9 +1477,15 @@ func (s *Service) Me(ctx context.Context, token string) (CurrentContext, error) 
 	if IsAdminPreviewToken(token) {
 		return s.previewContext(ctx, token)
 	}
+	if s.employeeSessionRevoked(token) {
+		return CurrentContext{}, ErrMiniSessionNotFound
+	}
 	current, err := s.repo.CurrentContextByToken(ctx, token)
 	if err != nil {
 		return CurrentContext{}, err
+	}
+	if s.employeeSessionRevoked(token) {
+		return CurrentContext{}, ErrMiniSessionNotFound
 	}
 	if current.CurrentCustomerID > 0 && current.AccountType != "employee" {
 		if modes, ok := s.repo.(interface {

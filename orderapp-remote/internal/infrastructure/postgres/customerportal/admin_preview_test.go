@@ -93,6 +93,57 @@ func TestWechatAdminPreviewSecurity(t *testing.T) {
 	if current, err = svc.Me(ctx, login.Token); err != nil || current.AccountType != "employee" {
 		t.Fatalf("employee session changed: %+v %v", current, err)
 	}
+	second, err := repo.CreatePhoneVerifiedLoginSession(ctx, app.CreatePhoneVerifiedLoginSessionCommand{Identify: true, Registration: true, CredentialHash: strings.Repeat("e", 64), OpenID: "other-wx", Phone: "13960009998"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err = svc.StartAdminPreview(ctx, login.Token, customerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = svc.LogoutPreviewEmployee(ctx, login.Token); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.Me(ctx, login.Token); err == nil {
+		t.Fatal("logged-out employee session accepted")
+	}
+	if _, err = svc.Me(ctx, preview.Token); err == nil {
+		t.Fatal("derived preview survived employee logout")
+	}
+	if _, err = svc.Me(ctx, second.Token); err != nil {
+		t.Fatalf("other device was logged out: %v", err)
+	}
+	var logoutAudit int
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.audit_logs WHERE entity_type='mini_employee_session' AND action='logout' AND entity_id=$1`, schema), employeeID).Scan(&logoutAudit); err != nil || logoutAudit != 1 {
+		t.Fatalf("logout audit count=%d err=%v", logoutAudit, err)
+	}
+	login = second
+	preview, err = svc.StartAdminPreview(ctx, login.Token, customerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_portal_profiles SET enabled=false WHERE customer_id=$1`, schema), customerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_portal_profiles SET enabled=true WHERE customer_id=$1`, schema), customerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.Me(ctx, preview.Token); err == nil {
+		t.Fatal("disabled and reenabled portal revived idle preview")
+	}
+	preview, err = svc.StartAdminPreview(ctx, login.Token, customerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.employee_roles WHERE employee_id=$1 AND role_code='admin'`, schema), employeeID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.employee_roles(employee_id,role_code) VALUES($1,'admin')`, schema), employeeID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.Me(ctx, preview.Token); err == nil {
+		t.Fatal("removed and restored admin revived idle preview")
+	}
 	preview, err = svc.StartAdminPreview(ctx, login.Token, customerID)
 	if err != nil {
 		t.Fatal(err)

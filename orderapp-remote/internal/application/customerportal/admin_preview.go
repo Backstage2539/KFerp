@@ -24,14 +24,17 @@ type previewSession struct {
 	employeeToken          string
 	employeeID, customerID int64
 	expiresAt              time.Time
+	securityVersion        string
 }
 type previewSessions struct {
-	mu      sync.Mutex
-	entries map[string]previewSession
+	mu               sync.Mutex
+	entries          map[string]previewSession
+	revokedEmployees map[string]struct{}
 }
 type previewRepository interface {
 	AdminPreviewCustomer(context.Context, int64) (CurrentContext, error)
 	AdminPreviewAudit(context.Context, int64, int64, string) error
+	AdminPreviewSecurityVersion(context.Context, int64, int64) (string, error)
 }
 
 func IsAdminPreviewToken(token string) bool {
@@ -52,7 +55,7 @@ func isPreviewAdmin(c CurrentContext) bool {
 // StartAdminPreview never exposes the employee token; server memory is the
 // authority. Restart or expiry invalidates all temporary preview credentials.
 func (s *Service) StartAdminPreview(ctx context.Context, employeeToken string, customerID int64) (AdminPreviewSession, error) {
-	if IsAdminPreviewToken(employeeToken) || customerID <= 0 || s.repo == nil {
+	if IsAdminPreviewToken(employeeToken) || customerID <= 0 || s.repo == nil || s.employeeSessionRevoked(employeeToken) {
 		return AdminPreviewSession{}, ErrAdminPreviewDenied
 	}
 	admin, err := s.repo.CurrentContextByToken(ctx, employeeToken)
@@ -66,6 +69,10 @@ func (s *Service) StartAdminPreview(ctx context.Context, employeeToken string, c
 	if _, err = repo.AdminPreviewCustomer(ctx, customerID); err != nil {
 		return AdminPreviewSession{}, err
 	}
+	securityVersion, err := repo.AdminPreviewSecurityVersion(ctx, admin.EmployeeID, customerID)
+	if err != nil || securityVersion == "" {
+		return AdminPreviewSession{}, ErrAdminPreviewDenied
+	}
 	var random [32]byte
 	if _, err = rand.Read(random[:]); err != nil {
 		return AdminPreviewSession{}, err
@@ -75,6 +82,9 @@ func (s *Service) StartAdminPreview(ctx context.Context, employeeToken string, c
 	expires := now.Add(previewTTL)
 	s.previews.mu.Lock()
 	defer s.previews.mu.Unlock()
+	if _, revoked := s.previews.revokedEmployees[employeeToken]; revoked {
+		return AdminPreviewSession{}, ErrAdminPreviewDenied
+	}
 	if s.previews.entries == nil {
 		s.previews.entries = make(map[string]previewSession)
 	}
@@ -89,7 +99,7 @@ func (s *Service) StartAdminPreview(ctx context.Context, employeeToken string, c
 	if err = repo.AdminPreviewAudit(ctx, admin.EmployeeID, customerID, "enter"); err != nil {
 		return AdminPreviewSession{}, err
 	}
-	s.previews.entries[token] = previewSession{employeeToken: employeeToken, employeeID: admin.EmployeeID, customerID: customerID, expiresAt: expires}
+	s.previews.entries[token] = previewSession{employeeToken: employeeToken, employeeID: admin.EmployeeID, customerID: customerID, expiresAt: expires, securityVersion: securityVersion}
 	return AdminPreviewSession{Token: token, ExpiresAt: expires}, nil
 }
 
@@ -109,13 +119,77 @@ func (s *Service) removePreview(token string) {
 	delete(s.previews.entries, token)
 }
 
+func (s *Service) employeeSessionRevoked(token string) bool {
+	s.previews.mu.Lock()
+	defer s.previews.mu.Unlock()
+	_, revoked := s.previews.revokedEmployees[token]
+	return revoked
+}
+
+func (s *Service) revokeEmployeePreviews(token string, requireKnown bool) {
+	s.previews.mu.Lock()
+	defer s.previews.mu.Unlock()
+	found := false
+	for key, entry := range s.previews.entries {
+		if entry.employeeToken == token {
+			delete(s.previews.entries, key)
+			found = true
+		}
+	}
+	if !requireKnown || found {
+		if s.previews.revokedEmployees == nil {
+			s.previews.revokedEmployees = make(map[string]struct{})
+		}
+		s.previews.revokedEmployees[token] = struct{}{}
+	}
+}
+
+type previewEmployeeLogoutRepository interface {
+	LogoutPreviewEmployee(context.Context, string, int64) error
+}
+
+// LogoutPreviewEmployee invalidates all previews derived from this employee
+// session before attempting the durable session and audit transaction. If the
+// transaction fails, this process continues denying that employee token.
+func (s *Service) LogoutPreviewEmployee(ctx context.Context, token string) error {
+	if s.repo == nil || token == "" || IsAdminPreviewToken(token) || s.employeeSessionRevoked(token) {
+		return ErrAdminPreviewDenied
+	}
+	current, err := s.repo.CurrentContextByToken(ctx, token)
+	if err != nil || current.AccountType != "employee" || current.EmployeeID <= 0 {
+		s.revokeEmployeePreviews(token, true)
+		return ErrAdminPreviewDenied
+	}
+	repo, ok := s.repo.(previewEmployeeLogoutRepository)
+	if !ok {
+		s.revokeEmployeePreviews(token, false)
+		return ErrAdminPreviewDenied
+	}
+	s.revokeEmployeePreviews(token, false)
+	if err = repo.LogoutPreviewEmployee(ctx, token, current.EmployeeID); err != nil {
+		return err
+	}
+	s.previews.mu.Lock()
+	delete(s.previews.revokedEmployees, token)
+	s.previews.mu.Unlock()
+	return nil
+}
+
 func (s *Service) previewContext(ctx context.Context, token string) (CurrentContext, error) {
 	p, ok := s.lookupPreview(token)
 	if !ok {
 		return CurrentContext{}, ErrMiniSessionNotFound
 	}
+	if s.employeeSessionRevoked(p.employeeToken) {
+		s.removePreview(token)
+		return CurrentContext{}, ErrAdminPreviewDenied
+	}
 	admin, err := s.repo.CurrentContextByToken(ctx, p.employeeToken)
 	if err != nil || !isPreviewAdmin(admin) || admin.EmployeeID != p.employeeID {
+		s.removePreview(token)
+		return CurrentContext{}, ErrAdminPreviewDenied
+	}
+	if s.employeeSessionRevoked(p.employeeToken) {
 		s.removePreview(token)
 		return CurrentContext{}, ErrAdminPreviewDenied
 	}
@@ -129,6 +203,11 @@ func (s *Service) previewContext(ctx context.Context, token string) (CurrentCont
 		return CurrentContext{}, err
 	}
 	if current.CurrentCustomerID != p.customerID {
+		s.removePreview(token)
+		return CurrentContext{}, ErrAdminPreviewDenied
+	}
+	version, err := repo.AdminPreviewSecurityVersion(ctx, p.employeeID, p.customerID)
+	if err != nil || version == "" || version != p.securityVersion {
 		s.removePreview(token)
 		return CurrentContext{}, ErrAdminPreviewDenied
 	}

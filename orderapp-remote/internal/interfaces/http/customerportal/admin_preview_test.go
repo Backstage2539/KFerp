@@ -22,8 +22,9 @@ func (s *previewMiddlewareService) Me(_ context.Context, _ string) (portal.Curre
 
 type previewHTTPService struct {
 	fakeService
-	started int64
-	exited  bool
+	started   int64
+	exited    bool
+	loggedOut bool
 }
 
 func (s *previewHTTPService) Me(_ context.Context, token string) (portal.CurrentContext, error) {
@@ -47,6 +48,13 @@ func (s *previewHTTPService) EndAdminPreview(_ context.Context, token string) er
 		return portal.ErrAdminPreviewDenied
 	}
 	s.exited = true
+	return nil
+}
+func (s *previewHTTPService) LogoutPreviewEmployee(_ context.Context, token string) error {
+	if token != "employee" {
+		return portal.ErrAdminPreviewDenied
+	}
+	s.loggedOut = true
 	return nil
 }
 
@@ -76,6 +84,20 @@ func TestPreviewHTTPStartExitAndGlobalGuard(t *testing.T) {
 	e.ServeHTTP(rec, exit)
 	if rec.Code != 204 || !svc.exited {
 		t.Fatalf("exit: %d", rec.Code)
+	}
+	logout := httptest.NewRequest("POST", "/api/mini/employee/logout", nil)
+	logout.Header.Set("Authorization", "Bearer employee")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, logout)
+	if rec.Code != 204 || !svc.loggedOut {
+		t.Fatalf("employee logout: %d", rec.Code)
+	}
+	logout = httptest.NewRequest("POST", "/api/mini/employee/logout", nil)
+	logout.Header.Set("Authorization", "Bearer admin-preview.test")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, logout)
+	if rec.Code != 403 {
+		t.Fatalf("preview attempted employee logout: %d", rec.Code)
 	}
 }
 

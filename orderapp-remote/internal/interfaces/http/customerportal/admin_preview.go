@@ -144,4 +144,16 @@ func registerAdminPreviewAPI(e *echo.Echo, svc Service, customers CustomerMainte
 		}
 		return c.NoContent(http.StatusNoContent)
 	})
+	e.POST("/api/mini/employee/logout", func(c echo.Context) error {
+		logout, ok := svc.(interface {
+			LogoutPreviewEmployee(context.Context, string) error
+		})
+		if !ok {
+			return miniInternalError(c)
+		}
+		if err := logout.LogoutPreviewEmployee(c.Request().Context(), miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))); err != nil {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "无法确认服务端退出"})
+		}
+		return c.NoContent(http.StatusNoContent)
+	})
 }

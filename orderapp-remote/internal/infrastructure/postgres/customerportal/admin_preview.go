@@ -47,3 +47,37 @@ func (r Repository) AdminPreviewAudit(ctx context.Context, employeeID, customerI
 	_, err := r.pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.audit_logs(actor,entity_type,entity_id,action,field,new_value,meta) VALUES($1,'customer_preview',$2,$3,'customer_id',$4,jsonb_build_object('employee_id',$5::bigint,'customer_id',$2::bigint))`, r.schema), "employee:"+strconv.FormatInt(employeeID, 10), customerID, action, strconv.FormatInt(customerID, 10), employeeID)
 	return err
 }
+
+// xmin captures intervening row updates even when a customer or employee is
+// disabled and re-enabled between requests. Changes fail closed; this value
+// is kept only in server memory and is never returned to the client.
+func (r Repository) AdminPreviewSecurityVersion(ctx context.Context, employeeID, customerID int64) (string, error) {
+	var version string
+	q := fmt.Sprintf(`SELECT c.xmin::text||':'||p.xmin::text||':'||e.xmin::text||':'||
+	 COALESCE((SELECT string_agg(er.role_code||':'||er.xmin::text,',' ORDER BY er.role_code) FROM %[1]s.employee_roles er WHERE er.employee_id=e.id),'')||':'||
+	 COALESCE((SELECT string_agg(rp.role_code||':'||rp.permission_code||':'||rp.xmin::text,',' ORDER BY rp.role_code,rp.permission_code) FROM %[1]s.auth_role_permissions rp JOIN %[1]s.employee_roles er ON er.role_code=rp.role_code WHERE er.employee_id=e.id),'')
+	 FROM %[1]s.customers c JOIN %[1]s.customer_portal_profiles p ON p.customer_id=c.id AND p.enabled=true JOIN %[1]s.company_employees e ON e.id=$1 AND e.active=true WHERE c.id=$2 AND c.active=true`, r.schema)
+	err := r.pool.QueryRow(ctx, q, employeeID, customerID).Scan(&version)
+	return version, err
+}
+
+// Only the supplied employee mini session is expired; other devices and
+// customer sessions are unaffected. The session change and audit are atomic.
+func (r Repository) LogoutPreviewEmployee(ctx context.Context, token string, employeeID int64) error {
+	if token == "" || employeeID <= 0 {
+		return portal.ErrAdminPreviewDenied
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var miniUserID int64
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`UPDATE %s.mini_sessions SET expire_at=now() WHERE token=$1 AND expire_at>now() RETURNING mini_user_id`, r.schema), token).Scan(&miniUserID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.audit_logs(actor,entity_type,entity_id,action,meta) VALUES($1,'mini_employee_session',$2,'logout',jsonb_build_object('employee_id',$2::bigint,'mini_user_id',$3::bigint))`, r.schema), "employee:"+strconv.FormatInt(employeeID, 10), employeeID, miniUserID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
