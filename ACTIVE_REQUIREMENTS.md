@@ -1,3 +1,10 @@
+### PR-756-PRODUCTION-LIVE-SUPPLY
+- Branch: `codex/production-live-supply-20261110`; base: `origin/develop`.
+- Scope: 草稿按冻结配方和实时供应增量更新上游工序，保护人工安排并在提交时复核；已提交工单保留快照。
+- DEV: `DEV-PR756-01` 差异同步；`DEV-PR756-02` 提交与并发保护；`DEV-PR756-03` 页面、手册及验收。
+- Status: RED/GREEN、隔离数据库、前端及构建验证通过；待集成发布和用户验收，正式业务数据不直接修改。
+- Notes: macOS 预留脚本因 awk 报错未写入，已核对 PR 编号并登记。
+
 ### PR-755-FULFILLMENT-ORDER-RESERVATION-LABEL
 - Branch: `codex/fulfillment-pending-orders-label-20261110`.
 - Scope: 成品库存表将现货占用改名为待发订单占用，数量计算保持不变；原料、包材、半成品仍使用现货占用。

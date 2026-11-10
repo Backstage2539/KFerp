@@ -636,7 +636,6 @@ func productionPlanUsesTypedOutputBindingsTx(ctx context.Context, tx pgx.Tx, sch
 			JOIN %s.production_bom_output_bindings binding
 			  ON binding.output_type=item.output_type
 			 AND binding.output_id=CASE WHEN item.output_type='material' THEN item.output_material_id ELSE item.output_product_id END
-			 AND binding.bom_version_id=item.bom_version_id
 			WHERE item.production_plan_id=$1 AND binding.is_default=true
 		)
 	`, schema, schema), planID).Scan(&exists)

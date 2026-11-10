@@ -641,6 +641,7 @@ type ProductionPlanDraftItem struct {
 type SaveProductionPlanDraftCommand struct {
 	ID               int64
 	DraftToken       string
+	AckSupplyRecheck bool
 	Items            []ProductionPlanDraftItem
 	ComponentSources []ProductionPlanComponentSource
 	OperationSplits  []ProductionPlanOperationSplit
@@ -806,8 +807,9 @@ type ProductionPlanRelatedWorkOrder struct {
 }
 
 type SubmitProductionPlanCommand struct {
-	ID       int64
-	Operator string
+	ID         int64
+	Operator   string
+	DraftToken string
 }
 
 type CancelProductionPlanCommand struct {
@@ -817,8 +819,9 @@ type CancelProductionPlanCommand struct {
 }
 
 type SubmitProductionPlansCommand struct {
-	IDs      []int64 `json:"ids"`
-	Operator string  `json:"operator"`
+	IDs         []int64          `json:"ids"`
+	DraftTokens map[int64]string `json:"draft_tokens"`
+	Operator    string           `json:"operator"`
 }
 
 type ProductionPlanSubmitResult struct {
@@ -2552,7 +2555,7 @@ func (s *Service) SubmitProductionPlans(ctx context.Context, cmd SubmitProductio
 			continue
 		}
 		seen[id] = true
-		submitted, err := s.SubmitProductionPlan(ctx, SubmitProductionPlanCommand{ID: id, Operator: cmd.Operator})
+		submitted, err := s.SubmitProductionPlan(ctx, SubmitProductionPlanCommand{ID: id, Operator: cmd.Operator, DraftToken: cmd.DraftTokens[id]})
 		if err != nil {
 			result.Failed = append(result.Failed, ProductionPlanSubmitFailure{ID: id, Error: err.Error()})
 			continue

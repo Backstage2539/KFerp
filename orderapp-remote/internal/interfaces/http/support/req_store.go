@@ -270,6 +270,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-756-PRODUCTION-LIVE-SUPPLY", title: "生产计划草稿按实时供应更新工序", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-10-production-live-supply.md；用户验收待完成"},
+		{table: "req_dev", code: "DEV-PR756-01", title: "冻结配方展开与供应差异同步", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR756-02", title: "计划提交并发保护与供应复核", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR756-03", title: "草稿自动更新页面、手册与验收", status: "review", assignee: "Codex"},
 		{table: "req_product", code: "PR-MINIAPP-HIDE-ORDER-20261110", title: "指定客户订单在小程序可恢复隐藏并保留业务历史", status: "doing", assignee: "Van", evidence: "ACTIVE_REQUIREMENTS.md；实现与测试中，用户验收待完成"},
 		{table: "req_dev", code: "DEV-MINIAPP-HIDE-ORDER-SCOPE", title: "按客户与订单精确控制小程序可见性", status: "doing", assignee: "Codex", evidence: "隔离、筛选、分页和首页汇总验证待执行"},
 		{table: "req_dev", code: "DEV-MINIAPP-HIDE-ORDER-AUDIT", title: "管理员可恢复隐藏及操作日志", status: "doing", assignee: "Codex", evidence: "授权、审计和幂等验证待执行"},

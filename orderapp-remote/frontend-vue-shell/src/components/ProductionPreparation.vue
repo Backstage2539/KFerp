@@ -28,11 +28,11 @@
           <p>填写需要固定的数量，其余需求由系统自动补齐。这里保存建议，不会转仓。</p>
           <label v-for="row in edits" :key="`${row.warehouse}-${row.owner_customer_id}`">
             <span>{{ row.warehouse_name || row.warehouse }} · {{ row.owner_name || '工厂' }}<small>可用 {{ quantity(row.available_g, row.available_units, source) }}</small></span>
-            <input v-model.number="row.quantity" type="number" min="0" :step="isWeight(source) ? '0.001' : '1'" :aria-label="`${row.warehouse_name || row.warehouse} 分配数量`" />
+            <input v-model.number="row.quantity" type="number" min="0" :disabled="saving" :step="isWeight(source) ? '0.001' : '1'" :aria-label="`${row.warehouse_name || row.warehouse} 分配数量`" />
             <span>{{ displayUnit(source) }}</span>
           </label>
           <p v-if="editError" role="alert" class="missing">{{ editError }}</p>
-          <div class="adjust-actions"><button type="submit" :disabled="saving">保存调整</button><button type="button" @click="editing = null">取消</button></div>
+          <div class="adjust-actions"><button type="submit" :disabled="saving">保存调整</button><button type="button" :disabled="saving" @click="editing = null">取消</button></div>
         </form>
       </div>
     </details>
