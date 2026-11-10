@@ -6546,3 +6546,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Last update: 2026-11-08
 - Notes: reserved PR-750 after macOS awk claim failure. Van confirmed test group “口加生产” and official account “棵凡咖啡-服务号”, and manually closed the storage warning. Current WeChat observation is still a blank window with no readable chat controls, including after raising it. Public-platform browser access was explicitly blocked by the site safety policy; no workaround attempted. No real notification sent; suitable order templates, readable target chat and live acceptance remain pending.
 - Evidence: orderapp-remote/docs/acceptance/2026-11-08-order-wechat-notifications.md; DEV-PR750-01 through 04 remain doing for live acceptance.
+### PR-MINIAPP-HIDE-ORDER-20261110
+- Branch: `codex/hide-customer-order-20261110`；状态：开发中，隔离验证、部署及 Van 验收待完成。
+- 范围：管理员对指定客户、指定订单记录可恢复的小程序隐藏标记；隐藏不按订单关闭状态批量推断，不新增客户按钮或 ERP 页面入口。
+- DEV：`DEV-MINIAPP-HIDE-ORDER-SCOPE` 精确过滤与首页汇总；`DEV-MINIAPP-HIDE-ORDER-AUDIT` 管理员隐藏/恢复及日志；`DEV-MINIAPP-HIDE-ORDER-REVIEW` 历史保护、测试与手册。
+- 验证待执行：客户隔离、分页及统计一致、重复隐藏与恢复、越权拒绝和日志；ERP 订单、账单、库存、生产历史保持不变。正式业务操作和现场验收单独记录结果，不预填通过。
