@@ -80,7 +80,7 @@ func TestLegacyMiniPasswordCheckerUsesActualSessionIdentity(t *testing.T) {
 	}
 }
 
-func TestLegacyMiniPasswordGuardDoesNotCheckAuthenticatedERP(t *testing.T) {
+func TestLegacyMiniPasswordGuardAllowsNonMiniERPBearer(t *testing.T) {
 	called := false
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -88,14 +88,14 @@ func TestLegacyMiniPasswordGuardDoesNotCheckAuthenticatedERP(t *testing.T) {
 	})
 	e.Use(LegacyMiniPasswordGuard(func(context.Context, string) (bool, error) {
 		called = true
-		return false, errors.New("database unavailable")
+		return false, nil
 	}))
 	e.GET("/api/pages/:key", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
 	req := httptest.NewRequest(http.MethodGet, "/api/pages/test", nil)
 	req.Header.Set("Authorization", "Bearer erp-token")
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != 200 || called {
+	if rec.Code != 200 || !called {
 		t.Fatalf("authenticated ERP request blocked: status=%d checker=%v", rec.Code, called)
 	}
 	e.POST("/api/customer-recipient/parse", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
@@ -103,7 +103,7 @@ func TestLegacyMiniPasswordGuardDoesNotCheckAuthenticatedERP(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer erp-token")
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != 200 || called {
+	if rec.Code != 200 || !called {
 		t.Fatalf("authenticated ERP recipient parse blocked: status=%d checker=%v", rec.Code, called)
 	}
 }
@@ -141,6 +141,31 @@ func TestLegacyGuardRecipientParsePost(t *testing.T) {
 			e.ServeHTTP(rec, req)
 			if rec.Code != tc.want {
 				t.Fatalf("recipient parse status=%d want=%d", rec.Code, tc.want)
+			}
+		})
+	}
+}
+
+func TestLegacyGuardChecksBearerEvenWithEmployeeContext(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		legacy bool
+		want   int
+	}{{"old mini bearer", true, 401}, {"erp bearer", false, 200}} {
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			e := echo.New()
+			e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+				return func(c echo.Context) error { c.Set("employee_id", int64(7)); return next(c) }
+			})
+			e.Use(LegacyMiniPasswordGuard(func(context.Context, string) (bool, error) { called = true; return tc.legacy, nil }))
+			e.GET("/api/mini/me", func(c echo.Context) error { return c.NoContent(200) })
+			req := httptest.NewRequest(http.MethodGet, "/api/mini/me", nil)
+			req.Header.Set("Authorization", "Bearer token")
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != tc.want || !called {
+				t.Fatalf("got status=%d checked=%v", rec.Code, called)
 			}
 		})
 	}

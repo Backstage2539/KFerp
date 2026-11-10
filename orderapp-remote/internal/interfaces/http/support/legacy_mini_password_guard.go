@@ -19,9 +19,6 @@ func LegacyMiniPasswordGuard(check func(context.Context, string) (bool, error)) 
 			if !(strings.HasPrefix(path, "/api/mini/") || strings.HasPrefix(path, "/api/pages/") || path == "/api/customer-recipient/parse") {
 				return next(c)
 			}
-			if CurrentEmployeeID(c) > 0 {
-				return next(c)
-			}
 			auth := strings.TrimSpace(c.Request().Header.Get(echo.HeaderAuthorization))
 			if len(auth) < 7 || !strings.EqualFold(auth[:7], "Bearer ") {
 				return next(c)

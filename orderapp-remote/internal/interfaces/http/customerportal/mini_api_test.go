@@ -2355,3 +2355,28 @@ func TestMiniPasswordLoginRemainsAvailableByDefault(t *testing.T) {
 		t.Fatalf("default legacy login status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestMiniPasswordCompatibilityErrorMappings(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		err    error
+		status int
+	}{
+		{"invalid", customerportalapp.ErrMiniInvalidLogin, http.StatusUnauthorized},
+		{"disabled account", customerportalapp.ErrMiniAccountLoginDisabled, http.StatusForbidden},
+		{"missing customer", customerportalapp.ErrCustomerBindingNotFound, http.StatusForbidden},
+		{"invalid template", customerportalapp.ErrCapabilityTemplateInvalid, http.StatusConflict},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := echo.New()
+			RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{err: tc.err}})
+			req := httptest.NewRequest(http.MethodPost, "/api/mini/login/password", strings.NewReader(`{"login":"13800138075","password":"secret"}`))
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != tc.status {
+				t.Fatalf("status=%d want=%d body=%s", rec.Code, tc.status, rec.Body.String())
+			}
+		})
+	}
+}
