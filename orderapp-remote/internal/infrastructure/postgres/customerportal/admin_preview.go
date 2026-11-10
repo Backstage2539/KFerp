@@ -17,7 +17,7 @@ func (r Repository) AdminPreviewCustomer(ctx context.Context, customerID int64) 
 	}
 	defer tx.Rollback(ctx)
 	var current portal.CurrentContext
-	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT c.id,COALESCE(c.name,''),COALESCE(c.contact,''),COALESCE(c.phone,''),COALESCE(c.address,''),COALESCE(e.name,''),COALESCE(e.phone,'') FROM %s.customers c LEFT JOIN %s.company_employees e ON e.id=NULLIF(c.responsible_employee_id,0) WHERE c.id=$1 AND c.active=true`, r.schema, r.schema), customerID).Scan(&current.CurrentCustomerID, &current.CurrentCustomerName, &current.CurrentCustomerContact, &current.CurrentCustomerPhone, &current.CurrentCustomerAddress, &current.BusinessContactName, &current.BusinessContactPhone)
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT c.id,COALESCE(NULLIF(p.display_name,''),c.name,''),COALESCE(c.contact,''),COALESCE(c.phone,''),COALESCE(c.address,''),COALESCE(e.name,''),COALESCE(e.phone,'') FROM %s.customers c JOIN %s.customer_portal_profiles p ON p.customer_id=c.id AND p.enabled=true LEFT JOIN %s.company_employees e ON e.id=NULLIF(c.responsible_employee_id,0) WHERE c.id=$1 AND c.active=true`, r.schema, r.schema, r.schema), customerID).Scan(&current.CurrentCustomerID, &current.CurrentCustomerName, &current.CurrentCustomerContact, &current.CurrentCustomerPhone, &current.CurrentCustomerAddress, &current.BusinessContactName, &current.BusinessContactPhone)
 	if err != nil {
 		return portal.CurrentContext{}, err
 	}

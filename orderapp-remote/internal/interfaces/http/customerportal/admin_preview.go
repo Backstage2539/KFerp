@@ -95,6 +95,9 @@ func registerAdminPreviewAPI(e *echo.Echo, svc Service, customers CustomerMainte
 		if page <= 0 {
 			page = 1
 		}
+		if page > 100000 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "页码超出范围"})
+		}
 		active := true
 		rows, err := customers.ListManaged(c.Request().Context(), miniCustomerPrincipal(current), customer.ListQuery{Query: strings.TrimSpace(c.QueryParam("q")), Limit: limit, Offset: (page - 1) * limit, Active: &active})
 		if err != nil {
