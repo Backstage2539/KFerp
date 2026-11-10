@@ -42,6 +42,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureUnifiedStockDocumentTables(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensurePlanMaterialTransferLinks(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureStockAdjustmentTables(ctx, pool, schema); err != nil {
 		return err
 	}

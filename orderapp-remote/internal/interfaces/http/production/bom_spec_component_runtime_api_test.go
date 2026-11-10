@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	stockapp "orderapp/internal/application/stock"
 	"strings"
 	"testing"
 
@@ -107,6 +108,12 @@ func TestProductionPlanBOMSpecComponentUsesOnlySelectedSpecStockAndCreatesSpecUp
 		FROM %s.production_plan_items WHERE production_plan_id=%d;
 	`, schema, schema, planID))
 	selectPlanningTestSources(t, app, planID)
+	blockedBeforeTransfer := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
+	if blockedBeforeTransfer.Code != http.StatusBadRequest {
+		t.Fatalf("plan must await WIP transfer: %d %s", blockedBeforeTransfer.Code, blockedBeforeTransfer.Body.String())
+	}
+	moveFixtureStockToWIP(t, pool, schema, stockapp.StockDocumentItemCommand{ItemType: "finished_product", ProductID: 2, BomSpecID: 18001, BomVariantID: 18101, InventoryUnit: "袋", QtyUnits: 40, BatchCode: "UP-A-STOCK", FromWarehouse: "finished_goods"})
+	selectPlanningTestSources(t, app, planID)
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
 	if submit.Code != http.StatusOK {
 		t.Fatalf("submit BOM-spec component plan status=%d body=%s", submit.Code, submit.Body.String())
@@ -162,7 +169,7 @@ func TestProductionPlanBOMSpecComponentUsesOnlySelectedSpecStockAndCreatesSpecUp
 		t.Fatalf("complete BOM-spec upstream status=%d body=%s", upstreamComplete.Code, upstreamComplete.Body.String())
 	}
 	assertProductionFlowCount(t, pool, schema, "finished_inventory",
-		"product_id=2 AND bom_spec_id=18001 AND spec_g=0 AND warehouse='finished_goods' AND onhand_units=100", 1)
+		"product_id=2 AND bom_spec_id=18001 AND spec_g=0 AND warehouse='finished_goods' AND onhand_units=60", 1)
 	assertProductionFlowCount(t, pool, schema, "finished_inventory",
 		"product_id=2 AND bom_spec_id=18002 AND spec_g=0 AND warehouse='finished_goods' AND onhand_units=100", 1)
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", fmt.Sprintf(

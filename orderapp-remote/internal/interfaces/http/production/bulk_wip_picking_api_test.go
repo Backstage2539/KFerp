@@ -74,6 +74,23 @@ func newBulkPickingFixtureOwner(t *testing.T, unit string, ownerID int64) bulkPi
 
 func (f bulkPickingFixture) createWorkOrder(t *testing.T, outputKG float64) int64 {
 	t.Helper()
+	// These tests exercise work orders that were issued before plan-level WIP
+	// preparation became mandatory. Create the work order through the current
+	// API with stock in WIP, then reconstruct the historical raw-warehouse
+	// location and reservation in this isolated fixture. Downstream picking is
+	// still performed through the real API under test.
+	ctx := context.Background()
+	var wipQty int64
+	if err := f.pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(qty_g+qty_units),0) FROM %s.material_batch_locations WHERE material_batch_id=72230 AND warehouse='wip'`, f.schema)).Scan(&wipQty); err != nil {
+		t.Fatal(err)
+	}
+	historicalRaw := wipQty == 0
+	if historicalRaw {
+		mustExecProductionFlowTestSQL(t, ctx, f.pool, fmt.Sprintf(`
+UPDATE %[1]s.material_batch_locations SET warehouse='wip' WHERE material_batch_id=72230 AND warehouse='raw_materials';
+UPDATE %[1]s.work_order_material_reservation_batches SET warehouse='wip' WHERE material_batch_id=72230 AND warehouse='raw_materials';
+UPDATE %[1]s.work_order_material_reservations SET source_warehouse='wip' WHERE material_id=30 AND source_warehouse='raw_materials';`, f.schema))
+	}
 	r := serveMultilevelProductionJSON(t, f.app, http.MethodPost, "/api/production-plans", map[string]any{"source_type": "stock", "items": []map[string]any{{"output_type": "material", "output_material_id": 10, "output_qty": outputKG, "target_warehouse": "wip"}}})
 	if r.Code != http.StatusOK {
 		t.Fatalf("create automatic plan: %d %s", r.Code, r.Body.String())
@@ -86,6 +103,12 @@ func (f bulkPickingFixture) createWorkOrder(t *testing.T, outputKG float64) int6
 	r = serveMultilevelProductionJSON(t, f.app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", plan.ID), nil)
 	if r.Code != http.StatusOK {
 		t.Fatalf("submit automatic plan: %d %s", r.Code, r.Body.String())
+	}
+	if historicalRaw {
+		mustExecProductionFlowTestSQL(t, ctx, f.pool, fmt.Sprintf(`
+UPDATE %[1]s.material_batch_locations SET warehouse='raw_materials' WHERE material_batch_id=72230 AND warehouse='wip';
+UPDATE %[1]s.work_order_material_reservation_batches SET warehouse='raw_materials' WHERE material_batch_id=72230 AND warehouse='wip';
+UPDATE %[1]s.work_order_material_reservations SET source_warehouse='raw_materials' WHERE material_id=30 AND source_warehouse='wip';`, f.schema))
 	}
 	var id int64
 	if err := f.pool.QueryRow(context.Background(), fmt.Sprintf("SELECT id FROM %s.work_orders WHERE production_plan_id=$1", f.schema), plan.ID).Scan(&id); err != nil {
@@ -454,7 +477,10 @@ func TestPR722BulkPickingAPITypedProductSplitBatchCancellation(t *testing.T) {
 	ctx := context.Background()
 	seedMultilevelMaterialOutputFlow(t, ctx, pool, schema)
 	seedTypedProductComponentFlow(t, ctx, pool, schema)
-	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %[1]s.finished_inventory SET onhand_units=120000 WHERE product_id=2; UPDATE %[1]s.stock_batches SET qty_g=120000,qty_units=120000,remaining_g=120000,remaining_units=120000 WHERE batch_code='FP-TYPED-ROASTED';`, schema))
+	// Create the historical work order using current WIP submission rules. The
+	// fixture restores the pre-rule source warehouse immediately afterward.
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %[1]s.finished_inventory SET onhand_units=120000,warehouse='wip' WHERE product_id=2; UPDATE %[1]s.stock_batches SET qty_g=120000,qty_units=120000,remaining_g=120000,remaining_units=120000 WHERE batch_code='FP-TYPED-ROASTED';
+INSERT INTO %[1]s.stock_ledger_entries(item_type,item_id,spec_g,warehouse,source_batch_code) VALUES('finished_product',2,1,'wip','FP-TYPED-ROASTED');`, schema))
 	app := newProductionFlowTestEcho(pool, schema)
 	registerStockEntryAPI(app, productionapp.NewService(postgresproduction.NewRepository(pool, schema)), stockapp.NewService(postgresstock.NewRepository(pool, schema)))
 	created := serveMultilevelProductionJSON(t, app, http.MethodPost, "/api/production-plans", map[string]any{"from": "2026-08-01", "to": "2026-08-31", "selected": []string{"1-227"}, "input_by_key": map[string]int64{"1-227": 22700}})
@@ -470,6 +496,11 @@ func TestPR722BulkPickingAPITypedProductSplitBatchCancellation(t *testing.T) {
 	if submitted.Code != http.StatusOK {
 		t.Fatalf("submit typed-component plan: %d %s", submitted.Code, submitted.Body.String())
 	}
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+UPDATE %[1]s.finished_inventory SET warehouse='finished_goods' WHERE product_id=2 AND warehouse='wip';
+UPDATE %[1]s.stock_ledger_entries SET warehouse='finished_goods' WHERE item_type='finished_product' AND item_id=2 AND source_batch_code='FP-TYPED-ROASTED';
+UPDATE %[1]s.work_order_material_reservation_batches SET warehouse='finished_goods' WHERE stock_batch_id IN (SELECT id FROM %[1]s.stock_batches WHERE batch_code='FP-TYPED-ROASTED');
+UPDATE %[1]s.work_order_material_reservations SET source_warehouse='finished_goods' WHERE component_type='product' AND component_id=2 AND source_warehouse='wip';`, schema))
 	f := bulkPickingFixture{pool: pool, schema: schema, app: app}
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.work_orders WHERE production_plan_id=$1 AND output_product_id=1`, schema), plan.ID).Scan(&f.workOrderID); err != nil {
 		t.Fatal(err)

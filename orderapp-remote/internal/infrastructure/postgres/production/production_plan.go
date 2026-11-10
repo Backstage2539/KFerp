@@ -1132,6 +1132,10 @@ func loadProductionPlanDetailTx(ctx context.Context, tx pgx.Tx, schema string, i
 		return productionapp.ProductionPlanDetail{}, err
 	}
 	detail.ComponentSources = componentSources
+	detail.MaterialTransferDocuments, err = loadPlanMaterialTransferDocumentsTx(ctx, tx, schema, id)
+	if err != nil {
+		return detail, err
+	}
 	detail.SupplyAllocations, err = loadProductionSupplyAllocationsTx(ctx, tx, schema, id)
 	if err != nil {
 		return detail, err
@@ -2411,6 +2415,12 @@ func (r Repository) SubmitProductionPlan(ctx context.Context, cmd productionapp.
 	}
 	preflight, err := loadProductionPlanDetailTx(ctx, tx, r.schema, cmd.ID)
 	if err != nil {
+		return productionapp.ProductionPlanSubmitResult{}, err
+	}
+	if err := requirePlanMaterialsInWIP(preflight.ComponentSources); err != nil {
+		return productionapp.ProductionPlanSubmitResult{}, err
+	}
+	if err := requireNoPendingPlanTransfersTx(ctx, tx, r.schema, cmd.ID); err != nil {
 		return productionapp.ProductionPlanSubmitResult{}, err
 	}
 	if !preflight.Readiness.CanSubmit {

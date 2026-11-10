@@ -85,22 +85,17 @@ test('renders grouped preparation directly under its stage and leaves multi-orde
   }
   const html = await renderToString(createSSRApp(Component, { detail, warehouses: [] }))
 
-  assert.match(html, /同规格生产组/)
-  assert.match(html, /<dt>需求<\/dt><dd>30 条<\/dd>/)
-  assert.ok(html.indexOf('本组备料') < html.indexOf('展开 2 项订单任务'))
+  assert.doesNotMatch(html, /同规格生产组|本组备料|生产任务明细|展开 2 项订单任务/)
+  assert.match(html, /物料准备/)
+  assert.match(html, /下一步：产能安排/)
+  assert.match(html, /生成所有缺料调拨单/)
   assert.match(html, /data-source-id="11"/)
   assert.match(html, /data-source-id="12"/)
-  assert.match(html, /来自阶段 1 · 卡蒂姆5T中深烘 9 kg/)
-  assert.match(html, /生豆-孟连水洗5T批次/)
-  assert.match(html, /class="group-preparation-row shortage"/)
-  assert.match(html, /class="group-preparation-state shortage">缺料<\/span>/)
   assert.match(html, /未关联备料/)
   assert.match(html, /无法关联的备料/)
-  assert.doesNotMatch(html, /id="material-sources"/)
-  const taskDetailsTags = [...html.matchAll(/<details class="group-task-details"[^>]*>/g)].map(([tag]) => tag)
-  assert.equal(taskDetailsTags.length, 2, 'single-task and multi-task group details are rendered')
-  assert.match(taskDetailsTags[0], /\sopen(?:="")?(?:\s|>)/, 'single-task details stay directly visible')
-  assert.doesNotMatch(taskDetailsTags[1], /\sopen(?:="")?(?:\s|>)/, 'multi-order task details start collapsed')
+  assert.doesNotMatch(html, /冻结 BOM 与工艺路线|订单与客户追溯|供应依赖/)
+  assert.match(html, /已生成工单/)
+
 })
 
 test('legacy plans keep their original source controls and expose unlinked source rows and old summaries', async () => {
@@ -126,25 +121,10 @@ test('legacy plans keep their original source controls and expose unlinked sourc
 })
 
 
-test('group summaries show server pending and shortage states even when quantity snapshots are zero', async () => {
+test('historical plans remain read only without draft transfer controls', async () => {
   const Component = await workspaceComponent()
-  const detail = {
-    id: 19, plan_no: 'PP-ZERO-SNAPSHOT', status: 'completed', picking_version: 1,
-    items: [item(1, 'SO-A'), item(2, 'SO-B')],
-    component_sources: [
-      { id: 61, production_plan_item_id: 1, component_type: 'material', component_id: 70, component_name: '待入库熟豆', unit: 'kg', preparation_status: 'awaiting_production', demand_g: 0, upstream_g: 0, shortage_g: 0 },
-      { id: 62, production_plan_item_id: 2, component_type: 'material', component_id: 70, component_name: '待入库熟豆', unit: 'kg', preparation_status: 'awaiting_production', demand_g: 0, upstream_g: 0, shortage_g: 0 },
-      { id: 63, production_plan_item_id: 1, component_type: 'material', component_id: 41, component_name: '待领包装袋', unit: '条', preparation_status: 'awaiting_transfer' },
-      { id: 64, production_plan_item_id: 1, component_type: 'material', component_id: 42, component_name: '缺少标签', unit: '条', preparation_status: 'shortage' },
-    ],
-    readiness: { can_submit: false, blocking_count: 1, issues: [] },
-  }
+  const detail = { id: 19, status: 'completed', picking_version: 1, items: [item(1, 'SO-A')], component_sources: [{ id: 61, production_plan_item_id: 1, component_type: 'material', component_id: 70, component_name: '熟豆', unit: 'kg', demand_g: 1000 }], readiness: { can_submit: false, blocking_count: 0, issues: [] } }
   const html = await renderToString(createSSRApp(Component, { detail, warehouses: [] }))
-
-  assert.match(html, /class="group-preparation-state">待生产入库<\/span>/)
-  assert.match(html, /class="group-preparation-state">供给已落实<\/span>/)
-  assert.match(html, /class="group-preparation-state shortage">缺料<\/span>/)
-  assert.doesNotMatch(html, /现场已齐套/)
+  assert.doesNotMatch(html, /生成所有缺料调拨单|下一步：产能安排/)
   assert.match(html, /data-source-id="61"/)
-  assert.match(html, /data-source-id="62"/)
 })

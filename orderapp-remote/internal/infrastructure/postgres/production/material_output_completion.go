@@ -548,7 +548,7 @@ func reserveAdditionalReceiptInputsTx(ctx context.Context, tx pgx.Tx, schema str
 		if warehouse == "" {
 			return fmt.Errorf("实际投料超出已分配供应，请先补料：%s", need.MaterialName)
 		}
-		availableG, availableUnits, err := componentSourceAvailabilityTx(ctx, tx, schema, "material", need.MaterialID, 0, 0, warehouse, owner, true)
+		availableG, availableUnits, err := componentSourceAvailabilityTx(ctx, tx, schema, "material", need.MaterialID, 0, 0, 0, warehouse, owner, true)
 		if err != nil {
 			return err
 		}

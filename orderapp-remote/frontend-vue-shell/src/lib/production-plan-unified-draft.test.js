@@ -489,3 +489,79 @@ test('late draft load cannot reopen a document after browser back returns to sel
     assert.equal(new URL(app.window.location.href).searchParams.has('production_plan_id'), false)
   } finally { app.close() }
 })
+
+test('saving capacity before final submit keeps the detail and submits the saved revision', async () => {
+ const app = await setup(undefined, { apiSend: async (endpoint, options) => {
+  if (String(endpoint).endsWith('/submit')) return { plan: { ...draft, status: 'submitted', draft_token: 'v2' }, work_orders: [] }
+  if (String(endpoint).includes('operation-splits/preview')) return { operation_coverage: [] }
+  return { ...draft, draft_token: 'v2', operation_splits: options.body?.operation_splits || [], readiness: { can_submit: true, blocking_count: 0, issues: [] } }
+ } })
+ try {
+  await app.state.openProductionPlanDetail(draft)
+  app.state.productionPlanSplitDrawer.value = structuredClone(draft)
+  app.state.productionPlanSplitReturnTarget.value = 'detail'
+  app.state.productionPlanCapacityActive.value = true
+  assert.equal(await app.state.saveProductionPlanSplitDrawer(false), true)
+  assert.equal(app.state.productionPlanDetail.value.draft_token, 'v2')
+  assert.equal(app.state.productionPlanDetail.value.readiness.can_submit, true)
+  await app.state.submitFromCapacityWorkspace()
+  const submission = app.calls.find(([method, endpoint]) => method === 'apiSend' && String(endpoint).endsWith('/submit'))
+  assert.equal(submission[2].body.draft_token, 'v2')
+  assert.equal(app.state.productionPlanDetail.value.status, 'submitted')
+  assert.equal(app.state.productionPlanSplitDrawer.value, null)
+ } finally { app.close() }
+})
+
+test('opening transfer saves dirty draft and uses the refreshed material identity', async () => {
+ const refreshedSource = { id: 7, component_name: '新来源' }
+ const app = await setup(undefined, { apiSend: async () => ({ ...draft, draft_token: 'v2', component_sources: [refreshedSource], items: [{ id: 1, target_warehouse: 'wip' }] }) })
+ try {
+  await app.state.openProductionPlanDetail(draft)
+  app.state.productionPlanDetail.value.items.push({ id: 1, target_warehouse: 'wip' })
+  await Vue.nextTick()
+  await app.state.openPlanTransferDrawer('single', { id: 7, component_name: '旧来源' })
+  assert.equal(app.state.productionPlanDetail.value.draft_token, 'v2')
+  assert.equal(app.state.productionPlanTransferDrawer.value.source.component_name, '新来源')
+ } finally { app.close() }
+})
+
+test('opening stock view preserves unsaved draft without saving', async () => {
+ const app = await setup()
+ try {
+  await app.state.openProductionPlanDetail(draft)
+  app.state.productionPlanDetail.value.items.push({ id: 1, target_warehouse: 'wip' })
+  await Vue.nextTick()
+  await app.state.openPlanTransferDrawer('stock', { id: 7 })
+  assert.equal(app.state.productionPlanTransferDrawer.value.mode, 'stock')
+  assert.equal(app.calls.filter(([method]) => method === 'apiSend').length, 0)
+ } finally { app.close() }
+})
+
+test('source adjustment reports save failure without discarding local input', async () => {
+ const app = await setup(undefined, { apiSend: async () => { throw new Error('保存失败，请重试') } })
+ try {
+  await app.state.openProductionPlanDetail(draft)
+  app.state.productionPlanDetail.value.component_sources.push({ id: 7, production_plan_item_id: 1, component_type: 'material', component_id: 10, picking_version: 1, allocation_mode: 'auto', manual_allocations: [] })
+  const source = app.state.productionPlanDetail.value.component_sources[0]
+  let error = ''
+  await app.state.savePlanTransferAdjustment(source, [{ warehouse: 'raw_materials', qty_g: 100 }], message => { error = message || '' })
+  assert.match(error, /保存失败/)
+  assert.equal(source.manual_allocations[0].qty_g, 100)
+  assert.equal(app.state.productionPlanDetailDirty.value, true)
+ } finally { app.close() }
+})
+
+test('source adjustment refreshes the drawer source after saving the draft', async () => {
+ const fresh = { id: 7, production_plan_item_id: 1, component_type: 'material', component_id: 10, picking_version: 1, component_name: '已更新来源' }
+ const app = await setup(undefined, { apiSend: async () => ({ ...draft, draft_token: 'v2', component_sources: [fresh] }) })
+ try {
+  await app.state.openProductionPlanDetail(draft)
+  app.state.productionPlanDetail.value.component_sources.push({ ...fresh, component_name: '旧来源' })
+  const source = app.state.productionPlanDetail.value.component_sources[0]
+  app.state.productionPlanTransferDrawer.value = { mode: 'stock', source }
+  let result = 'not called'
+  await app.state.savePlanTransferAdjustment(source, [{ warehouse: 'raw_materials', qty_g: 100 }], error => { result = error || 'ok' })
+  assert.equal(result, 'ok')
+  assert.equal(app.state.productionPlanTransferDrawer.value.source.component_name, '已更新来源')
+ } finally { app.close() }
+})

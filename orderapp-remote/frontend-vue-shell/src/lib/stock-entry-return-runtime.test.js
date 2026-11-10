@@ -35,11 +35,12 @@ async function component(relative, mocks) {
 }
 
 async function harness({ returnSource = source, failSave = false, failSubmit = false } = {}) {
-  const writes = [], events = []
+  const writes = [], events = [], reads = []
   globalThis.window = { location: { origin: 'https://example.test' }, dispatchEvent: event => { events.push(event.detail); return true } }
   globalThis.CustomEvent = class { constructor(type, options) { this.type = type; this.detail = options.detail } }
   const mocks = {
     apiGet: async value => {
+      reads.push(String(value))
       const url = new URL(value, window.location.origin)
       if (url.pathname === '/api/materials') return { rows: [] }
       if (url.pathname === '/api/stock/warehouses') return { rows: [] }
@@ -64,7 +65,7 @@ async function harness({ returnSource = source, failSave = false, failSubmit = f
   let state
   await renderToString(createSSRApp({ setup() { state = View.setup(props, { expose() {} }); return () => h('div') } }))
   const html = () => renderToString(createSSRApp({ ...View, setup: () => state }, props))
-  return { state, props, writes, events, html, mocks }
+  return { state, props, writes, events, reads, html, mocks }
 }
 
 test('normal, saved, submitted and failed stock drawers retain the in-memory return link', async () => {
@@ -97,6 +98,51 @@ test('unchanged saved drafts and posted documents return without inventory write
     assert.deepEqual(events.at(-1), returnEvent)
   }
   assert.equal(writes.length, 0)
+})
+
+test('plan transfer draft is read-only and submits without rewriting its linked rows', async () => {
+  const { state, html, writes, reads } = await harness({ failSave: true })
+  state.applyDocument(document({ work_order_id: 0, purpose: 'material_transfer', source_type: 'production_plan_material_transfer', source_id: 25 }))
+  assert.equal(reads.some(url => url.includes('/stock/transfer-options')), false, 'preserve frozen lines without rehydrating from current stock')
+  const markup = await html()
+  assert.match(markup, /<fieldset[^>]*disabled[^>]*>/)
+  assert.match(markup, /value="测试生豆"/)
+  assert.match(markup, /value="QA-85"/)
+  assert.match(markup, /value="15\.57"/)
+  assert.doesNotMatch(markup, />保存草稿<\/button>/)
+  await state.submitDocument()
+  assert.equal(writes.length, 1)
+  assert.match(writes[0].url, /\/37\/submit$/)
+  assert.notEqual(writes[0].method, 'PUT')
+})
+
+test('plan transfer submit failure keeps the draft and reports the warehouse error', async () => {
+  const { state, writes } = await harness({ failSubmit: true })
+  state.applyDocument(document({ work_order_id: 0, purpose: 'material_transfer', source_type: 'production_plan_material_transfer', source_id: 25 }))
+  await state.submitDocument()
+  assert.equal(writes.length, 1)
+  assert.match(writes[0].url, /\/37\/submit$/)
+  assert.equal(state.form.status, 'draft')
+  assert.equal(state.form.items[0].batch_code, 'QA-85')
+  assert.match(state.drawerError.value, /库存已变化/)
+})
+
+test('repeated warehouse confirmation starts only one request', async () => {
+  const { state, writes } = await harness()
+  state.applyDocument(document({ work_order_id: 0, purpose: 'material_transfer', source_type: 'production_plan_material_transfer', source_id: 25 }))
+  await Promise.all([state.submitDocument(), state.submitDocument()])
+  assert.equal(writes.filter(row => row.url.endsWith('/submit')).length, 1)
+})
+
+test('warehouse can cancel a plan-linked draft without exposing cancellation on ordinary drafts', async () => {
+  const { state, html, writes } = await harness()
+  const linked = document({ work_order_id: 0, purpose: 'material_transfer', source_type: 'production_plan_material_transfer', source_id: 25 })
+  state.rows.value = [linked, document({ id: 38, work_order_id: 0, purpose: 'material_transfer' })]
+  const markup = await html()
+  assert.equal((markup.match(/>取消<\/button>/g) || []).length, 1)
+  await state.cancelDocument(linked)
+  assert.equal(writes.length, 1)
+  assert.match(writes[0].url, /\/37\/cancel$/)
 })
 
 test('unsaved quantities expose save, discard and continue; continue preserves 60kg', async () => {
