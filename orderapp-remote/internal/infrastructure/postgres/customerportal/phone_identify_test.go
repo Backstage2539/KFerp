@@ -140,8 +140,22 @@ func TestWechatEmployeePhoneChangePermanentlyExpiresSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`CREATE TABLE %s.wechat_bindings(mini_user_id bigint,active boolean)`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.wechat_bindings VALUES($1,true)`, schema), staff.MiniUserID); err != nil {
+		t.Fatal(err)
+	}
 	company := companyrepo.NewRepository(pool, schema)
-	change := companyapp.EmployeeCommand{Name: "staff", Phone: "13960009997", DepartmentID: departmentID, Active: true}
+	change := companyapp.EmployeeCommand{Name: "renamed staff", Phone: "13960009998", DepartmentID: departmentID, Active: true}
+	if err = company.UpdateEmployee(ctx, id, change); err != nil {
+		t.Fatal(err)
+	}
+	var bindingActive bool
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT active FROM %s.wechat_bindings WHERE mini_user_id=$1`, schema), staff.MiniUserID).Scan(&bindingActive); err != nil || !bindingActive {
+		t.Fatalf("benign edit revoked notification binding: active=%v err=%v", bindingActive, err)
+	}
+	change.Phone = "13960009997"
 	if err = company.UpdateEmployee(ctx, id, change); err != nil {
 		t.Fatal(err)
 	}
@@ -151,6 +165,9 @@ func TestWechatEmployeePhoneChangePermanentlyExpiresSession(t *testing.T) {
 	}
 	if _, err = repo.CurrentContextByToken(ctx, staff.Token); !errors.Is(err, app.ErrMiniSessionNotFound) {
 		t.Fatalf("old session revived after phone changed away and back: %v", err)
+	}
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT active FROM %s.wechat_bindings WHERE mini_user_id=$1`, schema), staff.MiniUserID).Scan(&bindingActive); err != nil || bindingActive {
+		t.Fatalf("phone change did not revoke old notification binding: active=%v err=%v", bindingActive, err)
 	}
 }
 

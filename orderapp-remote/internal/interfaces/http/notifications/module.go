@@ -36,7 +36,7 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, p Portal, a
 	h := &Handler{Repo: r, Portal: p, Authz: auth, Client: client}
 	h.Worker = &pg.Worker{Repo: r, AppID: cfg.AppID, Sender: client, Authorize: func(ctx context.Context, v pg.Recipient, n messages.OrderNotice) (bool, error) {
 		if v.EmployeeID > 0 {
-			available, err := employeeNotificationAvailable(ctx, pool, schema, v.EmployeeID, v.MiniUserID, v.BoundAt)
+			available, err := employeeNotificationAvailable(ctx, pool, schema, v.EmployeeID, v.MiniUserID, v.BoundAt, v.AppID, v.OpenID)
 			if err != nil || !available {
 				return false, err
 			}

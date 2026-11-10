@@ -71,6 +71,14 @@ func ExpireWechatEmployeeSessions(ctx context.Context, q SessionSecurityQueryExe
 		return err
 	}
 	_, err = q.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.mini_sessions s SET expire_at=LEAST(s.expire_at,now()) WHERE s.expire_at>now() AND EXISTS (SELECT 1 FROM %[1]s.mini_users u WHERE u.id=s.mini_user_id AND u.openid LIKE ('wechat-internal-employee:' || $1::bigint::text || ':%%'))`, schema), employeeID)
+	if err != nil {
+		return err
+	}
+	hasBindings, err := sessionSecurityRelationsExist(ctx, q, schema, "wechat_bindings")
+	if err != nil || !hasBindings {
+		return err
+	}
+	_, err = q.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.wechat_bindings b SET active=false WHERE b.active AND EXISTS (SELECT 1 FROM %[1]s.mini_users u WHERE u.id=b.mini_user_id AND u.openid LIKE ('wechat-internal-employee:' || $1::bigint::text || ':%%'))`, schema), employeeID)
 	return err
 }
 
