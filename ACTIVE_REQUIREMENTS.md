@@ -3,7 +3,7 @@
 - Scope: 允许产能超排或不足；本次自定义批量、建议批数及自选加入工位预定义产能。
 - DEV: `DEV-PR757-01` 产能拆分及快照；`DEV-PR757-02` 预定义创建与审计；`DEV-PR757-03` 页面、手册、验证及开发交付。
 - Status: RED/GREEN、后端全量、隔离数据库 API、前端 1833 项及构建、模拟页面交互通过；用户验收待完成。
-- Deployment: development `93f6e90ed0abecdc34dc888a49832c959c39313b`；服务运行、数据库健康、登录页 HTTP 200、PR/API 和手册标记可见；备份 `/opt/stacks/erp/orderapp.backup.deploy-20261110231835-93f6e90ed0ab`。正式环境未发布。
+- Deployment: development `93f6e90ed0abecdc34dc888a49832c959c39313b`；production `204acd7919891a800402ca1db6558817be6c9731`。正式服务 running、数据库 healthy、登录 HTTP 200、两张表的自定义字段及 PR 需求记录存在；小程序包保留。源码备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20261110234353-204acd791989`；数据库备份 `/opt/stacks/erp-production/backups/pre-pr757-20261110234242.dump`。
 - Notes: 需求编号预留脚本在 macOS 上因 awk 多行参数失败，已核对编号并手动登记。
 
 ### PR-MINIAPP-PHONE-IDENTITY-20261110

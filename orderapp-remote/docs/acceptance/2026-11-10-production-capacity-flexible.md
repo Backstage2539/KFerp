@@ -10,3 +10,6 @@
 
 - Development 版本 `93f6e90ed0abecdc34dc888a49832c959c39313b`；ERP 服务 running，数据库 healthy，登录页 HTTP 200，PR-757 API 与手册、前端标记存在；两张表的自定义列均已创建。
 - 备份：`/opt/stacks/erp/orderapp.backup.deploy-20261110231835-93f6e90ed0ab`。保留既有小程序包，未发布正式环境。
+
+- Production 版本 `204acd7919891a800402ca1db6558817be6c9731`；正式 ERP running、数据库 healthy，登录页 HTTP 200，匿名访问 HTTP 401，PR-757 需求记录及两张表的自定义字段存在；手册及前端资源标记存在，最近日志无 fatal/panic/迁移错误。需求 API 的 BasicAuth 检查返回 401，需求行通过正式库只读查询确认。
+- 发布前数据库备份 `/opt/stacks/erp-production/backups/pre-pr757-20261110234242.dump`，源码备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20261110234353-204acd791989`；保留原有小程序包，未进行业务数据写入。
