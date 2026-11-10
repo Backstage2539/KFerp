@@ -120,6 +120,7 @@ type RecipientAddressService interface {
 }
 
 func RegisterRoutes(e *echo.Echo, deps Dependencies) {
+	registerAdminPreviewAPI(e, deps.CustomerPortal, deps.CustomerMaintenance)
 	registerRegistrationAPI(e, deps.CustomerPortal, deps.Authz)
 	renderer := deps.BeanListPDFRenderer
 	if renderer == nil {

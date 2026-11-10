@@ -1313,6 +1313,7 @@ type Repository interface {
 type Service struct {
 	repo     Repository
 	identity IdentityProvider
+	previews previewSessions
 }
 
 type processingRequestPreviewRepository interface {
@@ -1464,6 +1465,9 @@ func (s *Service) Me(ctx context.Context, token string) (CurrentContext, error) 
 	}
 	if s.repo == nil {
 		return CurrentContext{}, fmt.Errorf("repository required")
+	}
+	if IsAdminPreviewToken(token) {
+		return s.previewContext(ctx, token)
 	}
 	current, err := s.repo.CurrentContextByToken(ctx, token)
 	if err != nil {
