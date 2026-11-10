@@ -2,7 +2,8 @@
 - Branch: `codex/production-live-supply-20261110`; base: `origin/develop`.
 - Scope: 草稿按冻结配方和实时供应增量更新上游工序，保护人工安排并在提交时复核；已提交工单保留快照。
 - DEV: `DEV-PR756-01` 差异同步；`DEV-PR756-02` 提交与并发保护；`DEV-PR756-03` 页面、手册及验收。
-- Status: RED/GREEN、隔离数据库、前端及构建验证通过；待集成发布和用户验收，正式业务数据不直接修改。
+- Status: RED/GREEN、隔离数据库、前端及构建验证通过；已发布开发与正式 ERP，用户验收待完成。PP24 按 Van 明确选择通过接口同步，未提交工单。
+- Deployment: 开发 `96359d3940c2b3d35261478f333507e0c6ff68e1`；正式 `edb6cf3bff92e8c109e626f64c1f61d44fbb34af`；回滚及 PP24 操作日志见 `orderapp-remote/docs/acceptance/2026-11-10-production-live-supply.md`。
 - Notes: macOS 预留脚本因 awk 报错未写入，已核对 PR 编号并登记。
 
 ### PR-755-FULFILLMENT-ORDER-RESERVATION-LABEL
