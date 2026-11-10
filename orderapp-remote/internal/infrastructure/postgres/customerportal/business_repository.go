@@ -1970,12 +1970,34 @@ func orderProgressSQL(schema string, hasShipments bool) string {
 func (r Repository) customerOrderProgressCounts(ctx context.Context, customerID int64) (*customerportalapp.OrderProgressCounts, error) {
 	counts := &customerportalapp.OrderProgressCounts{}
 	progressSQL := orderProgressSQL(r.schema, portalRelationExists(ctx, r.pool, r.schema+".order_shipment_orders"))
-	err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FILTER (WHERE p='accepted'), COUNT(*) FILTER (WHERE p='in_production'), COUNT(*) FILTER (WHERE p='shipped') FROM (SELECT %s AS p FROM %s.orders o LEFT JOIN %s.order_process_statuses ops ON ops.id=o.process_status_id LEFT JOIN %s.ship_statuses ss ON ss.id=o.ship_status_id WHERE o.customer_id=$1 AND NOT COALESCE(o.is_void,false) AND %s) q`, progressSQL, r.schema, r.schema, r.schema, validProgressOrderSQL), customerID).Scan(&counts.Accepted, &counts.InProduction, &counts.Shipped)
+	visibility, err := r.visibleCustomerOrderSQL(ctx, "o")
+	if err != nil {
+		return nil, err
+	}
+	err = r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FILTER (WHERE p='accepted'), COUNT(*) FILTER (WHERE p='in_production'), COUNT(*) FILTER (WHERE p='shipped') FROM (SELECT %s AS p FROM %s.orders o LEFT JOIN %s.order_process_statuses ops ON ops.id=o.process_status_id LEFT JOIN %s.ship_statuses ss ON ss.id=o.ship_status_id WHERE o.customer_id=$1 AND NOT COALESCE(o.is_void,false) AND %s AND %s) q`, progressSQL, r.schema, r.schema, r.schema, validProgressOrderSQL, visibility), customerID).Scan(&counts.Accepted, &counts.InProduction, &counts.Shipped)
 	return counts, err
+}
+
+// Some legacy test databases do not install the portal schema. Production
+// installs the marker table at startup; old databases without it remain valid.
+func (r Repository) visibleCustomerOrderSQL(ctx context.Context, orderAlias string) (string, error) {
+	var exists bool
+	if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, r.schema+".customer_portal_hidden_orders").Scan(&exists); err != nil {
+		return "", err
+	}
+	if !exists {
+		return "TRUE", nil
+	}
+	return fmt.Sprintf(`NOT EXISTS (SELECT 1 FROM %s.customer_portal_hidden_orders hidden WHERE hidden.customer_id=%s.customer_id AND hidden.order_id=%s.id AND hidden.restored_at IS NULL)`, r.schema, orderAlias, orderAlias), nil
 }
 
 func (r Repository) listCustomerOrders(ctx context.Context, query customerportalapp.ServicePageQuery, limit int, includeItems bool) ([]customerportalapp.CustomerOrderSummary, error) {
 	where := []string{"o.customer_id=$1"}
+	visibility, err := r.visibleCustomerOrderSQL(ctx, "o")
+	if err != nil {
+		return nil, err
+	}
+	where = append(where, visibility)
 	args := []any{query.CustomerID}
 	if query.OrderID > 0 {
 		args = append(args, query.OrderID)
@@ -2127,13 +2149,17 @@ func (r Repository) CustomerOwnsOrder(ctx context.Context, customerID, orderID i
 		return false, nil
 	}
 	var ok bool
-	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	visibility, err := r.visibleCustomerOrderSQL(ctx, "orders")
+	if err != nil {
+		return false, err
+	}
+	err = r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT EXISTS(
 			SELECT 1
 			FROM %s.orders
-			WHERE id=$1 AND customer_id=$2 AND is_void=false
+			WHERE id=$1 AND customer_id=$2 AND is_void=false AND %s
 		)
-	`, r.schema), orderID, customerID).Scan(&ok)
+	`, r.schema, visibility), orderID, customerID).Scan(&ok)
 	return ok, err
 }
 
