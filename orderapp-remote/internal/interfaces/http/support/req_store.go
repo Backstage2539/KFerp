@@ -270,10 +270,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
-		{table: "req_product", code: "PR-758-PRODUCTION-MATERIAL-PREPARATION", title: "生产计划物料准备、产能安排与仓库调拨", status: "doing", assignee: "Van", evidence: "ACTIVE_REQUIREMENTS.md；实现和验收中"},
-		{table: "req_dev", code: "DEV-PR758-01", title: "物料准备及产能安排两步流程", status: "doing", assignee: "Codex"},
-		{table: "req_dev", code: "DEV-PR758-02", title: "计划调拨单、库存身份与并发保护", status: "doing", assignee: "Codex"},
-		{table: "req_dev", code: "DEV-PR758-03", title: "库存抽屉、调拨预览与验收", status: "doing", assignee: "Codex"},
+		{table: "req_product", code: "PR-758-PRODUCTION-MATERIAL-PREPARATION", title: "生产计划物料准备、产能安排与仓库调拨", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-10-production-material-preparation.md；用户验收待完成"},
+		{table: "req_dev", code: "DEV-PR758-01", title: "物料准备及产能安排两步流程", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR758-02", title: "计划调拨单、库存身份与并发保护", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR758-03", title: "库存抽屉、调拨预览与验收", status: "review", assignee: "Codex"},
 		{table: "req_product", code: "PR-757-PRODUCTION-CAPACITY-FLEXIBLE", title: "产能差额提示、自定义批量与预定义保存", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-10-production-capacity-flexible.md"},
 		{table: "req_dev", code: "DEV-PR757-01", title: "产能差额与自定义批量快照", status: "review", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PR757-02", title: "预定义批量创建、权限及审计", status: "review", assignee: "Codex"},

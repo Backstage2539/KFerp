@@ -337,6 +337,12 @@ func TestProductionPlanAPITypedProductComponentRecursesWithPartialFinishedStock(
 	`, schema, schema, planID))
 
 	selectPlanningTestSources(t, app, planID)
+	blockedPlan := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
+	if blockedPlan.Code != http.StatusBadRequest {
+		t.Fatalf("plan must await fixture transfer into WIP: %d %s", blockedPlan.Code, blockedPlan.Body.String())
+	}
+	moveFixtureTypedFinishedToWIP(t, pool, schema)
+	selectPlanningTestSources(t, app, planID)
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
 	if submit.Code != http.StatusOK {
 		t.Fatalf("submit typed product-component plan status=%d body=%s", submit.Code, submit.Body.String())

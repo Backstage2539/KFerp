@@ -17,6 +17,14 @@ export function transferRowIssue(source, row) {
 const gramsPerUnit = (source) => ['kg', '公斤', '千克'].includes(String(source?.unit || '').toLowerCase()) ? 1000 : 1
 const neat = (value) => Number(Number(value).toFixed(6))
 
+// Remove only floating-point multiplication noise, never a fraction of a gram.
+export function transferGrams(source, quantity) {
+  const grams = Number(quantity) * gramsPerUnit(source)
+  const rounded = Math.round(grams)
+  const tolerance = Number.EPSILON * Math.max(1, Math.abs(grams)) * 4
+  return Math.abs(grams - rounded) <= tolerance ? rounded : grams
+}
+
 export function remainingTransfer(source, pending = 0) {
   const weight = weightUnit(source)
   const factor = weight ? gramsPerUnit(source) : 1
@@ -29,12 +37,11 @@ export function remainingTransfer(source, pending = 0) {
 
 export function transferSelections(source, warehouse, rows) {
   const weight = weightUnit(source)
-  const factor = weight ? gramsPerUnit(source) : 1
   const chosen = rows.filter((row) => Number(row.quantity) !== 0 || !Number.isFinite(Number(row.quantity)))
   return {
     source_id: Number(source?.id || 0), warehouse,
     owner_customer_id: Number(chosen[0]?.owner_customer_id || 0),
-    batches: chosen.map((row) => ({ batch_code: row.batch_code, qty_g: weight ? Number(row.quantity) * factor : 0, qty_units: weight ? 0 : Number(row.quantity) })),
+    batches: chosen.map((row) => ({ batch_code: row.batch_code, qty_g: weight ? transferGrams(source, row.quantity) : 0, qty_units: weight ? 0 : Number(row.quantity) })),
     _rows: chosen,
   }
 }
@@ -49,7 +56,7 @@ export function validateTransferSelections(source, selection, pending = 0) {
   for (let i = 0; i < rows.length; i++) {
     const qty = weight ? selection.batches[i].qty_g : selection.batches[i].qty_units
     const available = Number(weight ? rows[i].available_g || 0 : rows[i].available_units || 0)
-    if (!Number.isInteger(qty)) return weight ? '数量须精确到克' : '计件数量必须为整数'
+    if (!Number.isSafeInteger(qty)) return weight ? '数量须精确到克' : '计件数量必须为整数'
     if (transferRowIssue(source, rows[i])) return transferRowIssue(source, rows[i])
     if (!rows[i].batch_code || qty > available) return '调拨数量超过批次可用库存或批次不可用'
   }

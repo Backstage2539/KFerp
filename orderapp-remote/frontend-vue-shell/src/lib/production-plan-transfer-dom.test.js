@@ -68,11 +68,17 @@ test('bulk editing loads warehouse batches and preserves changed input after pre
 test('single retry retains input and idempotency key after an unknown creation outcome', async () => {
   const source = { id: 5, component_name: '生豆', unit: 'kg', demand_g: 6767, wip_covered_g: 1000 }
   const requests = []
-  let attempts = 0
+  let attempts = 0, previews = 0
   globalThis.fetch = async (url, options = {}) => {
     const path = String(url)
     if (path.includes('material-transfer-options')) return new Response(JSON.stringify({ source, pending_documents: [], options: [{ batch_id: 1, batch_code: 'B1', owner_customer_id: 0, qty_g: 10000, available_g: 10000 }] }), { status: 200, headers: { 'content-type': 'application/json' } })
-    if (path.includes('/preview')) return new Response(JSON.stringify({ groups: [{ items: JSON.parse(options.body).items }], unavailable: [] }), { status: 200, headers: { 'content-type': 'application/json' } })
+    if (path.includes('/preview')) {
+      previews++
+      // First create succeeded on the server, but its response was lost: a
+      // fresh preview correctly sees a pending document and would reject it.
+      const result = attempts ? { groups: [], unavailable: [{ source_id: 5, reason: '已有待处理调拨单' }] } : { groups: [{ items: JSON.parse(options.body).items }], unavailable: [] }
+      return new Response(JSON.stringify(result), { status: 200, headers: { 'content-type': 'application/json' } })
+    }
     if (path.endsWith('/material-transfers')) {
       requests.push(JSON.parse(options.body)); attempts += 1
       if (attempts === 1) throw new Error('网络中断')
@@ -96,7 +102,35 @@ test('single retry retains input and idempotency key after an unknown creation o
     assert.equal(requests[0].idempotency_key, requests[1].idempotency_key)
     assert.equal(requests[0].draft_token, 'current-draft-token')
     assert.equal(requests[0].items[0].batches[0].qty_g, 4000)
+    assert.equal(previews, 1)
     assert.equal(updated, 1)
+  } finally { app.unmount(); document.body.innerHTML = '<div id="app"></div>' }
+})
+
+test('changing a failed single submission rechecks and uses a new idempotency key', async () => {
+  const source = { id: 5, component_name: '生豆', unit: 'kg', demand_g: 6767, wip_covered_g: 0 }
+  const requests = [], previews = []
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url)
+    if (path.includes('material-transfer-options')) return new Response(JSON.stringify({ source, pending_documents: [], options: [{ batch_id: 1, batch_code: 'B1', owner_customer_id: 0, qty_g: 10000, available_g: 10000 }] }), { status: 200, headers: { 'content-type': 'application/json' } })
+    if (path.includes('/preview')) { const body = JSON.parse(options.body); previews.push(body); return new Response(JSON.stringify({ groups: [{ items: body.items }], unavailable: [] }), { status: 200, headers: { 'content-type': 'application/json' } }) }
+    if (path.endsWith('/material-transfers')) { requests.push(JSON.parse(options.body)); if (requests.length === 1) throw new Error('网络中断'); return new Response(JSON.stringify({ documents: [{ id: 11 }] }), { status: 200, headers: { 'content-type': 'application/json' } }) }
+    throw new Error(`unexpected request ${path}`)
+  }
+  const Component = await component()
+  const app = Vue.createApp(Component, { mode: 'single', source, detail: { id: 26, draft_token: 'current-draft-token' }, warehouses: [{ code: 'raw', name: '原料仓' }] })
+  app.mount('#app')
+  try {
+    await settle()
+    const input = document.querySelector('input[aria-label="B1调拨数量"]')
+    input.value = '4'; input.dispatchEvent(new Event('input', { bubbles: true })); await Vue.nextTick()
+    button('生成调拨单').click(); await settle()
+    input.value = '3'; input.dispatchEvent(new Event('input', { bubbles: true })); await Vue.nextTick()
+    button('生成调拨单').click(); await settle()
+    assert.equal(previews.length, 2)
+    assert.equal(requests.length, 2)
+    assert.notEqual(requests[0].idempotency_key, requests[1].idempotency_key)
+    assert.equal(requests[1].items[0].batches[0].qty_g, 3000)
   } finally { app.unmount(); document.body.innerHTML = '<div id="app"></div>' }
 })
 
@@ -158,6 +192,26 @@ test('source adjustment targets the plan source, not the detached lookup respons
     button('保存来源建议').click(); await settle()
     assert.equal(adjusted.row, source)
     assert.equal(adjusted.allocations[0].qty_g, 2000)
+  } finally { app.unmount(); document.body.innerHTML = '<div id="app"></div>' }
+})
+
+test('source adjustment accepts whole-gram kilograms and rejects fractional grams', async () => {
+  const source = { id: 5, component_name: '生豆', unit: 'kg', demand_g: 5000, required_g: 5000, options: [{ warehouse: 'raw', owner_customer_id: 0, available_g: 5000 }] }
+  globalThis.fetch = async () => new Response(JSON.stringify({ source, warehouses: source.options, pending_documents: [], options: [] }), { status: 200, headers: { 'content-type': 'application/json' } })
+  const Component = await component()
+  let adjustments = []
+  const app = Vue.createApp(Component, { mode: 'stock', source, detail: { id: 26, draft_token: 'draft' }, onAdjust: (row, allocations, done) => { adjustments.push(allocations); done() } })
+  app.mount('#app')
+  try {
+    await settle()
+    const input = document.querySelector('.adjust-row input')
+    input.value = '1.001'; input.dispatchEvent(new Event('input', { bubbles: true })); await Vue.nextTick()
+    button('保存来源建议').click(); await settle()
+    assert.equal(adjustments[0][0].qty_g, 1001)
+    input.value = '1.0001'; input.dispatchEvent(new Event('input', { bubbles: true })); await Vue.nextTick()
+    button('保存来源建议').click(); await settle()
+    assert.equal(adjustments.length, 1)
+    assert.match(document.body.textContent, /数量须精确到克/)
   } finally { app.unmount(); document.body.innerHTML = '<div id="app"></div>' }
 })
 

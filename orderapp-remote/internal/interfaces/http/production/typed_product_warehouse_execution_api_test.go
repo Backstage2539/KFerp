@@ -90,6 +90,14 @@ func testTypedProductWarehouseFlow(t *testing.T, legacy bool) {
 	`, schema, schema, planID))
 
 	selectPlanningTestSources(t, app, planID)
+	if !legacy {
+		blockedPlan := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
+		if blockedPlan.Code != http.StatusBadRequest {
+			t.Fatalf("plan must await fixture transfer into WIP: %d %s", blockedPlan.Code, blockedPlan.Body.String())
+		}
+		moveFixtureTypedFinishedToWIP(t, pool, schema)
+		selectPlanningTestSources(t, app, planID)
+	}
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
 	if submit.Code != http.StatusOK {
 		t.Fatalf("submit warehouse-aware typed product plan status=%d body=%s", submit.Code, submit.Body.String())
@@ -146,7 +154,11 @@ func testTypedProductWarehouseFlow(t *testing.T, legacy bool) {
 	if upstreamComplete.Code != http.StatusOK {
 		t.Fatalf("complete typed upstream into frozen warehouse status=%d body=%s", upstreamComplete.Code, upstreamComplete.Body.String())
 	}
-	assertProductionFlowCount(t, pool, schema, "finished_inventory", "product_id=2 AND spec_g=1 AND warehouse='finished_goods' AND onhand_units=10000", 1)
+	if legacy {
+		assertProductionFlowCount(t, pool, schema, "finished_inventory", "product_id=2 AND spec_g=1 AND warehouse='finished_goods' AND onhand_units=10000", 1)
+	} else {
+		assertProductionFlowCount(t, pool, schema, "finished_inventory", "product_id=2 AND spec_g=1 AND warehouse='wip' AND onhand_units=10000", 1)
+	}
 	assertProductionFlowCount(t, pool, schema, "finished_inventory", "product_id=2 AND spec_g=1 AND warehouse='finished_shop' AND onhand_units=12700", 1)
 
 	if !legacy {
@@ -159,7 +171,7 @@ func testTypedProductWarehouseFlow(t *testing.T, legacy bool) {
 		if err := json.Unmarshal(preview.Body.Bytes(), &data); err != nil {
 			t.Fatal(err)
 		}
-		if preview.Code != 200 || len(data.Document.Items) != 2 {
+		if preview.Code != 200 || len(data.Document.Items) != 1 {
 			t.Fatalf("typed picking preview %s", preview.Body.String())
 		}
 		stockService := stockapp.NewService(postgresstock.NewRepository(pool, schema))

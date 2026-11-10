@@ -57,7 +57,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client.js'
-import { remainingTransfer, transferSelections, validateTransferSelections, transferUnitAmount, replaceTransferSelection, pendingTransferAmount, reservedAmount, transferQualityLabel, transferDocumentStatus, isTransferWeight, transferDisplayUnit, transferRowIssue } from '../lib/production-plan-transfer.js'
+import { remainingTransfer, transferSelections, validateTransferSelections, transferUnitAmount, transferGrams, replaceTransferSelection, pendingTransferAmount, reservedAmount, transferQualityLabel, transferDocumentStatus, isTransferWeight, transferDisplayUnit, transferRowIssue } from '../lib/production-plan-transfer.js'
 const props = defineProps({ detail: { type: Object, required: true }, source: { type: Object, default: null }, mode: { type: String, default: 'stock' }, warehouses: { type: Array, default: () => [] }, editable: { type: Boolean, default: true } })
 const emit = defineEmits(['close', 'updated', 'adjust'])
 const title = computed(() => ({stock: '物料库存', single: '生成调拨单', bulk: '生成所有缺料调拨单'})[props.mode] || '物料库存')
@@ -88,7 +88,7 @@ const sourceShortage = (id) => { const source = sourceFor(id); return source ? `
 const sourceBatchAmount = (id, batch) => { const source = sourceFor(id); return source ? `${transferUnitAmount(source, batch.qty_g, batch.qty_units)} ${transferDisplayUnit(source)}` : (batch.qty_g ? `${batch.qty_g} g` : `${batch.qty_units} 件`) }
 function toggleBulkItem(item, checked) { const key = itemKey(item); excludedItems.value = checked ? excludedItems.value.filter((id) => id !== key) : [...new Set([...excludedItems.value, key])] }
 const bulkEditIndex = ref(null), bulkWarehouse = ref(''), bulkRows = ref([]), bulkSource = ref(null), bulkPendingDocuments = ref([])
-let requestKey = '', requestFingerprint = '', optionsRequestSequence = 0
+let requestKey = '', requestFingerprint = '', submittedSingleKey = '', optionsRequestSequence = 0
 function keyFor(items) { const fingerprint = JSON.stringify([props.detail.draft_token || '', items]); if (!requestKey || fingerprint !== requestFingerprint) { requestKey = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`; requestFingerprint = fingerprint } return requestKey }
 function bodyFor(items) { return { draft_token: String(props.detail.draft_token || ''), idempotency_key: keyFor(items), items } }
 function close() { if (!busy.value) emit('close') }
@@ -107,9 +107,9 @@ function sendAdjustment(allocations) {
 function saveAdjustment() {
   const source = currentSource.value
   if (adjustmentRows.value.some((row) => !Number.isFinite(Number(row.quantity)) || Number(row.quantity) < 0 || (!isWeight.value && !Number.isInteger(Number(row.quantity))))) { error.value = '请填写有效数量，计件物料须为整数'; return }
-  const factor = ['kg','公斤','千克'].includes(String(unit.value).toLowerCase()) ? 1000 : 1
-  const allocations = adjustmentRows.value.filter((row) => Number(row.quantity) > 0).map((row) => ({ warehouse: row.warehouse, owner_customer_id: Number(row.owner_customer_id || 0), qty_g: isWeight.value ? Number(row.quantity) * factor : 0, qty_units: isWeight.value ? 0 : Number(row.quantity) }))
-  if (allocations.some((row) => !Number.isInteger(row.qty_g)) || allocations.reduce((n,row) => n + row.qty_g, 0) > Number(source.required_g || 0) || allocations.reduce((n,row) => n + row.qty_units, 0) > Number(source.required_units || 0)) { error.value = '固定数量不能超过本项待落实需求'; return }
+  const allocations = adjustmentRows.value.filter((row) => Number(row.quantity) > 0).map((row) => ({ warehouse: row.warehouse, owner_customer_id: Number(row.owner_customer_id || 0), qty_g: isWeight.value ? transferGrams(source, row.quantity) : 0, qty_units: isWeight.value ? 0 : Number(row.quantity) }))
+  if (allocations.some((row) => !Number.isSafeInteger(row.qty_g))) { error.value = '数量须精确到克'; return }
+  if (allocations.reduce((n,row) => n + row.qty_g, 0) > Number(source.required_g || 0) || allocations.reduce((n,row) => n + row.qty_units, 0) > Number(source.required_units || 0)) { error.value = '固定数量不能超过本项待落实需求'; return }
   sendAdjustment(allocations)
 }
 async function loadOptions() {
@@ -181,10 +181,15 @@ async function submitSingle() {
   saving.value = true; error.value = ''
   try {
     const body = bodyFor([item])
-    const checked = await apiSend(`/api/production-plans/${props.detail.id}/material-transfers/preview`, { body })
-    const rejected = (checked.unavailable || []).find((row) => !row.source_id || Number(row.source_id) === Number(item.source_id))
-    if (rejected) throw new Error(rejected.reason || rejected.message || '本次物料无法生成调拨单，请重新核对。')
-    if (!(checked.groups || []).some((group) => (group.items || []).some((row) => Number(row.source_id) === Number(item.source_id)))) throw new Error('本次物料未通过调拨预览，请重新核对。')
+    if (submittedSingleKey !== body.idempotency_key) {
+      const checked = await apiSend(`/api/production-plans/${props.detail.id}/material-transfers/preview`, { body })
+      const rejected = (checked.unavailable || []).find((row) => !row.source_id || Number(row.source_id) === Number(item.source_id))
+      if (rejected) throw new Error(rejected.reason || rejected.message || '本次物料无法生成调拨单，请重新核对。')
+      if (!(checked.groups || []).some((group) => (group.items || []).some((row) => Number(row.source_id) === Number(item.source_id)))) throw new Error('本次物料未通过调拨预览，请重新核对。')
+    }
+    // A response can be lost after creation. Reuse the validated request and
+    // its key on retry so the server can return the existing document.
+    submittedSingleKey = body.idempotency_key
     await apiSend(`/api/production-plans/${props.detail.id}/material-transfers`, { body })
     emit('updated'); emit('close')
   } catch (err) { error.value = err.message || '生成调拨单失败，请重新核对。' } finally { saving.value = false }

@@ -25,6 +25,16 @@ test('selected batches keep exact task, owner and gram quantities', () => {
   assert.equal(validateTransferSelections(source, selection, 0), '')
 })
 
+test('kilogram inputs preserve exact whole grams while rejecting fractional grams', () => {
+  const source = { id: 12, unit: 'kg', demand_g: 5000, wip_covered_g: 0 }
+  const row = { batch_code: 'A', owner_customer_id: 0, available_g: 5000, quantity: 1.001 }
+  const exact = transferSelections(source, 'raw', [row])
+  assert.equal(exact.batches[0].qty_g, 1001)
+  assert.equal(validateTransferSelections(source, exact, 0), '')
+  row.quantity = 1.0001
+  assert.match(validateTransferSelections(source, transferSelections(source, 'raw', [row]), 0), /精确到克/)
+})
+
 test('invalid or excessive quantities and mixed owners cannot be submitted', () => {
   const source = { id: 12, unit: 'kg', demand_g: 6767, wip_covered_g: 0 }
   const rows = [{ batch_code: 'A', owner_customer_id: 1, available_g: 5000, quantity: 5 }, { batch_code: 'B', owner_customer_id: 2, available_g: 4000, quantity: 2 }]

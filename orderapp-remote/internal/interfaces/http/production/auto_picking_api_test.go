@@ -61,53 +61,41 @@ func TestAutoPickingCombinesWarehousesWithoutMovingOrReservingDraftStock(t *test
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", "true", 0)
 	assertProductionFlowCount(t, pool, schema, "material_batch_locations", "material_batch_id=1030 AND warehouse='wip' AND qty_g=6000", 1)
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`INSERT INTO %[1]s.production_plan_operation_splits(production_plan_id,production_plan_item_id,operation_seq,operation,batch_size_qty,batch_size_unit,standard_minutes,planned_batch_count,planned_qty,planned_qty_g,planned_minutes) SELECT production_plan_id,id,1,'烘焙',planned_g/1000.0,'kg',15,1,planned_g/1000.0,planned_g,15 FROM %[1]s.production_plan_items WHERE production_plan_id=%[2]d`, schema, plan.ID))
-	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", plan.ID), nil)
-	if submit.Code != 200 {
-		t.Fatalf("auto submit: %d %s", submit.Code, submit.Body.String())
+	blockedPlan := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", plan.ID), nil)
+	if blockedPlan.Code != http.StatusBadRequest || !strings.Contains(blockedPlan.Body.String(), "WIP") {
+		t.Fatalf("plan must await warehouse transfer: %d %s", blockedPlan.Code, blockedPlan.Body.String())
 	}
-	assertProductionFlowCount(t, pool, schema, "work_order_material_reservation_batches", "material_batch_id=1030 AND status='reserved'", 3)
-	assertProductionFlowCount(t, pool, schema, "material_batch_locations", "material_batch_id=1030 AND warehouse='wip' AND qty_g=6000", 1)
+	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", "true", 0)
+	stockService := stockapp.NewService(postgresstock.NewRepository(pool, schema))
+	move := func(warehouse string, qty int64, key string) stockapp.StockDocumentDetail {
+		t.Helper()
+		detail, err := stockService.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{Purpose: stockapp.PurposeMaterialTransfer, Operator: "仓库员", IdempotencyKey: key, Items: []stockapp.StockDocumentItemCommand{{ItemType: "material", MaterialID: 30, InventoryUnit: "kg", QtyG: qty, FromWarehouse: warehouse, ToWarehouse: "wip", BatchCode: "AUTO-GREEN"}}})
+		if err != nil {
+			t.Fatalf("warehouse transfer %s: %v", warehouse, err)
+		}
+		return detail
+	}
+	first := move("raw_materials", 10000, "transfer-first")
+	again := move("raw_materials", 10000, "transfer-first")
+	if first.ID != again.ID {
+		t.Fatal("repeated transfer created another document")
+	}
+	move("raw_backup", 5000, "transfer-backup")
+	assertProductionFlowCount(t, pool, schema, "material_batch_locations", "material_batch_id=1030 AND warehouse='wip' AND qty_g=21000", 1)
+	selectPlanningTestSources(t, app, plan.ID)
+	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", plan.ID), nil)
+	if submit.Code != http.StatusOK {
+		t.Fatalf("submit after WIP transfer: %d %s", submit.Code, submit.Body.String())
+	}
+	assertProductionFlowCount(t, pool, schema, "work_order_material_reservation_batches", "material_batch_id=1030 AND warehouse='wip' AND reserved_g=21000 AND status='reserved'", 1)
 	var woID int64
 	if err := pool.QueryRow(ctx, fmt.Sprintf("SELECT id FROM %s.work_orders WHERE production_plan_id=$1", schema), plan.ID).Scan(&woID); err != nil {
 		t.Fatal(err)
 	}
-	start := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/start", woID), map[string]any{})
-	if start.Code != 400 || !strings.Contains(start.Body.String(), "WIP") {
-		t.Fatalf("source reservation outside WIP incorrectly allowed start: %s", start.Body.String())
+	start := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/start", woID), nil)
+	if start.Code != http.StatusOK {
+		t.Fatalf("WIP ready start %d %s", start.Code, start.Body.String())
 	}
-	stockService := stockapp.NewService(postgresstock.NewRepository(pool, schema))
-	issue := func(warehouse string, qty int64, key string) stockapp.StockDocumentDetail {
-		t.Helper()
-		detail, err := stockService.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: woID, Operator: "仓库员", IdempotencyKey: key, Items: []stockapp.StockDocumentItemCommand{{ItemType: "material", MaterialID: 30, InventoryUnit: "kg", QtyG: qty, FromWarehouse: warehouse, ToWarehouse: "wip", BatchCode: "AUTO-GREEN"}}})
-		if err != nil {
-			t.Fatalf("partial picking %s %d: %v", warehouse, qty, err)
-		}
-		return detail
-	}
-	first := issue("raw_materials", 4000, "pick-first")
-	again := issue("raw_materials", 4000, "pick-first")
-	if first.ID != again.ID {
-		t.Fatal("repeated picking created another document")
-	}
-	assertProductionFlowCount(t, pool, schema, "work_order_material_reservation_batches", "material_batch_id=1030 AND warehouse='raw_materials' AND reserved_g=6000", 1)
-	assertProductionFlowCount(t, pool, schema, "work_order_material_reservation_batches", "material_batch_id=1030 AND warehouse='wip' AND reserved_g=10000", 1)
-	start = serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/start", woID), nil)
-	if start.Code == 200 {
-		t.Fatal("partial picking incorrectly allowed start")
-	}
-	if _, err := stockService.CancelStockDocument(ctx, first.ID, "仓库员"); err != nil {
-		t.Fatalf("cancel partial picking: %v", err)
-	}
-	assertProductionFlowCount(t, pool, schema, "material_batch_locations", "material_batch_id=1030 AND warehouse='wip' AND qty_g=6000", 1)
-	assertProductionFlowCount(t, pool, schema, "work_order_material_reservation_batches", "material_batch_id=1030 AND warehouse='raw_materials' AND reserved_g=10000", 1)
-	issue("raw_materials", 4000, "pick-first-again")
-	issue("raw_materials", 6000, "pick-rest-a")
-	issue("raw_backup", 5000, "pick-b")
-	start = serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/start", woID), nil)
-	if start.Code != 200 {
-		t.Fatalf("fully picked start %d %s", start.Code, start.Body.String())
-	}
-	assertProductionFlowCount(t, pool, schema, "material_batch_locations", "material_batch_id=1030 AND warehouse='wip' AND qty_g=21000", 1)
 	// The remainder characterizes the historical direct-consumption workflow.
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.work_orders w SET material_consumption_policy='legacy',process_snapshot_json=p.process_route_snapshot_json FROM %[1]s.production_plan_items p WHERE w.production_plan_item_id=p.id AND w.id=$1`, schema), woID); err != nil {
 		t.Fatal(err)
