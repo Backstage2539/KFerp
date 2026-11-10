@@ -268,3 +268,17 @@ it('opens real customer order, price and billing routes with a customer-scoped p
     } finally { billApp.unmount() }
   } finally { orderPage.app.unmount() }
 })
+
+it('returns a customer preview to the selected customer home from the home tab', async () => {
+  const Index = (await import('../pages/index/index.vue')).default
+  const GuestHome = (await import('../components/GuestHome.vue')).default
+  clientRender(GuestHome, '../components/GuestHome.vue')
+  clientRender(Index, '../pages/index/index.vue')
+  const { app, session } = mount(Index)
+  session.$patch({token:'admin-preview.scoped',previewEmployeeToken:'employee-token',accountType:'preview',currentCustomerID:901,bindings:[]})
+  try {
+    hooks.show.forEach(callback => callback())
+    await settle()
+    expect(uni.reLaunch).toHaveBeenCalledWith({url:'/pages/home/home'})
+  } finally { app.unmount() }
+})
