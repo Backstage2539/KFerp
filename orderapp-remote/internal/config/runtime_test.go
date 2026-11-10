@@ -176,3 +176,27 @@ func TestLoadRuntimeTrimsValues(t *testing.T) {
 		t.Fatalf("DocxConverterURL = %q", cfg.DocxConverterURL)
 	}
 }
+
+func TestMiniPasswordLoginDisabledDefaultsOffAndCanBeEnabled(t *testing.T) {
+	for _, tc := range []struct {
+		value    string
+		disabled bool
+	}{{"", false}, {"0", false}, {"1", true}, {"true", true}} {
+		t.Run(tc.value, func(t *testing.T) {
+			cfg, err := LoadRuntime(func(key string) string {
+				switch key {
+				case "DATABASE_URL":
+					return "postgres://example"
+				case "APP_PASS":
+					return "secret"
+				case "MINIAPP_PASSWORD_LOGIN_DISABLED":
+					return tc.value
+				}
+				return ""
+			})
+			if err != nil || cfg.DisableMiniPasswordLogin != tc.disabled {
+				t.Fatalf("flag=%v want=%v err=%v", cfg.DisableMiniPasswordLogin, tc.disabled, err)
+			}
+		})
+	}
+}

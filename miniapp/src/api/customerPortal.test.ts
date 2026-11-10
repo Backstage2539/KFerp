@@ -90,6 +90,7 @@ describe('customer portal API helpers', () => {
       phone_code: 'phone-code',
       nickname: '客户A',
     })
+    expect(buildMiniLoginPayload('phone_identify', { code: 'wx-code', phoneCode: 'phone-code' })).toEqual({ mode: 'phone_identify', code: 'wx-code', phone_code: 'phone-code' })
   })
 
   it('exposes the current-customer switch API path', () => {

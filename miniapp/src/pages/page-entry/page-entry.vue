@@ -169,7 +169,7 @@ onShareTimeline(defaultMiniappTimelineShare)
     <view class="pull-up-brand-footer-anchor">
       <PullUpBrandFooter :revealed="pullUpBrandRevealed" />
     </view>
-    <BeanRegistrationSheet :visible="registration.visible.value" :title="registration.title.value" :nickname="registration.nickname.value" :busy="registration.busy.value" :error="registration.error.value" @nickname="registration.nickname.value=$event" @authorize="registration.submit" @close="cancelRegistration"/>
+    <BeanRegistrationSheet :visible="registration.visible.value" :title="registration.title.value" :busy="registration.busy.value" :error="registration.error.value" @authorize="registration.submit" @close="cancelRegistration"/>
   </view>
 </template>
 <style scoped>

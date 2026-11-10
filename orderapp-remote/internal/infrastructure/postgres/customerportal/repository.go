@@ -76,6 +76,18 @@ func (r Repository) CreatePhoneVerifiedLoginSession(ctx context.Context, cmd cus
 	if phone == "" {
 		return customerportalapp.LoginResult{}, fmt.Errorf("phone required")
 	}
+	if cmd.Identify || !cmd.Registration {
+		result, handled, err := r.identifyWechatEmployeeTx(ctx, tx, cmd)
+		if err != nil {
+			return customerportalapp.LoginResult{}, err
+		}
+		if handled {
+			if err := tx.Commit(ctx); err != nil {
+				return customerportalapp.LoginResult{}, err
+			}
+			return result, nil
+		}
+	}
 	var employeeID int64
 	var matches int
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT count(*),COALESCE(min(e.id),0) FROM %s.company_employees e LEFT JOIN %s.employee_login_passwords p ON p.employee_id=e.id WHERE e.active AND e.account_type='channel_customer' AND e.phone=$1 AND NOT COALESCE(p.login_disabled,false)`, r.schema, r.schema), phone).Scan(&matches, &employeeID); err != nil {
@@ -96,7 +108,7 @@ func (r Repository) CreatePhoneVerifiedLoginSession(ctx context.Context, cmd cus
 			return customerportalapp.LoginResult{}, customerportalapp.ErrCustomerBindingNotFound
 		}
 	}
-	if cmd.Registration && (!customerportalapp.ValidRegistrationNickname(cmd.Nickname) || len(cmd.CredentialHash) != 64) {
+	if cmd.Registration && ((!cmd.Identify && !customerportalapp.ValidRegistrationNickname(cmd.Nickname)) || len(cmd.CredentialHash) != 64) {
 		return customerportalapp.LoginResult{}, customerportalapp.ErrMiniInvalidLogin
 	}
 
@@ -120,7 +132,10 @@ func (r Repository) CreatePhoneVerifiedLoginSession(ctx context.Context, cmd cus
 		}
 	}
 	if cmd.Registration {
-		_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.mini_registrations(mini_user_id,nickname,verified_phone,verified_at) VALUES($1,$2,$3,now()) ON CONFLICT(mini_user_id) DO UPDATE SET nickname=EXCLUDED.nickname,verified_phone=EXCLUDED.verified_phone,verified_at=now(),updated_at=now(),last_seen_at=now()`, r.schema), miniUserID, strings.TrimSpace(cmd.Nickname), phone)
+		if cmd.Identify && strings.TrimSpace(cmd.Nickname) == "" {
+			cmd.Nickname = "微信用户"
+		}
+		_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.mini_registrations(mini_user_id,nickname,verified_phone,verified_at) VALUES($1,$2,$3,now()) ON CONFLICT(mini_user_id) DO UPDATE SET nickname=CASE WHEN $4 AND NULLIF(trim(mini_registrations.nickname),'') IS NOT NULL THEN mini_registrations.nickname ELSE EXCLUDED.nickname END,verified_phone=EXCLUDED.verified_phone,verified_at=now(),updated_at=now(),last_seen_at=now()`, r.schema), miniUserID, strings.TrimSpace(cmd.Nickname), phone, cmd.Identify)
 		if err != nil {
 			return customerportalapp.LoginResult{}, err
 		}
@@ -505,8 +520,18 @@ func (r Repository) CurrentContextByToken(ctx context.Context, token string) (cu
 		}
 		return customerportalapp.CurrentContext{}, err
 	}
-	if strings.HasPrefix(openID, "erp-internal-employee:") {
-		employeeID, parseErr := strconv.ParseInt(strings.TrimPrefix(openID, "erp-internal-employee:"), 10, 64)
+	isWechatEmployee := strings.HasPrefix(openID, wechatEmployeePrefix)
+	if strings.HasPrefix(openID, "erp-internal-employee:") || isWechatEmployee {
+		identity := strings.TrimPrefix(openID, "erp-internal-employee:")
+		phoneHash := ""
+		if isWechatEmployee {
+			parts := strings.Split(strings.TrimPrefix(openID, wechatEmployeePrefix), ":")
+			identity = ""
+			if len(parts) == 2 {
+				identity, phoneHash = parts[0], parts[1]
+			}
+		}
+		employeeID, parseErr := strconv.ParseInt(identity, 10, 64)
 		if parseErr != nil || employeeID <= 0 {
 			if err := r.expireMiniSessionTx(ctx, tx, token); err != nil {
 				return customerportalapp.CurrentContext{}, err
@@ -518,7 +543,7 @@ func (r Repository) CurrentContextByToken(ctx context.Context, token string) (cu
 		}
 		var employeeName string
 		var securityUpdatedAt time.Time
-		err := tx.QueryRow(ctx, fmt.Sprintf(`
+		query := fmt.Sprintf(`
 			SELECT COALESCE(e.name,''), lp.updated_at
 			FROM %s.company_employees e
 			JOIN %s.employee_login_passwords lp ON lp.employee_id=e.id
@@ -526,7 +551,16 @@ func (r Repository) CurrentContextByToken(ctx context.Context, token string) (cu
 			  AND e.active=true
 			  AND e.account_type='internal_employee'
 			  AND COALESCE(lp.login_disabled,false)=false
-		`, r.schema, r.schema), employeeID).Scan(&employeeName, &securityUpdatedAt)
+		`, r.schema, r.schema)
+		if isWechatEmployee {
+			query = fmt.Sprintf(`SELECT COALESCE(e.name,''), 'epoch'::timestamptz FROM %[1]s.company_employees e LEFT JOIN %[1]s.employee_login_passwords lp ON lp.employee_id=e.id WHERE e.id=$1 AND e.active AND e.account_type='internal_employee' AND NOT COALESCE(lp.login_disabled,false) AND encode(sha256(convert_to(trim(e.phone),'UTF8')),'hex')=$2 AND (SELECT count(*) FROM %[1]s.company_employees c WHERE c.active AND c.phone=e.phone AND c.account_type IN ('internal_employee','channel_customer'))=1`, r.schema)
+		}
+		var err error
+		if isWechatEmployee {
+			err = tx.QueryRow(ctx, query, employeeID, phoneHash).Scan(&employeeName, &securityUpdatedAt)
+		} else {
+			err = tx.QueryRow(ctx, query, employeeID).Scan(&employeeName, &securityUpdatedAt)
+		}
 		if errors.Is(err, pgx.ErrNoRows) || (err == nil && sessionCreatedAt.Before(securityUpdatedAt)) {
 			if err := r.expireMiniSessionTx(ctx, tx, token); err != nil {
 				return customerportalapp.CurrentContext{}, err
@@ -746,7 +780,7 @@ func (r Repository) validateProjectedMiniBindingsTx(ctx context.Context, tx pgx.
 		}
 		if live && strings.HasPrefix(binding.source, projectedMiniBindingPhoneVerifySource+":") {
 			var uniquePhone bool
-			err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.mini_users u JOIN %[1]s.company_employees e ON e.id=$2 AND e.phone=u.phone WHERE u.id=$1 AND (SELECT count(*) FROM %[1]s.company_employees x LEFT JOIN %[1]s.employee_login_passwords lp ON lp.employee_id=x.id WHERE x.phone=u.phone AND x.active AND x.account_type='channel_customer' AND NOT COALESCE(lp.login_disabled,false))=1)`, r.schema), miniUserID, employeeID).Scan(&uniquePhone)
+			err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.mini_users u JOIN %[1]s.company_employees e ON e.id=$2 AND e.phone=u.phone WHERE u.id=$1 AND (SELECT count(*) FROM %[1]s.company_employees x WHERE x.phone=u.phone AND x.active AND x.account_type IN ('channel_customer','internal_employee'))=1)`, r.schema), miniUserID, employeeID).Scan(&uniquePhone)
 			if err != nil {
 				return validation, err
 			}

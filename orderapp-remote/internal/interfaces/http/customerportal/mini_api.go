@@ -96,11 +96,11 @@ type beanListPNGCacheService interface {
 }
 
 func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanListPDFRenderer BeanListPDFRenderer, salesDocs SalesDocuments, closeLegacyFulfillmentWrites ...bool) {
-	registerMiniAPIWithFees(e, svc, messages, beanListPDFRenderer, salesDocs, nil, closeLegacyFulfillmentWrites...)
+	legacyClosed := len(closeLegacyFulfillmentWrites) > 0 && closeLegacyFulfillmentWrites[0]
+	registerMiniAPIWithFees(e, svc, messages, beanListPDFRenderer, salesDocs, nil, legacyClosed, false)
 }
 
-func registerMiniAPIWithFees(e *echo.Echo, svc Service, messages MessagePublisher, beanListPDFRenderer BeanListPDFRenderer, salesDocs SalesDocuments, fulfillment MiniCustomerFulfillment, closeLegacyFulfillmentWrites ...bool) {
-	legacyFulfillmentWritesClosed := len(closeLegacyFulfillmentWrites) > 0 && closeLegacyFulfillmentWrites[0]
+func registerMiniAPIWithFees(e *echo.Echo, svc Service, messages MessagePublisher, beanListPDFRenderer BeanListPDFRenderer, salesDocs SalesDocuments, fulfillment MiniCustomerFulfillment, legacyFulfillmentWritesClosed, disableMiniPasswordLogin bool) {
 	e.POST("/api/mini/login", func(c echo.Context) error {
 		if svc == nil {
 			return miniInternalError(c)
@@ -123,6 +123,9 @@ func registerMiniAPIWithFees(e *echo.Echo, svc Service, messages MessagePublishe
 	})
 
 	e.POST("/api/mini/login/password", func(c echo.Context) error {
+		if disableMiniPasswordLogin {
+			return c.JSON(http.StatusGone, map[string]string{"error": "小程序账号密码登录已停用，请使用微信手机号登录"})
+		}
 		if svc == nil {
 			return miniInternalError(c)
 		}

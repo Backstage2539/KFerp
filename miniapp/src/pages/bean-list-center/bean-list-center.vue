@@ -40,7 +40,7 @@ import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 const {pullUpBrandRevealed,handlePullUpBrandTouchStart,handlePullUpBrandTouchMove,handlePullUpBrandTouchEnd,handlePullUpBrandTouchCancel}=usePullUpBrandGesture()
 </script>
 <template><view class="center pull-up-brand-page" @touchstart="handlePullUpBrandTouchStart" @touchmove="handlePullUpBrandTouchMove" @touchend="handlePullUpBrandTouchEnd" @touchcancel="handlePullUpBrandTouchCancel"><EnvironmentBadge/><view class="hero"><text class="eyebrow">QACOOHEE COFFEE</text><text class="title">价格表中心</text><text class="hint">选择一张价格表，查看商品、规格和价格。</text></view>
-<view class="actions"><button v-if="staff||session.registrationComplete" @tap="samples">{{staff?'样品工单':'我的样品申请'}}</button><button v-if="staff" @tap="employeeHome">员工首页</button></view>
+<view class="actions"><button v-if="!session.isCustomerPreview && (staff||session.registrationComplete)" @tap="samples">{{staff?'样品工单':'我的样品申请'}}</button><button v-if="staff" @tap="employeeHome">员工首页</button></view>
 <template v-if="authenticatedCustomer && session.currentCustomerID"><view class="price-tabs"><button v-for="usage in enabledPrices" :key="usage" :class="{selected:priceUsage===usage}" @tap="priceUsage=usage">{{usage==='product_order'?'下单价格表':'一件代发价格表'}}</button></view><text v-if="priceError" class="state">{{priceError}}</text><text v-else-if="!busy && !enabledPrices.length" class="state">当前客户未开通价格表，请联系管理员。</text><CustomerPricePreview v-if="enabledPrices.length" :usage-code="priceUsage"/></template><template v-else>
 <input v-model="search" class="search" placeholder="搜索价格表名称或版本"/>
 <text v-if="session.accountType!=='employee'&&!session.registrationComplete&&!authenticatedCustomer" class="notice">查看受限价格表请先登录客户账号。</text>

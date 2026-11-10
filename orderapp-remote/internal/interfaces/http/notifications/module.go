@@ -3,7 +3,6 @@ package notifications
 import (
 	"context"
 	"errors"
-	"fmt"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -37,8 +36,7 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, p Portal, a
 	h := &Handler{Repo: r, Portal: p, Authz: auth, Client: client}
 	h.Worker = &pg.Worker{Repo: r, AppID: cfg.AppID, Sender: client, Authorize: func(ctx context.Context, v pg.Recipient, n messages.OrderNotice) (bool, error) {
 		if v.EmployeeID > 0 {
-			var available bool
-			err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.company_employees e LEFT JOIN %[1]s.employee_login_passwords p ON p.employee_id=e.id JOIN %[1]s.mini_users u ON u.id=$2 WHERE e.id=$1 AND e.active AND u.active AND e.account_type='internal_employee' AND NOT COALESCE(p.login_disabled,false) AND p.employee_id IS NOT NULL AND p.updated_at<=$3 AND u.openid='erp-internal-employee:'||e.id::text)`, schema), v.EmployeeID, v.MiniUserID, v.BoundAt).Scan(&available)
+			available, err := employeeNotificationAvailable(ctx, pool, schema, v.EmployeeID, v.MiniUserID, v.BoundAt, v.AppID, v.OpenID)
 			if err != nil || !available {
 				return false, err
 			}

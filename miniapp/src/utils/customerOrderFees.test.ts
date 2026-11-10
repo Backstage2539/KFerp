@@ -26,7 +26,7 @@ describe('customer order fees and price selection', () => {
     const login = readFileSync(new URL('../pages/login/login.vue', import.meta.url), 'utf8')
     const orders = readFileSync(new URL('../pages/service/service.vue', import.meta.url), 'utf8')
     const profile = readFileSync(new URL('../pages/profile/profile.vue', import.meta.url), 'utf8')
-    expect(login).toContain('loginWithPhoneVerify')
+    expect(login).toContain('loginWithPhoneIdentify')
     expect(login).not.toContain('请先填写昵称')
     expect(profile).not.toContain('<RegistrationProfile')
     expect(orders).not.toContain('已购商品货款不重复收取')
