@@ -10,7 +10,8 @@
 - Branch: `codex/miniapp-wechat-phone-login-20261110`; base: `origin/develop`.
 - Scope: 先通过微信验证手机号，识别员工、已授权客户与访客；移除小程序密码登录；管理员可只读查看选定客户界面。
 - DEV: `DEV-MINIAPP-PHONE-IDENTITY` 身份校验与撤销；`DEV-MINIAPP-PHONE-ROUTING` 页面分流；`DEV-MINIAPP-ADMIN-CUSTOMER-READ` 管理员客户只读查看；`DEV-MINIAPP-PHONE-VERIFY` 手册与验收。
-- Status: 本地与隔离数据库验证通过；服务端预检、环境部署及真实微信授权待验收。生产不自动关闭旧版密码兼容。
+- Status: 自动化、隔离数据库和开发／正式部署技术检查通过；管理员微信手机号登录及客户只读预览真机验收通过；喜沁客户本人手机号直登待验收。生产保持旧版密码兼容。
+- Deployment: 开发 `23f15a7f54e4b256bb1cb8b07d39d032da295cf3`；正式及生产小程序包 `1613c632b867de80b0ac8446ed29a99e40df7871`。备份与检查见 `orderapp-remote/docs/acceptance/2026-11-10-miniapp-phone-identity.md`。
 
 ### PR-756-PRODUCTION-LIVE-SUPPLY
 - Branch: `codex/production-live-supply-20261110`; base: `origin/develop`.
