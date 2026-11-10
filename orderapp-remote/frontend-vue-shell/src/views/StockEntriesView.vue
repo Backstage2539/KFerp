@@ -52,7 +52,7 @@
               <button class="link" type="button" @click="openExisting(row)">{{ row.purpose === 'manufacture' ? '查看结果' : '查看' }}</button>
               <span v-if="row.legacy" class="legacy-readonly">只读</span>
               <button v-if="row.status === 'cancelled'" class="link disabled" type="button" disabled>已取消</button>
-              <button v-else-if="row.status === 'submitted' && !row.legacy && row.purpose !== 'material_receipt'" class="danger-link" type="button" @click="cancelDocument(row)">取消</button>
+              <button v-else-if="(row.status === 'submitted' && !row.legacy && row.purpose !== 'material_receipt') || (row.status === 'draft' && row.source_type === 'production_plan_material_transfer')" class="danger-link" type="button" :disabled="saving" @click="cancelDocument(row)">取消</button>
             </td>
           </tr>
           <tr v-if="!rows.length"><td colspan="9" class="muted">暂无库存单据</td></tr>
@@ -119,6 +119,22 @@
           </template>
         </section>
         <template v-if="stockPreviewState.availability === 'actionable' || !stockPreviewState.message">
+        <fieldset v-if="isPlanMaterialTransfer" disabled class="plan-transfer-readonly">
+          <p class="production-issue-hint">此调拨单由生产计划生成。若需修改，请取消草稿后返回生产计划重新生成。</p>
+          <label><span>备注</span><input :value="form.note" /></label>
+          <h4>单据明细</h4>
+          <article v-for="item in form.items" :key="item.id || item.local_key" class="item-card">
+            <div class="item-grid">
+              <label><span>物料</span><input :value="item.item_name || '-'" /></label>
+              <label><span>出库仓</span><input :value="warehouseName(item.from_warehouse)" /></label>
+              <label><span>入库仓</span><input :value="warehouseName(item.to_warehouse)" /></label>
+              <label><span>货主</span><input :value="item.owner_customer_id ? `客户 #${item.owner_customer_id}` : '工厂'" /></label>
+              <label><span>数量（{{ item.inventory_unit || '件' }}）</span><input :value="item.quantity" /></label>
+              <label><span>来源批次</span><input :value="item.batch_code || '-'" /></label>
+            </div>
+          </article>
+        </fieldset>
+        <template v-else>
         <div class="document-form">
           <label>
             <span>单据目的</span>
@@ -282,8 +298,9 @@
           <div v-if="item.transfer_batch_moves?.length" class="allocations"><span v-for="move in item.transfer_batch_moves" :key="`${move.source_batch_code}-${move.target_batch_code}`">来源批次 {{ move.source_batch_code }} → 目标批次 {{ move.target_batch_code }}</span></div>
           <button v-if="isDraft && form.items.length > 1" class="danger-link" type="button" @click="form.items.splice(index, 1)">删除明细</button>
         </div>
+        </template>
         <div class="drawer-actions">
-          <button v-if="isDraft && !isRetiredReceiptDraft" class="secondary" type="button" @click="saveDraft" :disabled="saving || productDetailsLoading || !form.items.length">保存草稿</button>
+          <button v-if="isDraft && !isRetiredReceiptDraft && !isPlanMaterialTransfer" class="secondary" type="button" @click="saveDraft" :disabled="saving || productDetailsLoading || !form.items.length">保存草稿</button>
           <button v-if="isDraft && !isRetiredReceiptDraft" class="primary" type="button" @click="submitDocument" :disabled="saving || productDetailsLoading || !form.items.length">提交并过账</button>
         </div>
         </template>
@@ -372,6 +389,7 @@ const pendingReturnNavigation = ref(null)
 let returnFocusElement = null
 const isMaterialProductionReceipt = computed(() => isBoundProductionDocument.value && form.purpose_key === 'manufacture' && form.items.length === 1 && form.items[0].item_type === 'material')
 const isDraft = computed(() => !form.id || form.status === 'draft')
+const isPlanMaterialTransfer = computed(() => String(form.source_type || '') === 'production_plan_material_transfer')
 const hasUnsavedDraft = computed(() => isDraft.value && (
   draftFingerprint() !== savedDraftFingerprint.value
   || (!form.id && form.items.some(item => Number(item.quantity || item.qty_g || item.qty_units || 0) > 0))
@@ -791,6 +809,7 @@ function requestBody() {
 }
 
 async function saveDraft() {
+	if (isPlanMaterialTransfer.value) { drawerError.value = '请返回生产计划修改调拨安排'; return null }
   saving.value = true
   drawerError.value = ''
   try {
@@ -810,8 +829,9 @@ async function saveDraft() {
 }
 
 async function submitDocument() {
+  if (saving.value) return
   const receiptOptions = isMaterialProductionReceipt.value ? { completion_mode: receiptMode.value, consumed_input_g: Math.round(Number(receiptInputKg.value || 0) * 1000) } : {}
-  const draft = await saveDraft()
+  const draft = isPlanMaterialTransfer.value && form.id ? { id: form.id } : await saveDraft()
   if (!draft?.id) return
   saving.value = true
   drawerError.value = ''
@@ -880,12 +900,16 @@ async function loadCompletionResult(document = {}) {
 }
 
 async function cancelDocument(row) {
+  if (saving.value) return
+  saving.value = true
   error.value = ''
   try {
     await apiSend(`${stockEntryEndpoint()}/${row.id}/cancel`, { body: {} })
     await load()
   } catch (err) {
     error.value = err.message || '取消失败'
+  } finally {
+    saving.value = false
   }
 }
 
@@ -904,6 +928,7 @@ function applyDocument(data = {}, warnings = [], previewState = {}) {
   Object.assign(stockPreviewState, { availability: previewState.availability || 'actionable', message: previewState.message || '' })
   drawerOpen.value = true
   for (const item of form.items) {
+    if (isPlanMaterialTransfer.value) continue
     if (isOrdinaryTransfer()) { if (data.status === 'draft') void ensureChoiceInventory(item.from_warehouse); continue }
     if (item.item_type === 'finished_product' && Number(item.product_id || 0) > 0) {
       if (isFinishedTransfer(item)) void ensureTransferInventory(item.from_warehouse)
@@ -1316,6 +1341,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.plan-transfer-readonly{border:0;padding:0;margin:0;min-width:0;display:grid;gap:12px}.plan-transfer-readonly h4{margin:0}.plan-transfer-readonly .item-card{margin:0}
 .return-dialog-mask{position:fixed;inset:0;z-index:90;display:grid;place-items:center;background:rgba(17,24,39,.45);padding:16px}.return-dialog{width:min(540px,100%);box-sizing:border-box;background:#fff;border-radius:12px;padding:22px;box-shadow:0 16px 48px #0003;outline:none}.return-dialog h3{margin:0 0 12px}.return-dialog p{line-height:1.6}.return-dialog-actions{display:flex;flex-wrap:wrap;gap:10px}.return-dialog-actions button{flex:1 1 130px}
 .stock-entry-page,.stock-entry-page *{box-sizing:border-box}.stock-entry-page{padding:16px;display:grid;gap:16px}.stock-entry-page.embedded{padding:0}.panel{border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:12px}.panel-head,.drawer-head,.line-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.panel-head{margin-bottom:12px}.panel-head h2,.drawer-head h3,.line-head h4{margin:0 0 4px}.panel-head p,.drawer-head p{margin:0;color:#6b7280;font-size:13px}.head-actions,.row-actions,.drawer-actions{display:flex;gap:8px;flex-wrap:wrap}.filters{display:grid;grid-template-columns:minmax(200px,1.5fr) repeat(2,minmax(130px,1fr)) auto;gap:10px;align-items:end}label{min-width:0}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,input,button{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #d1d5db;padding:7px 9px}.readonly-value{display:block;min-height:36px;border:1px solid #d1d5db;border-radius:6px;background:#f9fafb;padding:7px 9px;color:#374151}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.link,.danger-link{border:0;background:transparent;color:#1d4ed8;padding:0;min-height:0}.danger-link{color:#b91c1c}.disabled{color:#9ca3af}.legacy-readonly{color:#6b7280}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.warning-list{background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:8px 10px;color:#92400e}.warning-list p{margin:0}.warning-list p+p{margin-top:4px}.production-issue-hint{margin:0;padding:6px 8px;border-radius:6px;background:#eff6ff;color:#1e40af;font-size:12px}.source-balance{display:block;margin-top:4px;color:#1e40af;font-size:11px;line-height:1.35}.table-wrap{overflow:auto}table{width:100%;min-width:1050px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px}.status.submitted{border-color:#86efac;background:#f0fdf4;color:#15803d}.status.draft{border-color:#fcd34d;background:#fffbeb;color:#a16207}.muted{text-align:center;color:#666}.drawer-mask{position:fixed;inset:0;background:rgba(17,24,39,.35);z-index:80;display:flex;justify-content:flex-end}.drawer{width:min(980px,96vw);height:100%;overflow:auto;background:#fff;padding:18px;box-shadow:-12px 0 32px rgba(15,23,42,.2);display:grid;align-content:start;gap:16px}.drawer-head{border-bottom:1px solid #e5e7eb;padding-bottom:12px}.document-form,.item-grid{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:10px}.wide{grid-column:span 2}.line-head{align-items:center}.item-card{border:1px solid #e5e7eb;border-radius:8px;padding:12px;display:grid;gap:10px}.compact-production-items{display:grid;gap:4px}.compact-production-items-head,.compact-production-item-grid{display:grid;grid-template-columns:minmax(150px,2fr) minmax(90px,1fr) minmax(90px,1fr) minmax(90px,.8fr) minmax(64px,.55fr) minmax(120px,1.2fr) 52px;gap:6px;align-items:end}.compact-production-items-head{padding:0 6px;color:#6b7280;font-size:12px;font-weight:600}.compact-production-item{border:1px solid #e5e7eb;border-radius:6px;padding:4px 6px}.compact-production-item-grid>label{margin:0}.compact-production-item-grid .mobile-field-label{display:none}.compact-production-item-grid select,.compact-production-item-grid input,.compact-production-item-grid .readonly-value{min-height:32px;height:32px;padding:4px 6px}.compact-delete{align-self:center;justify-self:center}.compact-allocations{margin-top:4px}.allocations{display:flex;flex-wrap:wrap;gap:6px}.allocations span{background:#eff6ff;border:1px solid #bfdbfe;border-radius:999px;padding:3px 8px;font-size:12px}.drawer-actions{justify-content:flex-end;border-top:1px solid #e5e7eb;padding-top:12px}.select-loading,.select-load-more{display:block;width:100%;padding:8px 10px;text-align:center;color:#6b7280;font-size:12px;border:0;background:#f9fafb}.select-load-more{color:#1d4ed8;cursor:pointer}
 .stock-preview-state{border:1px solid #e4d3ad;border-radius:9px;background:#fff9eb;padding:16px;color:#815418}.stock-preview-state.ready{border-color:#b9ddc5;background:#eff9f2;color:#237146}.stock-preview-state p{margin:6px 0 12px;line-height:1.6}

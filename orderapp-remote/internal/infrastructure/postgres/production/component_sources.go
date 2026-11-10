@@ -138,7 +138,7 @@ func syncProductionPlanComponentSourcesTx(ctx context.Context, tx pgx.Tx, schema
 	return err
 }
 
-func componentSourceAvailabilityTx(ctx context.Context, tx pgx.Tx, schema, componentType string, componentID, bomSpecID, specG int64, warehouse string, ownerCustomerID int64, lock bool) (int64, int64, error) {
+func componentSourceAvailabilityTx(ctx context.Context, tx pgx.Tx, schema, componentType string, componentID, bomSpecID, bomVariantID, specG int64, warehouse string, ownerCustomerID int64, lock bool) (int64, int64, error) {
 	componentType = strings.ToLower(strings.TrimSpace(componentType))
 	if componentType == "product" || componentType == "finished_product" {
 		if lock {
@@ -150,10 +150,10 @@ func componentSourceAvailabilityTx(ctx context.Context, tx pgx.Tx, schema, compo
 					  AND (l.source_batch_code=b.batch_code OR l.source_batch_id=b.batch_code)
 					ORDER BY l.id DESC LIMIT 1
 				) location ON true
-				WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=$2 AND b.spec_g=$3
+				WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=$2 AND b.spec_g=$3 AND ($6::bigint=0 OR b.bom_variant_id=$6)
 				  AND COALESCE(NULLIF(location.warehouse,''),'finished_goods')=$4 AND COALESCE(b.owner_customer_id,0)=$5
 				ORDER BY b.id FOR UPDATE OF b
-			`, schema, schema), componentID, bomSpecID, specG, warehouse, ownerCustomerID)
+			`, schema, schema), componentID, bomSpecID, specG, warehouse, ownerCustomerID, bomVariantID)
 			if err != nil {
 				return 0, 0, err
 			}
@@ -182,11 +182,11 @@ func componentSourceAvailabilityTx(ctx context.Context, tx pgx.Tx, schema, compo
 				FROM %s.work_order_material_reservation_batches rb
 				WHERE rb.stock_batch_id=b.id AND rb.status='reserved'
 			) bound ON true
-			WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=$2 AND b.spec_g=$3
+			WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=$2 AND b.spec_g=$3 AND ($6::bigint=0 OR b.bom_variant_id=$6)
 			  AND COALESCE(NULLIF(location.warehouse,''),'finished_goods')=$4 AND COALESCE(b.owner_customer_id,0)=$5
 			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 			  AND (b.remaining_g>0 OR b.remaining_units>0)
-		`, schema, schema, schema), componentID, bomSpecID, specG, warehouse, ownerCustomerID).Scan(&availableG, &availableUnits)
+		`, schema, schema, schema), componentID, bomSpecID, specG, warehouse, ownerCustomerID, bomVariantID).Scan(&availableG, &availableUnits)
 		return availableG, availableUnits, err
 	}
 	if lock {
@@ -274,7 +274,7 @@ func componentSourceOptionsTx(ctx context.Context, tx pgx.Tx, schema string, sou
 			owners = []int64{0, planCustomerID}
 		}
 		for _, ownerCustomerID := range owners {
-			availableG, availableUnits, err := componentSourceAvailabilityTx(ctx, tx, schema, source.ComponentType, source.ComponentID, source.ComponentBOMSpecID, source.ComponentSpecG, warehouse.code, ownerCustomerID, false)
+			availableG, availableUnits, err := componentSourceAvailabilityTx(ctx, tx, schema, source.ComponentType, source.ComponentID, source.ComponentBOMSpecID, source.ComponentBOMVariantID, source.ComponentSpecG, warehouse.code, ownerCustomerID, false)
 			if err != nil {
 				return nil, err
 			}
@@ -353,7 +353,7 @@ func loadProductionPlanComponentSourcesTx(ctx context.Context, tx pgx.Tx, schema
 		}
 		if out[i].Selected && version == 0 {
 			availableG, availableUnits, err := componentSourceAvailabilityTx(ctx, tx, schema, out[i].ComponentType, out[i].ComponentID,
-				out[i].ComponentBOMSpecID, out[i].ComponentSpecG, out[i].SourceWarehouse, out[i].SourceOwnerCustomerID, false)
+				out[i].ComponentBOMSpecID, out[i].ComponentBOMVariantID, out[i].ComponentSpecG, out[i].SourceWarehouse, out[i].SourceOwnerCustomerID, false)
 			if err != nil {
 				return nil, err
 			}
@@ -466,7 +466,7 @@ func (r Repository) UpdateProductionPlanItemComponentSources(ctx context.Context
 			return nil, err
 		}
 		availableG, availableUnits, err := componentSourceAvailabilityTx(ctx, tx, r.schema, source.ComponentType, source.ComponentID,
-			source.ComponentBOMSpecID, source.ComponentSpecG, warehouse, ownerCustomerID, false)
+			source.ComponentBOMSpecID, source.ComponentBOMVariantID, source.ComponentSpecG, warehouse, ownerCustomerID, false)
 		if err != nil {
 			return nil, err
 		}
@@ -536,8 +536,8 @@ func validateProductionPlanComponentSourcesAtSubmitTx(ctx context.Context, tx pg
 		if err := validateMaterialComponentSourceOwnerTx(ctx, tx, schema, row.ComponentType, row.ComponentID, row.SourceOwnerCustomerID); err != nil {
 			return err
 		}
-		key := fmt.Sprintf("%s:%d:%d:%d:%s:%d", row.ComponentType, row.ComponentID, row.ComponentBOMSpecID,
-			row.ComponentSpecG, row.SourceWarehouse, row.SourceOwnerCustomerID)
+		key := fmt.Sprintf("%s:%d:%d:%d:%d:%s:%d", row.ComponentType, row.ComponentID, row.ComponentBOMSpecID,
+			row.ComponentBOMVariantID, row.ComponentSpecG, row.SourceWarehouse, row.SourceOwnerCustomerID)
 		group := groups[key]
 		if group.row.ID == 0 {
 			group.row = row
@@ -555,7 +555,7 @@ func validateProductionPlanComponentSourcesAtSubmitTx(ctx context.Context, tx pg
 		group := groups[key]
 		row := group.row
 		availableG, availableUnits, err := componentSourceAvailabilityTx(ctx, tx, schema, row.ComponentType, row.ComponentID,
-			row.ComponentBOMSpecID, row.ComponentSpecG, row.SourceWarehouse, row.SourceOwnerCustomerID, true)
+			row.ComponentBOMSpecID, row.ComponentBOMVariantID, row.ComponentSpecG, row.SourceWarehouse, row.SourceOwnerCustomerID, true)
 		if err != nil {
 			return err
 		}

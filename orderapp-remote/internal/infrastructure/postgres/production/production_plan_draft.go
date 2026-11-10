@@ -105,7 +105,7 @@ func (r Repository) SaveProductionPlanDraft(ctx context.Context, cmd productiona
 			return productionapp.ProductionPlanDetail{}, err
 		}
 		availableG, availableUnits, err := componentSourceAvailabilityTx(ctx, tx, r.schema, stored.ComponentType, stored.ComponentID,
-			stored.ComponentBOMSpecID, stored.ComponentSpecG, warehouse, ownerCustomerID, false)
+			stored.ComponentBOMSpecID, stored.ComponentBOMVariantID, stored.ComponentSpecG, warehouse, ownerCustomerID, false)
 		if err != nil {
 			return productionapp.ProductionPlanDetail{}, err
 		}

@@ -121,3 +121,31 @@ for (const id of [0, 9]) {
   assert.equal(requests.length, 4)
  })
 }
+
+test('capacity submit blocks until actual WIP covers non-upstream demand', async () => {
+ const {state}=await loadSetup('ProductionPlanCapacityWorkspace',{detail:{status:'draft',items:[],component_sources:[{component_name:'生豆',unit:'kg',required_g:10000,upstream_g:5000,wip_covered_g:9000},{component_name:'包装袋',unit:'件',required_units:3,wip_covered_units:3}]},rows:[],capacities:[],preview:{}})
+ assert.equal(state.pendingMaterials.value.length, 1)
+ assert.equal(state.pendingMaterials.value[0].missing_label, '1 kg')
+})
+
+test('capacity submit still blocks and identifies unposted transfer drafts when WIP is covered', async () => {
+ const {state}=await loadSetup('ProductionPlanCapacityWorkspace',{detail:{status:'draft',items:[],component_sources:[],material_transfer_documents:[{id:10,entry_no:'SE-10',status:'draft',source_id:1},{id:10,entry_no:'SE-10',status:'draft',source_id:2},{id:11,entry_no:'SE-11',status:'submitted'}]},rows:[],capacities:[],preview:{}})
+ assert.deepEqual(state.pendingTransferDocuments.value.map(row=>row.entry_no), ['SE-10'])
+})
+
+test('capacity shortage and excess remain warnings but WIP and pending transfers block final submit', async () => {
+ const base = { detail: { status: 'draft', items: [], component_sources: [], material_transfer_documents: [] }, rows: [], capacities: [], submissionReady: true }
+ for (const status of ['short', 'over']) {
+  const { state } = await loadSetup('ProductionPlanCapacityWorkspace', { ...base, preview: { operation_coverage: [{ status }] } })
+  assert.equal(state.canSubmit.value, true, `${status} is advisory`)
+ }
+ const withPending = { ...base, detail: { ...base.detail, material_transfer_documents: [{ id: 9, status: 'draft', entry_no: 'SE-9' }] }, preview: { operation_coverage: [{ status: 'over' }] } }
+ const pending = await loadSetup('ProductionPlanCapacityWorkspace', withPending)
+ assert.equal(pending.state.readiness.value.can_confirm, true)
+ assert.equal(pending.state.canSubmit.value, false)
+ const withMissing = { ...base, detail: { ...base.detail, component_sources: [{ id: 1, required_g: 1000, wip_covered_g: 0 }] }, preview: { operation_coverage: [{ status: 'short' }] } }
+ const missing = await loadSetup('ProductionPlanCapacityWorkspace', withMissing)
+ assert.equal(missing.state.canSubmit.value, false)
+ const unarranged = await loadSetup('ProductionPlanCapacityWorkspace', { ...base, preview: { operation_coverage: [{ status: 'missing' }] } })
+ assert.equal(unarranged.state.canSubmit.value, false)
+})

@@ -78,6 +78,59 @@ type productionPlanDraftRequest struct {
 }
 
 func registerProductionPlanAPI(e *echo.Echo, productionSvc *productionapp.Service) {
+	e.GET("/api/production-plans/:id/material-transfer-options", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "无效的生产计划"})
+		}
+		sourceID, err := strconv.ParseInt(c.QueryParam("source_id"), 10, 64)
+		if err != nil || sourceID <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "请选择计划物料"})
+		}
+		result, err := productionSvc.PlanMaterialTransferOptions(c.Request().Context(), id, sourceID, c.QueryParam("warehouse"))
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+	e.POST("/api/production-plans/:id/material-transfers/preview", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "无效的生产计划"})
+		}
+		var req productionapp.PlanMaterialTransferCommand
+		if err = c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "无效的调拨预览请求"})
+		}
+		req.ProductionPlanID = id
+		req.Operator = support.ActorOf(c)
+		result, err := productionSvc.PreviewPlanMaterialTransfers(c.Request().Context(), req)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+	e.POST("/api/production-plans/:id/material-transfers", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "无效的生产计划"})
+		}
+		var req productionapp.PlanMaterialTransferCommand
+		if err = c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "无效的调拨请求"})
+		}
+		req.ProductionPlanID = id
+		req.Operator = support.ActorOf(c)
+		result, err := productionSvc.CreatePlanMaterialTransfers(c.Request().Context(), req)
+		if err != nil {
+			status := http.StatusBadRequest
+			if strings.Contains(err.Error(), "已变化") || strings.Contains(err.Error(), "重复请求内容不一致") {
+				status = http.StatusConflict
+			}
+			return c.JSON(status, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
 	e.POST("/api/production/work-orders/replenishment/preview", func(c echo.Context) error {
 		var req linkedReplenishmentRequest
 		if err := c.Bind(&req); err != nil {
