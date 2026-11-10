@@ -8,13 +8,13 @@ import {
 import { ref } from 'vue'
 import { restoreRegistrationSession } from '../../utils/registrationSession'
 import { safeLoginReturn } from '../../utils/loginReturn'
-import { loginWithPassword, loginWithPhoneVerify, type LoginResponse } from '../../api/customerPortal'
+import { loginWithPhoneIdentify, type LoginResponse } from '../../api/customerPortal'
 import { MiniRequestError } from '../../api/client'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import { useSessionStore } from '../../stores/session'
-import { customerEntryRoute } from '../../utils/customerSwitch'
+import { phoneVerifiedDestination } from '../../utils/customerSwitch'
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 
 const session = useSessionStore()
@@ -28,11 +28,9 @@ const {
 } = usePullUpBrandGesture()
 const loading = ref(false)
 const errorMessage = ref('')
-const loginMode = ref<'quick' | 'password'>('quick')
-const loginForm = ref({ login: '', password: '' })
 const themeClass = miniappThemeClass()
 const themeMeta = miniappThemeMeta()
-onLoad(query=>{if(query?.mode==='password')loginMode.value='password';try{returnTo.value=safeLoginReturn(decodeURIComponent(String(query?.return_to||'')))}catch{returnTo.value=''}})
+onLoad(query=>{try{returnTo.value=safeLoginReturn(decodeURIComponent(String(query?.return_to||'')))}catch{returnTo.value=''}})
 
 function browseServices() { uni.reLaunch({ url: '/pages/bean-list-center/bean-list-center' }) }
 
@@ -58,9 +56,7 @@ function requestLoginCode(): Promise<string> {
 function completeLogin(response: LoginResponse) {
   session.setToken(response.token)
   session.applyContext(response)
-  const target=returnTo.value || customerEntryRoute(response)
- if(response.bindings?.length>1 && !response.current_customer_id){uni.reLaunch({url:'/pages/customer-select/customer-select?return_to='+encodeURIComponent(target)});return}
- uni.reLaunch({ url: target })
+  uni.reLaunch({ url: phoneVerifiedDestination(response, returnTo.value) })
 }
 
 async function handlePhoneLogin(event: { detail?: { code?: string; errMsg?: string } }) {
@@ -68,7 +64,7 @@ async function handlePhoneLogin(event: { detail?: { code?: string; errMsg?: stri
 
   const phoneCode = String(event?.detail?.code || '').trim()
   if (!phoneCode) {
-    errorMessage.value = '已取消手机号授权，可返回价格表中心继续浏览'
+    errorMessage.value = '未完成手机号授权，请重试或继续浏览'
     return
   }
 
@@ -77,33 +73,10 @@ async function handlePhoneLogin(event: { detail?: { code?: string; errMsg?: stri
 
   try {
     const code = await requestLoginCode()
-    const response = await loginWithPhoneVerify(code, phoneCode)
+    const response = await loginWithPhoneIdentify(code, phoneCode)
     completeLogin(response)
   } catch (error) {
-    errorMessage.value = error instanceof MiniRequestError && (error.statusCode === 401 || error.statusCode === 403) ? '手机号未匹配有效客户账号，请联系管理员' : error instanceof Error ? error.message : '登录失败，请重试'
-  } finally {
-    loading.value = false
-  }
-}
-
-async function handlePasswordLogin() {
-  if (loading.value) return
-
-  const login = loginForm.value.login.trim()
-  const password = loginForm.value.password.trim()
-  if (!login || !password) {
-    errorMessage.value = '请输入用户名和密码'
-    return
-  }
-
-  loading.value = true
-  errorMessage.value = ''
-
-  try {
-    const response = await loginWithPassword(login, password)
-    completeLogin(response)
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '账号或密码不正确'
+    errorMessage.value = error instanceof MiniRequestError && (error.statusCode === 401 || error.statusCode === 403) ? '当前手机号无法登录，请联系管理员' : error instanceof Error ? error.message : '登录失败，请重试'
   } finally {
     loading.value = false
   }
@@ -112,7 +85,7 @@ async function handlePasswordLogin() {
 onShareAppMessage(defaultMiniappShare)
 onShareTimeline(defaultMiniappTimelineShare)
 let pageVisible = false
-const canRestoreRegistration = () => pageVisible && loginMode.value === 'quick' && !session.autoRestoreBlocked
+const canRestoreRegistration = () => pageVisible && !session.autoRestoreBlocked
 onHide(() => { pageVisible = false })
 onShow(async () => {
   pageVisible = true
@@ -121,8 +94,8 @@ onShow(async () => {
   const hadToken = !!session.token
   try {
     await restoreRegistrationSession(session)
-    if (canRestoreRegistration() && session.token && session.bindings.some(binding => binding.status === 'approved')) {
-      completeLogin({ token: session.token, mini_user_id: session.miniUserID, current_customer_id: session.currentCustomerID, bindings: session.bindings, capabilities: session.capabilities, registration_complete: true, registration: session.registration || undefined })
+    if (canRestoreRegistration() && session.token && (session.accountType === 'employee' || session.bindings.some(binding => binding.status === 'approved'))) {
+      completeLogin({ token: session.token, mini_user_id: session.miniUserID, current_customer_id: session.currentCustomerID, bindings: session.bindings, capabilities: session.capabilities, registration_complete: session.registrationComplete, registration: session.registration || undefined, account_type: session.accountType })
     }
   } catch (error) {
     if (hadToken && canRestoreRegistration()) errorMessage.value = error instanceof Error ? error.message : '登录状态恢复失败'
@@ -151,30 +124,10 @@ onShow(async () => {
       <text>授权手机号后可直接登录已绑定的客户账号。</text>
     </view>
     <view class="panel">
-      <view class="mode-tabs">
-        <button class="mode-tab" :class="{ active: loginMode === 'quick' }" @tap="loginMode = 'quick'">手机号登录</button>
-        <button class="mode-tab" :class="{ active: loginMode === 'password' }" @tap="loginMode = 'password'">员工 / 客户账号</button>
-      </view>
-
-      <view v-if="loginMode === 'quick'" class="login-block">
- <text>请使用已授权的客户账号手机号登录。</text>
-        <button
-          class="login-button"
-          open-type="getPhoneNumber"
-          :loading="loading"
-          :disabled="loading"
-          @getphonenumber="handlePhoneLogin"
-        >
-          手机号登录
-        </button>
-      </view>
-
-      <view v-else class="login-block">
-        <text>使用员工或客户账号登录；查看价格表可选择“手机号登录”。</text>
-        <input v-model="loginForm.login" class="input" placeholder="用户名或手机号" />
-        <input v-model="loginForm.password" class="input" password placeholder="密码" />
-        <button class="login-button" :loading="loading" :disabled="loading" @tap="handlePasswordLogin">
-          登录
+      <view class="login-block">
+        <text>授权手机号后，自动识别员工、客户或访客身份。</text>
+        <button class="login-button" open-type="getPhoneNumber" :loading="loading" :disabled="loading" @getphonenumber="handlePhoneLogin">
+          授权手机号登录
         </button>
       </view>
 

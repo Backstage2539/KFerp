@@ -1158,7 +1158,7 @@ export type ServicePageFilters = {
   ship_status?: string
 }
 
-export type MiniLoginMode = 'wechat' | 'phone_verify'
+export type MiniLoginMode = 'wechat' | 'phone_verify' | 'phone_identify'
 
 export type MiniLoginFields = {
   code: string
@@ -1189,6 +1189,13 @@ export function loginWithPhoneVerify(code: string, phoneCode: string, nickname?:
   return miniRequest<LoginResponse>('/api/mini/login', {
     method: 'POST',
     data: buildMiniLoginPayload('phone_verify', { code, phoneCode, nickname }),
+  })
+}
+
+export function loginWithPhoneIdentify(code: string, phoneCode: string): Promise<LoginResponse> {
+  return miniRequest<LoginResponse>('/api/mini/login', {
+    method: 'POST',
+    data: buildMiniLoginPayload('phone_identify', { code, phoneCode }),
   })
 }
 

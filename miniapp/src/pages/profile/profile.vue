@@ -89,9 +89,8 @@ const serviceDescriptions = computed(() => {
 })
 
 function clearAndLogin() {
-  const mode = isEmployee.value ? 'password' : undefined
   session.logout()
-  uni.reLaunch({ url: loginRouteFor('/pages/profile/profile', mode) })
+  uni.reLaunch({ url: loginRouteFor('/pages/profile/profile') })
 }
 
 function redirectExpiredShareSettingsSession(error: unknown): boolean {

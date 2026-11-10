@@ -10,10 +10,11 @@ import MainTabBar from '../../components/MainTabBar.vue'
 import { restoreRegistrationSession } from '../../utils/registrationSession'
 import GuestHome from '../../components/GuestHome.vue'
 import { useSessionStore } from '../../stores/session'
+import { phoneVerifiedDestination } from '../../utils/customerSwitch'
 const session = useSessionStore()
 onShow(async () => {
  try{await restoreRegistrationSession(session)}catch{/* Directory remains accessible if restoration fails. */}
- if(session.accountType==='employee'||session.currentCustomerID>0)uni.reLaunch({url:'/pages/home/home'})
+ if(session.accountType==='employee'||session.bindings.some(binding=>binding.status==='approved'))uni.reLaunch({url:phoneVerifiedDestination({account_type:session.accountType,current_customer_id:session.currentCustomerID,bindings:session.bindings})})
 })
 
 onShareAppMessage(defaultMiniappShare)

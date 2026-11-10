@@ -38,10 +38,10 @@ describe('miniapp customer switching', () => {
     const profile = readFileSync(resolve('src/pages/profile/profile.vue'), 'utf8')
 
     expect(pages.pages.map((page) => page.path)).toContain('pages/profile/profile')
-    expect(login).toContain('loginWithPassword')
-    expect(login).toContain('loginWithPhoneVerify')
-    expect(login).toContain('用户名或手机号')
-    expect(login).toContain('password placeholder="密码"')
+    expect(login).not.toContain('loginWithPassword')
+    expect(login).toContain('loginWithPhoneIdentify')
+    expect(login).not.toContain('用户名或手机号')
+    expect(login).not.toContain('password placeholder="密码"')
     expect(login).toContain('手机号登录')
     expect(login).toContain('uni.login')
     expect(login).not.toContain('type="text" placeholder="密码"')
@@ -62,4 +62,36 @@ describe('miniapp customer switching', () => {
     }
     for (const source of [mall, service]) expect(source).not.toContain('个人中心')
   })
+})
+
+describe('verified phone routing', () => {
+  it('sends an employee to the employee home', async () => {
+    const { phoneVerifiedDestination } = await import('./customerSwitch')
+    expect(phoneVerifiedDestination({account_type:'employee',bindings:[]}, '/pages/page-entry/page-entry?entry=abc')).toBe('/pages/home/home')
+  })
+  it('sends one verified customer to their home even with a price-list return target', async () => {
+    const { phoneVerifiedDestination } = await import('./customerSwitch')
+    expect(phoneVerifiedDestination({ current_customer_id: 74, bindings: [{customer_id:74, status:'approved'}] }, '/pages/page-entry/page-entry?entry=abc')).toBe('/pages/home/home')
+  })
+  it('never treats an unapproved binding as customer authorization', async () => {
+    const { phoneVerifiedDestination } = await import('./customerSwitch')
+    expect(phoneVerifiedDestination({current_customer_id:74,bindings:[{customer_id:74,status:'revoked'}]}, '')).toBe('/pages/index/index')
+  })
+  it('asks a verified multi-customer user to choose before entering a customer area', async () => {
+    const { phoneVerifiedDestination } = await import('./customerSwitch')
+    expect(phoneVerifiedDestination({current_customer_id:0, bindings:[{customer_id:1,status:'approved'},{customer_id:2,status:'approved'}]}, '/pages/page-entry/page-entry?entry=abc')).toBe('/pages/customer-select/customer-select?return_to=%2Fpages%2Fhome%2Fhome')
+  })
+  it('keeps the return destination for a visitor without approved customer bindings', async () => {
+    const { phoneVerifiedDestination } = await import('./customerSwitch')
+    expect(phoneVerifiedDestination({current_customer_id:0,bindings:[]}, '/pages/page-entry/page-entry?entry=abc')).toBe('/pages/page-entry/page-entry?entry=abc')
+    expect(phoneVerifiedDestination({current_customer_id:0,bindings:[{customer_id:1,status:'revoked'}]}, '')).toBe('/pages/index/index')
+  })
+})
+
+it('offers only verified phone login and no username/password entry', () => {
+  const login = readFileSync(resolve('src/pages/login/login.vue'), 'utf8')
+  expect(login).toContain('loginWithPhoneIdentify')
+  expect(login).not.toContain('loginWithPassword')
+  expect(login).not.toContain('用户名或手机号')
+  expect(login).not.toContain('password placeholder')
 })

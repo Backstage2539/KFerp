@@ -244,7 +244,7 @@ async function changePriceTable(group: PriceTableGroup, event: { detail: { value
 }
 
 function serviceReturnURL() { if(noticeOrderID.value && noticeCustomerID.value) return `/pages/service/service?key=orders&source=notice&order_id=${noticeOrderID.value}&customer_id=${noticeCustomerID.value}`; return `/pages/service/service?key=${serviceKey.value}${officialOrders.value ? '&source=official' : ''}${directShipEntryMode.value ? `&fulfillment_mode=${directShipEntryMode.value}` : ''}${stockPurchase.value ? '&stock_purchase=1' : ''}` }
-function openCustomerLogin(){session.clearSession();uni.reLaunch({url:loginRouteFor(serviceReturnURL())+'&mode=password'})}
+function openCustomerLogin(){session.clearSession();uni.reLaunch({url:loginRouteFor(serviceReturnURL())})}
 let beanListRequest = 0
 let orderRequest = 0
 let beanListActive=true

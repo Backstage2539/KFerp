@@ -93,7 +93,7 @@ describe('miniapp startup route and main tabs', () => {
     expect(index).toContain('useSessionStore')
     expect(index).toContain('<GuestHome />')
     expect(index).not.toContain("uni.reLaunch({ url: '/pages/login/login' })")
-    expect(index).toContain("uni.reLaunch({url:'/pages/home/home'})")
+    expect(index).toContain('phoneVerifiedDestination(')
     expect(index).not.toContain('redirectTo')
   })
 
@@ -101,7 +101,7 @@ describe('miniapp startup route and main tabs', () => {
     const index = readSource('src/pages/index/index.vue')
     const home = readSource('src/pages/home/home.vue')
 
-    expect(index).toContain("uni.reLaunch({url:'/pages/home/home'})")
+    expect(index).toContain('phoneVerifiedDestination(')
     expect(home).toContain('fetchMe(session.token)')
     expect(home).toContain('session.applyContext(response)')
     expect(home).toContain('session.clearSession()')

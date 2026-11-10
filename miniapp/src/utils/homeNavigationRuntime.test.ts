@@ -197,7 +197,7 @@ it.each(['customer', 'employee'])('composed %s profile exposes one logout action
     expect(view.session.token).toBe('')
     expect(view.session.autoRestoreBlocked).toBe(true)
     expect(uni.removeStorageSync).toHaveBeenCalledWith('kferp.mini.production.token')
-    expect(uni.reLaunch).toHaveBeenCalledWith({ url: '/pages/login/login?return_to=%2Fpages%2Fprofile%2Fprofile' + (accountType === 'employee' ? '&mode=password' : '') })
+    expect(uni.reLaunch).toHaveBeenCalledWith({ url: '/pages/login/login?return_to=%2Fpages%2Fprofile%2Fprofile' })
   } finally { view.app.unmount() }
 })
 
