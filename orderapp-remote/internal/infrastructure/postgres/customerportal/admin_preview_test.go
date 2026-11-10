@@ -106,6 +106,13 @@ func TestWechatAdminPreviewSecurity(t *testing.T) {
 	if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_portal_profiles SET enabled=true WHERE customer_id=$1`, schema), customerID); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = svc.Me(ctx, preview.Token); err == nil {
+		t.Fatal("preview resumed after customer portal was disabled")
+	}
+	preview, err = svc.StartAdminPreview(ctx, login.Token, customerID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err = pool.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.employee_roles WHERE employee_id=$1 AND role_code='admin'`, schema), employeeID); err != nil {
 		t.Fatal(err)
 	}

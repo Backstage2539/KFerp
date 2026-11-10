@@ -110,3 +110,20 @@ func TestAdminPreviewExpiryAndCustomerScope(t *testing.T) {
 		t.Fatal("expired preview token accepted")
 	}
 }
+
+func TestAdminPreviewExitAuditFailureStillRevokes(t *testing.T) {
+	ctx := context.Background()
+	repo := &previewRepo{admin: true}
+	svc := NewService(repo, nil)
+	issued, err := svc.StartAdminPreview(ctx, "employee-token", 74)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.auditErr = errors.New("audit unavailable")
+	if err = svc.EndAdminPreview(ctx, issued.Token); err == nil {
+		t.Fatal("audit failure was hidden")
+	}
+	if _, err = svc.Me(ctx, issued.Token); err == nil {
+		t.Fatal("failed exit left preview token usable")
+	}
+}

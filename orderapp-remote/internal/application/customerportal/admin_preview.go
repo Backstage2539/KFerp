@@ -125,9 +125,11 @@ func (s *Service) previewContext(ctx context.Context, token string) (CurrentCont
 	}
 	current, err := repo.AdminPreviewCustomer(ctx, p.customerID)
 	if err != nil {
+		s.removePreview(token)
 		return CurrentContext{}, err
 	}
 	if current.CurrentCustomerID != p.customerID {
+		s.removePreview(token)
 		return CurrentContext{}, ErrAdminPreviewDenied
 	}
 	current.AccountType = "preview"
@@ -165,6 +167,7 @@ func (s *Service) EndAdminPreview(ctx context.Context, token string) error {
 		return ErrAdminPreviewDenied
 	}
 	if err = repo.AdminPreviewAudit(ctx, p.employeeID, p.customerID, "exit"); err != nil {
+		s.removePreview(token)
 		return err
 	}
 	s.removePreview(token)
