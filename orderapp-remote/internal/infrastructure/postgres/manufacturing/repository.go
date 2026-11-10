@@ -2,6 +2,7 @@ package manufacturing
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -12,6 +13,62 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// CreateBatchPreset serializes shortcut creation per workstation so retries and
+// concurrent requests return the same active preset rather than duplicating it.
+func (r Repository) CreateBatchPreset(ctx context.Context, cmd manufacturingapp.CreateBatchPresetCommand) (manufacturingapp.BatchPresetResult, error) {
+	var result manufacturingapp.BatchPresetResult
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return result, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var workstationID int64
+	var workstationName, workstationStatus string
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT w.id,w.name,w.status FROM %s.manufacturing_workstations w JOIN %s.manufacturing_workstation_capacities c ON c.workstation_id=w.id WHERE c.id=$1 FOR UPDATE OF w`, r.schema, r.schema), cmd.SourceCapacityID).Scan(&workstationID, &workstationName, &workstationStatus)
+	if err != nil {
+		return result, fmt.Errorf("工位产能不存在: %w", err)
+	}
+	if workstationStatus != "active" {
+		return result, fmt.Errorf("工位已停用")
+	}
+	var status, mode, unit, method string
+	var minutes, productionCapacity int
+	var pieceRate, throughput float64
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT status,COALESCE(scheduling_mode,'batch'),batch_size_unit,standard_minutes,COALESCE(NULLIF(cost_method,''),'time'),piece_rate::float8,production_capacity,throughput_per_hour::float8 FROM %s.manufacturing_workstation_capacities WHERE id=$1 FOR UPDATE`, r.schema), cmd.SourceCapacityID).Scan(&status, &mode, &unit, &minutes, &method, &pieceRate, &productionCapacity, &throughput)
+	if err != nil {
+		return result, err
+	}
+	if status != "active" || mode != "batch" {
+		return result, fmt.Errorf("请选择启用的整批产能")
+	}
+	var id int64
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.manufacturing_workstation_capacities WHERE workstation_id=$1 AND status='active' AND scheduling_mode='batch' AND batch_size_qty=$2 AND batch_size_unit=$3 AND standard_minutes=$4 AND COALESCE(NULLIF(cost_method,''),'time')=$5 AND piece_rate=$6 AND production_capacity=$7 AND throughput_per_hour=$8 ORDER BY id LIMIT 1`, r.schema), workstationID, cmd.BatchSizeQty, unit, minutes, method, pieceRate, productionCapacity, throughput).Scan(&id)
+	if err != nil && err != pgx.ErrNoRows {
+		return result, err
+	}
+	if err == pgx.ErrNoRows {
+		var random [12]byte
+		if _, err = rand.Read(random[:]); err != nil {
+			return result, err
+		}
+		code := fmt.Sprintf("BATCH-PRESET-%x", random)
+		name := fmt.Sprintf("%s %g%s/批", workstationName, cmd.BatchSizeQty, unit)
+		err = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.manufacturing_workstation_capacities(workstation_id,code,name,status,batch_size_qty,batch_size_unit,standard_minutes,hourly_rate,cost_method,piece_rate,production_capacity,sort_order,note,scheduling_mode,throughput_per_hour,created_at,updated_at) SELECT workstation_id,$2,$3,'active',$4,batch_size_unit,standard_minutes,0,COALESCE(NULLIF(cost_method,''),'time'),piece_rate,production_capacity,sort_order,'','batch',throughput_per_hour,now(),now() FROM %s.manufacturing_workstation_capacities WHERE id=$1 RETURNING id`, r.schema, r.schema), cmd.SourceCapacityID, code, name, cmd.BatchSizeQty).Scan(&id)
+		if err != nil {
+			return result, err
+		}
+		if err = postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "manufacturing_workstation_capacity", &id, "create", postgresinfra.StrPtr("workstation_capacity"), nil, postgresinfra.StrPtr(name), postgresinfra.AuditMeta{"workstation_id": workstationID, "source_capacity_id": cmd.SourceCapacityID, "source": "capacity_scheduling", "batch_size_qty": cmd.BatchSizeQty, "batch_size_unit": unit, "standard_minutes": minutes, "cost_method": method, "piece_rate": pieceRate}); err != nil {
+			return result, err
+		}
+		result.Created = true
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return result, err
+	}
+	result.Capacity, err = r.manufacturingWorkstationCapacityByID(ctx, id)
+	return result, err
+}
 
 type Repository struct {
 	pool   *pgxpool.Pool

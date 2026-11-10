@@ -30,8 +30,8 @@ func TestPR616MaterialOutputCountCapacityUsesFrozenInventoryQuantity(t *testing.
 	}
 
 	splits[0].PlannedQty = 9
-	if err := validateProductionPlanOperationSplitCoverage(item, splits); err == nil {
-		t.Fatal("short material count capacity should still be rejected")
+	if err := validateProductionPlanOperationSplitCoverage(item, splits); err != nil {
+		t.Fatalf("positive short material count capacity must be allowed: %v", err)
 	}
 }
 

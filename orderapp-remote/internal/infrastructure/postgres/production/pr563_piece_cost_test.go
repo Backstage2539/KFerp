@@ -173,7 +173,7 @@ func TestPR563CountSplitUsesFinishedOutputInsteadOfLossAdjustedInput(t *testing.
 	}
 }
 
-func TestPR563OperationSplitCoverageRejectsShortMissingAndMixedDimensions(t *testing.T) {
+func TestPR563OperationSplitCoverageAllowsShortButRejectsMissingAndMixedDimensions(t *testing.T) {
 	item := productionapp.ProductionPlanItem{
 		ProductName:    "初晓拼配",
 		PlannedG:       25795,
@@ -190,7 +190,7 @@ func TestPR563OperationSplitCoverageRejectsShortMissingAndMixedDimensions(t *tes
 	shortPackage := productionapp.ProductionPlanOperationSplit{
 		OperationSeq: 2, Operation: "包装", BatchSizeUnit: "件", PlannedQty: 90, PlannedQtyG: 20430,
 	}
-	if err := validateProductionPlanOperationSplitCoverage(item, []productionapp.ProductionPlanOperationSplit{roast, shortPackage}); err == nil || !strings.Contains(err.Error(), "件数产能不足") {
+	if err := validateProductionPlanOperationSplitCoverage(item, []productionapp.ProductionPlanOperationSplit{roast, shortPackage}); err != nil {
 		t.Fatalf("short package coverage error = %v", err)
 	}
 	if err := validateProductionPlanOperationSplitCoverage(item, []productionapp.ProductionPlanOperationSplit{roast}); err == nil || !strings.Contains(err.Error(), "包装") || !strings.Contains(err.Error(), "尚未选择工位产能") {
