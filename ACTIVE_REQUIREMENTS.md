@@ -1,3 +1,9 @@
+### PR-755-FULFILLMENT-ORDER-RESERVATION-LABEL
+- Branch: `codex/fulfillment-pending-orders-label-20261110`.
+- Scope: 成品库存表将现货占用改名为待发订单占用，数量计算保持不变；原料、包材、半成品仍使用现货占用。
+- DEV-PR755-01: 类型区分与用户手册；目标 DOM 回归测试和 Vue 构建。
+- Status: targeted frontend tests, Vue build and support API tests passed; user acceptance pending.
+
 ### PR-754-OPERATION-REPORTING-MODES
 - Branch: `codex/production-operation-modes-20261109`; base: `origin/develop`.
 - Status: 已合入 develop 并发布开发环境，自动及隔离数据库回归通过；用户验收待完成。
