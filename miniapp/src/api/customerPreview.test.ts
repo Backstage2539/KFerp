@@ -19,3 +19,14 @@ it('blocks preview writes locally while allowing read and explicit exit', async 
   expect(request).toHaveBeenCalledTimes(2)
   unmarkPreviewToken('preview')
 })
+
+it('sends the employee credential to the server logout endpoint', async () => {
+  const request = vi.fn(options => options.success({statusCode: 200, data: {}}))
+  vi.stubGlobal('uni', { request })
+  const { logoutEmployee } = await import('./customerPortal')
+  await logoutEmployee('employee-session')
+  expect(request).toHaveBeenCalledWith(expect.objectContaining({
+    url: 'https://dev.qacoohee.com/app/api/mini/employee/logout',
+    method: 'POST', header: expect.objectContaining({ Authorization: 'Bearer employee-session' }),
+  }))
+})

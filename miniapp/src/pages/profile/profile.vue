@@ -11,6 +11,7 @@ import {
 import {
   fetchEmployeeShareSettings,
   fetchMe,
+  logoutEmployee,
   saveEmployeeShareSettings,
   saveEmployeeShareScope,
   switchCurrentCustomer,
@@ -41,6 +42,7 @@ const {
   handlePullUpBrandTouchCancel,
 } = usePullUpBrandGesture()
 const loading = ref(false)
+const loggingOut = ref(false)
 const switching = ref(false)
 const errorMessage = ref('')
 const currentContext = ref<MeResponse | null>(null)
@@ -88,14 +90,30 @@ const serviceDescriptions = computed(() => {
   return items
 })
 
-function clearAndLogin() {
+async function clearAndLogin() {
+  if (loggingOut.value) return
+  const employee = isEmployee.value
+  const oldToken = session.token
+  let failed = false
+  loggingOut.value = true
+  try {
+    if (employee && oldToken) await logoutEmployee(oldToken)
+  } catch {
+    failed = true
+  } finally {
+    loggingOut.value = false
+  }
+  // A new login must not be cleared by a late response to an old session.
+  if (session.token !== oldToken) return
   session.logout()
   uni.reLaunch({ url: loginRouteFor('/pages/profile/profile') })
+  if (failed) uni.showToast({ title: '无法确认服务端注销', icon: 'none', duration: 3000 })
 }
 
 function redirectExpiredShareSettingsSession(error: unknown): boolean {
   if (!isAuthenticationExpiredRequestError(error)) return false
-  clearAndLogin()
+  session.logout()
+  uni.reLaunch({ url: loginRouteFor('/pages/profile/profile') })
   return true
 }
 
@@ -351,7 +369,7 @@ onShow(() => { void refreshMiniappShareMenu() })
       <button v-if="canOpenFactoryProducts" class="secondary-button" @tap="openFactoryProducts">工厂商品表</button>
       <button v-if="canOpenFactoryProducts" class="secondary-button" @tap="openCustomerProducts">我的商品</button>
       <button v-if="!session.isCustomerPreview" @tap="openOrderNotifications">订单通知</button>
-      <button v-if="!session.isCustomerPreview" class="danger-button" @tap="clearAndLogin">退出登录</button>
+      <button v-if="!session.isCustomerPreview" class="danger-button" :disabled="loggingOut" @tap="clearAndLogin">退出登录</button>
     </view>
 
     <view class="pull-up-brand-footer-anchor">

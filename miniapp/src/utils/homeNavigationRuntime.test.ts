@@ -18,7 +18,7 @@ import { useSessionStore } from '../stores/session'
 const lifecycle = vi.hoisted(() => ({ show: [] as Array<() => unknown> }))
 const api = vi.hoisted(() => ({
   me: vi.fn(), account: vi.fn(), assets: vi.fn(), service: vi.fn(), processing: vi.fn(),
-  staff: vi.fn(), switchCustomer: vi.fn(), employeeShare: vi.fn(), bills: vi.fn(), previewExit: vi.fn(),
+  staff: vi.fn(), switchCustomer: vi.fn(), employeeShare: vi.fn(), bills: vi.fn(), previewExit: vi.fn(), employeeLogout: vi.fn(),
 }))
 vi.mock('@dcloudio/uni-app', () => ({
   onShow: (callback: () => unknown) => { lifecycle.show.push(callback) },
@@ -29,6 +29,7 @@ vi.mock('../api/customerPortal', () => ({
   fetchServicePage: api.service, fetchProcessingRequests: api.processing,
   fetchCustomerIssuedBills: api.bills,
   switchCurrentCustomer: api.switchCustomer, fetchEmployeeShareSettings: api.employeeShare,
+  logoutEmployee: api.employeeLogout,
   saveEmployeeShareSettings: vi.fn(), saveEmployeeShareScope: vi.fn(),
 }))
 vi.mock('../api/samples', () => ({ fetchStaffNotifications: api.staff }))
@@ -116,6 +117,7 @@ beforeEach(() => {
   api.processing.mockResolvedValue({ rows: [] })
   api.staff.mockResolvedValue({ unread_count: 2 })
   api.previewExit.mockResolvedValue({})
+  api.employeeLogout.mockResolvedValue({})
 })
 
 it.each(['coffee_factory', 'clean_ops', 'premium_partner'])('composed %s customer home shows customer progress and no price banner', async theme => {
@@ -266,5 +268,53 @@ it('shows a read-only preview with a working return control and no order entry',
     expect(api.previewExit).toHaveBeenCalledWith('preview-token')
     expect(view.session.token).toBe('isolated-session')
     expect(uni.reLaunch).toHaveBeenCalledWith({url: '/pages/home/home'})
+  } finally { view.app.unmount() }
+})
+
+it('revokes the employee session on the server before clearing local credentials', async () => {
+  let complete!: () => void
+  api.employeeLogout.mockReturnValue(new Promise<void>(resolve => { complete = resolve }))
+  const view = mount(Profile, context({ account_type: 'employee', current_customer_id: 0, roles: ['admin'], permissions: [] }))
+  try {
+    await view.show()
+    const logout = find(view.root, node => node.type === 'button' && text(node) === '退出登录')[0]
+    const pending = logout.props.onTap()
+    expect(api.employeeLogout).toHaveBeenCalledWith('isolated-session')
+    expect(view.session.token).toBe('isolated-session')
+    complete(); await pending; await settle()
+    expect(view.session.token).toBe('')
+  } finally { view.app.unmount() }
+})
+it('clears a failed employee logout locally and warns that server logout was not confirmed', async () => {
+  api.employeeLogout.mockRejectedValue(new Error('network unavailable'))
+  const view = mount(Profile, context({ account_type: 'employee', current_customer_id: 0, roles: ['admin'], permissions: [] }))
+  try {
+    await view.show()
+    await find(view.root, node => node.type === 'button' && text(node) === '退出登录')[0].props.onTap()
+    expect(view.session.token).toBe('')
+    expect(uni.showToast).toHaveBeenCalledWith(expect.objectContaining({ title: expect.stringContaining('无法确认服务端注销') }))
+  } finally { view.app.unmount() }
+})
+it('does not send an employee logout request for a customer', async () => {
+  const view = mount(Profile, context())
+  try {
+    await view.show()
+    await find(view.root, node => node.type === 'button' && text(node) === '退出登录')[0].props.onTap()
+    expect(api.employeeLogout).not.toHaveBeenCalled()
+    expect(view.session.token).toBe('')
+  } finally { view.app.unmount() }
+})
+
+it('does not clear a newer login when an older employee logout finishes late', async () => {
+  let complete!: () => void
+  api.employeeLogout.mockReturnValue(new Promise<void>(resolve => { complete = resolve }))
+  const view = mount(Profile, context({ account_type: 'employee', current_customer_id: 0, roles: ['admin'], permissions: [] }))
+  try {
+    await view.show()
+    const pending = find(view.root, node => node.type === 'button' && text(node) === '退出登录')[0].props.onTap()
+    view.session.setToken('new-login')
+    complete(); await pending; await settle()
+    expect(view.session.token).toBe('new-login')
+    expect(uni.reLaunch).not.toHaveBeenCalled()
   } finally { view.app.unmount() }
 })

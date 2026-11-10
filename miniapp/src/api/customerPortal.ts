@@ -1214,6 +1214,10 @@ export function fetchMe(token: string): Promise<MeResponse> {
   return miniRequest<MeResponse>('/api/mini/me', { token })
 }
 
+export function logoutEmployee(token: string): Promise<unknown> {
+  return miniRequest('/api/mini/employee/logout', { method: 'POST', token })
+}
+
 export type EmployeeOrderForm = {
   catalog_updated?: boolean
   price_table_options?: PriceTableOption[]
