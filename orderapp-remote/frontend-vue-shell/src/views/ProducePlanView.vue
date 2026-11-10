@@ -829,7 +829,7 @@ async function createStockPlanning() {
   replaceSelected({}); planRows.value = []; manufacturingPlan.value = currentPlan.value
   const created = currentPlan.value
   await openProductionPlanDetail(created); await loadProductionPlans(); stockPlanningOpen.value = false; invalidateStockPreview()
- } catch(err) { stockPlanningError.value = err.message || '创建备货草稿失败' } finally { saving.value = false }
+ } catch(err) { stockPlanningError.value = err.message || '创建备货草稿失败' } finally { saving.value = false; if (productionPlanDetail.value && !productionPlanDetailError.value) void syncProductionPlanSupply() }
 }
 const warehouses = ref([])
 const targetWarehouseSavingItemID = ref(0)
@@ -875,6 +875,8 @@ function toggleDemandGroup(rows, checked) {
   schedulePlanPreview()
 }
 const selectedProductionPlans = reactive({})
+// Versions are retained only after the operator has opened and reconciled a draft.
+const reviewedProductionPlanTokens = reactive({})
 let previewTimer = 0
 let previewRequestSeq = 0
 let demandRequestSeq = 0
@@ -1924,6 +1926,7 @@ async function openProductionPlanDetail(plan, { history = 'push' } = {}) {
   if (!productionPlanDetailEndpoint(plan)) return
   if (productionPlanDetail.value && Number(plan.id) !== Number(productionPlanDetail.value.id) && !confirmPlanningLeave()) return
   stopCreationPreview()
+  delete reviewedProductionPlanTokens[String(plan.id)]
   submitSupplyReconciliationPending = false
   const requestID = ++detailRequestSeq
   productionPlanDetail.value = { ...plan, items: [], material_summary: [], related_work_orders: [], job_card_count: 0 }
@@ -2256,6 +2259,7 @@ async function refreshPlanSupply(plan, target) {
       productionPlanDetail.value = updated
       productionPlanDetailSavedFingerprint.value = JSON.stringify(buildProductionPlanDraftPayload(updated))
       productionPlanDetailError.value = ''
+      if (updated.draft_token) reviewedProductionPlanTokens[String(updated.id)] = updated.draft_token
     }
     previewError.value = ''
     notice.value = '供应已重新计算，请核对来源仓及工位和批次后提交。'
@@ -2288,6 +2292,7 @@ async function syncProductionPlanSupply() {
     const updated = normalizeProductionPlanDetailForSplitEditor(result.plan || result)
     productionPlanDetail.value = updated
     productionPlanDetailSavedFingerprint.value = JSON.stringify(buildProductionPlanDraftPayload(updated))
+    if (updated.draft_token) reviewedProductionPlanTokens[String(planID)] = updated.draft_token
     if (submitSupplyReconciliationPending) {
       productionPlanDetailError.value = ''
       submitSupplyReconciliationPending = false
@@ -2306,6 +2311,7 @@ async function syncProductionPlanSupply() {
     }
     productionSupplyStatus.value = result.changed ? (result.summary || '供应已变化，生产安排已更新，请核对受影响工序。') : `已按最新库存与在产供应核对 · ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
   } catch (err) {
+    delete reviewedProductionPlanTokens[String(planID)]
     productionSupplyError.value = true
     productionSupplyStatus.value = err.status === 409 ? '草稿已被其他操作更新，当前输入已保留，请重新加载并核对。' : `供应更新失败：${err.message || '请重试'}`
     if (submitSupplyReconciliationPending) productionPlanDetailError.value = productionSupplyStatus.value
@@ -2359,11 +2365,16 @@ async function createProductionPlan() {
 async function submitCurrentProductionPlan() {
   const payload = buildCurrentProductionPlanSubmitPayload(currentPlan.value)
   if (!payload.ids.length) return
+  const currentSplits = (operationSplits.value || []).map(normalizeOperationSplit)
+  const savedSplits = (currentPlan.value?.operation_splits || []).map(normalizeOperationSplit)
+  if (productionPlanSplitFingerprint(currentSplits) !== productionPlanSplitFingerprint(savedSplits)) {
+    previewError.value = '工位安排尚未保存，请进入计划详情保存并核对后提交。'
+    return
+  }
   saving.value = true
   previewError.value = ''
   try {
-    await saveCurrentPlanOperationSplits()
-    payload.draft_tokens = await loadProductionPlanSubmitTokens(payload.ids)
+    payload.draft_tokens = reviewedProductionPlanSubmitTokens(payload.ids)
     const result = await apiSend(productionPlanBatchSubmitEndpoint(), { body: payload })
     const firstSuccess = Array.isArray(result.success) ? result.success[0] : null
     if (firstSuccess?.plan) currentPlan.value = firstSuccess.plan
@@ -2386,7 +2397,7 @@ async function submitSelectedProductionPlans() {
   saving.value = true
   error.value = ''
   try {
-    payload.draft_tokens = await loadProductionPlanSubmitTokens(payload.ids)
+    payload.draft_tokens = reviewedProductionPlanSubmitTokens(payload.ids)
     const result = await apiSend(productionPlanBatchSubmitEndpoint(), { body: payload })
     const firstSuccess = Array.isArray(result.success) ? result.success[0] : null
     if (firstSuccess?.plan) await openProductionPlanDetail(firstSuccess.plan)
@@ -2403,12 +2414,12 @@ async function submitSelectedProductionPlans() {
   }
 }
 
-async function loadProductionPlanSubmitTokens(ids) {
-  const plans = await Promise.all(ids.map(id => apiGet(`/api/production-plans/${id}`)))
+function reviewedProductionPlanSubmitTokens(ids) {
   const tokens = {}
-  for (let index = 0; index < ids.length; index += 1) {
-    if (!plans[index]?.draft_token) throw new Error(`生产计划 ${ids[index]} 无法核对草稿版本，请重新加载后重试。`)
-    tokens[String(ids[index])] = plans[index].draft_token
+  for (const id of ids) {
+    const token = reviewedProductionPlanTokens[String(id)]
+    if (!token) throw new Error(`生产计划 ${id} 尚未核对，请先进入计划详情核对后再提交。`)
+    tokens[String(id)] = token
   }
   return tokens
 }

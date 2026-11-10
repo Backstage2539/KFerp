@@ -120,6 +120,7 @@ test('manual supply refresh accepts wrapped and legacy details with the current 
       assert.equal(calls[0].draft_token, 'v1')
       assert.equal(app.state.productionPlanDetail.value.id, 113)
       assert.equal(app.state.productionPlanDetail.value.items[0].output_name, '半成品')
+      assert.equal(app.state.reviewedProductionPlanTokens['113'], 'v2')
     } finally { app.close() }
   }
 })
@@ -137,6 +138,20 @@ test('visible draft automatically updates supply and retains the returned tasks'
     assert.deepEqual(calls[0][1].body, { check_only: false, draft_token: 'v1' })
     assert.equal(app.state.productionPlanDetail.value.items[0].output_name, '半成品')
     assert.match(app.state.productionSupplyStatus.value, /新增烘焙、色选/)
+  } finally { app.close() }
+})
+
+test('creating a stock planning draft immediately reconciles its supply', async () => {
+  const app = await setup(undefined, { apiSend: async endpoint => String(endpoint).endsWith('/refresh-supply')
+    ? { plan: { ...draft, draft_token: 'v2', items: [{ id: 7, output_name: '上游半成品' }] }, changed: true }
+    : structuredClone(draft) })
+  try {
+    globalThis.document.visibilityState = 'visible'
+    await app.state.createStockPlanning()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const requests = app.calls.filter(([method, endpoint]) => method === 'apiSend' && String(endpoint).endsWith('/refresh-supply'))
+    assert.equal(requests.length, 1)
+    assert.equal(app.state.productionPlanDetail.value.items[0].output_name, '上游半成品')
   } finally { app.close() }
 })
 
@@ -186,10 +201,69 @@ test('failed automatic supply check keeps the draft and exposes a retry state', 
   } finally { app.close() }
 })
 
-test('batch submit obtains a version token for every selected plan', async () => {
-  const app = await setup(undefined, { apiGet: async endpoint => ({ draft_token: `v-${String(endpoint).split('/').pop()}` }) })
+test('batch submit uses reviewed versions and blocks every unreviewed plan', async () => {
+  const app = await setup()
   try {
-    assert.deepEqual(await app.state.loadProductionPlanSubmitTokens([41, 42]), { '41': 'v-41', '42': 'v-42' })
+    app.state.reviewedProductionPlanTokens['41'] = 'v-41-reviewed'
+    assert.throws(() => app.state.reviewedProductionPlanSubmitTokens([41, 42]), /42.*详情.*核对/)
+    app.state.reviewedProductionPlanTokens['42'] = 'v-42-reviewed'
+    assert.deepEqual(app.state.reviewedProductionPlanSubmitTokens([41, 42]), { '41': 'v-41-reviewed', '42': 'v-42-reviewed' })
+    assert.equal(app.calls.filter(([method]) => method === 'apiGet').length, 0)
+  } finally { app.close() }
+})
+
+test('batch submit sends the versions actually reviewed and reports another user updating a plan', async () => {
+  let submission
+  const app = await setup(undefined, { apiSend: async (endpoint, options) => {
+    if (String(endpoint).endsWith('/refresh-supply')) return { plan: structuredClone(draft), changed: false }
+    submission = options.body
+    return { success: [], failed: [{ id: 113, error: '生产计划草稿版本已变化，请重新核对' }] }
+  } })
+  try {
+    globalThis.document.visibilityState = 'visible'
+    await app.state.openProductionPlanDetail(draft)
+    app.state.reviewedProductionPlanTokens['114'] = 'v-reviewed-114'
+    app.state.selectedProductionPlans['113'] = true
+    app.state.selectedProductionPlans['114'] = true
+    await app.state.submitSelectedProductionPlans()
+    assert.deepEqual(submission.draft_tokens, { '113': 'v1', '114': 'v-reviewed-114' })
+    assert.match(app.state.error.value, /版本已变化/)
+    assert.equal(app.calls.filter(([method, endpoint]) => method === 'apiGet' && String(endpoint).includes('production-plans/113')).length, 1)
+  } finally { app.close() }
+})
+
+test('batch submit does not send any plans if one has not been reviewed', async () => {
+  const app = await setup()
+  try {
+    app.state.reviewedProductionPlanTokens['113'] = 'v1'
+    app.state.selectedProductionPlans['113'] = true
+    app.state.selectedProductionPlans['114'] = true
+    await app.state.submitSelectedProductionPlans()
+    assert.match(app.state.error.value, /114.*详情.*核对/)
+    assert.equal(app.calls.filter(([method]) => method === 'apiSend').length, 0)
+  } finally { app.close() }
+})
+
+test('legacy current-plan submission cannot bypass unsaved workstation arrangements', async () => {
+  const app = await setup()
+  try {
+    app.state.currentPlan.value = { ...draft, operation_splits: [] }
+    app.state.reviewedProductionPlanTokens['113'] = 'v1'
+    app.state.operationSplits.value = [{ production_plan_item_id: 10, operation_seq: 1, operation: '烘焙', workstation_capacity_id: 2, planned_qty: 1 }]
+    await app.state.submitCurrentProductionPlan()
+    assert.equal(app.calls.filter(([method]) => method === 'apiSend').length, 0)
+    assert.match(app.state.previewError.value, /工位安排.*尚未保存.*详情/)
+  } finally { app.close() }
+})
+
+test('legacy current-plan submission uses the reviewed token when arrangements match the saved plan', async () => {
+  const app = await setup(undefined, { apiSend: async () => ({ success: [], failed: [] }) })
+  try {
+    app.state.currentPlan.value = { ...draft, operation_splits: [] }
+    app.state.reviewedProductionPlanTokens['113'] = 'v-reviewed'
+    await app.state.submitCurrentProductionPlan()
+    const submission = app.calls.find(([method, endpoint]) => method === 'apiSend' && String(endpoint).endsWith('/production-plans/submit'))
+    assert.deepEqual(submission[2].body.draft_tokens, { '113': 'v-reviewed' })
   } finally { app.close() }
 })
 
