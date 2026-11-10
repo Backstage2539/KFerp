@@ -270,6 +270,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-MINIAPP-PHONE-IDENTITY-20261110", title: "微信手机号识别员工、客户与访客并支持管理员只读查看客户", status: "doing", assignee: "Van", evidence: "ACTIVE_REQUIREMENTS.md；微信真机验收待完成"},
+		{table: "req_dev", code: "DEV-MINIAPP-PHONE-IDENTITY", title: "手机号验证、身份识别与会话撤销", status: "doing", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-MINIAPP-PHONE-ROUTING", title: "手机号优先及员工、客户、访客入口", status: "doing", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-MINIAPP-ADMIN-CUSTOMER-READ", title: "管理员选择客户并只读查看", status: "doing", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-MINIAPP-PHONE-VERIFY", title: "权限回归、操作手册和验收", status: "doing", assignee: "Codex"},
 		{table: "req_product", code: "PR-756-PRODUCTION-LIVE-SUPPLY", title: "生产计划草稿按实时供应更新工序", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-10-production-live-supply.md；用户验收待完成"},
 		{table: "req_dev", code: "DEV-PR756-01", title: "冻结配方展开与供应差异同步", status: "review", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PR756-02", title: "计划提交并发保护与供应复核", status: "review", assignee: "Codex"},

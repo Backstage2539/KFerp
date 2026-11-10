@@ -1,27 +1,8 @@
 # 客户服务小程序联调手册
 
-## 目标
+## 目标与微信配置
 
-在正式小程序发布前，用测试小程序或微信开发者工具打通：
-
-- ERP 渠道客户账号密码登录
-- ERP 客户门户 session
-- ERP 渠道客户账号绑定 ERP 客户
-- 客户首页按能力包显示入口
-
-## 后端环境变量
-
-后端仍可保留真实微信测试号配置用于历史联调，但当前用户入口不再展示微信一键登录。小程序正式验收使用 ERP 账号密码登录：
-
-```text
-POST /app/api/mini/login/password
-{
-  "login": "用户名或手机号",
-  "password": "密码"
-}
-```
-
-真实微信测试号模式仅作兼容说明：
+在正式小程序发布前，验证一次微信手机号授权后识别员工、客户或访客；客户按有效客户绑定进入首页，多客户先选择，管理员可只读查看选定客户。
 
 ```bash
 WECHAT_MINI_APP_ID=<测试小程序 AppID>
@@ -29,15 +10,7 @@ WECHAT_MINI_APP_SECRET=<测试小程序 AppSecret>
 CUSTOMER_PORTAL_DEV_LOGIN=false
 ```
 
-稳定模拟登录模式：
-
-```bash
-CUSTOMER_PORTAL_DEV_LOGIN=true
-CUSTOMER_PORTAL_DEV_OPENID=dev-openid-van-test
-CUSTOMER_PORTAL_DEV_UNIONID=
-```
-
-正式验收不要依赖 openid 登录或稳定模拟 openid；客户应在登录页输入 ERP 渠道客户账号的用户名/手机号和密码。
+小程序不提供用户名密码登录；ERP 桌面登录不受影响。真实手机号授权必须用微信真机验收，开发者工具和模拟凭证只能验证页面、接口和错误处理，不能证明微信接口权限。以下历史章节中出现的旧账号密码操作仅供追溯，以本节和最新验收记录为准。
 
 ## 小程序构建
 

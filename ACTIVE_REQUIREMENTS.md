@@ -1,3 +1,9 @@
+### PR-MINIAPP-PHONE-IDENTITY-20261110
+- Branch: `codex/miniapp-wechat-phone-login-20261110`; base: `origin/develop`.
+- Scope: 先通过微信验证手机号，识别员工、已授权客户与访客；移除小程序密码登录；管理员可只读查看选定客户界面。
+- DEV: `DEV-MINIAPP-PHONE-IDENTITY` 身份校验与撤销；`DEV-MINIAPP-PHONE-ROUTING` 页面分流；`DEV-MINIAPP-ADMIN-CUSTOMER-READ` 管理员客户只读查看；`DEV-MINIAPP-PHONE-VERIFY` 手册与验收。
+- Status: 实现及测试中；生产业务数据未修改，真实微信授权待验收。
+
 ### PR-756-PRODUCTION-LIVE-SUPPLY
 - Branch: `codex/production-live-supply-20261110`; base: `origin/develop`.
 - Scope: 草稿按冻结配方和实时供应增量更新上游工序，保护人工安排并在提交时复核；已提交工单保留快照。
