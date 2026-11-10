@@ -52,14 +52,13 @@ func TestQuantityProcessingCostSplitMatchesWhole(t *testing.T) {
 	}
 }
 
-func TestQuantitySplitCannotExceedFrozenCountTarget(t *testing.T) {
+func TestQuantitySplitMayDifferFromFrozenCountTarget(t *testing.T) {
 	item := productionapp.ProductionPlanItem{ID: 1, SalesSpecCount: 20, ProcessSnapshotJSON: `{"operations":[{"seq":1,"operation":"包装","execution_json":"{\"reporting_type\":\"piece\"}"}]}`}
 	split := productionapp.ProductionPlanOperationSplit{ProductionPlanItemID: 1, OperationSeq: 1, Operation: "包装", SchedulingMode: "quantity", BatchSizeUnit: "件", PlannedQty: 21}
-	if err := validateQuantitySplitLimit(item, []productionapp.ProductionPlanOperationSplit{split}); err == nil {
-		t.Fatal("excess quantity accepted")
-	}
-	split.PlannedQty = 20
-	if err := validateQuantitySplitLimit(item, []productionapp.ProductionPlanOperationSplit{split}); err != nil {
-		t.Fatal(err)
+	for _, qty := range []float64{19, 20, 21} {
+		split.PlannedQty = qty
+		if err := validateProductionPlanOperationSplitCoverage(item, []productionapp.ProductionPlanOperationSplit{split}); err != nil {
+			t.Fatalf("valid quantity %v rejected: %v", qty, err)
+		}
 	}
 }

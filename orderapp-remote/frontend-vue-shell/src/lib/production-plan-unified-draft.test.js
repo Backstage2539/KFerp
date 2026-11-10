@@ -3,10 +3,32 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import * as Vue from 'vue'
+import { buildProductionPlanDraftPayload } from './produce-plan.js'
 
 const viewURL = new URL('../views/ProducePlanView.vue', import.meta.url)
 const draft = { id: 113, plan_no: 'PP-0000000113', status: 'draft', draft_token: 'v1', items: [], component_sources: [], operation_splits: [], readiness: { can_submit: false, blocking_count: 1, issues: [] } }
 const demand = { product_id: 1, parent_product_id: 1, product: '验收咖啡', bom_spec_id: 10, spec_label: '227g', sales_unit: '袋', sales_spec_count: 2, gap_sales_spec_count: 2, gap_units: 2, gap_g: 454, need_g: 454, inventory_unit: '袋', need_inventory_qty: 2, gap_inventory_qty: 2, demand_status: 'unplanned', selection_id: 'a', selection_key: 'a', order_nos: 'SO-1' }
+
+test('loaded custom arrangement survives unified draft normalization, workstation refresh and preset save', async () => {
+  const app = await setup()
+  try {
+    const cap = { id: 7, workstation_id: 2, batch_size_qty: 15, batch_size_unit: 'kg', standard_minutes: 18, hourly_rate: 102, status: 'active' }
+    const saved = { production_plan_item_id: 11, operation_seq: 1, workstation_capacity_id: 7, batch_size_qty: 18.7, custom_batch_size_qty: 18.7, batch_size_unit: 'kg', planned_qty: 37.4, planned_batch_count: 2 }
+    const normalized = app.state.normalizeOperationSplit(saved)
+    assert.equal(normalized.custom_batch_size_qty, 18.7)
+    assert.equal(normalized.batch_count_source, 'manual')
+    app.state.productionPlanSplitRows.value = [normalized]
+    app.state.refreshSplitWorkstations({ capacities: [cap] })
+    assert.equal(app.state.productionPlanSplitRows.value[0].batch_size_qty, 18.7)
+    const fingerprint = app.state.productionPlanSplitFingerprint(app.state.productionPlanSplitRows.value)
+    app.state.addSavedCapacityPreset({ ...cap, id: 8, batch_size_qty: 18.7 })
+    assert.equal(app.state.productionPlanSplitFingerprint(app.state.productionPlanSplitRows.value), fingerprint)
+    const payload = buildProductionPlanDraftPayload({ ...draft, operation_splits: app.state.productionPlanSplitRows.value })
+    assert.equal(payload.operation_splits[0].custom_batch_size_qty, 18.7)
+    assert.equal(payload.operation_splits[0].planned_batch_count, 2)
+    assert.equal(payload.operation_splits[0].workstation_capacity_id, 7)
+  } finally { app.close() }
+})
 
 async function setup(url = 'https://dev.example/app/vue-shell?view=productionFlow', api = {}) {
   const previousWindow = globalThis.window

@@ -242,6 +242,24 @@ func registerAPI(e *echo.Echo, svc *manufacturingapp.Service) {
 		return c.JSON(http.StatusOK, row)
 	})
 
+	e.POST("/api/manufacturing-workstation-capacities/:id/batch-presets", func(c echo.Context) error {
+		id, err := parseIDParam(c, "id")
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid capacity id"})
+		}
+		var req struct {
+			BatchSizeQty float64 `json:"batch_size_qty"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		result, err := svc.CreateBatchPreset(c.Request().Context(), manufacturingapp.CreateBatchPresetCommand{SourceCapacityID: id, BatchSizeQty: req.BatchSizeQty, Actor: support.ActorOf(c)})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
 	e.POST("/api/manufacturing-workstation-capacities/:id/deactivate", func(c echo.Context) error {
 		id, err := parseIDParam(c, "id")
 		if err != nil {

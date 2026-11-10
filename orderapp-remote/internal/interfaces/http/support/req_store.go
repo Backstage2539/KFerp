@@ -270,6 +270,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-757-PRODUCTION-CAPACITY-FLEXIBLE", title: "产能差额提示、自定义批量与预定义保存", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-10-production-capacity-flexible.md"},
+		{table: "req_dev", code: "DEV-PR757-01", title: "产能差额与自定义批量快照", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR757-02", title: "预定义批量创建、权限及审计", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR757-03", title: "产能页面、手册、验证与开发交付", status: "review", assignee: "Codex"},
 		{table: "req_product", code: "PR-MINIAPP-PHONE-IDENTITY-20261110", title: "微信手机号识别员工、客户与访客并支持管理员只读查看客户", status: "doing", assignee: "Van", evidence: "ACTIVE_REQUIREMENTS.md；微信真机验收待完成"},
 		{table: "req_dev", code: "DEV-MINIAPP-PHONE-IDENTITY", title: "手机号验证、身份识别与会话撤销", status: "doing", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-MINIAPP-PHONE-ROUTING", title: "手机号优先及员工、客户、访客入口", status: "doing", assignee: "Codex"},

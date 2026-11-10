@@ -266,6 +266,34 @@ type SaveWorkstationCapacityCommand struct {
 	Actor                  string
 }
 
+type CreateBatchPresetCommand struct {
+	SourceCapacityID int64
+	BatchSizeQty     float64
+	Actor            string
+}
+
+type BatchPresetResult struct {
+	Capacity ManufacturingWorkstationCapacity `json:"capacity"`
+	Created  bool                             `json:"created"`
+}
+
+func (s *Service) CreateBatchPreset(ctx context.Context, cmd CreateBatchPresetCommand) (BatchPresetResult, error) {
+	if cmd.SourceCapacityID <= 0 || math.IsNaN(cmd.BatchSizeQty) || math.IsInf(cmd.BatchSizeQty, 0) || cmd.BatchSizeQty <= 0 {
+		return BatchPresetResult{}, fmt.Errorf("每批数量必须大于零")
+	}
+	cmd.BatchSizeQty = math.Round(cmd.BatchSizeQty*10000) / 10000
+	if cmd.BatchSizeQty <= 0 {
+		return BatchPresetResult{}, fmt.Errorf("每批数量过小")
+	}
+	repo, ok := s.repo.(interface {
+		CreateBatchPreset(context.Context, CreateBatchPresetCommand) (BatchPresetResult, error)
+	})
+	if !ok {
+		return BatchPresetResult{}, fmt.Errorf("预定义批量暂不可用")
+	}
+	return repo.CreateBatchPreset(ctx, cmd)
+}
+
 type SaveProcessTemplateCommand struct {
 	ID                 int64
 	Name               string
