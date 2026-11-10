@@ -17,7 +17,8 @@
 - Branch: `codex/production-material-preparation-20261110`; original base: `origin/develop` 23f15a7f54e4b256bb1cb8b07d39d032da295cf3; merged `origin/develop` 71a798b93bed49f10c2131df50163d8b7dd06e18 before verification.
 - Scope: 物料准备与产能安排两步、单项及批量调拨草稿、仓库确认和工单提交校验；正式发布不在本次范围。
 - DEV: `DEV-PR758-01` 页面与步骤；`DEV-PR758-02` 调拨关联及保护；`DEV-PR758-03` 抽屉及验收。
-- Status: 实施及验证中；WIP、待确认调拨提交保护、1.001 kg 数量精度及单项调拨响应丢失重试已记录 RED/GREEN，隔离数据库定向接口、库存、生产及并发回归通过；前端全量 1848 项、构建及无数据库 Go 全量通过。隔离数据库生产接口全量仍有 21 项失败，原 develop 基线有 25 项且本分支无新增失败；生产仓储套件另有 1 个相同基线夹具失败，两套均未全绿。桌面/窄窗口在模拟接口页面检查，尚非真实业务接口端到端验收。开发环境合并部署及 Van 验收待完成。详见 `orderapp-remote/docs/acceptance/2026-11-10-production-material-preparation.md`。
+- Status: 开发环境已发布，用户验收待完成；WIP、待确认调拨提交保护、1.001 kg 数量精度及单项调拨响应丢失重试已记录 RED/GREEN，隔离数据库定向接口、库存、生产及并发回归通过；前端全量 1848 项、构建及无数据库 Go 全量通过。隔离数据库生产接口全量仍有 21 项失败，原 develop 基线有 25 项且本分支无新增失败；生产仓储套件另有 1 个相同基线夹具失败，两套均未全绿。桌面/窄窗口在模拟接口页面检查，尚非真实业务接口端到端验收。详见 `orderapp-remote/docs/acceptance/2026-11-10-production-material-preparation.md`。
+- Development: ERP-only `352b1d700cf9d9cee2ec41dc7ee7b772857c0b40`；登录 200，物料库存接口未登录 401，应用运行、数据库健康，页面资源公网/服务器/容器一致；保留原小程序包。回滚源 `orderapp.backup.deploy-20261111002519-352b1d700cf9`。
 - Note: `reserve_req_id.sh --claim` 在 macOS awk 因换行报错；已查重并后续发现 PR-757 已被并行工作占用，重新核对并手工登记 PR-758。
 
 ### PR-756-PRODUCTION-LIVE-SUPPLY
