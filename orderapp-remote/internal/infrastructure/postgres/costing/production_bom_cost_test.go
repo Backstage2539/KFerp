@@ -2,6 +2,8 @@ package costing
 
 import (
 	"math"
+	appcosting "orderapp/internal/application/costing"
+	domain "orderapp/internal/domain/costing"
 	"os"
 	"strings"
 	"testing"
@@ -706,5 +708,65 @@ func TestZeroCostStillValidatesUnitsAndManufacturingGraph(t *testing.T) {
 	item.ComponentMaterialUnavailable = true
 	if _, ok, _ := resolveProductionBomTrialItemCost(item, 0, "kg", 0, 1, "kg", nil); ok {
 		t.Fatal("missing material is not a zero-price material")
+	}
+}
+
+func TestResolveProductionBomCostRejectsUnknownBatchValuation(t *testing.T) {
+	nodes := map[int64]productionBomCostNode{
+		1: {ProductID: 1, VersionID: 101, OutputQty: 1, OutputUnit: "kg", Items: []productionBomCostItem{{ID: 1, ComponentType: "material", ComponentMaterialID: 10, ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 30, UnitCostUnit: "kg", CostUnavailable: true}}},
+		2: {ProductID: 2, VersionID: 102, OutputQty: 1, OutputUnit: "kg", Items: []productionBomCostItem{{ID: 2, ComponentType: "material", ComponentMaterialID: 20, ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 40, UnitCostUnit: "kg"}}},
+	}
+	costs := resolveProductionBomCosts(nodes)
+	if costs[1].Resolved || len(costs[1].UnresolvedIssues) == 0 {
+		t.Fatalf("unknown batch cost was priced: %+v", costs[1])
+	}
+	if !costs[2].Resolved {
+		t.Fatalf("known cost was blocked: %+v", costs[2])
+	}
+}
+
+func TestUnavailableBomCostMarksOnlyAffectedProduct(t *testing.T) {
+	inputs := []domain.ProductInput{{ProductID: 1, Name: "unknown", BomCostPerUnit: 22}, {ProductID: 2, Name: "known", BomCostPerUnit: 30}}
+	costs := map[int64]productionBomResolvedCost{1: {ProductID: 1, VersionID: 101, UnresolvedIssues: []appcosting.PricingRuleTrialCostIssue{{Code: "material_cost_unavailable"}}}, 2: {ProductID: 2, VersionID: 102, Resolved: true}}
+	got := applyResolvedProductionBomCosts(inputs, costs)
+	if !got[0].CostUnavailable || got[0].BomCostPerUnit != 0 || got[1].CostUnavailable {
+		t.Fatalf("unexpected product states: %+v", got)
+	}
+}
+
+func TestResolveBomMissingOperationSpeedIsUnavailable(t *testing.T) {
+	nodes := map[int64]productionBomCostNode{1: {ProductID: 1, VersionID: 101, OutputQty: 1, OutputUnit: "kg", OperationCostUnavailable: true}}
+	cost := resolveProductionBomCosts(nodes)[1]
+	if cost.Resolved || len(cost.UnresolvedIssues) == 0 || cost.UnresolvedIssues[0].Code != "operation_cost_unavailable" {
+		t.Fatalf("missing speed cost was accepted: %+v", cost)
+	}
+	inputs := applyResolvedProductionBomCosts([]domain.ProductInput{{ProductID: 1, Name: "test"}}, map[int64]productionBomResolvedCost{1: cost})
+	if !inputs[0].CostUnavailable {
+		t.Fatal("missing speed did not mark product cost unavailable")
+	}
+}
+
+func TestUnknownCostIdentityRespectsSpecificVariant(t *testing.T) {
+	cost := productionBomResolvedCost{ProductID: 600, BomSpecID: 701, BomVariantID: 1701}
+	for _, tc := range []struct {
+		ref  domain.ProductInput
+		want bool
+	}{
+		{domain.ProductInput{ProductID: 600, BomSpecID: 701, BomVariantID: 1701}, true},
+		{domain.ProductInput{ProductID: 600, BomSpecID: 702, BomVariantID: 1702}, false},
+		{domain.ProductInput{ProductID: 600}, true},
+		{domain.ProductInput{ProductID: 601, ParentProductID: 600, BomSpecID: 702}, false},
+	} {
+		if got := costIdentityMatches(tc.ref, cost); got != tc.want {
+			t.Errorf("ref=%+v got=%v", tc.ref, got)
+		}
+	}
+}
+
+func TestBeanListCostRefsUseAuthoritativeSpecifiedRows(t *testing.T) {
+	content := map[string]any{"groups": []any{map[string]any{"items": []any{map[string]any{"product_id": 600}}}}, "price_rows": []any{map[string]any{"product_id": 600, "bom_spec_id": 702, "bom_variant_id": 1702}}}
+	refs := beanListContentCostRefs(content)
+	if len(refs) != 1 || refs[0].ProductID != 600 || refs[0].BomSpecID != 702 || refs[0].BomVariantID != 1702 {
+		t.Fatalf("bad cost refs %+v", refs)
 	}
 }

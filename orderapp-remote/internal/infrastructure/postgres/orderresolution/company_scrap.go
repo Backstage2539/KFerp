@@ -43,13 +43,14 @@ func (r Repository) companyScrapRecords(ctx context.Context, q querier, requestI
 // original period remain intact; inventory loss must not become a second charge.
 func (r Repository) companyScrapCostSource(ctx context.Context, q querier, s *domain.CompanyStockSource) error {
 	var version string
-	var proven bool
+	var proven, unknown bool
 	err := q.QueryRow(ctx, fmt.Sprintf(`SELECT round(b.unit_cost*1000000)::bigint,c.id,to_char(c.created_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM'),to_char(GREATEST(c.created_at,b.created_at) AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD'),md5(to_jsonb(c)::text),
  b.spec_g=0 AND b.qty_g=0 AND b.remaining_g=0 AND b.qty_units>0 AND b.unit_cost>=0 AND c.total_cost>=0
  AND (SELECT count(*) FROM %[1]s.work_orders other WHERE other.running_item_id=w.running_item_id)=1
- AND round((SELECT COALESCE(sum(CASE WHEN related.qty_g>0 THEN related.qty_g/1000.0*related.unit_cost ELSE related.qty_units*related.unit_cost END),0) FROM %[1]s.stock_batches related WHERE (related.source_doc_type='production_run' AND related.source_doc_id=w.running_item_id) OR (related.source_doc_type IN('production_operation_event','operation_completion') AND related.source_doc_id IN(SELECT id FROM %[1]s.production_operation_events WHERE work_order_id=w.id)))*100)<=round(c.total_cost*100)
+ AND round((SELECT COALESCE(sum(CASE WHEN related.qty_g>0 THEN related.qty_g/1000.0*related.unit_cost ELSE related.qty_units*related.unit_cost END),0) FROM %[1]s.stock_batches related WHERE (related.source_doc_type='production_run' AND related.source_doc_id=w.running_item_id) OR (related.source_doc_type IN('production_operation_event','operation_completion') AND related.source_doc_id IN(SELECT id FROM %[1]s.production_operation_events WHERE work_order_id=w.id)))*100)<=round(c.total_cost*100),
+ COALESCE((to_jsonb(b)->>'cost_unavailable')::boolean,false) OR COALESCE((to_jsonb(c)->>'cost_unavailable')::boolean,false)
  FROM %[1]s.stock_batches b JOIN %[1]s.work_orders w ON (b.source_doc_type='production_run' AND b.source_doc_id=w.running_item_id AND w.running_item_id>0) OR (b.source_doc_type IN('production_operation_event','operation_completion') AND b.source_doc_id IN(SELECT id FROM %[1]s.production_operation_events WHERE work_order_id=w.id))
- JOIN %[1]s.production_batch_costs c ON c.running_item_id=w.running_item_id WHERE b.id=$1`, r.schema), s.BatchID).Scan(&s.UnitCostMicros, &s.CostRecordID, &s.CostMonth, &s.CostDate, &version, &proven)
+ JOIN %[1]s.production_batch_costs c ON c.running_item_id=w.running_item_id WHERE b.id=$1`, r.schema), s.BatchID).Scan(&s.UnitCostMicros, &s.CostRecordID, &s.CostMonth, &s.CostDate, &version, &proven, &unknown)
 	if err == pgx.ErrNoRows {
 		s.ScrapIssue = "原生产成本尚未形成可核对记录，请先完成批次成本核对"
 		return nil
@@ -57,7 +58,9 @@ func (r Repository) companyScrapCostSource(ctx context.Context, q querier, s *do
 	if err != nil {
 		return err
 	}
-	if !proven {
+	if unknown {
+		s.ScrapIssue = "批次或原生产成本待核算，请先核对成本后处理报损"
+	} else if !proven {
 		s.ScrapIssue = "产出批次、计价单位或成本合计与原生产成本不一致，请先核对"
 	}
 	s.Version = hash([]byte(s.Version + version + s.ScrapIssue))
@@ -70,8 +73,18 @@ func (r Repository) applyCompanyScraps(ctx context.Context, tx pgx.Tx, orderID, 
 			continue
 		}
 		for _, s := range d.StockSelections {
+			// Lock the exact source rows and recheck at posting time. Approval and
+			// preview may have happened before the source cost became unavailable.
+			var unknown bool
+			err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE((to_jsonb(b)->>'cost_unavailable')::boolean,false) OR COALESCE((to_jsonb(c)->>'cost_unavailable')::boolean,false) FROM %[1]s.stock_batches b JOIN %[1]s.work_orders w ON w.production_plan_id=$1 AND ((b.source_doc_type='production_run' AND b.source_doc_id=w.running_item_id) OR (b.source_doc_type IN('production_operation_event','operation_completion') AND b.source_doc_id IN(SELECT id FROM %[1]s.production_operation_events WHERE work_order_id=w.id))) JOIN %[1]s.production_batch_costs c ON c.running_item_id=w.running_item_id WHERE b.id=$2 FOR UPDATE OF b,c`, r.schema), d.ID, s.BatchID).Scan(&unknown)
+			if err != nil {
+				return err
+			}
+			if unknown {
+				return fmt.Errorf("批次或原生产成本待核算，请先核对成本后处理报损")
+			}
 			var id int64
-			err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %[1]s.order_resolution_company_scraps(request_id,order_id,plan_id,batch_id,cost_record_id,product_id,bom_spec_id,bom_variant_id,warehouse,batch_code,quantity,unit_cost,cost_cents,cost_treatment,reason,posting_date,snapshot_json,actor)
+			err = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %[1]s.order_resolution_company_scraps(request_id,order_id,plan_id,batch_id,cost_record_id,product_id,bom_spec_id,bom_variant_id,warehouse,batch_code,quantity,unit_cost,cost_cents,cost_treatment,reason,posting_date,snapshot_json,actor)
  SELECT $1,$2,$3,b.id,c.id,b.item_id,b.bom_spec_id,b.bom_variant_id,(SELECT l.warehouse FROM %[1]s.stock_ledger_entries l WHERE l.item_type=b.item_type AND l.item_id=b.item_id AND l.bom_spec_id=b.bom_spec_id AND l.bom_variant_id=b.bom_variant_id AND l.spec_g=0 AND l.owner_customer_id=0 AND l.source_batch_code=b.batch_code ORDER BY l.id DESC LIMIT 1),b.batch_code,$5::bigint,b.unit_cost,round($5::bigint*b.unit_cost*100),$6,$7,$8::date,jsonb_build_object('batch',to_jsonb(b),'cost',to_jsonb(c),'unit',(SELECT v.inventory_unit FROM %[1]s.production_bom_version_variants v WHERE v.id=b.bom_variant_id)),$9
  FROM %[1]s.stock_batches b JOIN %[1]s.work_orders w ON w.production_plan_id=$3 AND ((b.source_doc_type='production_run' AND b.source_doc_id=w.running_item_id) OR (b.source_doc_type IN('production_operation_event','operation_completion') AND b.source_doc_id IN(SELECT id FROM %[1]s.production_operation_events WHERE work_order_id=w.id))) JOIN %[1]s.production_batch_costs c ON c.running_item_id=w.running_item_id WHERE b.id=$4 RETURNING id`, r.schema), requestID, orderID, d.ID, s.BatchID, s.Quantity, d.CostTreatment, d.Reference, cmd.PostingDate, actor).Scan(&id)
 			if err != nil {

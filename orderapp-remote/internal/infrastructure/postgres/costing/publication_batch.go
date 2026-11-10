@@ -95,6 +95,11 @@ func (r Repository) insertBeanListBatchTable(ctx context.Context, tx pgx.Tx, cmd
 	if err := validateBeanListProductScope(ctx, tx, r.schema, cmd); err != nil {
 		return row, err
 	}
+	if status == "published" {
+		if err := r.validateCurrentProductRefs(ctx, tx, beanListContentCostRefs(cmd.Content)); err != nil {
+			return row, err
+		}
+	}
 	config, err := json.Marshal(cmd.Config)
 	if err != nil {
 		return row, err

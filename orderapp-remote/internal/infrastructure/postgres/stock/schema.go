@@ -17,6 +17,10 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureMaterialBatchTables(ctx, pool, schema); err != nil {
 		return err
 	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE IF EXISTS %[1]s.stock_batches ADD COLUMN IF NOT EXISTS cost_unavailable BOOLEAN NOT NULL DEFAULT false; ALTER TABLE IF EXISTS %[1]s.material_batches ADD COLUMN IF NOT EXISTS cost_unavailable BOOLEAN NOT NULL DEFAULT false`, schema)); err != nil {
+		return err
+	}
+
 	if err := ensureMaterialLocationRepairTables(ctx, pool, schema); err != nil {
 		return err
 	}

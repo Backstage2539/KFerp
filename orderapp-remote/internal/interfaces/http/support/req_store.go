@@ -270,6 +270,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-754-OPERATION-REPORTING-MODES", title: "三类工序分别排产报工及结算余料", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-09-operation-reporting-modes.md；用户验收待完成"},
+		{table: "req_dev", code: "DEV-PR754-01", title: "工序排产方式和参考处理速度", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR754-02", title: "来料工序废料报工及多工位校准", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR754-03", title: "按件包装余料结算与批次库存", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR754-04", title: "验证、操作手册和开发交付", status: "review", assignee: "Codex"},
 		{table: "req_product", code: "PR-MINIAPP-FULFILLMENT-20261109", title: "履约客户小程序首页、价格表、订单与账单优化", status: "doing", assignee: "Van", evidence: "客户要求及验收口径；开发中"},
 		{table: "req_dev", code: "DEV-MINIAPP-FULFILLMENT-HOME", title: "首页订单进度与全时间待付款账单", status: "doing", assignee: "Codex", evidence: "开发中"},
 		{table: "req_dev", code: "DEV-MINIAPP-FULFILLMENT-ORDERS", title: "订货与代发筛选及订单精简", status: "doing", assignee: "Codex", evidence: "开发中"},

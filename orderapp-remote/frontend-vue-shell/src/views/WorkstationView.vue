@@ -199,6 +199,7 @@ import {
   materialReadinessState,
   taskTitle,
   taskQuantityLines,
+  isSimplifiedWorkstationTask,
   workstationCanOpenIssue,
   workstationVisibleActions,
   workstationTaskSections,
@@ -229,7 +230,7 @@ const packagingSourceAvailability = ref(new Map())
 let packagingSourceAvailabilityRevision = 0
 function groupedTasks(section) { return workstationPackagingGroups(section.tasks).flatMap(group => group.tasks) }
 function ungroupedTasks(section) { const ids = new Set(groupedTasks(section).map(task => Number(task.job_card_id))); return section.tasks.filter(task => !ids.has(Number(task.job_card_id))) }
-function isSimplifiedTask(task) { return Boolean(task?.automatic_completion) || /烘焙|烘烤|除石|研磨|磨粉|色选|筛选|包装|分装|装盒|装袋/.test(String(task?.operation || task?.operation_name || task?.task_name || '')) }
+function isSimplifiedTask(task) { return isSimplifiedWorkstationTask(task) }
 function issueTasks(section) { return ungroupedTasks(section).filter(task => !isSimplifiedTask(task)) }
 function packagingGroups(section) { return workstationPackagingGroups(section.tasks) }
 function openBatchIssueForTasks(tasks) { if (batchIssue.open) return; batchIssue.recovering = false; batchIssue.startShortages = []; batchIssue.ids = tasks.filter(workstationCanOpenIssue).map(task => Number(task.job_card_id)); batchIssue.open = batchIssue.ids.length > 0 }

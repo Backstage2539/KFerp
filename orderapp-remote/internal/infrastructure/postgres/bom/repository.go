@@ -3,6 +3,7 @@ package bom
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -3313,19 +3314,63 @@ func refreshProductionBomVersionOperationCostSnapshotsTx(ctx context.Context, tx
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.production_bom_version_operation_costs WHERE version_id=$1`, schema), versionID); err != nil {
 		return 0, err
 	}
-	var processRouteID int64
-	var outputUnit string
-	var processRouteName string
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(v.process_route_id,0),
-		       COALESCE(NULLIF(v.output_unit,''),'unit'),
-		       COALESCE(pr.name,'')
-		FROM %[1]s.production_bom_versions v
-		LEFT JOIN %[1]s.process_routes pr ON pr.id=v.process_route_id
-		WHERE v.id=$1
-	`, schema), versionID).Scan(&processRouteID, &outputUnit, &processRouteName); err != nil {
+	var routeID int64
+	var unit, routeName string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(v.process_route_id,0),COALESCE(NULLIF(v.output_unit,''),'unit'),COALESCE(pr.name,'') FROM %[1]s.production_bom_versions v LEFT JOIN %[1]s.process_routes pr ON pr.id=v.process_route_id WHERE v.id=$1`, schema), versionID).Scan(&routeID, &unit, &routeName); err != nil {
 		return 0, err
 	}
+	count, err := snapshotBomOperationRouteTx(ctx, tx, schema, versionID, 0, routeID, unit, routeName)
+	if err != nil {
+		return 0, err
+	}
+	var hasVariants bool
+	if err = tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+".production_bom_version_variants").Scan(&hasVariants); err != nil {
+		return 0, err
+	}
+	if !hasVariants {
+		return count, nil
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT v.id,COALESCE(v.process_route_id,0),COALESCE(NULLIF(v.inventory_unit,''),'unit'),COALESCE(pr.name,'') FROM %[1]s.production_bom_version_variants v LEFT JOIN %[1]s.process_routes pr ON pr.id=v.process_route_id WHERE v.version_id=$1 ORDER BY v.id`, schema), versionID)
+	if err != nil {
+		return 0, err
+	}
+	type route struct {
+		id, routeID int64
+		unit, name  string
+	}
+	var routes []route
+	for rows.Next() {
+		var x route
+		if err = rows.Scan(&x.id, &x.routeID, &x.unit, &x.name); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		routes = append(routes, x)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return 0, err
+	}
+	for _, x := range routes {
+		n, e := snapshotBomOperationRouteTx(ctx, tx, schema, versionID, x.id, x.routeID, x.unit, x.name)
+		if e != nil {
+			return 0, e
+		}
+		if n == 0 {
+			// No configured route means no operation cost; a selected route with
+			// no steps is retained but marked unresolved for price calculation.
+			if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_version_operation_costs(version_id,variant_id,operation_name,cost_method,operation_cost_unit,cost_unavailable) VALUES($1,$2,'无工序','time',$3,$4)`, schema), versionID, x.id, x.unit, x.routeID > 0); err != nil {
+				return 0, err
+			}
+			n = 1
+		}
+		count += n
+	}
+	return count, nil
+}
+
+func snapshotBomOperationRouteTx(ctx context.Context, tx pgx.Tx, schema string, versionID, variantID, processRouteID int64, outputUnit, processRouteName string) (int, error) {
 	if processRouteID <= 0 {
 		return 0, nil
 	}
@@ -3346,7 +3391,9 @@ func refreshProductionBomVersionOperationCostSnapshotsTx(ctx context.Context, tx
 		       COALESCE(NULLIF(c.cost_method,''),'time') AS cost_method,
 		       COALESCE(c.piece_rate,0)::float8 AS piece_rate,
 		       COALESCE(wo.operation_id,0) AS applicable_operation_id,
-		       COALESCE(pro.standard_cost_capacity_id,0) AS standard_cost_capacity_id
+		       COALESCE(pro.standard_cost_capacity_id,0) AS standard_cost_capacity_id,
+               COALESCE(NULLIF(to_jsonb(c)->>'scheduling_mode',''),'batch'),
+               COALESCE(NULLIF(to_jsonb(c)->>'throughput_per_hour',''),'0')::float8
 		FROM %[1]s.process_route_operations pro
 		LEFT JOIN %[1]s.manufacturing_operations o ON o.id=pro.operation_id
 		LEFT JOIN %[1]s.manufacturing_workstation_capacities c ON c.id=pro.standard_cost_capacity_id
@@ -3374,6 +3421,9 @@ func refreshProductionBomVersionOperationCostSnapshotsTx(ctx context.Context, tx
 		costMethod        string
 		pieceRate         float64
 		rateUnit          string
+		schedulingMode    string
+		throughput        float64
+		costUnavailable   bool
 		unitCost          float64
 		operationCostUnit string
 	}
@@ -3396,7 +3446,9 @@ func refreshProductionBomVersionOperationCostSnapshotsTx(ctx context.Context, tx
 		var pieceRate float64
 		var applicableOperationID int64
 		var standardCostCapacityID int64
-		if err := rows.Scan(&seq, &operationID, &operationName, &workstationID, &workstationName, &capacityID, &capacityName, &capacityStatus, &workstationStatus, &hourlyRate, &standardMinutes, &batchSizeQty, &batchSizeUnit, &costMethod, &pieceRate, &applicableOperationID, &standardCostCapacityID); err != nil {
+		var schedulingMode string
+		var throughput float64
+		if err := rows.Scan(&seq, &operationID, &operationName, &workstationID, &workstationName, &capacityID, &capacityName, &capacityStatus, &workstationStatus, &hourlyRate, &standardMinutes, &batchSizeQty, &batchSizeUnit, &costMethod, &pieceRate, &applicableOperationID, &standardCostCapacityID, &schedulingMode, &throughput); err != nil {
 			return 0, err
 		}
 		if standardCostCapacityID <= 0 || capacityID <= 0 || capacityStatus != "active" || workstationID <= 0 || workstationStatus != "active" || applicableOperationID <= 0 {
@@ -3415,7 +3467,7 @@ func refreshProductionBomVersionOperationCostSnapshotsTx(ctx context.Context, tx
 				WorkstationApplicable: applicableOperationID > 0,
 			}
 		}
-		unitCost, operationCostUnit, ok := calculateBomOperationSnapshotCost(costMethod, pieceRate, hourlyRate, standardMinutes, batchSizeQty, batchSizeUnit, outputUnit)
+		unitCost, operationCostUnit, costUnavailable, ok := calculateConfiguredBomOperationSnapshotCost(schedulingMode, throughput, costMethod, pieceRate, hourlyRate, standardMinutes, batchSizeQty, batchSizeUnit, outputUnit)
 		if !ok {
 			if normalizeBomOperationCostMethod(costMethod) == "piece" {
 				return 0, fmt.Errorf("计件成本必须大于 0")
@@ -3437,6 +3489,9 @@ func refreshProductionBomVersionOperationCostSnapshotsTx(ctx context.Context, tx
 			costMethod:        normalizeBomOperationCostMethod(costMethod),
 			pieceRate:         pieceRate,
 			rateUnit:          bomOperationCostRateUnit(costMethod),
+			schedulingMode:    schedulingMode,
+			throughput:        throughput,
+			costUnavailable:   costUnavailable,
 			unitCost:          unitCost,
 			operationCostUnit: operationCostUnit,
 		})
@@ -3452,13 +3507,28 @@ func refreshProductionBomVersionOperationCostSnapshotsTx(ctx context.Context, tx
 				version_id,operation_id,operation_name,workstation_id,workstation_name,
 				workstation_capacity_id,capacity_name,hourly_rate_snapshot,standard_minutes_snapshot,
 				batch_size_qty_snapshot,batch_size_unit_snapshot,cost_method,piece_rate_snapshot,rate_unit_snapshot,
-				operation_unit_cost,operation_cost_unit,sort_order,created_at
-			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,now())
-		`, schema), versionID, snapshot.operationID, snapshot.operationName, snapshot.workstationID, snapshot.workstationName, snapshot.capacityID, snapshot.capacityName, snapshot.hourlyRate, snapshot.standardMinutes, snapshot.batchSizeQty, snapshot.batchSizeUnit, snapshot.costMethod, snapshot.pieceRate, snapshot.rateUnit, snapshot.unitCost, snapshot.operationCostUnit, snapshot.seq); err != nil {
+				operation_unit_cost,operation_cost_unit,sort_order,created_at,cost_unavailable,scheduling_mode_snapshot,throughput_per_hour_snapshot,variant_id
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,now(),$18,$19,$20,$21)
+		`, schema), versionID, snapshot.operationID, snapshot.operationName, snapshot.workstationID, snapshot.workstationName, snapshot.capacityID, snapshot.capacityName, snapshot.hourlyRate, snapshot.standardMinutes, snapshot.batchSizeQty, snapshot.batchSizeUnit, snapshot.costMethod, snapshot.pieceRate, snapshot.rateUnit, snapshot.unitCost, snapshot.operationCostUnit, snapshot.seq, snapshot.costUnavailable, snapshot.schedulingMode, snapshot.throughput, variantID); err != nil {
 			return 0, err
 		}
 	}
 	return len(snapshots), nil
+}
+
+func calculateConfiguredBomOperationSnapshotCost(mode string, throughput float64, costMethod string, pieceRate, hourlyRate, standardMinutes, batchQty float64, batchUnit, outputUnit string) (float64, string, bool, bool) {
+	if mode != "quantity" || normalizeBomOperationCostMethod(costMethod) == "piece" {
+		cost, unit, ok := calculateBomOperationSnapshotCost(costMethod, pieceRate, hourlyRate, standardMinutes, batchQty, batchUnit, outputUnit)
+		return cost, unit, false, ok
+	}
+	qty, ok := convertBomOperationBatchQty(1, batchUnit, outputUnit)
+	if !ok || qty <= 0 {
+		return 0, "", false, false
+	}
+	if throughput <= 0 {
+		return 0, outputUnit, true, true
+	}
+	return math.Round(hourlyRate/throughput/qty*10000) / 10000, outputUnit, false, true
 }
 
 func calculateBomOperationSnapshotCost(costMethod string, pieceRate float64, hourlyRate float64, standardMinutes float64, batchSizeQty float64, batchSizeUnit string, outputUnit string) (float64, string, bool) {

@@ -61,3 +61,9 @@ test('rate helpers convert user-facing percentages to decimal rates', () => {
   assert.equal(rateToPercent(0.13), '13')
   assert.equal(rateFromPercent('13'), 0.13)
 })
+
+test('finance dashboard hides profit and tax when production cost is unknown',()=>{
+ const cards=financeMetricCards({cost_unavailable:true,tax_exclusive_revenue:1000,gross_profit:900,operating_net_profit:800,tax:{total_tax:50}})
+ assert.equal(cards[0].display,'1,000.00')
+ for(const card of cards.slice(1)) assert.equal(card.display,'待核算')
+})

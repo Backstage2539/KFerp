@@ -49,6 +49,8 @@ type manufacturingWorkstationRequest struct {
 }
 
 type workstationCapacityRequest struct {
+	SchedulingMode         string  `json:"scheduling_mode"`
+	ThroughputPerHour      float64 `json:"throughput_per_hour"`
 	ID                     int64   `json:"id"`
 	WorkstationID          int64   `json:"workstation_id"`
 	Code                   string  `json:"code"`
@@ -217,6 +219,8 @@ func registerAPI(e *echo.Echo, svc *manufacturingapp.Service) {
 		}
 		row, err := svc.SaveManufacturingWorkstationCapacity(c.Request().Context(), manufacturingapp.SaveWorkstationCapacityCommand{
 			ID:                 req.ID,
+			SchedulingMode:     req.SchedulingMode,
+			ThroughputPerHour:  req.ThroughputPerHour,
 			WorkstationID:      req.WorkstationID,
 			Code:               req.Code,
 			Name:               req.Name,

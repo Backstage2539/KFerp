@@ -20,6 +20,32 @@ func isRoastingOperationName(value string) bool {
 	return strings.Contains(value, "烘焙") || strings.Contains(value, "烘烤") || strings.Contains(value, "除石")
 }
 
+const invalidFrozenExecutionReason = "冻结工序报工类型的执行版本缺失或无效，请核对工艺路线配置"
+
+func decodeFrozenOperationExecution(input string) (app.OperationExecution, bool, error) {
+	var cfg app.OperationExecution
+	if strings.TrimSpace(input) == "" {
+		return cfg, false, nil
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(input), &raw); err != nil {
+		return cfg, false, err
+	}
+	var reported string
+	_ = json.Unmarshal(raw["reporting_type"], &reported)
+	reported = strings.TrimSpace(reported)
+	modern := reported != "" && reported != "legacy"
+	if err := json.Unmarshal([]byte(input), &cfg); err != nil {
+		if !modern {
+			return cfg, false, err
+		}
+		cfg.ReportingType = reported
+		return cfg, true, nil
+	}
+	cfg.ReportingType = reported
+	return cfg, modern && (cfg.Version != 1 || (reported != "batch" && reported != "incoming" && reported != "piece")), nil
+}
+
 func incompleteRoastingBOMReason(totalRatioPct float64) string {
 	return app.IncompleteRoastingBOMReason(totalRatioPct)
 }
@@ -263,11 +289,13 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 		}
 	}
 	var routeOperation string
+	var invalidModernExecution bool
 	for _, op := range route.Operations {
 		if op.Seq == seq {
 			routeOperation = op.Operation
 			if op.ExecutionJSON != "" {
-				if err = json.Unmarshal([]byte(op.ExecutionJSON), &p.Execution); err != nil {
+				p.Execution, invalidModernExecution, err = decodeFrozenOperationExecution(op.ExecutionJSON)
+				if err != nil {
 					return p, wo, err
 				}
 			}
@@ -275,13 +303,27 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 		}
 	}
 	p.OperationName = routeOperation
-	p.Enabled = p.Execution.Version == 1
+	p.Enabled = p.Execution.Version == 1 && !invalidModernExecution
 	p.Final = seq == last
-	if !p.Enabled && startPolicy {
+	if p.Execution.ReportingType == "batch" || p.Execution.ReportingType == "incoming" || p.Execution.ReportingType == "piece" {
+		var timed bool
+		var timer, baseline, unmarked int
+		err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT j.started_at IS NOT NULL,ROUND(COALESCE((j.metrics_json->>'timer_elapsed_seconds')::numeric,0)+CASE WHEN j.status='running' THEN GREATEST(0,EXTRACT(EPOCH FROM now()-COALESCE(j.resumed_at,j.started_at,now()))) ELSE 0 END)::int,(SELECT COUNT(*) FROM %[1]s.production_operation_events e WHERE e.job_card_id=j.id AND e.kind='complete' AND e.status='posted' AND NOT e.payload ? 'timer_baseline_seconds')::int,COALESCE((SELECT (e.payload->>'timer_baseline_seconds')::int FROM %[1]s.production_operation_events e WHERE e.job_card_id=j.id AND e.kind='complete' AND e.status='posted' AND e.payload ? 'timer_baseline_seconds' ORDER BY e.id DESC LIMIT 1),0) FROM %[1]s.job_cards j WHERE j.id=$1`, r.schema), id).Scan(&timed, &timer, &unmarked, &baseline)
+		if err != nil {
+			return p, wo, err
+		}
+		if timed && unmarked == 0 {
+			p.ActualMinutes = int(math.Ceil(float64(max(0, timer-baseline)) / 60))
+		}
+	}
+	if invalidModernExecution {
+		p.BlockedReason = invalidFrozenExecutionReason
+		p.BlockedCode = "frozen_route_invalid"
+	} else if !p.Enabled && startPolicy {
 		p.BlockedReason = "冻结工艺路线的当前工序缺少执行配置，请核对工单"
 		p.BlockedCode = "frozen_route_invalid"
 	}
-	if !p.Enabled && !startPolicy {
+	if !p.Enabled && !startPolicy && !invalidModernExecution {
 		p.BlockedReason = "旧工单暂不可自动完成，请核对冻结 BOM 与工艺路线"
 		p.BlockedCode = "legacy_execution_unresolved"
 		legacyRoute := len(route.Operations) == 1
@@ -800,6 +842,49 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 			}
 		}
 	}
+	if p.Execution.ReportingType == "incoming" && p.PredecessorRequired {
+		if predecessorErr := ensureJobCardPredecessorCompletedTx(ctx, tx, r.schema, p.WorkOrderID, seq); predecessorErr != nil {
+			if !strings.HasPrefix(predecessorErr.Error(), "前序工序未完成") {
+				return p, wo, predecessorErr
+			}
+			p.BlockedReason = predecessorErr.Error()
+			p.BlockedCode = "predecessor_incomplete"
+		}
+	}
+	if p.Execution.ReportingType == "incoming" && p.PredecessorRequired && p.BlockedCode != "predecessor_incomplete" && (status == "pending" || status == "ready" || status == "released") && len(p.PredecessorBatches) > 0 {
+		allocations, allocErr := r.incomingAllocationsTx(ctx, tx, p, seq, lock)
+		if allocErr != nil {
+			return p, wo, allocErr
+		}
+		for _, a := range allocations {
+			p.IncomingAllocations = append(p.IncomingAllocations, app.IncomingAllocation{JobCardID: a.JobCardID, Workstation: a.Workstation, Quantity: a.Quantity, Unit: a.Unit, Frozen: a.Frozen})
+			if a.JobCardID == id {
+				p.InputQty = a.Quantity
+			}
+		}
+		if p.InputQty <= 0 {
+			p.BlockedReason = "本工位实际来料分配为零，请取消该待开工任务"
+			p.BlockedCode = "incoming_allocation_zero"
+		}
+	}
+	if p.Execution.ReportingType == "incoming" && p.PredecessorRequired {
+		if len(p.PredecessorBatches) == 0 && (status == "pending" || status == "ready" || status == "released") && p.BlockedReason == "" {
+			p.BlockedReason = "前序无可用来料或来料已全部分配，请核对任务"
+			p.BlockedCode = "incoming_allocation_empty"
+		}
+		if (status == "running" || status == "paused") && len(p.PredecessorBatches) > 0 {
+			total := 0.0
+			for _, b := range p.PredecessorBatches {
+				factor := app.OperationUnitFactor(b.Unit)
+				if factor <= 0 || app.OperationUnitFactor(p.InputUnit) <= 0 {
+					return p, wo, fmt.Errorf("来料单位不可换算")
+				}
+				total += b.Remaining * factor / app.OperationUnitFactor(p.InputUnit)
+			}
+			p.StartedInputQty = total
+			p.InputQty = total
+		}
+	}
 	p.MaxOutputQty = p.PlannedQty
 	for _, material := range p.Materials {
 		if material.Qty <= 0 || material.AvailableQty >= material.Qty {
@@ -821,7 +906,7 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	if err != nil {
 		return p, wo, err
 	}
-	raw, _ := json.Marshal([]any{version, stockVersion, p.EffectiveBomVersionID, p.Materials, p.PredecessorBatches, p.Execution})
+	raw, _ := json.Marshal([]any{version, stockVersion, p.EffectiveBomVersionID, p.Materials, p.PredecessorBatches, p.Execution, p.IncomingAllocations, p.InputQty})
 	p.Version = fmt.Sprintf("%x", sha256.Sum256(raw))
 	if strings.TrimSpace(status) == "completed" {
 		p.BlockedReason = "本工序已完成，请从生产记录查看或更正"
@@ -868,7 +953,34 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 			return p, wo, err
 		}
 	}
+	if p.Execution.ReportingType == "piece" && startPolicy && (status == "running" || status == "paused") {
+		bean, e := app.ResolvePackagingWeightComponent(p.Materials)
+		if e != nil || p.TotalPlannedQty <= 0 {
+			p.BlockedCode = "packaging_material_invalid"
+			p.BlockedReason = "请在冻结 BOM 中配置唯一可核对的重量半成品组件"
+		} else {
+			p.PackagingStandardGPerPiece = bean.TotalQty * app.OperationUnitFactor(bean.Unit) / p.TotalPlannedQty
+			e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(c.remaining_qty),0)::float8 FROM %[1]s.production_started_input_components c JOIN %[1]s.production_started_inputs b ON b.id=c.input_id WHERE b.job_card_id=$1 AND b.status='posted' AND c.component_key=$2 AND c.unit='g'`, r.schema), id, bean.Key).Scan(&p.PackagingAvailableG)
+			if e != nil {
+				return p, wo, e
+			}
+			p.PackagingUnissuedCandidates, e = r.packagingUnissuedCandidatesTx(ctx, tx, id, bean)
+			if e != nil {
+				return p, wo, e
+			}
+			versionWithCandidates, _ := json.Marshal([]any{p.Version, p.PackagingAvailableG, p.PackagingUnissuedCandidates})
+			p.Version = fmt.Sprintf("%x", sha256.Sum256(versionWithCandidates))
+		}
+	}
 
+	var replanRequired bool
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.job_cards WHERE work_order_id=$1 AND COALESCE((metrics_json->>'reporting_replan_required')::boolean,false))`, r.schema), wo.ID).Scan(&replanRequired); err != nil {
+		return p, wo, err
+	}
+	if replanRequired {
+		p.BlockedCode = "reporting_replan_required"
+		p.BlockedReason = "工序报工类型已更新，请先重新安排工位产能"
+	}
 	return p, wo, nil
 }
 

@@ -970,8 +970,8 @@ export function applyCapacityBatchSnapshot(split = {}, capacity = {}, preserveLe
   const count = split.batch_input ? split.planned_batch_count : plannedCapacitySplitMetrics(split).planned_batch_count || 1
   const keepQuantity = preserveLegacy && isLegacyPartialCapacitySplit(split) && Number(split.batch_size_qty) === Number(capacity.batch_size_qty) && String(split.batch_size_unit) === String(capacity.batch_size_unit)
   const next = { ...split, workstation_capacity_id: Number(capacity.id), workstation_id: Number(capacity.workstation_id || 0), workstation: capacity.workstation || '', workstation_capacity_name: capacity.name || '',
-    batch_size_qty: Number(capacity.batch_size_qty || 0), batch_size_unit: capacity.batch_size_unit || '', standard_minutes: Number(capacity.standard_minutes || 0), hourly_rate: Number(capacity.hourly_rate || 0), cost_method: normalizeCapacityCostMethod(capacity), piece_rate: Number(capacity.piece_rate || 0) }
-  return keepQuantity ? next : withCapacityBatchCount(next, count)
+    scheduling_mode: capacity.scheduling_mode || 'batch', throughput_per_hour: Number(capacity.throughput_per_hour || 0), batch_size_qty: Number(capacity.batch_size_qty || 0), batch_size_unit: capacity.batch_size_unit || '', standard_minutes: Number(capacity.standard_minutes || 0), hourly_rate: Number(capacity.hourly_rate || 0), cost_method: normalizeCapacityCostMethod(capacity), piece_rate: Number(capacity.piece_rate || 0) }
+  return next.scheduling_mode === 'quantity' ? { ...next, batch_input: false, planned_batch_count: 0, planned_qty: Number(split.planned_qty || 0) } : keepQuantity ? next : withCapacityBatchCount(next, count)
 }
 
 export function capacitySplitAvailabilityError(split, item, operation, capacities = []) {
@@ -991,7 +991,7 @@ export function takeAllCapacityBatches(rows, split, item, capacity = null) {
   const current = capacity ? applyCapacityBatchSnapshot(split, capacity) : split
   const basis = capacityBaseQty(current, item)
   if (!(basis.batchBaseQty > 0 && basis.targetBaseQty > 0)) throw new Error('当前产能单位无法换算本任务数量')
-  const next = withCapacityBatchCount(current, Math.ceil(basis.targetBaseQty / basis.batchBaseQty - 1e-9))
+  const next = current.scheduling_mode === 'quantity' ? { ...current, batch_input: false, planned_batch_count: 0, planned_qty: qtyFromBaseForCapacity(basis.targetBaseQty, current.batch_size_unit, item.spec_g || 0) } : withCapacityBatchCount(current, Math.ceil(basis.targetBaseQty / basis.batchBaseQty - 1e-9))
   return rows.flatMap(row => row === split ? [next] : splitRowsSameOperation(row, split) ? [] : [row])
 }
 
@@ -1008,22 +1008,26 @@ export function plannedCapacitySplitMetrics(split = {}) {
     plannedQty = legacyBatchCount * batchSizeQty
   }
   plannedQty = Number(plannedQty.toFixed(3))
-  const plannedBatchCount = plannedQty > 0 && batchSizeQty > 0
+  const isQuantity = split.scheduling_mode === 'quantity'
+  const plannedBatchCount = isQuantity ? 0 : plannedQty > 0 && batchSizeQty > 0
     ? Math.ceil(plannedQty / batchSizeQty - 1e-9)
     : split.batch_input ? 0 : legacyBatchCount
   let plannedQtyG = plannedCapacitySplitQtyG(plannedQty, split.batch_size_unit, specG, salesSpecCount, itemTargetG)
   if (!split.batch_input && plannedQtyG <= 0 && Number(split.planned_qty_g || 0) > 0) {
     plannedQtyG = Math.round(Number(split.planned_qty_g || 0))
   }
-  const plannedMinutes = plannedBatchCount * standardMinutes
+  const speed = Number(split.throughput_per_hour || 0)
+  const plannedSeconds = isQuantity ? (speed > 0 ? Number((plannedQty / speed * 3600).toFixed(6)) : null) : plannedBatchCount * standardMinutes * 60
+  const plannedMinutes = plannedSeconds == null ? null : plannedSeconds / 60
   const plannedOperationCost = normalizeCapacityCostMethod(split) === 'piece'
     ? Number((plannedQty * Math.max(0, Number(split.piece_rate || 0))).toFixed(2))
-    : Number(((plannedMinutes / 60) * hourlyRate).toFixed(2))
+    : plannedMinutes == null ? null : Number((((isQuantity ? plannedQty / speed : plannedMinutes / 60)) * hourlyRate).toFixed(2))
   return {
     planned_batch_count: plannedBatchCount,
     planned_qty: plannedQty,
     planned_qty_g: plannedQtyG,
     planned_minutes: plannedMinutes,
+    ...(isQuantity ? { planned_seconds: plannedSeconds } : {}),
     planned_operation_cost: plannedOperationCost,
   }
 }
@@ -1118,7 +1122,7 @@ export function operationCapacityAutoSplitError(item = {}, operation = {}, capac
 }
 
 function capacityBaseQty(capacity = {}, item = {}) {
-  const batchSizeQty = Number(capacity.batch_size_qty || 0)
+  const batchSizeQty = capacity.scheduling_mode === 'quantity' ? 1 : Number(capacity.batch_size_qty || 0)
   const unit = capacity.batch_size_unit
   const targetG = productionPlanItemTargetG(item)
   if (batchSizeQty <= 0) return { kind: '', batchBaseQty: 0, targetBaseQty: 0 }
@@ -1220,7 +1224,7 @@ export function buildOperationCapacityAutoSplits(item = {}, operation = {}, capa
     const full = selected.find((row) => row.batchBaseQty <= remaining + 0.000001)
     const row = full || [...selected].sort((a, b) => a.batchBaseQty - b.batchBaseQty)[0]
     if (!row) break
-    const amount = full || wholeBatches ? row.batchBaseQty : remaining
+    const amount = row.capacity.scheduling_mode === 'quantity' ? remaining : full || wholeBatches ? row.batchBaseQty : remaining
     assigned.set(row.capacity.id, {
       row,
       amount: (assigned.get(row.capacity.id)?.amount || 0) + amount,
@@ -1239,6 +1243,8 @@ export function buildOperationCapacityAutoSplits(item = {}, operation = {}, capa
       workstation: String(capacity.workstation || ''),
       workstation_capacity_id: Number(capacity.id || 0),
       workstation_capacity_name: String(capacity.name || ''),
+      scheduling_mode: capacity.scheduling_mode || 'batch',
+      throughput_per_hour: Number(capacity.throughput_per_hour || 0),
       batch_size_qty: Number(capacity.batch_size_qty || 0),
       batch_size_unit: String(capacity.batch_size_unit || ''),
       standard_minutes: Math.max(0, Math.round(Number(capacity.standard_minutes || 0))),
@@ -1249,7 +1255,7 @@ export function buildOperationCapacityAutoSplits(item = {}, operation = {}, capa
       sales_spec_count: Number(item.sales_spec_count || 0),
       item_target_g: outputTargetG,
       planned_qty: qtyFromBaseForCapacity(amount, capacity.batch_size_unit, item.spec_g || 0),
-      ...(wholeBatches ? { batch_input: true, planned_batch_count: Math.ceil(amount / row.batchBaseQty - 1e-9) } : {}),
+      ...(wholeBatches && capacity.scheduling_mode !== 'quantity' ? { batch_input: true, planned_batch_count: Math.ceil(amount / row.batchBaseQty - 1e-9) } : {}),
       note: '',
     }
   })

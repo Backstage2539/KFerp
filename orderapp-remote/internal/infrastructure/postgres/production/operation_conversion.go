@@ -76,9 +76,18 @@ func (r Repository) operationConversionContextTx(ctx context.Context, tx pgx.Tx,
 		}
 		for _, op := range snapshot.Operations {
 			if op.Seq == c.Sequence && op.ExecutionJSON != "" {
-				var cfg app.OperationExecution
-				if json.Unmarshal([]byte(op.ExecutionJSON), &cfg) == nil && cfg.Version == 1 {
+				cfg, invalid, decodeErr := decodeFrozenOperationExecution(op.ExecutionJSON)
+				if decodeErr != nil {
+					return p, wo, decodeErr
+				}
+				if invalid {
+					p.ReviewBlockedReason = invalidFrozenExecutionReason
+					continue
+				}
+				if cfg.Version == 1 {
 					c.Execution = cfg
+				} else if cfg.ReportingType != "" {
+					c.Execution.ReportingType = cfg.ReportingType
 				}
 			}
 		}
@@ -108,6 +117,9 @@ func (r Repository) submitOperationConversionOnce(ctx context.Context, c app.Ope
 		if err = customerstock.LockRunningFulfillmentCustomersTx(ctx, tx, r.schema, run); err != nil {
 			return nil, err
 		}
+	}
+	if err = lockProductionFinancePeriodTx(ctx, tx, r.schema); err != nil {
+		return nil, err
 	}
 	if err = lockReceiptWorkOrderTx(ctx, tx, r.schema, c.WorkOrderID); err != nil {
 		return nil, err
@@ -151,6 +163,9 @@ func (r Repository) submitOperationConversionOnce(ctx context.Context, c app.Ope
 			return nil, fmt.Errorf("工序身份已变化")
 		}
 		cfg := card.Execution
+		if original.Execution.ReportingType != "" && cfg.ReportingType != original.Execution.ReportingType {
+			return nil, fmt.Errorf("工序报工类型与冻结配置不一致，请刷新核对")
+		}
 		if cfg.Version != 1 || cfg.NodeKey == "" || cfg.OutputUnit == "" {
 			return nil, fmt.Errorf("请确认每道工序的数量单位")
 		}

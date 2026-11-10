@@ -7,7 +7,9 @@ import (
 	"math"
 	"net/http"
 	productionapp "orderapp/internal/application/production"
+	stockapp "orderapp/internal/application/stock"
 	postgresproductspecmigration "orderapp/internal/infrastructure/postgres/productspecmigration"
+	stockrepo "orderapp/internal/infrastructure/postgres/stock"
 	"strings"
 	"sync"
 	"testing"
@@ -711,4 +713,158 @@ func TestOperationCompletionAPIWeightSlicesUseLedgerGrams(t *testing.T) {
 		}
 	}
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", fmt.Sprintf("work_order_id=%d AND material_id=10 AND consumed_g=3385", woID), 1)
+}
+
+func TestQuantityCostPartialReportsUseFrozenInputSpeed(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	e, woID, _ := startProductCompletionAtomicityFixture(t, ctx, pool, schema, 72811)
+	snapshot := `{"operations":[{"seq":1,"execution_json":"{\"version\":1,\"node_key\":\"pack\",\"receipt_enabled\":true,\"output_unit\":\"袋\"}"}]}`
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET process_snapshot_json=$2::jsonb,output_qty=12,output_unit='袋',inventory_unit='袋',planned_inventory_qty=12 WHERE id=$1`, schema), woID, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+ UPDATE %[1]s.job_cards SET status='pending',started_at=NULL,resumed_at=NULL,actual_minutes=0,sequence_no=1,planned_input_qty=2724,actual_input_qty=0,actual_output_qty=0,completed_at=NULL,scheduling_mode='quantity',throughput_per_hour=600,batch_size_unit='袋',hourly_rate=120,cost_method='time' WHERE work_order_id=%[2]d;
+ UPDATE %[1]s.work_order_material_reservations SET required_g=CASE WHEN material_id=10 THEN 2724 ELSE required_g END,reserved_g=CASE WHEN material_id=10 THEN 227 ELSE reserved_g END,required_units=CASE WHEN material_id=20 THEN 12 ELSE required_units END,reserved_units=CASE WHEN material_id=20 THEN 1 ELSE reserved_units END WHERE work_order_id=%[2]d;
+ UPDATE %[1]s.work_order_material_reservation_batches SET reserved_g=CASE WHEN material_id=10 THEN 227 ELSE reserved_g END,reserved_units=CASE WHEN material_id=20 THEN 1 ELSE reserved_units END WHERE work_order_id=%[2]d;`, schema, woID))
+	var card int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.job_cards WHERE work_order_id=$1 LIMIT 1`, schema), woID).Scan(&card); err != nil {
+		t.Fatal(err)
+	}
+	read := func() productionapp.OperationCompletionPreview {
+		t.Helper()
+		res := serveMultilevelProductionJSON(t, e, http.MethodGet, fmt.Sprintf("/api/job-cards/%d/completion-preview", card), nil)
+		if res.Code != 200 {
+			t.Fatal(res.Body.String())
+		}
+		var p productionapp.OperationCompletionPreview
+		if err := json.Unmarshal(res.Body.Bytes(), &p); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	for i, qty := range []float64{1, 11} {
+		p := read()
+		pieces := 1
+		if i == 1 {
+			pieces = 11
+		}
+		res := serveMultilevelProductionJSON(t, e, http.MethodPost, fmt.Sprintf("/api/job-cards/%d/complete", card), map[string]any{"actual_input_qty": qty, "actual_output_qty": pieces, "input_unit": p.InputUnit, "output_unit": p.OutputUnit, "expected_version": p.Version, "request_id": fmt.Sprintf("split-cost-%d", i), "finish_operation": i == 1})
+		if res.Code != 200 {
+			t.Fatalf("part %d: %d %s", i, res.Code, res.Body.String())
+		}
+	}
+	var cost float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT SUM(operation_cost)::float8 FROM %s.production_operation_events WHERE job_card_id=$1 AND kind='complete' AND status='posted'`, schema), card).Scan(&cost); err != nil {
+		t.Fatal(err)
+	}
+	var cardCost float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT actual_operation_cost::float8 FROM %s.job_cards WHERE id=$1`, schema), card).Scan(&cardCost); err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(cardCost-2.4) > 1e-7 {
+		t.Fatalf("card cost=%v, expected 2.4", cardCost)
+	}
+	if math.Abs(cost-2.4) > 1e-7 {
+		var details string
+		_ = pool.QueryRow(ctx, fmt.Sprintf(`SELECT string_agg(payload::text || ':' || operation_cost::text, ';') FROM %s.production_operation_events WHERE job_card_id=$1`, schema), card).Scan(&details)
+		t.Fatalf("split cost=%v, expected 2.4; %s", cost, details)
+	}
+}
+
+func TestQuantityUnknownCostPropagatesToProducedBatch(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	e, woID, _ := startProductCompletionAtomicityFixture(t, ctx, pool, schema, 72812)
+	snapshot := `{"operations":[{"seq":1,"execution_json":"{\"version\":1,\"node_key\":\"pack\",\"receipt_enabled\":true,\"output_unit\":\"袋\"}"}]}`
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET process_snapshot_json=$2::jsonb,output_qty=12,output_unit='袋',inventory_unit='袋',planned_inventory_qty=12 WHERE id=$1`, schema), woID, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %s.job_cards SET status='pending',started_at=NULL,resumed_at=NULL,sequence_no=1,planned_input_qty=2724,actual_input_qty=0,actual_output_qty=0,completed_at=NULL,scheduling_mode='quantity',throughput_per_hour=0,cost_method='time' WHERE work_order_id=%d`, schema, woID))
+	var card int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.job_cards WHERE work_order_id=$1 LIMIT 1`, schema), woID).Scan(&card); err != nil {
+		t.Fatal(err)
+	}
+	res := serveMultilevelProductionJSON(t, e, http.MethodGet, fmt.Sprintf("/api/job-cards/%d/completion-preview", card), nil)
+	if res.Code != 200 {
+		t.Fatal(res.Body.String())
+	}
+	var p productionapp.OperationCompletionPreview
+	if err := json.Unmarshal(res.Body.Bytes(), &p); err != nil {
+		t.Fatal(err)
+	}
+	res = serveMultilevelProductionJSON(t, e, http.MethodPost, fmt.Sprintf("/api/job-cards/%d/complete", card), map[string]any{"actual_input_qty": 1, "actual_output_qty": 1, "input_unit": p.InputUnit, "output_unit": p.OutputUnit, "expected_version": p.Version, "request_id": "unknown-cost-output", "finish_operation": false})
+	if res.Code != 200 {
+		t.Fatal(res.Body.String())
+	}
+	var unavailable bool
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT cost_unavailable FROM %s.stock_batches WHERE source_doc_id=(SELECT id FROM %s.production_operation_events WHERE request_id='unknown-cost-output') AND batch_code LIKE 'FP-OP-%%'`, schema, schema)).Scan(&unavailable); err != nil {
+		t.Fatal(err)
+	}
+	if !unavailable {
+		t.Fatal("produced batch lost unknown-cost status")
+	}
+	var documentID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.stock_entries WHERE entry_type='finished_receipt' AND source_type='operation_completion' AND source_id=(SELECT id FROM %s.production_operation_events WHERE request_id='unknown-cost-output')`, schema, schema)).Scan(&documentID); err != nil {
+		t.Fatal(err)
+	}
+	stock := stockrepo.NewRepository(pool, schema)
+	document, err := stock.GetStockDocument(ctx, documentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !document.CostUnavailable || len(document.Items) == 0 || !document.Items[0].CostUnavailable {
+		t.Fatalf("document unknown cost lost: %+v", document)
+	}
+	list, err := stock.ListStockDocuments(ctx, stockapp.StockDocumentQuery{WorkOrderID: woID, Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, row := range list.Rows {
+		if row.ID == documentID {
+			found = true
+			if !row.CostUnavailable {
+				t.Fatal("list unknown cost lost")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("document missing from list")
+	}
+}
+
+func TestUnknownSourceCostPropagatesToProducedBatch(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	e, woID, _ := startProductCompletionAtomicityFixture(t, ctx, pool, schema, 72813)
+	snapshot := `{"operations":[{"seq":1,"execution_json":"{\"version\":1,\"node_key\":\"pack\",\"receipt_enabled\":true,\"output_unit\":\"袋\"}"}]}`
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET process_snapshot_json=$2::jsonb,output_qty=12,output_unit='袋',inventory_unit='袋',planned_inventory_qty=12 WHERE id=$1`, schema), woID, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %s.job_cards SET status='pending',started_at=NULL,resumed_at=NULL,sequence_no=1,planned_input_qty=2724,actual_input_qty=0,actual_output_qty=0,completed_at=NULL,scheduling_mode='quantity',throughput_per_hour=600,batch_size_unit='袋',cost_method='time' WHERE work_order_id=%d`, schema, woID))
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %s.material_batches SET cost_unavailable=true WHERE material_id=10`, schema))
+	var card int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.job_cards WHERE work_order_id=$1 LIMIT 1`, schema), woID).Scan(&card); err != nil {
+		t.Fatal(err)
+	}
+	res := serveMultilevelProductionJSON(t, e, http.MethodGet, fmt.Sprintf("/api/job-cards/%d/completion-preview", card), nil)
+	if res.Code != 200 {
+		t.Fatal(res.Body.String())
+	}
+	var p productionapp.OperationCompletionPreview
+	if err := json.Unmarshal(res.Body.Bytes(), &p); err != nil {
+		t.Fatal(err)
+	}
+	res = serveMultilevelProductionJSON(t, e, http.MethodPost, fmt.Sprintf("/api/job-cards/%d/complete", card), map[string]any{"actual_input_qty": 1, "actual_output_qty": 1, "input_unit": p.InputUnit, "output_unit": p.OutputUnit, "expected_version": p.Version, "request_id": "unknown-source-output", "finish_operation": false})
+	if res.Code != 200 {
+		t.Fatal(res.Body.String())
+	}
+	var unavailable bool
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT cost_unavailable FROM %s.stock_batches WHERE source_doc_id=(SELECT id FROM %s.production_operation_events WHERE request_id='unknown-source-output') AND batch_code LIKE 'FP-OP-%%'`, schema, schema)).Scan(&unavailable); err != nil {
+		t.Fatal(err)
+	}
+	if !unavailable {
+		t.Fatal("produced batch lost unknown-cost status")
+	}
 }

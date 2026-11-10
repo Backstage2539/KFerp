@@ -68,3 +68,14 @@ func TestPR563BomPublisherReadsAndWritesPieceCostSnapshotFields(t *testing.T) {
 		}
 	}
 }
+
+func TestQuantityBomOperationCostUsesSpeedAndMarksMissing(t *testing.T) {
+	cost, _, unknown, ok := calculateConfiguredBomOperationSnapshotCost("quantity", 600, "time", 0, 120, 10, 10, "kg", "kg")
+	if !ok || unknown || cost != 0.2 {
+		t.Fatalf("speed cost=%v unknown=%v ok=%v", cost, unknown, ok)
+	}
+	_, _, unknown, ok = calculateConfiguredBomOperationSnapshotCost("quantity", 0, "time", 0, 120, 10, 10, "kg", "kg")
+	if !ok || !unknown {
+		t.Fatal("missing throughput must be unresolved, not zero cost")
+	}
+}

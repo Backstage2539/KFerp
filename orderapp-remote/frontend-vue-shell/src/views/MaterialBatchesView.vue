@@ -16,7 +16,7 @@
           <tbody>
             <tr v-for="row in rows" :key="row.id">
               <td>{{ row.batch_code }}</td><td>{{ row.material_name }}</td><td>{{ row.supplier || '-' }}</td><td>{{ row.crop_season || '-' }}</td><td>{{ row.origin || '-' }}</td><td>{{ row.producer_flavor_description || '-' }}</td><td>#{{ row.receipt_id }}</td>
-              <td>{{ quantityLabel(row, 'qty') }}</td><td>{{ quantityLabel(row, 'remaining') }}</td><td>{{ money(row.unit_cost) }}</td><td>{{ row.status }}</td><td><span class="quality-pill" :class="qualityClass(row.quality_status)">{{ qualityLabel(row.quality_status) }}</span></td><td>{{ row.received_at }}</td><td>{{ row.note }}</td>
+              <td>{{ quantityLabel(row, 'qty') }}</td><td>{{ quantityLabel(row, 'remaining') }}</td><td>{{ row.cost_unavailable ? '待核算' : money(row.unit_cost) }}</td><td>{{ row.status }}</td><td><span class="quality-pill" :class="qualityClass(row.quality_status)">{{ qualityLabel(row.quality_status) }}</span></td><td>{{ row.received_at }}</td><td>{{ row.note }}</td>
             </tr>
             <tr v-if="!rows.length"><td colspan="14" class="muted">暂无原料批次</td></tr>
           </tbody>

@@ -82,7 +82,7 @@
 
             <div class="allocation-section">
               <div class="subsection-title">
-                <div><strong>工位产能</strong><span>编辑整数批次，承担产量按每批产能自动计算</span></div>
+                <div><strong>工位产能</strong><span>按产能方式编辑批次或承担数量</span></div>
                 <div class="allocation-actions">
                   <button type="button" :disabled="saving || !isDraft" @click="$emit('auto', task.item, task.operation)">自动拆分</button>
                   <button type="button" :disabled="saving || !isDraft" @click="$emit('add', task.item, task.operation)">添加工位</button>
@@ -90,11 +90,11 @@
               </div>
               <div v-for="split in taskSplits(task)" :key="split.local_key || split.id" class="allocation-row">
                 <div class="capacity-field"><span>工位 / 产能</span><button class="station-link" type="button" :disabled="saving || !isDraft || !canEditWorkstation || !split.workstation_id" @click="openWorkstation(split)">{{ split.workstation || '未选择工位' }}</button><select :aria-label="`${task.name}工位产能`" :value="split.workstation_capacity_id || 0" :disabled="saving || !isDraft" @change="changeCapacity(split, $event)"><option :value="0">请选择适用产能</option><option v-if="split.workstation_capacity_id && !taskCapacities(task).some(c => Number(c.id) === Number(split.workstation_capacity_id))" :value="split.workstation_capacity_id">{{ split.workstation_capacity_name || '原产能' }}（不可用）</option><option v-for="capacity in taskCapacities(task)" :key="capacity.id" :value="capacity.id">{{ capacityLabel(capacity) }}</option></select></div>
-                <div class="metric quantity-field"><span>承担产量（{{ split.batch_size_unit || task.quantity_unit }}）</span><strong>{{ metrics(split).planned_qty }}</strong><small v-if="isLegacyPartialCapacitySplit(split)">历史尾批 · 修改后按整批计算</small></div>
-                <label class="batch-field"><span>批次</span><input :value="split.batch_input ? split.planned_batch_count : metrics(split).planned_batch_count" type="number" min="1" step="1" :disabled="saving || !isDraft" @input="changeBatchCount(split, $event)" /></label>
-                <div class="metric"><span>预计用时</span><strong>{{ metrics(split).planned_minutes }} 分钟</strong></div>
-                <div class="metric"><span>工序成本</span><strong>¥{{ metrics(split).planned_operation_cost }}</strong></div>
-                <div class="row-actions"><button class="take-all" type="button" :disabled="saving || !isDraft || !!availabilityError(split, task, false)" @click="$emit('take-all', split, task.item)">承担所有批次</button>
+                <label v-if="split.scheduling_mode === 'quantity'" class="quantity-field"><span>承担数量（{{ split.batch_size_unit || task.quantity_unit }}）</span><input :value="split.planned_qty" type="number" min="0" step="0.001" :disabled="saving || !isDraft" @input="$emit('quantity-change', split, $event.target.value)" /></label><div v-else class="metric quantity-field"><span>承担产量（{{ split.batch_size_unit || task.quantity_unit }}）</span><strong>{{ metrics(split).planned_qty }}</strong><small v-if="isLegacyPartialCapacitySplit(split)">历史尾批 · 修改后按整批计算</small></div>
+                <label v-if="split.scheduling_mode !== 'quantity'" class="batch-field"><span>批次</span><input :value="split.batch_input ? split.planned_batch_count : metrics(split).planned_batch_count" type="number" min="1" step="1" :disabled="saving || !isDraft" @input="changeBatchCount(split, $event)" /></label>
+                <div class="metric"><span>预计用时</span><strong>{{ metrics(split).planned_minutes == null ? '未配置参考速度' : `${metrics(split).planned_minutes} 分钟` }}</strong></div>
+                <div class="metric"><span>工序成本</span><strong>{{ metrics(split).planned_operation_cost == null ? '未配置参考速度' : `¥${metrics(split).planned_operation_cost}` }}</strong></div>
+                <div class="row-actions"><button class="take-all" type="button" :disabled="saving || !isDraft || !!availabilityError(split, task, false)" @click="$emit('take-all', split, task.item)">{{ split.scheduling_mode === 'quantity' ? '承担全部数量' : '承担所有批次' }}</button>
                 <button class="remove-button" type="button" :disabled="saving || !isDraft" @click="$emit('remove', split)">删除</button></div>
                 <p v-if="availabilityError(split, task)" class="split-error" role="alert">{{ availabilityError(split, task) }}</p>
                 <div v-if="batchCards(split).length" class="batch-summary">
@@ -178,7 +178,7 @@ const props = defineProps({
   previewError: { type: String, default: '' },
   dirty: { type: Boolean, default: false },
 })
-const emit = defineEmits(['back', 'save', 'confirm', 'refresh', 'auto', 'add', 'remove', 'capacity-change', 'batch-change', 'take-all', 'workstations-updated'])
+const emit = defineEmits(['back', 'save', 'confirm', 'refresh', 'auto', 'add', 'remove', 'capacity-change', 'batch-change', 'quantity-change', 'take-all', 'workstations-updated'])
 
 const groups = computed(() => buildProductionPlanCapacityGroups(props.detail, props.preview || {}))
 const activeGroupKey = ref('')
@@ -223,7 +223,7 @@ function taskCapacities(task) { return applicableOperationCapacities(task.operat
 function metrics(split) { return plannedCapacitySplitMetrics(split) }
 function batchCards(split) { return productionPlanSplitBatchCards(split) }
 function quantityLabel(value, unit = '') { const number = Number(value || 0); return `${Number(number.toFixed(3)).toLocaleString('zh-CN', { maximumFractionDigits: 3 })}${unit || ''}` }
-function capacityLabel(capacity) { return `${capacity.workstation || '未命名工位'} / ${capacity.name || '未命名产能'} · ${quantityLabel(capacity.batch_size_qty, capacity.batch_size_unit)} / 批 · ${capacity.standard_minutes || 0} 分钟` }
+function capacityLabel(capacity) { const details = capacity.scheduling_mode === 'quantity' ? (capacity.throughput_per_hour > 0 ? `${capacity.throughput_per_hour}${capacity.batch_size_unit}/小时` : '未配置参考速度') : `${quantityLabel(capacity.batch_size_qty, capacity.batch_size_unit)} / 批 · ${capacity.standard_minutes || 0} 分钟`; return `${capacity.workstation || '未命名工位'} / ${capacity.name || '未命名产能'} · ${details}` }
 function changeCapacity(split, event) { emit('capacity-change', split, Number(event.target.value || 0)) }
 function changeBatchCount(split, event) { emit('batch-change', split, event.target.value) }
 function groupStatus(group) { const statuses = group.tasks.map((task) => task.status); if (statuses.some((status) => ['short', 'missing'].includes(status))) return 'short'; if (statuses.some((status) => status === 'over')) return 'over'; return statuses.length ? 'matched' : 'missing' }

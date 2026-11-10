@@ -21,6 +21,9 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := lockProductionFinancePeriodTx(ctx, tx, r.schema); err != nil {
+		return productionapp.WorkOrderCompleteResult{}, err
+	}
 	if err := lockReceiptWorkOrderTx(ctx, tx, r.schema, known.ID); err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
@@ -317,6 +320,18 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
 	unitCost := materialOutputUnitCost(actualCost, wo.OutputUnit, finishedG, finishedUnits)
+	unknownCost, err := legacyRunCostUnavailableTx(ctx, tx, r.schema, run.ID)
+	if err != nil {
+		return productionapp.WorkOrderCompleteResult{}, err
+	}
+	if unknownCost {
+		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.material_batches SET cost_unavailable=true WHERE id=$1`, r.schema), materialBatchID); err != nil {
+			return productionapp.WorkOrderCompleteResult{}, err
+		}
+		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.stock_batches SET cost_unavailable=true WHERE batch_code=$1 AND item_type='material' AND item_id=$2`, r.schema), batchCode, wo.OutputMaterialID); err != nil {
+			return productionapp.WorkOrderCompleteResult{}, err
+		}
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.material_batches SET unit_cost=$2 WHERE id=$1`, r.schema), materialBatchID, unitCost); err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
@@ -505,7 +520,7 @@ func recordMaterialReceiptCostTx(ctx context.Context, tx pgx.Tx, schema string, 
 		return 0, 0, 0, fmt.Errorf("累计成本小于已入库成本，请检查工序费用；既有批次成本不能回改")
 	}
 	unitCost := materialOutputUnitCost(material+operation, wo.OutputUnit, totalG, totalUnits)
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_batch_costs SET operation_cost=$2,total_cost=material_cost+$2,unit_cost_per_kg=$3 WHERE running_item_id=$1`, schema), run.ID, operation, unitCost); err != nil {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_batch_costs SET operation_cost=$2,total_cost=material_cost+$2,unit_cost_per_kg=$3,cost_updated_at=now() WHERE running_item_id=$1`, schema), run.ID, operation, unitCost); err != nil {
 		return 0, 0, 0, err
 	}
 	m, o := material-previousMaterial, operation-previousOperation

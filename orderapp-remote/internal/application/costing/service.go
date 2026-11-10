@@ -995,6 +995,22 @@ func (s *Service) Calculate(ctx context.Context, req CalculateRequest) (*Calcula
 	if err != nil {
 		return nil, err
 	}
+	if guard, ok := s.repo.(interface {
+		FindUnknownCostProductRefs(context.Context, []domain.ProductInput) ([]bool, error)
+	}); ok {
+		unknown, err := guard.FindUnknownCostProductRefs(ctx, req.Products)
+		if err != nil {
+			return nil, err
+		}
+		if len(unknown) != len(req.Products) {
+			return nil, fmt.Errorf("商品成本核验结果无效")
+		}
+		for i := range req.Products {
+			if unknown[i] {
+				req.Products[i].CostUnavailable = true
+			}
+		}
+	}
 	items, err := calculate(req, params)
 	if err != nil {
 		return nil, err
@@ -1006,6 +1022,23 @@ func (s *Service) ExplainPrice(ctx context.Context, req PriceExplanationCommand)
 	params, err := s.Parameters(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if req.Product.CostUnavailable {
+		return nil, fmt.Errorf("商品库存成本待核算，无法计算价格")
+	}
+	if guard, ok := s.repo.(interface {
+		FindUnknownCostProductRefs(context.Context, []domain.ProductInput) ([]bool, error)
+	}); ok && req.Product.ProductID > 0 {
+		unknown, err := guard.FindUnknownCostProductRefs(ctx, []domain.ProductInput{req.Product})
+		if err != nil {
+			return nil, err
+		}
+		if len(unknown) != 1 {
+			return nil, fmt.Errorf("商品成本核验结果无效")
+		}
+		if unknown[0] {
+			return nil, fmt.Errorf("商品生产成本待核算，无法计算价格")
+		}
 	}
 	out, err := domain.ExplainCommercialPrice(params, req.Product, domain.PriceExplanationRequest{
 		TierLabel: req.TierLabel,
@@ -3367,6 +3400,11 @@ func (s *Service) PublishedBeanList(ctx context.Context, query BeanListPublicati
 	return s.repo.PublishedBeanList(ctx, normalized)
 }
 
+// Published snapshots preserve the cost and price that were accepted then.
+func shouldRecheckBeanListCost(row *BeanListPublication) bool {
+	return row != nil && strings.EqualFold(strings.TrimSpace(row.Status), "draft")
+}
+
 func (s *Service) GenerateBeanListPublicationPDF(ctx context.Context, cmd BeanListPublicationPDFCommand, render func(BeanListPublication) ([]byte, error)) (BeanListPublicationPDFFile, error) {
 	if render == nil {
 		return BeanListPublicationPDFFile{}, fmt.Errorf("bean list renderer required")
@@ -3387,6 +3425,13 @@ func (s *Service) GenerateBeanListPublicationPDF(ctx context.Context, cmd BeanLi
 	}
 	if err := s.validateDraftDocumentOrderability(ctx, row); err != nil {
 		return BeanListPublicationPDFFile{}, err
+	}
+	if guard, ok := s.repo.(interface {
+		ValidateBeanListCostAvailability(context.Context, map[string]any) error
+	}); ok && shouldRecheckBeanListCost(row) {
+		if err := guard.ValidateBeanListCostAvailability(ctx, row.Content); err != nil {
+			return BeanListPublicationPDFFile{}, err
+		}
 	}
 	cacheKey := beanListPublicationPDFCacheKey(*row)
 	if asset, err := s.repo.LoadBeanListPublicationAsset(ctx, row.ID, "pdf"); err == nil && len(asset.Payload) > 0 && strings.TrimSpace(asset.CacheKey) == cacheKey {
@@ -3431,6 +3476,13 @@ func (s *Service) LoadBeanListPublicationPDF(ctx context.Context, cmd BeanListPu
 	}
 	if err := s.validateDraftDocumentOrderability(ctx, row); err != nil {
 		return BeanListPublicationPDFFile{}, err
+	}
+	if guard, ok := s.repo.(interface {
+		ValidateBeanListCostAvailability(context.Context, map[string]any) error
+	}); ok && shouldRecheckBeanListCost(row) {
+		if err := guard.ValidateBeanListCostAvailability(ctx, row.Content); err != nil {
+			return BeanListPublicationPDFFile{}, err
+		}
 	}
 	asset, err := s.repo.LoadBeanListPublicationAsset(ctx, row.ID, "pdf")
 	if err != nil {

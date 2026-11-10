@@ -252,6 +252,9 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 		return productionapp.StartResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockProductionFinancePeriodTx(ctx, tx, r.schema); err != nil {
+		return productionapp.StartResult{}, err
+	}
 
 	refs := startNeedRefs(cmd.Needs)
 	if err := lockStartRefsTx(ctx, tx, r.schema, refs); err != nil {

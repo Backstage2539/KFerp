@@ -265,7 +265,7 @@
             <label v-if="!usesSingleQuantity(item)"><span>数量(件)</span><input v-model.number="item.qty_units" type="number" min="0" :disabled="!isDraft" /></label>
             <label v-if="!isDraft && isOrdinaryTransfer()"><span>{{ item.item_type === 'finished_product' ? '目标批次' : '来源批次' }}</span><input :value="item.batch_code || '-'" disabled /></label>
             <label v-else><span>指定批次（可选）</span><input v-model.trim="item.batch_code" :disabled="!isDraft || item.frozen_picking" placeholder="不填按 FIFO" /></label>
-            <label v-if="isReceipt"><span>单位成本</span><input v-model.number="item.unit_cost" type="number" min="0" step="0.0001" :disabled="!isDraft" /></label>
+            <label v-if="isReceipt"><span>单位成本</span><input v-if="item.cost_unavailable" value="待核算" type="text" readonly /><input v-else v-model.number="item.unit_cost" type="number" min="0" step="0.0001" :disabled="!isDraft" /></label>
             <template v-if="isReceipt && item.item_type === 'material'">
               <label><span>供应商</span><input v-model.trim="item.supplier" :disabled="!isDraft" /></label>
               <label><span>产季</span><input v-model.trim="item.crop_season" :disabled="!isDraft" /></label>

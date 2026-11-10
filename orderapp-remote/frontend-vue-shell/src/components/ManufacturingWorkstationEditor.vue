@@ -93,7 +93,7 @@
           <div v-if="!form.id" class="muted inline-muted">先选择或保存工位/设备</div>
           <table v-else class="capacity-table">
             <thead>
-              <tr><th>工位产能</th><th>标准产能</th><th>成本方式</th><th>标准分钟/批</th><th>成本口径</th><th>状态</th></tr>
+              <tr><th>工位产能</th><th>排产能力</th><th>成本方式</th><th>参考时间</th><th>成本口径</th><th>状态</th></tr>
             </thead>
             <tbody>
               <tr v-for="row in capacitiesForSelectedWorkstation" :key="row.id" :class="{ active: row.id === capacityForm.id }" @click="editCapacity(row)">
@@ -101,9 +101,9 @@
                   <strong>{{ row.name }}</strong>
                   <small>{{ row.code || '无编码' }}</small>
                 </td>
-                <td>{{ Number(row.batch_size_qty || 0) }} {{ row.batch_size_unit || '' }}</td>
+                <td>{{ row.scheduling_mode === 'quantity' ? (row.throughput_per_hour ? `${row.throughput_per_hour} ${row.batch_size_unit}/小时` : '未配置参考速度') : `${Number(row.batch_size_qty || 0)} ${row.batch_size_unit || ''}/批` }}</td>
                 <td>{{ capacityCostMethodLabel(row) }}</td>
-                <td>{{ row.standard_minutes || 0 }}</td>
+                <td>{{ row.scheduling_mode === 'quantity' ? '按数量' : `${row.standard_minutes || 0} 分钟/批` }}</td>
                 <td>{{ workstationCapacityCostMeta(row) }}</td>
                 <td>
                   <span :class="['pill', row.status]">{{ statusLabel(row.status) }}</span>
@@ -124,13 +124,15 @@
                 <option value="piece">按件</option>
               </select>
             </label>
-            <label><span>标准批量</span><input v-model.number="capacityForm.batch_size_qty" type="number" min="0" step="0.001" /></label>
+            <label><span>排产方式</span><select v-model="capacityForm.scheduling_mode"><option value="batch">整批安排</option><option value="quantity">按数量安排</option></select></label>
+            <label v-if="capacityForm.scheduling_mode === 'quantity'"><span>参考处理速度（单位/小时）</span><input v-model.number="capacityForm.throughput_per_hour" type="number" min="0" step="0.001" /><small>留空或为 0 时不估算工时。</small></label>
+            <label v-if="capacityForm.scheduling_mode !== 'quantity'"><span>标准批量</span><input v-model.number="capacityForm.batch_size_qty" type="number" min="0" step="0.001" /></label>
             <label>
               <span>单位</span>
               <input v-if="capacityForm.cost_method === 'piece'" value="件" type="text" readonly />
               <input v-else v-model.trim="capacityForm.batch_size_unit" placeholder="kg / g" />
             </label>
-            <label>
+            <label v-if="capacityForm.scheduling_mode !== 'quantity'">
               <span>{{ capacityForm.cost_method === 'piece' ? '标准分钟/批（排产用）' : '标准分钟/批' }}</span>
               <input v-model.number="capacityForm.standard_minutes" type="number" min="0" step="1" />
               <small>仅支持大于或等于 0 的整数分钟。</small>
@@ -228,6 +230,8 @@ function blankCapacity() {
     name: '',
     code: '',
     status: 'active',
+    scheduling_mode: 'batch',
+    throughput_per_hour: 0,
     batch_size_qty: 0,
     batch_size_unit: 'kg',
     standard_minutes: 0,
@@ -320,6 +324,8 @@ function editCapacity(row) {
     ...row,
     id: Number(row.id || 0),
     workstation_id: Number(row.workstation_id || form.id || 0),
+    scheduling_mode: row.scheduling_mode || 'batch',
+    throughput_per_hour: Number(row.throughput_per_hour || 0),
     batch_size_qty: Number(row.batch_size_qty || 0),
     standard_minutes: Number(row.standard_minutes || 0),
     cost_method: normalizeCapacityCostMethod(row),

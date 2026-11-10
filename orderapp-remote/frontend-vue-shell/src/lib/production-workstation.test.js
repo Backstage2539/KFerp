@@ -22,6 +22,7 @@ import {
   workstationPackagingMaterialIdentity,
   workstationFocusDisposition,
   workstationTaskRequiresSchedule,
+  isSimplifiedWorkstationTask,
 } from './production-workstation.js'
 
 test('production top nav lists high-frequency views before legacy production pages', () => {
@@ -350,7 +351,7 @@ test('completion preserves legacy output-only and new processed-input reporting'
  const source=readFileSync(new URL('../views/WorkstationView.vue',import.meta.url),'utf8')
  const form=readFileSync(new URL('../components/OperationCompletionForm.vue',import.meta.url),'utf8')
  assert.match(source, /OperationCompletionForm v-if="isFinishPanelForTask\(task\)"/)
- assert.match(source, /function isSimplifiedTask\(task\).*烘焙.*除石/)
+ assert.equal(isSimplifiedWorkstationTask({operation:'烘焙+除石'}),true)
  assert.doesNotMatch(source, /submitFinishPanel|finishRunningProduction|partial_finish/)
  assert.match(form,/completionQuantityLabel\(preview\.output_unit\)/)
  assert.ok(form.includes('冻结的本批投料和 BOM 自动计算用料'))
@@ -362,7 +363,7 @@ test('completion preserves legacy output-only and new processed-input reporting'
 
 test('ordinary grinding cards use the simplified completion and work-order actions', () => {
  const source=readFileSync(new URL('../views/WorkstationView.vue',import.meta.url),'utf8')
- assert.match(source,/function isSimplifiedTask\(task\).*研磨.*磨粉/)
+ for (const operation of ['研磨','磨粉']) assert.equal(isSimplifiedWorkstationTask({operation}),true)
  const actions=source.slice(source.indexOf('<template v-if="isSimplifiedTask(task)">'),source.indexOf('<template v-else>',source.indexOf('<template v-if="isSimplifiedTask(task)">')))
  assert.match(actions,/工序完成/)
  assert.match(actions,/查看工单/)
@@ -558,4 +559,19 @@ test('new packaging groups isolate pending starts from running and legacy tasks'
  rows.push(...[3,4].map(id=>({...base,job_card_id:id,status:'running',material_consumption_policy:'bom_start_v1'})))
  rows.push(...[5,6].map(id=>({...base,job_card_id:id,status:'pending',material_consumption_policy:'legacy'})))
  assert.equal(workstationPackagingGroups(rows).length,3)
+})
+
+test('frozen operation types control packaging grouping and quantity labels', () => {
+ const rows=[1,2].map(id=>({job_card_id:id,work_order_id:id,status:'pending',work_order_status:'released',operation:'assembly',reporting_type:'piece',packaging_group_key:'same',planned_output_inventory_qty:10,planned_input_qty:10,operation_total_input_qty:10,inventory_unit:'袋'}))
+ assert.equal(workstationPackagingGroups(rows).length,1)
+ assert.deepEqual(taskQuantityLines(rows[0]),['本批生产 10 袋'])
+ assert.deepEqual(taskQuantityLines({...rows[0],planned_input_qty:0,operation_total_input_qty:0}),['本批生产 10 袋'])
+ assert.equal(workstationPackagingGroups(rows.map(row=>({...row,operation:'包装',reporting_type:'incoming'}))).length,0)
+ assert.equal(workstationPackagingGroups(rows.map(row=>({...row,operation:'包装',reporting_type:'batch'}))).length,0)
+ assert.equal(workstationPackagingGroups(rows.map(row=>({...row,operation:'包装',reporting_type:''}))).length,1)
+})
+
+test('multiple packaging cards from one work order remain individual tasks', () => {
+ const tasks=[{job_card_id:1,work_order_id:40,sequence_no:1},{job_card_id:2,work_order_id:40,sequence_no:1},{job_card_id:3,work_order_id:41,sequence_no:1}].map(task=>({...task,operation:'assembly',reporting_type:'piece',status:'pending',work_order_status:'released',packaging_group_key:'same'}))
+ assert.deepEqual(workstationPackagingGroups(tasks),[])
 })

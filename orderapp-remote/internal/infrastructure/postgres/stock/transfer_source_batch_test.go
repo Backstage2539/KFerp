@@ -476,3 +476,20 @@ INSERT INTO %[1]s.stock_batches(batch_code,item_type,item_id,spec_g,qty_g,qty_un
 		t.Fatalf("transfer must observe committed reservation: %v", err)
 	}
 }
+
+func TestUnknownCostTransferRetainsFlagOnNewBatch(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`INSERT INTO %[1]s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g) VALUES(9,1000,'finished_goods',1,0);
+ INSERT INTO %[1]s.stock_batches(batch_code,item_type,item_id,item_name,spec_g,qty_g,qty_units,remaining_g,remaining_units,cost_unavailable) VALUES('UNKNOWN','finished_product',9,'测试熟豆',1000,1000,1,1000,1,true);`, schema))
+	svc := stockapp.NewService(NewRepository(pool, schema))
+	detail, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{Purpose: stockapp.PurposeMaterialTransfer, Operator: "test", Items: []stockapp.StockDocumentItemCommand{{ProductID: 9, ItemType: "finished_product", SpecG: 1000, QtyUnits: 1, BatchCode: "UNKNOWN", FromWarehouse: "finished_goods", ToWarehouse: "finished_shop"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := detail.Items[0].TransferBatchMoves[0].TargetBatchCode
+	var unavailable bool
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT cost_unavailable FROM %s.stock_batches WHERE batch_code=$1`, schema), target).Scan(&unavailable); err != nil || !unavailable {
+		t.Fatalf("target %s unavailable=%v err=%v", target, unavailable, err)
+	}
+}

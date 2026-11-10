@@ -57,7 +57,7 @@ func (r Repository) receiveOperationOutputTx(ctx context.Context, tx pgx.Tx, wo 
 	if grams > 0 {
 		unitCost = cost * 1000 / float64(grams)
 	}
-	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.stock_batches SET unit_cost=$2 WHERE batch_code=$1 AND item_type='finished_product' AND item_id=$3`, r.schema), batch, unitCost, run.ProductID); err != nil {
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.stock_batches SET unit_cost=$2,cost_unavailable=$4 WHERE batch_code=$1 AND item_type='finished_product' AND item_id=$3`, r.schema), batch, unitCost, run.ProductID, receipt.CostUnavailable); err != nil {
 		return 0, err
 	}
 	entry, err := createStockEntryRecordTx(ctx, tx, r.schema, app.StockEntryCommand{EntryType: "finished_receipt", Purpose: "manufacture", WorkOrderID: wo.ID, JobCardID: jobID, RunningItemID: run.ID, SourceType: "operation_completion", SourceID: receipt.EventID, Operator: actor, Note: "工序完成直接入库；来源工单 " + wo.WorkOrderNo, Items: []app.StockEntryItemCommand{{ProductID: run.ProductID, BomSpecID: run.BomSpecID, BomVariantID: run.BomVariantID, ItemType: stockItemTypeFinishedProduct, ItemName: run.Product, SpecG: run.SpecG, OwnerCustomerID: run.OwnerCustomerID, ToWarehouse: receipt.Warehouse, QtyG: grams, QtyUnits: add.Units, BatchCode: batch, UnitCost: unitCost}}}, false)
@@ -248,14 +248,14 @@ func (r Repository) receiveOperationMaterialTx(ctx context.Context, tx pgx.Tx, w
 	}
 	batch := fmt.Sprintf("MP-OP-%010d", receipt.EventID)
 	var materialBatchID int64
-	err = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.material_batches(batch_code,material_id,material_name,owner_customer_id,supplier,receipt_id,received_g,qty_g,qty_units,remaining_g,remaining_units,unit_cost,status,quality_status,note,received_at,created_at) VALUES($1,$2,$3,$4,'production',$5,$6,$6,$7,$6,$7,$8,'active','pass',$9,now(),now()) RETURNING id`, r.schema), batch, wo.OutputMaterialID, name, owner, wo.ID, grams, units, unitCost, "来源工单 "+wo.WorkOrderNo).Scan(&materialBatchID)
+	err = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.material_batches(batch_code,material_id,material_name,owner_customer_id,supplier,receipt_id,received_g,qty_g,qty_units,remaining_g,remaining_units,unit_cost,status,quality_status,note,received_at,created_at,cost_unavailable) VALUES($1,$2,$3,$4,'production',$5,$6,$6,$7,$6,$7,$8,'active','pass',$9,now(),now(),$10) RETURNING id`, r.schema), batch, wo.OutputMaterialID, name, owner, wo.ID, grams, units, unitCost, "来源工单 "+wo.WorkOrderNo, receipt.CostUnavailable).Scan(&materialBatchID)
 	if err != nil {
 		return 0, err
 	}
 	if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.material_batch_locations(material_batch_id,batch_code,material_id,warehouse,qty_g,qty_units,updated_at) VALUES($1,$2,$3,$4,$5,$6,now())`, r.schema), materialBatchID, batch, wo.OutputMaterialID, receipt.Warehouse, grams, units); err != nil {
 		return 0, err
 	}
-	if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.stock_batches(batch_code,item_type,item_id,item_name,owner_customer_id,spec_g,source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,remaining_g,remaining_units,quality_status,unit_cost,operator,created_at) VALUES($1,'material',$2,$3,$4,0,'operation_completion',$5,$6,$7,$8,$7,$8,'pass',$9,$10,now())`, r.schema), batch, wo.OutputMaterialID, name, owner, receipt.EventID, wo.BatchID, grams, units, unitCost, actor); err != nil {
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.stock_batches(batch_code,item_type,item_id,item_name,owner_customer_id,spec_g,source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,remaining_g,remaining_units,quality_status,unit_cost,operator,created_at,cost_unavailable) VALUES($1,'material',$2,$3,$4,0,'operation_completion',$5,$6,$7,$8,$7,$8,'pass',$9,$10,now(),$11)`, r.schema), batch, wo.OutputMaterialID, name, owner, receipt.EventID, wo.BatchID, grams, units, unitCost, actor, receipt.CostUnavailable); err != nil {
 		return 0, err
 	}
 	if owner == 0 {

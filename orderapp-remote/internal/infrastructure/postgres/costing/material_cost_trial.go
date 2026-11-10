@@ -236,9 +236,10 @@ func (r Repository) loadMaterialCostTrialOperationDetails(ctx context.Context, v
 		       COALESCE(piece_rate_snapshot,0)::float8,
 		       COALESCE(rate_unit_snapshot,''),
 		       COALESCE(operation_unit_cost,0)::float8,
-		       COALESCE(NULLIF(operation_cost_unit,''),$2)
+		       COALESCE(NULLIF(operation_cost_unit,''),$2),
+               COALESCE((to_jsonb(production_bom_version_operation_costs)->>'cost_unavailable')::boolean,false)
 		FROM %s.production_bom_version_operation_costs
-		WHERE version_id=$1
+		WHERE version_id=$1 AND COALESCE(NULLIF(to_jsonb(production_bom_version_operation_costs)->>'variant_id','')::bigint,0)=0
 		ORDER BY sort_order,id
 	`, r.schema), versionID, outputUnit)
 	if err != nil {
@@ -249,8 +250,12 @@ func (r Repository) loadMaterialCostTrialOperationDetails(ctx context.Context, v
 	for rows.Next() {
 		var row appcosting.PricingRuleTrialBaseCostDetail
 		var id int64
-		if err := rows.Scan(&id, &row.Name, &row.WorkstationName, &row.CapacityName, &row.HourlyRate, &row.StandardMinutes, &row.StandardOutputQty, &row.StandardOutputUnit, &row.CostMethod, &row.PieceRate, &row.RateUnit, &row.UnitCost, &row.Unit); err != nil {
+		var costUnavailable bool
+		if err := rows.Scan(&id, &row.Name, &row.WorkstationName, &row.CapacityName, &row.HourlyRate, &row.StandardMinutes, &row.StandardOutputQty, &row.StandardOutputUnit, &row.CostMethod, &row.PieceRate, &row.RateUnit, &row.UnitCost, &row.Unit, &costUnavailable); err != nil {
 			return nil, err
+		}
+		if costUnavailable {
+			return nil, fmt.Errorf("工序 %s 的参考速度未配置，标准成本待核算", row.Name)
 		}
 		row.Key = fmt.Sprintf("operation:bom_snapshot:%d", id)
 		row.Type = "operation"

@@ -1266,7 +1266,8 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 			         WHEN lower(btrim(COALESCE(NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
 			         THEN l.qty_g::numeric
 			         ELSE l.qty_units::numeric
-			       END),0) AS weighted_unit_cost
+			       END),0) AS weighted_unit_cost,
+                   bool_or(COALESCE((to_jsonb(b)->>'cost_unavailable')::boolean,false)) AS cost_unavailable
 			FROM %[1]s.material_batch_locations l
 			JOIN %[1]s.material_batches b ON b.id = l.material_batch_id
 			JOIN %[1]s.materials m ON m.id=l.material_id
@@ -1361,7 +1362,8 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') IN ('unit_per_bag','unit_per_box','fixed_qty','unit','length','area')
 		         THEN COALESCE(bi.qty_per_unit,0) * (CASE WHEN COALESCE(m.is_semi_finished,false) THEN 0 ELSE COALESCE(NULLIF(m.purchase_price,0), NULLIF(mv.weighted_unit_cost,0), NULLIF(bi.unit_cost_snapshot,0), 0) END)
 		         ELSE 0
-		       END::float8 AS amount_per_unit
+		       END::float8 AS amount_per_unit,
+                   COALESCE(mv.cost_unavailable,false)
 		FROM bom_items bi
 		LEFT JOIN %[1]s.materials m ON m.id=bi.material_id
 		LEFT JOIN material_valuation mv ON mv.material_id=bi.material_id
@@ -1377,7 +1379,7 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		var id int64
 		var componentType string
 		var componentMaterialID int64
-		var componentIsSemi bool
+		var componentIsSemi, costUnavailable bool
 		var componentProductID int64
 		var componentBomSpecID int64
 		var componentSpecG int64
@@ -1386,8 +1388,11 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		var bomOutputQty float64
 		var bomOutputUnit string
 		var purchasePrice, weightedBatchUnitCost, unitCostSnapshot float64
-		if err := bomRows.Scan(&id, &componentType, &componentMaterialID, &componentIsSemi, &componentProductID, &componentBomSpecID, &componentSpecG, &row.Name, &row.ConsumeUnit, &row.Quantity, &row.RatioPct, &row.MaterialLossRate, &row.UnitCost, &unitCostUnit, &bomYieldRate, &bomOutputQty, &bomOutputUnit, &purchasePrice, &weightedBatchUnitCost, &unitCostSnapshot, &row.AmountPerKg, &row.AmountPerUnit); err != nil {
+		if err := bomRows.Scan(&id, &componentType, &componentMaterialID, &componentIsSemi, &componentProductID, &componentBomSpecID, &componentSpecG, &row.Name, &row.ConsumeUnit, &row.Quantity, &row.RatioPct, &row.MaterialLossRate, &row.UnitCost, &unitCostUnit, &bomYieldRate, &bomOutputQty, &bomOutputUnit, &purchasePrice, &weightedBatchUnitCost, &unitCostSnapshot, &row.AmountPerKg, &row.AmountPerUnit, &costUnavailable); err != nil {
 			return nil, err
+		}
+		if costUnavailable {
+			return nil, fmt.Errorf("物料 %s 的库存成本待核算，无法进行成本试算", row.Name)
 		}
 		row.ComponentID = id
 		row.BomID = resolvedParentCost.BomID
@@ -1545,35 +1550,45 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		       COALESCE(oc.piece_rate_snapshot,0)::float8 AS piece_rate,
 		       COALESCE(NULLIF(oc.rate_unit_snapshot,''),'') AS rate_unit,
 		       COALESCE(oc.operation_unit_cost,0)::float8,
-		       COALESCE(NULLIF(oc.operation_cost_unit,''),'') AS operation_cost_unit
+		       COALESCE(NULLIF(oc.operation_cost_unit,''),'') AS operation_cost_unit,
+               COALESCE((to_jsonb(oc)->>'cost_unavailable')::boolean,false)
 		FROM %[1]s.production_bom_version_operation_costs oc
 		WHERE oc.version_id=(SELECT id FROM selected_bom_version)
+          AND COALESCE(NULLIF(to_jsonb(oc)->>'variant_id','')::bigint,0)=0
 		ORDER BY oc.sort_order, oc.id
 	`, r.schema)
 	operationArgs := []any{input.BomVersionID, input.ProductID}
+	legacyVariantRoute := false
 	if input.BomVariantID > 0 {
-		operationQuery = fmt.Sprintf(`
-			SELECT operation.id,
-			       COALESCE(operation.workstation_capacity_id,0) AS workstation_capacity_id,
-			       COALESCE(NULLIF(operation.operation,''),'工序') AS operation_name,
-			       COALESCE(operation.workstation,'') AS workstation_name,
-			       COALESCE(operation.workstation_capacity_name,'') AS capacity_name,
-			       COALESCE(operation.hourly_rate,0)::float8,
-			       COALESCE(operation.standard_minutes,0)::float8,
-			       COALESCE(operation.batch_size_qty,0)::float8,
-			       COALESCE(operation.batch_size_unit,'') AS batch_size_unit,
-			       COALESCE(NULLIF(operation.cost_method,''),'time') AS cost_method,
-			       COALESCE(operation.piece_rate,0)::float8 AS piece_rate,
-			       COALESCE(operation.batch_size_unit,'') AS rate_unit,
-			       COALESCE(operation.planned_operation_cost,0)::float8,
-			       COALESCE(NULLIF(variant.inventory_unit,''),'') AS operation_cost_unit
-			FROM %[1]s.production_bom_version_variants variant
-			JOIN %[1]s.process_route_operations operation
-			  ON operation.route_id=variant.process_route_id
-			WHERE variant.id=$1
-			  AND ($2 <= 0 OR variant.version_id=$2)
-			ORDER BY operation.seq,operation.id
-		`, r.schema)
+		hasVariantSnapshot, err := r.costingColumnExists(ctx, "production_bom_version_operation_costs", "variant_id")
+		if err != nil {
+			return nil, err
+		}
+		var frozen bool
+		if hasVariantSnapshot {
+			if err = r.readDB(ctx).QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.production_bom_version_operation_costs WHERE variant_id=$1 AND ($2<=0 OR version_id=$2))`, r.schema), input.BomVariantID, input.BomVersionID).Scan(&frozen); err != nil {
+				return nil, err
+			}
+		}
+		if frozen {
+			operationQuery = fmt.Sprintf(`SELECT oc.id,COALESCE(oc.workstation_capacity_id,0),COALESCE(NULLIF(oc.operation_name,''),'工序'),COALESCE(oc.workstation_name,''),COALESCE(oc.capacity_name,''),COALESCE(oc.hourly_rate_snapshot,0)::float8,COALESCE(oc.standard_minutes_snapshot,0)::float8,COALESCE(oc.batch_size_qty_snapshot,0)::float8,COALESCE(oc.batch_size_unit_snapshot,''),COALESCE(NULLIF(oc.cost_method,''),'time'),COALESCE(oc.piece_rate_snapshot,0)::float8,COALESCE(oc.rate_unit_snapshot,''),COALESCE(oc.operation_unit_cost,0)::float8,COALESCE(oc.operation_cost_unit,''),COALESCE((to_jsonb(oc)->>'cost_unavailable')::boolean,false) FROM %[1]s.production_bom_version_operation_costs oc WHERE oc.variant_id=$1 AND ($2<=0 OR oc.version_id=$2) ORDER BY oc.sort_order,oc.id`, r.schema)
+		} else {
+			legacyVariantRoute = true
+			hasCapacities, err := r.costingRelationExists(ctx, "manufacturing_workstation_capacities")
+			if err != nil {
+				return nil, err
+			}
+			if hasCapacities {
+				var quantity bool
+				if err = r.readDB(ctx).QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.production_bom_version_variants v JOIN %[1]s.process_route_operations o ON o.route_id=v.process_route_id LEFT JOIN %[1]s.manufacturing_workstation_capacities c ON c.id=COALESCE(NULLIF(NULLIF(to_jsonb(o)->>'standard_cost_capacity_id','')::bigint,0),NULLIF(NULLIF(to_jsonb(o)->>'workstation_capacity_id','')::bigint,0),0) WHERE v.id=$1 AND (c.id IS NULL OR (COALESCE(to_jsonb(c)->>'scheduling_mode','batch')='quantity' AND COALESCE(to_jsonb(c)->>'cost_method','time')<>'piece')))`, r.schema), input.BomVariantID).Scan(&quantity); err != nil {
+					return nil, err
+				}
+				if quantity {
+					return nil, fmt.Errorf("规格工序成本快照缺失，成本待核算")
+				}
+			}
+			operationQuery = fmt.Sprintf(`SELECT operation.id,COALESCE(operation.workstation_capacity_id,0),COALESCE(NULLIF(operation.operation,''),'工序'),COALESCE(operation.workstation,''),COALESCE(operation.workstation_capacity_name,''),COALESCE(operation.hourly_rate,0)::float8,COALESCE(operation.standard_minutes,0)::float8,COALESCE(operation.batch_size_qty,0)::float8,COALESCE(operation.batch_size_unit,''),COALESCE(NULLIF(operation.cost_method,''),'time'),COALESCE(operation.piece_rate,0)::float8,COALESCE(operation.batch_size_unit,''),COALESCE(operation.planned_operation_cost,0)::float8,COALESCE(NULLIF(variant.inventory_unit,''),''),false FROM %[1]s.production_bom_version_variants variant JOIN %[1]s.process_route_operations operation ON operation.route_id=variant.process_route_id WHERE variant.id=$1 AND ($2<=0 OR variant.version_id=$2) ORDER BY operation.seq,operation.id`, r.schema)
+		}
 		operationArgs = []any{input.BomVariantID, input.BomVersionID}
 	}
 	opRows, err := r.readDB(ctx).Query(ctx, operationQuery, operationArgs...)
@@ -1586,8 +1601,12 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		var row appcosting.PricingRuleTrialBaseCostDetail
 		var id int64
 		var capacityID int64
-		if err := opRows.Scan(&id, &capacityID, &row.Name, &row.WorkstationName, &row.CapacityName, &row.HourlyRate, &row.StandardMinutes, &row.StandardOutputQty, &row.StandardOutputUnit, &row.CostMethod, &row.PieceRate, &row.RateUnit, &row.UnitCost, &row.Unit); err != nil {
+		var costUnavailable bool
+		if err := opRows.Scan(&id, &capacityID, &row.Name, &row.WorkstationName, &row.CapacityName, &row.HourlyRate, &row.StandardMinutes, &row.StandardOutputQty, &row.StandardOutputUnit, &row.CostMethod, &row.PieceRate, &row.RateUnit, &row.UnitCost, &row.Unit, &costUnavailable); err != nil {
 			return nil, err
+		}
+		if costUnavailable {
+			return nil, fmt.Errorf("工序 %s 的参考速度未配置，标准成本待核算", row.Name)
 		}
 		_ = capacityID
 		unit := strings.TrimSpace(row.Unit)
@@ -1613,6 +1632,10 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		row.CostUnitCost = row.UnitCost
 		row.AmountPerUnit = row.UnitCost
 		row.CapacitySelectionSource = "bom_operation_snapshot"
+		if legacyVariantRoute {
+			row.CapacitySelectionSource = "legacy_route_rule"
+			row.Warning = "旧版规格沿用历史工序成本规则"
+		}
 		if strings.EqualFold(strings.TrimSpace(row.CostMethod), "piece") {
 			row.Unit = firstNonEmptyString(strings.TrimSpace(input.QuoteUnit), strings.TrimSpace(input.OrderUnit), unit)
 			row.CostUnit = row.Unit
@@ -2691,7 +2714,334 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 	// through immutable snapshots/migration mappings, but must not re-enter a
 	// price-list or trial selection.
 	out = filterBOMAuthoritativeProductInputs(out)
+	if err := r.markUnknownLegacyBomCosts(ctx, out); err != nil {
+		return nil, err
+	}
 	return applyResolvedProductionBomCosts(out, resolvedBomCosts), nil
+}
+
+// markUnknownLegacyBomCosts carries unknown active stock valuations into the
+// affected legacy recipe products without hiding unrelated products.
+func (r Repository) markUnknownLegacyBomCosts(ctx context.Context, inputs []domain.ProductInput) error {
+	if len(inputs) == 0 {
+		return nil
+	}
+	for _, name := range []string{"products", "product_bom_items", "product_bom_sources", "material_batches", "material_batch_locations"} {
+		exists, err := r.costingRelationExists(ctx, name)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return nil
+		}
+	}
+	ids := make([]int64, 0, len(inputs)*2)
+	for _, in := range inputs {
+		if in.ProductID > 0 {
+			ids = append(ids, in.ProductID)
+		}
+		if in.ParentProductID > 0 {
+			ids = append(ids, in.ParentProductID)
+		}
+	}
+	hasProdBom, err := r.costingRelationExists(ctx, "production_boms")
+	if err != nil {
+		return err
+	}
+	hasProdVersions, err := r.costingRelationExists(ctx, "production_bom_versions")
+	if err != nil {
+		return err
+	}
+	productionFilter := ""
+	if hasProdBom && hasProdVersions {
+		productionFilter = fmt.Sprintf(` AND NOT EXISTS (SELECT 1 FROM %[1]s.production_boms pb JOIN %[1]s.production_bom_versions v ON v.bom_id=pb.id WHERE pb.output_product_id=p.id AND COALESCE(NULLIF(pb.status,''),'active')='active' AND v.status='published')`, r.schema)
+	}
+	rows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`SELECT DISTINCT p.id FROM %[1]s.products p
+ LEFT JOIN %[1]s.product_bom_sources bs ON bs.product_id=p.id
+ JOIN %[1]s.product_bom_items bi ON bi.product_id=CASE WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id ELSE p.id END
+ JOIN %[1]s.material_batches b ON b.material_id=bi.material_id
+ JOIN %[1]s.material_batch_locations l ON l.material_batch_id=b.id
+ WHERE p.id=ANY($1::bigint[]) AND (l.qty_g>0 OR l.qty_units>0) AND b.status='active' AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
+ AND COALESCE((to_jsonb(b)->>'cost_unavailable')::boolean,false)`, r.schema)+productionFilter, ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	unknown := map[int64]bool{}
+	for rows.Next() {
+		var id int64
+		if err = rows.Scan(&id); err != nil {
+			return err
+		}
+		unknown[id] = true
+	}
+	if err = rows.Err(); err != nil {
+		return err
+	}
+	for i := range inputs {
+		if unknown[inputs[i].ProductID] || unknown[inputs[i].ParentProductID] {
+			inputs[i].CostUnavailable = true
+			inputs[i].Warnings = append(inputs[i].Warnings, "库存批次成本待核算，无法计算价格")
+		}
+	}
+	return nil
+}
+
+// ValidateBeanListCostAvailability prevents draft and generated exports from
+// presenting an unresolved current cost as a calculated price.
+func (r Repository) ValidateBeanListCostAvailability(ctx context.Context, content map[string]any) error {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	return r.validateCurrentProductRefs(ctx, tx, beanListContentCostRefs(content))
+}
+
+func costIdentityMatches(ref domain.ProductInput, cost productionBomResolvedCost) bool {
+	if ref.ProductID <= 0 || (ref.ProductID != cost.ProductID && ref.ParentProductID != cost.ProductID) {
+		return false
+	}
+	if ref.BomSpecID > 0 && cost.BomSpecID > 0 && ref.BomSpecID != cost.BomSpecID {
+		return false
+	}
+	// Cost follows the current authoritative specification, not a client-supplied
+	// archived variant ID. A variant is used only when no specification exists.
+	if ref.BomSpecID <= 0 && ref.BomVariantID > 0 && cost.BomVariantID > 0 && ref.BomVariantID != cost.BomVariantID {
+		return false
+	}
+	return true
+}
+
+func (r Repository) FindUnknownCostProductRefs(ctx context.Context, refs []domain.ProductInput) ([]bool, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	return r.findUnknownCostProductRefsTx(ctx, tx, refs)
+}
+
+func (r Repository) findUnknownCostProductRefsTx(ctx context.Context, tx pgx.Tx, source []domain.ProductInput) ([]bool, error) {
+	unknown := make([]bool, len(source))
+	if len(source) == 0 {
+		return unknown, nil
+	}
+	refs := append([]domain.ProductInput(nil), source...)
+	txContext := postgresinfra.WithTransaction(ctx, tx)
+	ids := make([]int64, 0, len(refs))
+	for _, ref := range refs {
+		if ref.ProductID > 0 {
+			ids = append(ids, ref.ProductID)
+		}
+	}
+	hasProducts, err := r.costingRelationExists(txContext, "products")
+	if err != nil {
+		return nil, err
+	}
+	if !hasProducts && len(ids) > 0 {
+		return nil, fmt.Errorf("商品资料不完整，请重新选择")
+	}
+	if hasProducts && len(ids) > 0 {
+		rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id,COALESCE(NULLIF(to_jsonb(p)->>'parent_product_id','')::bigint,0) FROM %s.products p WHERE id=ANY($1::bigint[])`, r.schema), ids)
+		if err != nil {
+			return nil, err
+		}
+		parents := map[int64]int64{}
+		for rows.Next() {
+			var id, parent int64
+			if err = rows.Scan(&id, &parent); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			parents[id] = parent
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		for i := range refs {
+			if refs[i].ProductID <= 0 {
+				continue
+			}
+			actualParent, found := parents[refs[i].ProductID]
+			if !found {
+				return nil, fmt.Errorf("商品 %d 不存在，请重新选择", refs[i].ProductID)
+			}
+			supplied := refs[i].ParentProductID
+			if supplied > 0 && supplied != actualParent && !(actualParent == 0 && supplied == refs[i].ProductID) {
+				return nil, fmt.Errorf("商品归属不一致，请重新选择")
+			}
+			refs[i].ParentProductID = actualParent
+		}
+	}
+	if err = r.validateCostProductSpecIdentitiesTx(ctx, tx, refs); err != nil {
+		return nil, err
+	}
+	if err = r.markUnknownLegacyBomCosts(txContext, refs); err != nil {
+		return nil, err
+	}
+	for i, ref := range refs {
+		unknown[i] = ref.CostUnavailable
+	}
+	exists, err := r.costingRelationExists(txContext, "production_bom_output_bindings")
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return unknown, nil
+	}
+	costs, err := r.loadResolvedProductionBomCosts(txContext)
+	if err != nil {
+		return nil, err
+	}
+	for _, cost := range costs {
+		for _, issue := range cost.UnresolvedIssues {
+			if issue.Code != "material_cost_unavailable" && issue.Code != "operation_cost_unavailable" {
+				continue
+			}
+			for i, ref := range refs {
+				if costIdentityMatches(ref, cost) {
+					unknown[i] = true
+				}
+			}
+		}
+	}
+	return unknown, nil
+}
+
+// validateCostProductSpecIdentitiesTx obtains ownership from the catalog, never
+// from the submitted parent/specification fields.
+func (r Repository) validateCostProductSpecIdentitiesTx(ctx context.Context, tx pgx.Tx, refs []domain.ProductInput) error {
+	specIDs, variantIDs := []int64{}, []int64{}
+	for _, ref := range refs {
+		if ref.BomSpecID > 0 {
+			specIDs = append(specIDs, ref.BomSpecID)
+		}
+		if ref.BomVariantID > 0 {
+			variantIDs = append(variantIDs, ref.BomVariantID)
+		}
+	}
+	if len(specIDs) == 0 && len(variantIDs) == 0 {
+		return nil
+	}
+	txContext := postgresinfra.WithTransaction(ctx, tx)
+	for _, name := range []string{"production_bom_specs", "production_boms", "production_bom_version_variants"} {
+		exists, err := r.costingRelationExists(txContext, name)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("商品规格资料不完整，请重新选择")
+		}
+	}
+	type identity struct{ spec, product int64 }
+	specs := map[int64]identity{}
+	variants := map[int64]identity{}
+	if len(specIDs) > 0 {
+		rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT s.id,COALESCE(b.output_product_id,0) FROM %[1]s.production_bom_specs s JOIN %[1]s.production_boms b ON b.id=s.bom_id WHERE s.id=ANY($1::bigint[])`, r.schema), specIDs)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var x identity
+			if err = rows.Scan(&x.spec, &x.product); err != nil {
+				rows.Close()
+				return err
+			}
+			specs[x.spec] = x
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+	}
+	if len(variantIDs) > 0 {
+		rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT v.id,v.bom_spec_id,COALESCE(b.output_product_id,0) FROM %[1]s.production_bom_version_variants v JOIN %[1]s.production_bom_specs s ON s.id=v.bom_spec_id JOIN %[1]s.production_boms b ON b.id=s.bom_id WHERE v.id=ANY($1::bigint[])`, r.schema), variantIDs)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var id int64
+			var x identity
+			if err = rows.Scan(&id, &x.spec, &x.product); err != nil {
+				rows.Close()
+				return err
+			}
+			variants[id] = x
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+	}
+	for i := range refs {
+		ref := &refs[i]
+		if ref.ProductID <= 0 {
+			if ref.BomSpecID > 0 || ref.BomVariantID > 0 {
+				return fmt.Errorf("商品规格归属不完整，请重新选择")
+			}
+			continue
+		}
+		owner := ref.ProductID
+		if ref.ParentProductID > 0 {
+			owner = ref.ParentProductID
+		}
+		if ref.BomSpecID > 0 {
+			x, ok := specs[ref.BomSpecID]
+			if !ok || x.product != owner {
+				return fmt.Errorf("商品规格归属不一致，请重新选择")
+			}
+		}
+		if ref.BomVariantID > 0 {
+			x, ok := variants[ref.BomVariantID]
+			if !ok || x.product != owner || (ref.BomSpecID > 0 && x.spec != ref.BomSpecID) {
+				return fmt.Errorf("商品规格版本不一致，请重新选择")
+			}
+			if ref.BomSpecID <= 0 {
+				ref.BomSpecID = x.spec
+			}
+		}
+	}
+	return nil
+}
+
+func (r Repository) FindUnknownCostProductIDs(ctx context.Context, ids []int64) (map[int64]bool, error) {
+	refs := make([]domain.ProductInput, len(ids))
+	for i, id := range ids {
+		refs[i].ProductID = id
+	}
+	flags, err := r.FindUnknownCostProductRefs(ctx, refs)
+	if err != nil {
+		return nil, err
+	}
+	out := map[int64]bool{}
+	for i, id := range ids {
+		out[id] = out[id] || flags[i]
+	}
+	return out, nil
+}
+func (r Repository) validateCurrentProductRefs(ctx context.Context, tx pgx.Tx, refs []domain.ProductInput) error {
+	flags, err := r.findUnknownCostProductRefsTx(ctx, tx, refs)
+	if err != nil {
+		return err
+	}
+	for i, ref := range refs {
+		if flags[i] {
+			return fmt.Errorf("商品 %d 的生产成本待核算，无法发布试算价格", ref.ProductID)
+		}
+	}
+	return nil
+}
+func (r Repository) validateCurrentProductCosts(ctx context.Context, tx pgx.Tx, ids []int64) error {
+	refs := make([]domain.ProductInput, len(ids))
+	for i, id := range ids {
+		refs[i].ProductID = id
+	}
+	return r.validateCurrentProductRefs(ctx, tx, refs)
 }
 
 func filterBOMAuthoritativeProductInputs(inputs []domain.ProductInput) []domain.ProductInput {
@@ -2980,6 +3330,25 @@ func applyResolvedProductionBomCosts(inputs []domain.ProductInput, costs map[int
 		resolvedCost, ok := productionBomCostForProduct(costs, input.ProductID, input.ParentProductID, input.BomSpecID)
 		if input.BomVersionID > 0 && ok && resolvedCost.VersionID != input.BomVersionID {
 			ok = false
+		}
+		if ok {
+			if resolvedCost.LegacyOperationCost {
+				input.Warnings = append(input.Warnings, "旧版规格沿用历史工序成本规则")
+			}
+			for _, issue := range resolvedCost.UnresolvedIssues {
+				if issue.Code == "material_cost_unavailable" || issue.Code == "operation_cost_unavailable" {
+					input.CostUnavailable = true
+					input.BomCostPerUnit = 0
+					input.OperationCostPerUnit = 0
+					input.OperationCostPerKg = 0
+					input.GreenBeanCostPerKg = 0
+					input.Warnings = append(input.Warnings, "库存批次成本待核算，无法计算价格")
+					break
+				}
+			}
+			if input.CostUnavailable {
+				continue
+			}
 		}
 		if input.BomSpecID > 0 {
 			// A cutover row is priced only from its own immutable BOM specification.
@@ -3597,6 +3966,9 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 	if err := validateBeanListProductScope(ctx, tx, r.schema, cmd); err != nil {
 		return nil, err
 	}
+	if err := r.validateCurrentProductRefs(ctx, tx, beanListContentCostRefs(cmd.Content)); err != nil {
+		return nil, err
+	}
 
 	config, err := json.Marshal(cmd.Config)
 	if err != nil {
@@ -4060,6 +4432,20 @@ func (r Repository) PublishRun(ctx context.Context, actor string, runID int64) e
 		return fmt.Errorf("costing run has no items")
 	}
 
+	// Revalidate current source costs even for runs saved before a later receipt.
+	refs := make([]domain.ProductInput, 0, len(items))
+	for _, item := range items {
+		if item.CostUnavailable {
+			return fmt.Errorf("商品 %s 的库存成本待核算，无法发布试算价格", item.Name)
+		}
+		if item.ProductID > 0 {
+			refs = append(refs, domain.ProductInput{ProductID: item.ProductID, ParentProductID: item.ParentProductID, BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID})
+		}
+	}
+	if err := r.validateCurrentProductRefs(ctx, tx, refs); err != nil {
+		return err
+	}
+
 	updateProduct := fmt.Sprintf(`UPDATE %s.products
 		SET default_price=$2,
 		    retail_price_100g=$3,
@@ -4088,6 +4474,9 @@ func (r Repository) PublishRun(ctx context.Context, actor string, runID int64) e
 	}
 	publishedProducts := 0
 	for _, item := range items {
+		if item.CostUnavailable {
+			return fmt.Errorf("商品 %s 的库存成本待核算，无法发布试算价格", item.Name)
+		}
 		if item.ProductID <= 0 {
 			continue
 		}
@@ -4471,6 +4860,93 @@ func validateBeanListProductScope(ctx context.Context, tx pgx.Tx, schema string,
 		}
 	}
 	return nil
+}
+
+func beanListContentCostRefs(content map[string]any) []domain.ProductInput {
+	refs := []domain.ProductInput{}
+	covered := map[int64]bool{}
+	appendRow := func(row map[string]any, markCovered bool) {
+		id := anyInt64(row["product_id"])
+		if id <= 0 {
+			id = anyInt64(row["productId"])
+		}
+		if id <= 0 {
+			id = anyInt64(row["productID"])
+		}
+		sku := anyInt64(row["sku_id"])
+		parent := anyInt64(row["parent_product_id"])
+		if parent <= 0 {
+			parent = id
+		}
+		spec := anyInt64(row["bom_spec_id"])
+		if spec <= 0 {
+			spec = anyInt64(row["bomSpecID"])
+		}
+		variant := anyInt64(row["bom_variant_id"])
+		if variant <= 0 {
+			variant = anyInt64(row["bomVariantID"])
+		}
+		if snap, ok := anyMap(row["sku_snapshot"]); ok {
+			if spec <= 0 {
+				spec = anyInt64(snap["bom_spec_id"])
+			}
+			if variant <= 0 {
+				variant = anyInt64(snap["bom_variant_id"])
+			}
+		}
+		if sku > 0 {
+			refs = append(refs, domain.ProductInput{ProductID: sku, ParentProductID: parent, BomSpecID: spec, BomVariantID: variant})
+		} else if id > 0 {
+			refs = append(refs, domain.ProductInput{ProductID: id, ParentProductID: parent, BomSpecID: spec, BomVariantID: variant})
+		}
+		if markCovered {
+			if id > 0 {
+				covered[id] = true
+			}
+			if parent > 0 {
+				covered[parent] = true
+			}
+			if sku > 0 {
+				covered[sku] = true
+			}
+		}
+	}
+	if rows, ok := anySlice(content["price_rows"]); ok {
+		for _, raw := range rows {
+			if row, ok := anyMap(raw); ok {
+				appendRow(row, true)
+			}
+		}
+	}
+	if groups, ok := anySlice(content["groups"]); ok {
+		for _, raw := range groups {
+			group, ok := anyMap(raw)
+			if !ok {
+				continue
+			}
+			items, ok := anySlice(group["items"])
+			if !ok {
+				continue
+			}
+			for _, rawItem := range items {
+				row, ok := anyMap(rawItem)
+				if !ok {
+					continue
+				}
+				id := anyInt64(row["product_id"])
+				if id <= 0 {
+					id = anyInt64(row["productId"])
+				}
+				if id <= 0 {
+					id = anyInt64(row["productID"])
+				}
+				if id > 0 && !covered[id] {
+					appendRow(row, false)
+				}
+			}
+		}
+	}
+	return refs
 }
 
 func beanListContentProductIDs(content map[string]any) []int64 {

@@ -337,6 +337,9 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, r.schema+":production_roster:"+week); err != nil {
 			return productionapp.JobCardActionResult{}, err
 		}
+		if err = lockProductionFinancePeriodTx(ctx, tx, r.schema); err != nil {
+			return productionapp.JobCardActionResult{}, err
+		}
 	}
 
 	var workOrderID int64

@@ -1,6 +1,7 @@
 package finance
 
 import (
+	"encoding/json"
 	"math"
 	"strings"
 )
@@ -47,6 +48,7 @@ type Settings struct {
 }
 
 type MonthlySourceTotals struct {
+	CostUnavailable       bool   `json:"cost_unavailable"`
 	Month                 string `json:"month"`
 	RevenueTaxInclusive   Money  `json:"revenue_tax_inclusive"`
 	MainBusinessCost      Money  `json:"main_business_cost"`
@@ -71,6 +73,7 @@ type TaxEstimate struct {
 }
 
 type MonthlyReport struct {
+	CostUnavailable             bool             `json:"cost_unavailable"`
 	Month                       string           `json:"month"`
 	Status                      string           `json:"status"`
 	RevenueTaxInclusive         Money            `json:"revenue_tax_inclusive"`
@@ -154,6 +157,7 @@ func BuildMonthlyReport(settings Settings, totals MonthlySourceTotals) MonthlyRe
 	}
 	netProfit := roundMoney(taxExclusiveRevenue - totals.MainBusinessCost - totals.PeriodExpenses - tax.Surtax - tax.CITPayable)
 	report := MonthlyReport{
+		CostUnavailable:             totals.CostUnavailable,
 		Month:                       strings.TrimSpace(totals.Month),
 		Status:                      MonthStatusDraft,
 		RevenueTaxInclusive:         roundMoney(totals.RevenueTaxInclusive),
@@ -173,6 +177,35 @@ func BuildMonthlyReport(settings Settings, totals MonthlySourceTotals) MonthlyRe
 		AdjustedNetProfit:           netProfit,
 	}
 	return report
+}
+
+// Unknown production cost makes profit, income tax, and totals indeterminate.
+// Return null rather than a numerical placeholder to API and export consumers.
+func (r MonthlyReport) MarshalJSON() ([]byte, error) {
+	type plain MonthlyReport
+	raw, err := json.Marshal(plain(r))
+	if err != nil || !r.CostUnavailable {
+		return raw, err
+	}
+	var fields map[string]json.RawMessage
+	if err = json.Unmarshal(raw, &fields); err != nil {
+		return nil, err
+	}
+	for _, key := range []string{"main_business_cost", "adjusted_main_business_cost", "gross_profit", "gross_margin", "operating_net_profit", "adjusted_gross_profit", "adjusted_net_profit", "adjusted_tax_total"} {
+		fields[key] = json.RawMessage("null")
+	}
+	var tax map[string]json.RawMessage
+	if err = json.Unmarshal(fields["tax"], &tax); err != nil {
+		return nil, err
+	}
+	for _, key := range []string{"cit_taxable_income", "cit_payable", "cit_preference_saving", "total_tax"} {
+		tax[key] = json.RawMessage("null")
+	}
+	fields["tax"], err = json.Marshal(tax)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(fields)
 }
 
 func estimateTax(settings Settings, totals MonthlySourceTotals) (Money, TaxEstimate) {

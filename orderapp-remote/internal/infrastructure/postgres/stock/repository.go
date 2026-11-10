@@ -145,7 +145,7 @@ func (r Repository) ListBatches(ctx context.Context, query stockapp.BatchQuery) 
 		SELECT id,batch_code,item_type,item_id,item_name,spec_g,bom_spec_id,bom_variant_id,
 		       source_doc_type,source_doc_id,source_batch_id,
 		       qty_g,qty_units,remaining_g,remaining_units,COALESCE(unit_cost,0),
-		       COALESCE(quality_status,'unchecked'),
+		       COALESCE(quality_status,'unchecked'),cost_unavailable,
 		       operator,to_char(created_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.stock_batches
 		WHERE %s
@@ -160,7 +160,7 @@ func (r Repository) ListBatches(ctx context.Context, query stockapp.BatchQuery) 
 	out := make([]stockapp.BatchRow, 0)
 	for rows.Next() {
 		var row stockapp.BatchRow
-		if err := rows.Scan(&row.ID, &row.BatchCode, &row.ItemType, &row.ItemID, &row.ItemName, &row.SpecG, &row.BomSpecID, &row.BomVariantID, &row.SourceDocType, &row.SourceDocID, &row.SourceBatchID, &row.QtyG, &row.QtyUnits, &row.RemainingG, &row.RemainingUnits, &row.UnitCost, &row.QualityStatus, &row.Operator, &row.CreatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.BatchCode, &row.ItemType, &row.ItemID, &row.ItemName, &row.SpecG, &row.BomSpecID, &row.BomVariantID, &row.SourceDocType, &row.SourceDocID, &row.SourceBatchID, &row.QtyG, &row.QtyUnits, &row.RemainingG, &row.RemainingUnits, &row.UnitCost, &row.QualityStatus, &row.CostUnavailable, &row.Operator, &row.CreatedAt); err != nil {
 			return stockapp.BatchResult{}, err
 		}
 		out = append(out, row)
@@ -204,7 +204,7 @@ func (r Repository) ListMaterialBatches(ctx context.Context, query stockapp.Mate
 		SELECT b.id,b.batch_code,b.material_id,COALESCE(m.name,''),b.supplier,b.receipt_id,
 		       b.qty_g,b.qty_units,b.remaining_g,b.remaining_units,COALESCE(b.unit_cost,0),
 		       COALESCE(b.crop_season,''),COALESCE(b.origin,''),COALESCE(b.producer_flavor_description,''),
-		       to_char(b.received_at,'YYYY-MM-DD HH24:MI'),b.status,COALESCE(b.quality_status,'unchecked'),b.note
+		       to_char(b.received_at,'YYYY-MM-DD HH24:MI'),b.status,COALESCE(b.quality_status,'unchecked'),b.note,b.cost_unavailable
 		FROM %s.material_batches b
 		LEFT JOIN %s.materials m ON m.id=b.material_id
 		WHERE %s
@@ -219,7 +219,7 @@ func (r Repository) ListMaterialBatches(ctx context.Context, query stockapp.Mate
 	out := make([]stockapp.MaterialBatchRow, 0)
 	for rows.Next() {
 		var row stockapp.MaterialBatchRow
-		if err := rows.Scan(&row.ID, &row.BatchCode, &row.MaterialID, &row.MaterialName, &row.Supplier, &row.ReceiptID, &row.QtyG, &row.QtyUnits, &row.RemainingG, &row.RemainingUnits, &row.UnitCost, &row.CropSeason, &row.Origin, &row.ProducerFlavorDescription, &row.ReceivedAt, &row.Status, &row.QualityStatus, &row.Note); err != nil {
+		if err := rows.Scan(&row.ID, &row.BatchCode, &row.MaterialID, &row.MaterialName, &row.Supplier, &row.ReceiptID, &row.QtyG, &row.QtyUnits, &row.RemainingG, &row.RemainingUnits, &row.UnitCost, &row.CropSeason, &row.Origin, &row.ProducerFlavorDescription, &row.ReceivedAt, &row.Status, &row.QualityStatus, &row.Note, &row.CostUnavailable); err != nil {
 			return stockapp.MaterialBatchResult{}, err
 		}
 		out = append(out, row)
@@ -486,6 +486,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			       l.qty_g AS qty_g,
 			       l.qty_units AS qty_units,
 			       COALESCE(b.unit_cost,0) AS unit_cost,
+			       COALESCE(b.cost_unavailable,true) AS cost_unavailable,
 			       COALESCE(b.quality_status,'unchecked') AS quality_status,
 			       l.updated_at AS updated_at
 			FROM %s.material_batch_locations l
@@ -514,6 +515,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			       b.remaining_g AS qty_g,
 			       b.remaining_units AS qty_units,
 			       COALESCE(b.unit_cost,0) AS unit_cost,
+			       COALESCE(b.cost_unavailable,true) AS cost_unavailable,
 			       COALESCE(b.quality_status,'unchecked') AS quality_status,
 			       COALESCE(last_ledger.created_at,b.created_at) AS updated_at
 			FROM %s.stock_batches b
@@ -556,6 +558,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			       (fi.onhand_units * fi.spec_g + fi.onhand_loose_g) AS qty_g,
 			       fi.onhand_units AS qty_units,
 			       0::numeric AS unit_cost,
+			       true AS cost_unavailable,
 			       'unchecked' AS quality_status,
 			       fi.updated_at AS updated_at
 			FROM %s.finished_inventory fi
@@ -584,7 +587,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 		       COALESCE(bga.group_item_id,0), COALESCE(item.name,''),
 		       CASE WHEN bga.id IS NULL THEN '' ELSE 'warehouse_inventory' END,
 		       wi.item_type,wi.item_id,wi.item_name,wi.spec_g,wi.bom_spec_id,wi.bom_variant_id,wi.bom_spec_name,wi.inventory_unit,wi.batch_id,wi.batch_code,
-		       wi.qty_g,wi.qty_units,COALESCE(wi.unit_cost,0),wi.quality_status,to_char(wi.updated_at,'YYYY-MM-DD HH24:MI'),
+		       wi.qty_g,wi.qty_units,COALESCE(wi.unit_cost,0),wi.cost_unavailable,wi.quality_status,to_char(wi.updated_at,'YYYY-MM-DD HH24:MI'),
 		       count(*) OVER()::int AS total_count
 		FROM warehouse_inventory wi
 		LEFT JOIN %[1]s.business_group_assignments bga ON bga.object_ref=wi.warehouse AND bga.object_id=0 AND lower(bga.usage_key)='warehouse_inventory' AND lower(bga.object_key)='warehouse'
@@ -603,7 +606,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 	total := 0
 	for rows.Next() {
 		var row stockapp.WarehouseInventoryRow
-		if err := rows.Scan(&row.Warehouse, &row.WarehouseName, &row.WarehouseKind, &row.GroupID, &row.GroupName, &row.GroupItemID, &row.GroupItemName, &row.GroupSource, &row.ItemType, &row.ItemID, &row.ItemName, &row.SpecG, &row.BomSpecID, &row.BomVariantID, &row.BomSpecName, &row.InventoryUnit, &row.BatchID, &row.BatchCode, &row.QtyG, &row.QtyUnits, &row.UnitCost, &row.QualityStatus, &row.UpdatedAt, &total); err != nil {
+		if err := rows.Scan(&row.Warehouse, &row.WarehouseName, &row.WarehouseKind, &row.GroupID, &row.GroupName, &row.GroupItemID, &row.GroupItemName, &row.GroupSource, &row.ItemType, &row.ItemID, &row.ItemName, &row.SpecG, &row.BomSpecID, &row.BomVariantID, &row.BomSpecName, &row.InventoryUnit, &row.BatchID, &row.BatchCode, &row.QtyG, &row.QtyUnits, &row.UnitCost, &row.CostUnavailable, &row.QualityStatus, &row.UpdatedAt, &total); err != nil {
 			return stockapp.WarehouseInventoryResult{}, err
 		}
 		out = append(out, row)
@@ -1539,6 +1542,7 @@ func (r Repository) createMaterialCostAdjustment(ctx context.Context, cmd stocka
 	var itemName, batchCode, materialUnit, batchWarehouses string
 	var remainingG, remainingUnits int64
 	var beforeCost float64
+	var costUnavailable bool
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(m.name,''), b.batch_code, b.remaining_g, b.remaining_units,COALESCE(m.unit,''),
 		       COALESCE((
@@ -1546,7 +1550,8 @@ func (r Repository) createMaterialCostAdjustment(ctx context.Context, cmd stocka
 		           FROM %s.material_batch_locations l
 		           WHERE l.material_batch_id=b.id AND (l.qty_g>0 OR l.qty_units>0)
 		       ),''),
-		       COALESCE(b.unit_cost,0)::float8
+		       COALESCE(b.unit_cost,0)::float8,
+		       COALESCE(b.cost_unavailable,false) OR EXISTS(SELECT 1 FROM %s.stock_batches sb WHERE sb.item_type='material' AND sb.batch_code=b.batch_code AND sb.cost_unavailable)
 		FROM %s.material_batches b
 		JOIN %s.materials m ON m.id=b.material_id
 		WHERE b.id=$1 AND b.material_id=$2
@@ -1554,8 +1559,11 @@ func (r Repository) createMaterialCostAdjustment(ctx context.Context, cmd stocka
 		  AND b.status='active'
 		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 		FOR UPDATE OF b
-	`, r.schema, r.schema, r.schema), cmd.MaterialBatchID, cmd.ItemID).Scan(&itemName, &batchCode, &remainingG, &remainingUnits, &materialUnit, &batchWarehouses, &beforeCost); err != nil {
+	`, r.schema, r.schema, r.schema, r.schema), cmd.MaterialBatchID, cmd.ItemID).Scan(&itemName, &batchCode, &remainingG, &remainingUnits, &materialUnit, &batchWarehouses, &beforeCost, &costUnavailable); err != nil {
 		return stockapp.StockAdjustmentResult{}, err
+	}
+	if costUnavailable {
+		return stockapp.StockAdjustmentResult{}, fmt.Errorf("原成本未知，无法计算调整差额，请先核对成本")
 	}
 	if remainingG <= 0 && remainingUnits <= 0 {
 		return stockapp.StockAdjustmentResult{}, fmt.Errorf("material batch has no remaining stock")
