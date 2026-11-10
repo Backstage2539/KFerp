@@ -66,6 +66,9 @@ func previewRouteAllowed(c echo.Context) bool {
 	case "/api/mini/customer-inventory/:product_id/batches":
 		n, err := strconv.ParseInt(c.Param("product_id"), 10, 64)
 		return err == nil && n > 0
+	case "/api/mini/orders/:id/copy-details":
+		n, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		return err == nil && n > 0
 	case "/api/mini/processing-requests/:id":
 		n, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		return err == nil && n > 0

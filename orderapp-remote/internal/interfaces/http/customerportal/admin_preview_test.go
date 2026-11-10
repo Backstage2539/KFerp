@@ -106,7 +106,7 @@ func TestPreviewMiddlewareRejectsEveryUnlistedReadAndWrite(t *testing.T) {
 	svc := &previewMiddlewareService{allowed: true}
 	e.Use(adminPreviewReadOnlyMiddleware(svc))
 	for _, route := range []struct{ method, path string }{
-		{"GET", "/api/mini/me"}, {"GET", "/api/mini/services/:key"}, {"GET", "/api/mini/customer-issued-bills/:id"},
+		{"GET", "/api/mini/me"}, {"GET", "/api/mini/services/:key"}, {"GET", "/api/mini/customer-issued-bills/:id"}, {"GET", "/api/mini/orders/:id/copy-details"},
 		{"POST", "/api/mini/product-orders"}, {"POST", "/api/mini/customer-preview/exit"}, {"GET", "/api/mini/employee/orders"}, {"GET", "/api/customers"},
 	} {
 		e.Add(route.method, route.path, func(c echo.Context) error { return c.NoContent(204) })
@@ -116,7 +116,7 @@ func TestPreviewMiddlewareRejectsEveryUnlistedReadAndWrite(t *testing.T) {
 		expected     int
 	}{
 		{"GET", "/api/mini/me", 204}, {"GET", "/api/mini/services/orders", 204}, {"GET", "/api/mini/services/product_order", 403},
-		{"GET", "/api/mini/customer-issued-bills/1.pdf", 204}, {"GET", "/api/mini/customer-issued-bills/anything", 403},
+		{"GET", "/api/mini/customer-issued-bills/1.pdf", 204}, {"GET", "/api/mini/customer-issued-bills/anything", 403}, {"GET", "/api/mini/orders/1/copy-details", 204}, {"GET", "/api/mini/orders/not-an-id/copy-details", 403},
 		{"POST", "/api/mini/product-orders", 403}, {"GET", "/api/mini/employee/orders", 403}, {"GET", "/api/customers", 403},
 		{"POST", "/api/mini/customer-preview/exit", 204},
 	} {
