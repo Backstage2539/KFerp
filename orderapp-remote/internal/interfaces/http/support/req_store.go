@@ -270,6 +270,8 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-755-FULFILLMENT-ORDER-RESERVATION-LABEL", title: "履约成品库存显示待发订单占用", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-10-fulfillment-order-reservation-label.md；用户验收待完成"},
+		{table: "req_dev", code: "DEV-PR755-01", title: "成品占用列名称和类型切换验证", status: "review", assignee: "Codex", evidence: "fulfillment-inventory-orders-dom.test.js；客户履约操作手册"},
 		{table: "req_product", code: "PR-754-OPERATION-REPORTING-MODES", title: "三类工序分别排产报工及结算余料", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-09-operation-reporting-modes.md；用户验收待完成"},
 		{table: "req_dev", code: "DEV-PR754-01", title: "工序排产方式和参考处理速度", status: "review", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PR754-02", title: "来料工序废料报工及多工位校准", status: "review", assignee: "Codex"},

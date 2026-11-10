@@ -15,6 +15,25 @@ code = code.replace(/from (['"])([^'"]+)\1/g, (_, quote, path) => `from ${JSON.s
 const component = (await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)).default
 
 const stock = (sources = []) => ({ inventory_type:'finished_product', item_id:10, bom_spec_id:12, spec_g:0, item_name:'咖啡', unit:'袋', warehouses:[], batches:[], order_sources:sources })
+test('库存表将现货占用显示为待发订单占用，数量仍不包含待入库预订', async () => {
+  const row = {...stock(), total_qty:20, occupied_qty:5, physical_available_qty:7, pending_inbound_qty:10, pending_reserved_qty:2}
+  const rows = [row, ...['green_bean', 'packaging', 'semi_finished'].map((type, i) => ({...row, item_id:20+i, inventory_type:type}))]
+  const app = createApp({render:()=>h(component,{rows})})
+  try {
+    app.mount('#app'); await nextTick()
+    const headers = [...document.querySelectorAll('.inventory-table-wrap thead th')].map(th=>th.textContent.trim())
+    assert.deepEqual(headers, ['商品 / 规格', '所在仓库', '实物库存', '待发订单占用', '可立即发货', '已购待入库', '操作'])
+    const cells = [...document.querySelectorAll('.inventory-table-wrap tbody tr:first-child td')]
+    assert.equal(cells[3].textContent.trim(), '3')
+    assert.equal(cells[4].textContent.trim(), '7')
+    assert.match(cells[5].textContent, /10.*其中已预订 2/s)
+    for (const button of [...document.querySelectorAll('.inventory-tabs button')].slice(1)) {
+      button.click(); await nextTick()
+      assert.equal(document.querySelectorAll('.inventory-table-wrap thead th')[3].textContent.trim(), '现货占用')
+      assert.equal(document.querySelectorAll('.inventory-table-wrap tbody tr:first-child td')[3].textContent.trim(), '3')
+    }
+  } finally { app.unmount() }
+})
 test('库存明细显示各留厂订单付款状态并在数据刷新后更新，不混淆库存余量', async () => {
   const rows = ref([stock([{order_id:1,order_no:'SO-PAID',pay_status:'已付款',pending_inbound_qty:2,received_qty:4,returned_qty:2},{order_id:2,order_no:'SO-DUE',pay_status:'未付款',pending_inbound_qty:6,received_qty:0}])])
   const app = createApp({render:()=>h(component,{rows:rows.value})})

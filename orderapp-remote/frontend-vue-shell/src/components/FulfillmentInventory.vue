@@ -8,7 +8,7 @@
     </div>
     <p class="inventory-note">可立即发货只包含已入库且可用的现货。已购待入库单独列出，可预订，不能直接发货。</p>
     <div class="inventory-table-wrap"><table>
-      <thead><tr><th>商品 / 规格</th><th>所在仓库</th><th class="number">实物库存</th><th class="number">现货占用</th><th class="number">可立即发货</th><th class="number">已购待入库</th><th>操作</th></tr></thead>
+      <thead><tr><th>商品 / 规格</th><th>所在仓库</th><th class="number">实物库存</th><th class="number">{{ type === 'finished_product' ? '待发订单占用' : '现货占用' }}</th><th class="number">可立即发货</th><th class="number">已购待入库</th><th>操作</th></tr></thead>
       <tbody><tr v-for="row in pagedRows" :key="`${row.inventory_type}-${row.item_id}-${row.bom_spec_id}-${row.spec_g}`">
         <td><strong>{{ row.item_name }}</strong><small>{{ row.spec || '无规格' }} · {{ row.item_code || '未设置编码' }}</small></td>
         <td><span>{{ row.warehouses?.map(w => w.warehouse_name || w.warehouse_code).join('、') || '—' }}</span></td>
