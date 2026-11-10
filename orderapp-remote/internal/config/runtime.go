@@ -15,6 +15,7 @@ type Runtime struct {
 	AuthUser                 string
 	AuthPass                 string
 	DisableBasicAuth         bool
+	DisableMiniPasswordLogin bool
 	ListenAddr               string
 	CustomerPortalDevLogin   bool
 	CustomerPortalDevOpenID  string
@@ -40,6 +41,7 @@ func LoadRuntime(lookup func(string) string) (Runtime, error) {
 		AuthUser:                 env(lookup, "APP_USER", "order"),
 		AuthPass:                 env(lookup, "APP_PASS", ""),
 		DisableBasicAuth:         envBool(lookup, "DISABLE_BASIC_AUTH", false),
+		DisableMiniPasswordLogin: envBool(lookup, "MINIAPP_PASSWORD_LOGIN_DISABLED", false),
 		ListenAddr:               env(lookup, "LISTEN", ":8080"),
 		CustomerPortalDevLogin:   envBool(lookup, "CUSTOMER_PORTAL_DEV_LOGIN", false),
 		CustomerPortalDevOpenID:  env(lookup, "CUSTOMER_PORTAL_DEV_OPENID", "dev-openid-local"),

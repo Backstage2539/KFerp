@@ -35,6 +35,10 @@ vi.mock('../components/CustomerDirectShipPanel.vue', async () => {
   const { h } = await import('vue')
   return { default: { props: ['showCreate'], setup: (props: { showCreate?: boolean }) => () => h('view', { 'data-shipment-panel': true }, `创建表单:${props.showCreate}`) } }
 })
+vi.mock('../components/CustomerBillsPanel.vue', async () => {
+  const { h } = await import('vue')
+  return { default: { props: ['token'], setup: (props: { token: string }) => () => h('view', { 'data-bills-token': props.token }, '费用账单') } }
+})
 
 type Node = { type: string; children: Node[]; parent?: Node; props: Record<string, any>; text?: string; [key: string]: any }
 const renderer = createRenderer<Node, Node>({
@@ -228,4 +232,53 @@ describe('real customer navigation interactions', () => {
       expect(uni.navigateTo).toHaveBeenCalledWith({ url: '/pages/service/service?key=orders&source=official&q=SO%20%26%2019' })
     } finally { app.unmount() }
   })
+})
+
+it('opens real customer order, price and billing routes with a customer-scoped preview and no customer user or binding', async () => {
+  const preview = { mini_user_id: 0, current_customer_id: 74, current_customer_name: '客户甲', account_type: 'preview', bindings: [], capabilities: [{code:'direct_ship',enabled:true},{code:'settlement',enabled:true}], fulfillment_modes: ['stock'] as Array<'stock' | 'on_demand'> }
+  api.me.mockResolvedValue(preview)
+  api.services.mockResolvedValue({ key: 'orders', title: '我的订单', orders: [{ id: 1, order_no: 'SO-PREVIEW', receiver_address: '客户甲地址' }], has_more: false, theme_key: 'clean_ops', current_customer_id: 74 })
+  const orderPage = mount(Service, {}, ['direct_ship', 'settlement'])
+  orderPage.session.setToken('employee-token')
+  orderPage.session.applyContext({ mini_user_id: 9, current_customer_id: 0, bindings: [], capabilities: [], account_type: 'employee', roles: ['admin'] })
+  orderPage.session.beginCustomerPreview('preview-token', preview)
+  try {
+    await openPage({ key: 'orders', source: 'official' })
+    expect(api.services).toHaveBeenCalledWith('preview-token', 'orders', expect.anything())
+    expect(text(orderPage.root)).toContain('SO-PREVIEW')
+    expect(orderPage.session.accountType).toBe('preview')
+    expect(orderPage.session.miniUserID).toBe(0)
+    expect(orderPage.session.bindings).toEqual([])
+    orderPage.app.unmount(); hooks.load.length = 0; hooks.show.length = 0
+    const BeanCenter = (await import('../pages/bean-list-center/bean-list-center.vue')).default
+    clientRender(BeanCenter, '../pages/bean-list-center/bean-list-center.vue')
+    const priceRoot: Node = { type:'root', children:[], props:{} }, priceApp = renderer.createApp({ setup: () => () => h(BeanCenter) })
+    priceApp.use(orderPage.pinia); priceApp.provide(ssrContextKey, { modules:new Set() }); priceApp.mount(priceRoot)
+    try {
+      hooks.show.forEach(callback => callback()); await settle()
+      expect(find(priceRoot, node => node.props['data-price-preview'] === 'product_order')).toHaveLength(1)
+      expect(text(priceRoot)).not.toContain('查看受限价格表请先登录客户账号')
+    } finally { priceApp.unmount() }
+    hooks.load.length = 0; hooks.show.length = 0
+    const billRoot: Node = { type:'root', children:[], props:{} }, billApp = renderer.createApp({ setup: () => () => h(Service) })
+    billApp.use(orderPage.pinia); billApp.provide(ssrContextKey, { modules:new Set() }); billApp.mount(billRoot)
+    try {
+      await openPage({ key: 'settlement' })
+      expect(find(billRoot, node => node.props['data-bills-token'] === 'preview-token')).toHaveLength(1)
+    } finally { billApp.unmount() }
+  } finally { orderPage.app.unmount() }
+})
+
+it('returns a customer preview to the selected customer home from the home tab', async () => {
+  const Index = (await import('../pages/index/index.vue')).default
+  const GuestHome = (await import('../components/GuestHome.vue')).default
+  clientRender(GuestHome, '../components/GuestHome.vue')
+  clientRender(Index, '../pages/index/index.vue')
+  const { app, session } = mount(Index)
+  session.$patch({token:'admin-preview.scoped',previewEmployeeToken:'employee-token',accountType:'preview',currentCustomerID:901,bindings:[]})
+  try {
+    hooks.show.forEach(callback => callback())
+    await settle()
+    expect(uni.reLaunch).toHaveBeenCalledWith({url:'/pages/home/home'})
+  } finally { app.unmount() }
 })

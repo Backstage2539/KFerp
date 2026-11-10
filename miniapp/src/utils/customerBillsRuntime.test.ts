@@ -58,3 +58,9 @@ it('keeps valid date ranges while switching all, month, week and custom', async 
     expect(api.fetch.mock.calls.at(-1)![1]).toMatchObject({date_from:'2026-10-25',date_to:'2026-11-10'})
   } finally { app.unmount() }
 })
+
+it('passes the scoped administrator preview token to the actual bills panel', async () => {
+  api.fetch.mockResolvedValue({rows:[{batch_id:9,settlement_no:'CUSTOMER-74-BILL',issued_at:'2026-11-08',total_amount_cents:225600,current_received_cents:0,current_due_amount_cents:225600,adjustment_cents:0}],total:1,page:1,limit:20,summary:{count:1,unpaid_count:1,total_amount_cents:225600,received_cents:0,due_amount_cents:225600,adjustment_cents:0}})
+  const root: Node = { type:'root',children:[],props:{} }, app = renderer.createApp({ render: () => h(Bills, { token:'preview-token' }) }); app.provide(ssrContextKey, { modules:new Set() }); app.mount(root)
+  try { await settle(); expect(api.fetch).toHaveBeenCalledWith('preview-token', expect.anything()); expect(textOf(root)).toContain('CUSTOMER-74-BILL') } finally { app.unmount() }
+})

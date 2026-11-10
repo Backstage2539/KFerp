@@ -119,7 +119,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) func(con
 	messagecenterhttp.RegisterRoutes(e, messagecenterhttp.Dependencies{MessageCenter: messageCenterSvc})
 	notifications := notificationhttp.RegisterRoutes(e, pool, schema, customerPortalSvc, authzSvc, salesSvc, officialaccounthttp.ConfigFromEnv(cfg.WechatMiniAppID))
 
-	customerportalhttp.RegisterRoutes(e, customerportalhttp.Dependencies{CustomerPortal: customerPortalSvc, CustomerFulfillment: customerFulfillmentSvc, Authz: authzSvc, MessageCenter: messageCenterSvc, SalesDocuments: salesSvc, EmployeeSales: salesSvc, CustomerMaintenance: customerSvc, EmployeeShareSettings: supporthttp.NewAppConfigStore(pool, schema), AssetDir: assetDir})
+	customerportalhttp.RegisterRoutes(e, customerportalhttp.Dependencies{CustomerPortal: customerPortalSvc, CustomerFulfillment: customerFulfillmentSvc, Authz: authzSvc, MessageCenter: messageCenterSvc, SalesDocuments: salesSvc, EmployeeSales: salesSvc, CustomerMaintenance: customerSvc, EmployeeShareSettings: supporthttp.NewAppConfigStore(pool, schema), AssetDir: assetDir, DisableMiniPasswordLogin: cfg.DisableMiniPasswordLogin})
 	freighthttp.RegisterRoutes(e, pool, schema, customerFulfillmentSvc)
 	resolutionhttp.RegisterRoutes(e, resolutionpg.NewRepository(pool, schema), authzSvc)
 	customerfulfillmenthttp.RegisterRoutes(e, customerfulfillmenthttp.Dependencies{CustomerFulfillment: customerFulfillmentSvc, Customers: customerSvc, MessageCenter: messageCenterSvc, Sales: salesSvc, SharedProcessing: customerPortalSvc, AssetDir: assetDir})

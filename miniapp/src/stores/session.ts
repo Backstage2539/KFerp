@@ -1,6 +1,7 @@
 import type { RegistrationProfile } from '../api/registration'
+import { markPreviewToken, unmarkPreviewToken } from '../api/client'
 import { defineStore } from 'pinia'
-import type { CustomerBinding, MiniappEntryMode } from '../api/customerPortal'
+import type { CustomerBinding, MiniappEntryMode, MeResponse } from '../api/customerPortal'
 import {
   configuredMiniappEnvironment,
   miniappStorageKey,
@@ -25,6 +26,7 @@ function storedMiniappToken(): string {
 export const useSessionStore = defineStore('session', {
   state: () => ({
     token: storedMiniappToken(),
+    previewEmployeeToken: '',
     autoRestoreBlocked: !!uni.getStorageSync(miniappStorageKey('signed-out', configuredMiniappEnvironment())),
  registration: null as RegistrationProfile|null,
  registrationComplete:false,
@@ -43,19 +45,47 @@ export const useSessionStore = defineStore('session', {
     roles: [] as string[],
     permissions: [] as string[],
   }),
+  getters: {
+    isCustomerPreview: (state) => !!state.previewEmployeeToken,
+  },
   actions: {
     setToken(token: string) {
+      if (this.previewEmployeeToken) unmarkPreviewToken(this.token)
+      this.previewEmployeeToken = ''
       this.token = token
       this.autoRestoreBlocked = false
       uni.removeStorageSync(miniappStorageKey('signed-out', configuredMiniappEnvironment()))
       uni.setStorageSync(miniappTokenStorageKey(), token)
     },
+    beginCustomerPreview(token: string, context: Omit<MeResponse, 'current_customer_name'> & {current_customer_name?: string}) {
+      if (this.accountType !== 'employee' || !this.roles.includes('admin') || !this.token || !token || context.account_type !== 'preview' || !context.current_customer_id) {
+        throw new Error('无法进入客户只读预览')
+      }
+      this.previewEmployeeToken = this.token
+      this.token = token
+      markPreviewToken(token)
+      this.applyContext(context)
+    },
+    endCustomerPreview() {
+      if (!this.previewEmployeeToken) return
+      const employeeToken = this.previewEmployeeToken
+      unmarkPreviewToken(this.token)
+      this.previewEmployeeToken = ''
+      this.clearSession(true)
+      this.setToken(employeeToken)
+    },
     logout() {
+      if (this.previewEmployeeToken) unmarkPreviewToken(this.token)
+      this.previewEmployeeToken = ''
       this.autoRestoreBlocked = true
       uni.setStorageSync(miniappStorageKey('signed-out', configuredMiniappEnvironment()), true)
       this.clearSession(true)
     },
     clearSession(preserveRegistrationHint = false) {
+      if (this.previewEmployeeToken) {
+        this.endCustomerPreview()
+        return
+      }
       this.token = ''
       this.registration = null
       this.registrationComplete = false

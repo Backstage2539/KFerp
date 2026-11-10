@@ -103,6 +103,7 @@
         "navigationBarTitleText": "订单详情"
       }
     },
+    {"path":"pages/admin-customer-preview/admin-customer-preview","style":{"navigationBarTitleText":"客户只读预览"}},
     {
       "path": "pages/employee-customers/employee-customers",
       "style": {

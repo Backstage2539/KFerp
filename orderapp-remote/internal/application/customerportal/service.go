@@ -122,6 +122,7 @@ type CreateLoginSessionCommand struct {
 
 type CreatePhoneVerifiedLoginSessionCommand struct {
 	Registration   bool
+	Identify       bool
 	CredentialHash string
 	OpenID         string
 	UnionID        string
@@ -1312,6 +1313,7 @@ type Repository interface {
 type Service struct {
 	repo     Repository
 	identity IdentityProvider
+	previews previewSessions
 }
 
 type processingRequestPreviewRepository interface {
@@ -1370,7 +1372,7 @@ func (s *Service) Login(ctx context.Context, cmd LoginCommand) (LoginResult, err
 			Phone:    strings.TrimSpace(cmd.Phone),
 			Nickname: strings.TrimSpace(cmd.Nickname),
 		})
-	case "phone_verify", "register":
+	case "phone_verify", "register", "phone_identify":
 		if mode == "register" && !ValidRegistrationNickname(cmd.Nickname) {
 			return LoginResult{}, fmt.Errorf("请填写 1 至 32 字的昵称")
 		}
@@ -1387,15 +1389,12 @@ func (s *Service) Login(ctx context.Context, cmd LoginCommand) (LoginResult, err
 		if err != nil {
 			return LoginResult{}, err
 		}
-		phone := strings.TrimSpace(phoneNumber.PhoneNumber)
-		if phone == "" {
-			phone = strings.TrimSpace(phoneNumber.PurePhoneNumber)
-		}
+		phone := normalizeVerifiedMiniPhone(phoneNumber)
 		if phone == "" {
 			return LoginResult{}, fmt.Errorf("phone required")
 		}
 		result, err = s.repo.CreatePhoneVerifiedLoginSession(ctx, CreatePhoneVerifiedLoginSessionCommand{
-			Registration: mode == "register", CredentialHash: PhoneCredentialHash(phoneCode),
+			Registration: mode == "register" || mode == "phone_identify", Identify: mode == "phone_identify", CredentialHash: PhoneCredentialHash(phoneCode),
 			OpenID:   identity.OpenID,
 			UnionID:  strings.TrimSpace(identity.UnionID),
 			Phone:    phone,
@@ -1408,6 +1407,41 @@ func (s *Service) Login(ctx context.Context, cmd LoginCommand) (LoginResult, err
 		return LoginResult{}, err
 	}
 	return normalizeLoginResult(result), nil
+}
+
+var explicitInternationalPhone = regexp.MustCompile(`^\+[1-9][0-9]{1,14}$`)
+
+// Non-mainland numbers must retain a verified country prefix: a bare national
+// number from another country must never match a mainland customer account.
+func normalizeVerifiedMiniPhone(number MiniPhoneNumber) string {
+	full := strings.TrimSpace(number.PhoneNumber)
+	pure := strings.TrimSpace(number.PurePhoneNumber)
+	country := strings.TrimPrefix(strings.TrimSpace(number.CountryCode), "+")
+	if country == "86" {
+		if pure != "" {
+			return pure
+		}
+		return strings.TrimPrefix(full, "+86")
+	}
+	if country != "" {
+		if pure != "" {
+			return "+" + country + pure
+		}
+		if strings.HasPrefix(full, "+"+country) {
+			return full
+		}
+		return ""
+	}
+	// An absent country code is ambiguous unless the full number itself has
+	// an explicit international prefix. Never treat an unqualified number as
+	// a local account identifier merely because its digits happen to match.
+	if !explicitInternationalPhone.MatchString(full) {
+		return ""
+	}
+	if strings.HasPrefix(full, "+86") && len(full) > len("+86") {
+		return strings.TrimPrefix(full, "+86")
+	}
+	return full
 }
 
 func (s *Service) LoginWithPassword(ctx context.Context, cmd PasswordLoginCommand) (LoginResult, error) {
@@ -1440,9 +1474,18 @@ func (s *Service) Me(ctx context.Context, token string) (CurrentContext, error) 
 	if s.repo == nil {
 		return CurrentContext{}, fmt.Errorf("repository required")
 	}
+	if IsAdminPreviewToken(token) {
+		return s.previewContext(ctx, token)
+	}
+	if s.employeeSessionRevoked(token) {
+		return CurrentContext{}, ErrMiniSessionNotFound
+	}
 	current, err := s.repo.CurrentContextByToken(ctx, token)
 	if err != nil {
 		return CurrentContext{}, err
+	}
+	if s.employeeSessionRevoked(token) {
+		return CurrentContext{}, ErrMiniSessionNotFound
 	}
 	if current.CurrentCustomerID > 0 && current.AccountType != "employee" {
 		if modes, ok := s.repo.(interface {
