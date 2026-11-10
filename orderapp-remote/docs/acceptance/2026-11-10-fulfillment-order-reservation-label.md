@@ -5,3 +5,4 @@
 - GREEN：库存 DOM 测试覆盖四种类型切换、成品显示数量、待入库预订分离；配套数量函数测试通过。
 - 手册：`orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`。
 - 无新增 API 或业务写操作；用户验收待完成。
+- 开发环境 ERP-only 运行版本 `a84eede23cda9c3c5adad6ca04397fc4d8205fd2`；登录 200、需求 API 可见、页面资源与手册含新表头，数据库健康。正式环境未部署。
