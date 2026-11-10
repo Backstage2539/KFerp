@@ -350,3 +350,75 @@ func manufacturingRepositoryFunctionForTest(t *testing.T, src, startMarker, endM
 	}
 	return src[start : start+len(startMarker)+end]
 }
+
+func TestBatchPresetCreateAndReuse(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
+	if dsn == "" {
+		t.Skip("test database required")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	schema := fmt.Sprintf("test_batch_preset_%d", time.Now().UnixNano())
+	if _, err = pool.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+	if err = EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`CREATE TABLE %s.audit_logs (id BIGSERIAL PRIMARY KEY,actor TEXT NOT NULL DEFAULT '',entity_type TEXT NOT NULL DEFAULT '',entity_id BIGINT,action TEXT NOT NULL DEFAULT '',field TEXT,old_value TEXT,new_value TEXT,meta JSONB,created_at TIMESTAMPTZ NOT NULL DEFAULT now())`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	var stationID, baseID int64
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.manufacturing_workstations(code,name,status,hourly_rate) VALUES('ST','布勒','active',300) RETURNING id`, schema)).Scan(&stationID); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.manufacturing_workstation_capacities(workstation_id,code,name,status,batch_size_qty,batch_size_unit,standard_minutes,cost_method,production_capacity,scheduling_mode) VALUES($1,'BASE','15kg','active',15,'kg',18,'time',1,'batch') RETURNING id`, schema), stationID).Scan(&baseID); err != nil {
+		t.Fatal(err)
+	}
+	repo := NewRepository(pool, schema)
+	cmd := manufacturingapp.CreateBatchPresetCommand{SourceCapacityID: baseID, BatchSizeQty: 18.7, Actor: "test"}
+	first, err := repo.CreateBatchPreset(ctx, cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.Created || first.Capacity.BatchSizeQty != 18.7 || first.Capacity.StandardMinutes != 18 || first.Capacity.HourlyRate != 300 || first.Capacity.WorkstationID != stationID {
+		t.Fatalf("created: %+v", first)
+	}
+	again, err := repo.CreateBatchPreset(ctx, cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Created || again.Capacity.ID != first.Capacity.ID {
+		t.Fatalf("duplicate: %+v", again)
+	}
+	var count int
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.audit_logs WHERE entity_id=$1 AND action='create' AND meta->>'source_capacity_id'=$2`, schema), first.Capacity.ID, fmt.Sprint(baseID)).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("audit count=%d err=%v", count, err)
+	}
+	concurrent := make(chan error, 6)
+	for i := 0; i < 6; i++ {
+		go func() {
+			_, err := repo.CreateBatchPreset(ctx, manufacturingapp.CreateBatchPresetCommand{SourceCapacityID: baseID, BatchSizeQty: 19.1, Actor: "test"})
+			concurrent <- err
+		}()
+	}
+	for i := 0; i < 6; i++ {
+		if err := <-concurrent; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.manufacturing_workstation_capacities WHERE workstation_id=$1 AND batch_size_qty=19.1`, schema), stationID).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("concurrent count=%d err=%v", count, err)
+	}
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.manufacturing_workstation_capacities SET status='inactive' WHERE id=$1`, schema), baseID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repo.CreateBatchPreset(ctx, cmd); err == nil {
+		t.Fatal("inactive source accepted")
+	}
+}

@@ -37,7 +37,9 @@ func TestDev519ProductionPlanSplitDemandGapContracts(t *testing.T) {
 			"拆分核对",
 			"计划数量",
 			"已安排",
-			"还需安排",
+			"不足数量",
+			"超排数量",
+			"不足和超排仅作数量提示",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "produce-plan.js"): {
 			"operation-splits/preview",
@@ -54,7 +56,7 @@ func TestDev519ProductionPlanSplitDemandGapContracts(t *testing.T) {
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
 			"拆分核对",
 			"计划数量",
-			"还需安排",
+			"不足数量",
 		},
 		filepath.Join("docs", "acceptance", "2026-07-05-production-plan-split-demand-gap.md"): {
 			"PR-519",

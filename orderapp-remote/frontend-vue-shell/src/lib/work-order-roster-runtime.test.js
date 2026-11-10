@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { parse, compileScript } from '@vue/compiler-sfc'
 import { createSSRApp, h, reactive } from 'vue'
 import { renderToString } from '@vue/server-renderer'
+import { buildWorkOrderOperationSplitPayload } from './work-orders.js'
 const ops = [
   { id: 21, workstation_id: 1, workstation: '烘焙工位', operation: '烘焙', status: 'pending' },
   { id: 22, workstation_id: 4, workstation: '色选工位', operation: '色选', status: 'pending' },
@@ -61,6 +62,36 @@ test('saved workstation roster resolves both reported orders without task assign
   assert.equal(events.at(-1).key, 'workstationView')
   assert.equal(events.at(-1).params.work_order_id, 19)
   assert.equal(events.at(-1).returnNavigation.key, 'workOrders')
+})
+
+test('unstarted work order editor preserves custom batch snapshots when reopening and saving', async () => {
+  const { state } = await setup()
+  const cap = { id: 7, workstation_id: 2, name: '15kg', batch_size_qty: 15, batch_size_unit: 'kg', standard_minutes: 18, hourly_rate: 102, status: 'active', applicable_operation_ids: [9] }
+  state.workstationCapacities.value = [cap]
+  const saved = { id: 84, sequence_no: 1, operation_id: 9, operation: '烘焙', workstation_capacity_id: 7, batch_size_qty: 18.7, custom_batch_size_qty: 18.7, batch_size_unit: 'kg', standard_minutes: 18, planned_input_qty: 37400, planned_batch_count: 2, scheduling_mode: 'batch' }
+  state.openWorkOrderSplitDrawer({ ...order(11, [saved]), planned_g: 45113 })
+  const split = state.workOrderSplitRows.value[0]
+  assert.equal(split.custom_batch_size_qty, 18.7)
+  assert.equal(split.planned_qty, 37.4)
+  assert.equal(state.workOrderSplitInputError(split), '')
+  assert.match(state.workOrderVarianceLabel({ seq: 1, operation_id: 9 }), /不足 7.713kg/)
+  state.addWorkOrderCapacityPreset({ ...cap, id: 8, batch_size_qty: 18.7 })
+  assert.equal(split.workstation_capacity_id, 7)
+  const payload = buildWorkOrderOperationSplitPayload(state.workOrderSplitRows.value).items[0]
+  assert.equal(payload.custom_batch_size_qty, 18.7)
+  assert.equal(payload.planned_batch_count, 2)
+  assert.equal(Object.hasOwn(payload, 'planned_qty'), false)
+})
+
+test('work order automatic splitting keeps existing arrangements when capacity units cannot convert', async () => {
+  const { state } = await setup()
+  state.workstationCapacities.value = [{ id: 7, workstation_id: 2, batch_size_qty: 15, batch_size_unit: '米', status: 'active', applicable_operation_ids: [9] }]
+  const saved = { id: 84, sequence_no: 1, operation_id: 9, operation: '烘焙', workstation_capacity_id: 7, batch_size_qty: 18.7, custom_batch_size_qty: 18.7, batch_size_unit: 'kg', standard_minutes: 18, planned_input_qty: 37400, planned_batch_count: 2, scheduling_mode: 'batch' }
+  state.openWorkOrderSplitDrawer({ ...order(11, [saved]), planned_g: 45113 })
+  const before = JSON.stringify(state.workOrderSplitRows.value)
+  state.autoSplitWorkOrderOperation({ seq: 1, operation_id: 9, operation: '烘焙' })
+  assert.equal(JSON.stringify(state.workOrderSplitRows.value), before)
+  assert.match(state.workOrderSplitError.value, /单位|换算/)
 })
 
 test('unattended or invalid overrides still open the required operation and explain roster setup', async () => {

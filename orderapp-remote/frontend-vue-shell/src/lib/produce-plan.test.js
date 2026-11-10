@@ -994,7 +994,7 @@ test('production plan capacity workspace renders live task coverage', () => {
     '拆分核对',
     '计划数量',
     '已安排',
-    '还需安排',
+    '不足数量',
     'productionPlanSplitPreview',
     'scheduleProductionPlanSplitPreview',
     'productionPlanCapacityReadiness',
@@ -1209,21 +1209,21 @@ test('capacity workspace groups by frozen operation names and preserves each sou
   assert.equal(groups[1].tasks[0].status, 'short')
 })
 
-test('capacity readiness permits short drafts but requires coverage and over-allocation acknowledgement to confirm', () => {
+test('capacity readiness permits short and over allocation without acknowledgement', () => {
   const short = productionPlanCapacityReadiness({ operation_coverage: [
     { production_plan_item_id: 1, operation: '手工装袋', status: 'short' },
     { production_plan_item_id: 2, operation: '手工装袋', status: 'matched' },
   ] })
   assert.equal(short.can_save_draft, true)
-  assert.equal(short.can_confirm, false)
+  assert.equal(short.can_confirm, true)
   assert.equal(short.short_count, 1)
 
   const over = productionPlanCapacityReadiness({ operation_coverage: [
     { production_plan_item_id: 1, operation: '滚筒烘焙', status: 'over' },
     { production_plan_item_id: 2, operation: '手工装袋', status: 'matched' },
   ] })
-  assert.equal(over.can_confirm, false)
-  assert.equal(over.requires_over_acknowledgement, true)
+  assert.equal(over.can_confirm, true)
+  assert.equal(over.requires_over_acknowledgement, false)
   assert.equal(productionPlanCapacityReadiness({ operation_coverage: over.rows }, true).can_confirm, true)
 })
 

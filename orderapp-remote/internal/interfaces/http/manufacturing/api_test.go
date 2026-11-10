@@ -116,6 +116,9 @@ func (r *apiRepo) SaveManufacturingWorkstationCapacity(ctx context.Context, cmd 
 		ApplicableOperationIDs: cmd.ApplicableOperationIDs,
 	}, nil
 }
+func (r *apiRepo) CreateBatchPreset(ctx context.Context, cmd manufacturingapp.CreateBatchPresetCommand) (manufacturingapp.BatchPresetResult, error) {
+	return manufacturingapp.BatchPresetResult{Capacity: manufacturingapp.ManufacturingWorkstationCapacity{ID: 10, BatchSizeQty: cmd.BatchSizeQty}, Created: true}, nil
+}
 func (r *apiRepo) DeactivateManufacturingWorkstationCapacity(ctx context.Context, cmd manufacturingapp.TemplateStatusCommand) error {
 	r.publishedID = cmd.ID
 	return nil
@@ -419,5 +422,30 @@ func TestWorkstationCapacityAPIListSaveAndDeactivate(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || repo.publishedID != 9 {
 		t.Fatalf("deactivate capacity status=%d id=%d body=%s", rec.Code, repo.publishedID, rec.Body.String())
+	}
+}
+
+func TestBatchPresetAPIValidatesAndCreates(t *testing.T) {
+	repo := &apiRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Manufacturing: manufacturingapp.NewService(repo)})
+	req := httptest.NewRequest(http.MethodPost, "/api/manufacturing-workstation-capacities/9/batch-presets", strings.NewReader(`{"batch_size_qty":18.7}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create preset status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"created":true`) || !strings.Contains(rec.Body.String(), `"batch_size_qty":18.7`) {
+		t.Fatalf("unexpected response: %s", rec.Body.String())
+	}
+	for _, body := range []string{`{"batch_size_qty":0}`, `{"batch_size_qty":-1}`, `{"batch_size_qty":"abc"}`, `{}`} {
+		req = httptest.NewRequest(http.MethodPost, "/api/manufacturing-workstation-capacities/9/batch-presets", strings.NewReader(body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec = httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("invalid %s: %d %s", body, rec.Code, rec.Body.String())
+		}
 	}
 }

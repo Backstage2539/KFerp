@@ -22,14 +22,14 @@ async function loadSetup(name, props, api = null) {
  return {state,events}
 }
 
-test('review can collapse without losing acknowledgement; edits invalidate old acknowledgement', async () => {
+test('review can collapse while over allocation remains confirmable without acknowledgement', async () => {
  const props={ detail:{status:'draft',items:[]}, rows:[],capacities:[],preview:{operation_coverage:[{status:'over'}]} }
  const {state}=await loadSetup('ProductionPlanCapacityWorkspace',props)
  assert.ok(state.reviewExpanded)
- state.overAcknowledged.value=true
  state.reviewExpanded.value=false
  assert.equal(state.readiness.value.can_confirm,true)
- assert.equal(state.overAcknowledged.value,true)
+ assert.equal(state.readiness.value.requires_over_acknowledgement,false)
+ assert.equal(state.overAcknowledged,undefined)
 })
 
 test('batch input emits unrounded user input and shared workstation editor is reusable', async () => {
