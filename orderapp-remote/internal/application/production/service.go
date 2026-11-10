@@ -513,6 +513,7 @@ type ProductionPlanOperationSplit struct {
 	WorkstationCapacityID   int64    `json:"workstation_capacity_id"`
 	WorkstationCapacityName string   `json:"workstation_capacity_name"`
 	BatchSizeQty            float64  `json:"batch_size_qty"`
+	CustomBatchSizeQty      *float64 `json:"custom_batch_size_qty,omitempty"`
 	BatchSizeUnit           string   `json:"batch_size_unit"`
 	StandardMinutes         int      `json:"standard_minutes"`
 	HourlyRate              float64  `json:"hourly_rate"`
@@ -1050,6 +1051,10 @@ type JobCardQuery struct {
 }
 
 type JobCardRow struct {
+	SchedulingMode          string             `json:"scheduling_mode"`
+	ThroughputPerHour       float64            `json:"throughput_per_hour"`
+	PlannedSeconds          *float64           `json:"planned_seconds"`
+	StandardMinutes         int                `json:"standard_minutes"`
 	PlannedCostUnavailable  bool               `json:"planned_cost_unavailable"`
 	ActualCostUnavailable   bool               `json:"actual_cost_unavailable"`
 	AssignedEmployeeID      int64              `json:"assigned_employee_id"`
@@ -1057,61 +1062,62 @@ type JobCardRow struct {
 	Collaborators           []ScheduleEmployee `json:"collaborators"`
 	ScheduleVersion         int64              `json:"schedule_version"`
 
-	ID                           int64   `json:"id"`
-	WorkOrderID                  int64   `json:"work_order_id"`
-	WorkOrderNo                  string  `json:"work_order_no"`
-	ProductID                    int64   `json:"product_id"`
-	ProductName                  string  `json:"product_name"`
-	SpecG                        int64   `json:"spec_g"`
-	OrderNos                     string  `json:"order_nos"`
-	PlannedG                     int64   `json:"planned_g"`
-	PlannedOutputG               int64   `json:"planned_output_g"`
-	BomVersionID                 int64   `json:"bom_version_id"`
-	MaterialSnapshot             string  `json:"material_snapshot"`
-	ProcessSnapshotJSON          string  `json:"process_snapshot_json"`
-	ProductionConfigSnapshotJSON string  `json:"production_config_snapshot_json"`
-	CustomerProductSnapshotJSON  string  `json:"customer_product_snapshot_json"`
-	SequenceNo                   int     `json:"sequence_no"`
-	OperationID                  int64   `json:"operation_id"`
-	WorkstationID                int64   `json:"workstation_id"`
-	Operation                    string  `json:"operation"`
-	Workstation                  string  `json:"workstation"`
-	WorkstationCapacityID        int64   `json:"workstation_capacity_id"`
-	WorkstationCapacityName      string  `json:"workstation_capacity_name"`
-	BatchSizeQty                 float64 `json:"batch_size_qty"`
-	BatchSizeUnit                string  `json:"batch_size_unit"`
-	PlannedBatchCount            int     `json:"planned_batch_count"`
-	PlannedMinutes               int     `json:"planned_minutes"`
-	HourlyRate                   float64 `json:"hourly_rate"`
-	CostMethod                   string  `json:"cost_method"`
-	PieceRate                    float64 `json:"piece_rate"`
-	PlannedOperationCost         float64 `json:"planned_operation_cost"`
-	ActualMinutes                int     `json:"actual_minutes"`
-	ActualOperationCost          float64 `json:"actual_operation_cost"`
-	Status                       string  `json:"status"`
-	StartedAt                    string  `json:"started_at"`
-	PausedAt                     string  `json:"paused_at"`
-	ResumedAt                    string  `json:"resumed_at"`
-	CompletedAt                  string  `json:"completed_at"`
-	Operator                     string  `json:"operator"`
-	PlannedInputQty              float64 `json:"planned_input_qty"`
-	ActualInputQty               float64 `json:"actual_input_qty"`
-	ActualOutputQty              float64 `json:"actual_output_qty"`
-	ActualLossQty                float64 `json:"actual_loss_qty"`
-	ActualLossRate               float64 `json:"actual_loss_rate"`
-	RecordsLoss                  bool    `json:"records_loss"`
-	LossReason                   string  `json:"loss_reason"`
-	ExceptionReason              string  `json:"exception_reason"`
-	ProcessRequirement           string  `json:"process_requirement"`
-	MetricsJSON                  string  `json:"metrics_json"`
-	ParameterSchemaJSON          string  `json:"parameter_schema_json"`
-	PlannedStartAt               string  `json:"planned_start_at"`
-	PlannedEndAt                 string  `json:"planned_end_at"`
-	ShiftCode                    string  `json:"shift_code"`
-	AssignedTo                   string  `json:"assigned_to"`
-	Priority                     int     `json:"priority"`
-	SchedulingNote               string  `json:"scheduling_note"`
-	WorkCenter                   string  `json:"work_center"`
+	ID                           int64    `json:"id"`
+	WorkOrderID                  int64    `json:"work_order_id"`
+	WorkOrderNo                  string   `json:"work_order_no"`
+	ProductID                    int64    `json:"product_id"`
+	ProductName                  string   `json:"product_name"`
+	SpecG                        int64    `json:"spec_g"`
+	OrderNos                     string   `json:"order_nos"`
+	PlannedG                     int64    `json:"planned_g"`
+	PlannedOutputG               int64    `json:"planned_output_g"`
+	BomVersionID                 int64    `json:"bom_version_id"`
+	MaterialSnapshot             string   `json:"material_snapshot"`
+	ProcessSnapshotJSON          string   `json:"process_snapshot_json"`
+	ProductionConfigSnapshotJSON string   `json:"production_config_snapshot_json"`
+	CustomerProductSnapshotJSON  string   `json:"customer_product_snapshot_json"`
+	SequenceNo                   int      `json:"sequence_no"`
+	OperationID                  int64    `json:"operation_id"`
+	WorkstationID                int64    `json:"workstation_id"`
+	Operation                    string   `json:"operation"`
+	Workstation                  string   `json:"workstation"`
+	WorkstationCapacityID        int64    `json:"workstation_capacity_id"`
+	WorkstationCapacityName      string   `json:"workstation_capacity_name"`
+	BatchSizeQty                 float64  `json:"batch_size_qty"`
+	CustomBatchSizeQty           *float64 `json:"custom_batch_size_qty,omitempty"`
+	BatchSizeUnit                string   `json:"batch_size_unit"`
+	PlannedBatchCount            int      `json:"planned_batch_count"`
+	PlannedMinutes               int      `json:"planned_minutes"`
+	HourlyRate                   float64  `json:"hourly_rate"`
+	CostMethod                   string   `json:"cost_method"`
+	PieceRate                    float64  `json:"piece_rate"`
+	PlannedOperationCost         float64  `json:"planned_operation_cost"`
+	ActualMinutes                int      `json:"actual_minutes"`
+	ActualOperationCost          float64  `json:"actual_operation_cost"`
+	Status                       string   `json:"status"`
+	StartedAt                    string   `json:"started_at"`
+	PausedAt                     string   `json:"paused_at"`
+	ResumedAt                    string   `json:"resumed_at"`
+	CompletedAt                  string   `json:"completed_at"`
+	Operator                     string   `json:"operator"`
+	PlannedInputQty              float64  `json:"planned_input_qty"`
+	ActualInputQty               float64  `json:"actual_input_qty"`
+	ActualOutputQty              float64  `json:"actual_output_qty"`
+	ActualLossQty                float64  `json:"actual_loss_qty"`
+	ActualLossRate               float64  `json:"actual_loss_rate"`
+	RecordsLoss                  bool     `json:"records_loss"`
+	LossReason                   string   `json:"loss_reason"`
+	ExceptionReason              string   `json:"exception_reason"`
+	ProcessRequirement           string   `json:"process_requirement"`
+	MetricsJSON                  string   `json:"metrics_json"`
+	ParameterSchemaJSON          string   `json:"parameter_schema_json"`
+	PlannedStartAt               string   `json:"planned_start_at"`
+	PlannedEndAt                 string   `json:"planned_end_at"`
+	ShiftCode                    string   `json:"shift_code"`
+	AssignedTo                   string   `json:"assigned_to"`
+	Priority                     int      `json:"priority"`
+	SchedulingNote               string   `json:"scheduling_note"`
+	WorkCenter                   string   `json:"work_center"`
 }
 
 type ProductionWorkstationOverviewQuery struct {
@@ -2408,11 +2414,27 @@ func validatePlanCapacityInput(item ProductionPlanOperationSplit) error {
 	if item.ProductionPlanItemID <= 0 || item.WorkstationCapacityID <= 0 {
 		return fmt.Errorf("production plan item and workstation capacity required")
 	}
+	return validateCapacitySplitInput(item)
+}
+
+func validateCapacitySplitInput(item ProductionPlanOperationSplit) error {
+	if item.CustomBatchSizeQty != nil {
+		if err := ValidateCustomBatchSizeQty(*item.CustomBatchSizeQty); err != nil {
+			return err
+		}
+	}
 	if math.IsNaN(item.PlannedQty) || math.IsInf(item.PlannedQty, 0) || item.PlannedQty < 0 || item.PlannedBatchCount < 0 {
 		return fmt.Errorf("产量不能为负，批次数必须是正整数")
 	}
 	if item.PlannedQty <= 0 && item.PlannedBatchCount <= 0 {
 		return fmt.Errorf("planned_qty or positive planned_batch_count required")
+	}
+	return nil
+}
+
+func ValidateCustomBatchSizeQty(qty float64) error {
+	if math.IsNaN(qty) || math.IsInf(qty, 0) || qty <= 0 || qty >= 1e10 || math.Abs(qty*1000-math.Round(qty*1000)) > 0.000001 {
+		return fmt.Errorf("自定义每批数量必须为有效正数，最多保留三位小数")
 	}
 	return nil
 }
@@ -2500,8 +2522,8 @@ func (s *Service) SaveWorkOrderOperationSplits(ctx context.Context, cmd SaveWork
 		if item.WorkstationCapacityID <= 0 {
 			return WorkOrderOperationSplitsResult{}, fmt.Errorf("workstation_capacity_id required")
 		}
-		if item.PlannedQty <= 0 {
-			return WorkOrderOperationSplitsResult{}, fmt.Errorf("planned_qty required")
+		if err := validateCapacitySplitInput(*item); err != nil {
+			return WorkOrderOperationSplitsResult{}, err
 		}
 		if item.OperationSeq < 0 {
 			return WorkOrderOperationSplitsResult{}, fmt.Errorf("operation_seq must be >= 0")

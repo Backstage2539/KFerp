@@ -1,3 +1,5 @@
+import { capacitySplitInputError } from './produce-plan.js'
+
 export function workOrderStatusOptions() {
   return [
     { value: '', label: '全部' },
@@ -172,15 +174,20 @@ export function workOrderOperationSplitsEndpoint(row) {
 }
 
 export function buildWorkOrderOperationSplitPayload(rows = []) {
+  for (const row of rows) {
+    const error = capacitySplitInputError(row)
+    if (error) throw new Error(error)
+  }
   const items = (rows || [])
     .map((row) => ({
       operation_seq: Math.max(0, Math.round(Number(row.operation_seq || row.sequence_no || 0))),
       operation_id: Number(row.operation_id || 0),
       operation: String(row.operation || '').trim(),
       workstation_capacity_id: Number(row.workstation_capacity_id || 0),
-      planned_qty: Number(row.planned_qty || 0),
+      ...(row.batch_input ? { planned_batch_count: Number(row.planned_batch_count) } : { planned_qty: Number(row.planned_qty || 0) }),
+      ...(row.custom_batch_size_qty != null ? { custom_batch_size_qty: Number(row.custom_batch_size_qty) } : {}),
       note: String(row.note || '').trim(),
     }))
-    .filter((row) => row.workstation_capacity_id > 0 && row.planned_qty > 0)
+    .filter((row) => row.workstation_capacity_id > 0 && (row.planned_qty > 0 || row.planned_batch_count > 0))
   return { items }
 }

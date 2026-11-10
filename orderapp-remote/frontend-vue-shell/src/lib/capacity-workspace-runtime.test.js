@@ -22,14 +22,14 @@ async function loadSetup(name, props, api = null) {
  return {state,events}
 }
 
-test('review can collapse without losing acknowledgement; edits invalidate old acknowledgement', async () => {
+test('review can collapse while over allocation remains confirmable without acknowledgement', async () => {
  const props={ detail:{status:'draft',items:[]}, rows:[],capacities:[],preview:{operation_coverage:[{status:'over'}]} }
  const {state}=await loadSetup('ProductionPlanCapacityWorkspace',props)
  assert.ok(state.reviewExpanded)
- state.overAcknowledged.value=true
  state.reviewExpanded.value=false
  assert.equal(state.readiness.value.can_confirm,true)
- assert.equal(state.overAcknowledged.value,true)
+ assert.equal(state.readiness.value.requires_over_acknowledgement,false)
+ assert.equal(state.overAcknowledged,undefined)
 })
 
 test('batch input emits unrounded user input and shared workstation editor is reusable', async () => {
@@ -131,4 +131,21 @@ test('capacity submit blocks until actual WIP covers non-upstream demand', async
 test('capacity submit still blocks and identifies unposted transfer drafts when WIP is covered', async () => {
  const {state}=await loadSetup('ProductionPlanCapacityWorkspace',{detail:{status:'draft',items:[],component_sources:[],material_transfer_documents:[{id:10,entry_no:'SE-10',status:'draft',source_id:1},{id:10,entry_no:'SE-10',status:'draft',source_id:2},{id:11,entry_no:'SE-11',status:'submitted'}]},rows:[],capacities:[],preview:{}})
  assert.deepEqual(state.pendingTransferDocuments.value.map(row=>row.entry_no), ['SE-10'])
+})
+
+test('capacity shortage and excess remain warnings but WIP and pending transfers block final submit', async () => {
+ const base = { detail: { status: 'draft', items: [], component_sources: [], material_transfer_documents: [] }, rows: [], capacities: [], submissionReady: true }
+ for (const status of ['short', 'over']) {
+  const { state } = await loadSetup('ProductionPlanCapacityWorkspace', { ...base, preview: { operation_coverage: [{ status }] } })
+  assert.equal(state.canSubmit.value, true, `${status} is advisory`)
+ }
+ const withPending = { ...base, detail: { ...base.detail, material_transfer_documents: [{ id: 9, status: 'draft', entry_no: 'SE-9' }] }, preview: { operation_coverage: [{ status: 'over' }] } }
+ const pending = await loadSetup('ProductionPlanCapacityWorkspace', withPending)
+ assert.equal(pending.state.readiness.value.can_confirm, true)
+ assert.equal(pending.state.canSubmit.value, false)
+ const withMissing = { ...base, detail: { ...base.detail, component_sources: [{ id: 1, required_g: 1000, wip_covered_g: 0 }] }, preview: { operation_coverage: [{ status: 'short' }] } }
+ const missing = await loadSetup('ProductionPlanCapacityWorkspace', withMissing)
+ assert.equal(missing.state.canSubmit.value, false)
+ const unarranged = await loadSetup('ProductionPlanCapacityWorkspace', { ...base, preview: { operation_coverage: [{ status: 'missing' }] } })
+ assert.equal(unarranged.state.canSubmit.value, false)
 })

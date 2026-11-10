@@ -55,6 +55,8 @@
         @quantity-change="changeProductionPlanDrawerSplitQuantity"
         @take-all="takeAllProductionPlanDrawerBatches"
         @workstations-updated="refreshSplitWorkstations"
+        @split-change="(split, next) => Object.assign(split, next)"
+        @preset-saved="addSavedCapacityPreset"
       />
     </div>
 
@@ -1687,6 +1689,7 @@ function productionPlanSplitFingerprint(rows = []) {
     planned_qty: Number(row.planned_qty || 0),
     batch_input: !!row.batch_input, planned_batch_count: row.planned_batch_count,
     batch_size_qty: row.batch_size_qty, batch_size_unit: row.batch_size_unit,
+    custom_batch_size_qty: row.custom_batch_size_qty,
     workstation: row.workstation, workstation_capacity_name: row.workstation_capacity_name,
     hourly_rate: row.hourly_rate, standard_minutes: row.standard_minutes, cost_method: row.cost_method, piece_rate: row.piece_rate,
   })))
@@ -1733,12 +1736,14 @@ function normalizeOperationSplit(row = {}) {
     scheduling_mode: row.scheduling_mode || 'batch',
     throughput_per_hour: Number(row.throughput_per_hour || 0),
     batch_size_qty: Number(row.batch_size_qty || 0),
+    custom_batch_size_qty: row.custom_batch_size_qty ?? null,
     batch_size_unit: row.batch_size_unit || '',
     standard_minutes: Number(row.standard_minutes || 0),
     hourly_rate: Number(row.hourly_rate || 0),
     cost_method: normalizeCapacityCostMethod(row),
     piece_rate: Number(row.piece_rate || 0),
-    batch_input: !!row.batch_input || (!Number(row.planned_qty || 0) && Number(row.planned_batch_count || 0) > 0),
+    batch_input: !!row.batch_input || row.custom_batch_size_qty != null || (!Number(row.planned_qty || 0) && Number(row.planned_batch_count || 0) > 0),
+    batch_count_source: row.batch_count_source || 'manual',
     planned_batch_count: row.planned_batch_count ?? 0,
     spec_g: Number(row.spec_g || row.item_spec_g || planItem?.spec_g || 0),
     sales_spec_count: Number(row.sales_spec_count || row.item_sales_spec_count || planItem?.sales_spec_count || 0),
@@ -1775,6 +1780,7 @@ function applyProductionPlanDrawerSplitCapacity(split) {
 
 function changeProductionPlanDrawerSplitCapacity(split, capacityID) {
   split.workstation_capacity_id = Number(capacityID || 0)
+  split.custom_batch_size_qty = null
   const capacity = workstationCapacities.value.find(row => Number(row.id) === split.workstation_capacity_id)
   if (capacity) Object.assign(split, applyCapacityBatchSnapshot(split, capacity))
   else Object.assign(split, { workstation_id: 0, workstation: '', planned_qty: 0, planned_qty_g: 0 })
@@ -1801,6 +1807,12 @@ function refreshSplitWorkstations(data) {
     const capacity = workstationCapacities.value.find(row => Number(row.id) === Number(split.workstation_capacity_id))
     return capacity ? applyCapacityBatchSnapshot(split, capacity, true) : split
   })
+}
+
+function addSavedCapacityPreset(capacity) {
+  if (!capacity?.id) return
+  const source = workstationCapacities.value.find(row => Number(row.workstation_id) === Number(capacity.workstation_id))
+  workstationCapacities.value = [...workstationCapacities.value.filter(row => Number(row.id) !== Number(capacity.id)), { ...capacity, workstation_status: capacity.workstation_status || source?.workstation_status || 'active' }]
 }
 
 function splitRowError(split) {
@@ -2209,6 +2221,7 @@ function addProductionPlanDrawerSplit(item, operation) {
     operation: identity.name,
     spec_g: Number(item?.spec_g || 0),
     planned_qty: 0,
+    batch_count_source: 'auto',
   }))
 }
 

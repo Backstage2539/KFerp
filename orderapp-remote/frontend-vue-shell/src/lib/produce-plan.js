@@ -855,16 +855,17 @@ export function buildProductionPlanCapacityGroups(detail = {}, preview = {}) {
 
 export function productionPlanCapacityReadiness(preview = {}, overAcknowledged = false) {
   const rows = Array.isArray(preview?.operation_coverage) ? preview.operation_coverage : []
-  const shortCount = rows.filter((row) => ['short', 'missing'].includes(String(row.status || 'missing'))).length
+  const shortCount = rows.filter((row) => String(row.status || '') === 'short').length
+  const missingCount = rows.filter((row) => String(row.status || 'missing') === 'missing').length
   const overCount = rows.filter((row) => String(row.status || '') === 'over').length
-  const requiresOverAcknowledgement = overCount > 0 && !overAcknowledged
   return {
     rows,
     can_save_draft: true,
-    can_confirm: rows.length > 0 && shortCount === 0 && !requiresOverAcknowledgement,
+    can_confirm: rows.length > 0 && missingCount === 0,
     short_count: shortCount,
+    missing_count: missingCount,
     over_count: overCount,
-    requires_over_acknowledgement: requiresOverAcknowledgement,
+    requires_over_acknowledgement: false,
   }
 }
 
@@ -950,13 +951,17 @@ export function qtyFromGForCapacityUnit(qtyG, unit, specG = 0) {
 }
 
 export function capacitySplitInputError(split = {}) {
+  if (split.custom_batch_size_qty != null) {
+    const qty = Number(split.custom_batch_size_qty)
+    if (split.scheduling_mode === 'quantity' || !Number.isFinite(qty) || qty <= 0 || qty >= 1e10 || Math.abs(qty * 1000 - Math.round(qty * 1000)) > 0.000001) return '自定义每批数量必须大于 0 且小于 100 亿，最多保留 3 位小数'
+  }
   if (split.batch_input && (!Number.isSafeInteger(Number(split.planned_batch_count)) || Number(split.planned_batch_count) <= 0)) return '批次数必须是正整数'
   return ''
 }
 
 export function withCapacityBatchCount(split, value, capacity = null) {
   const current = capacity ? applyCapacityBatchSnapshot(split, capacity) : split
-  const next = { ...current, batch_input: true, planned_batch_count: value, planned_qty_g: 0 }
+  const next = { ...current, batch_input: true, batch_count_source: 'manual', planned_batch_count: value, planned_qty_g: 0 }
   next.planned_qty = capacitySplitInputError(next) ? 0 : roundedSplitQty(Number(value) * Number(next.batch_size_qty || 0))
   return next
 }
@@ -970,8 +975,59 @@ export function applyCapacityBatchSnapshot(split = {}, capacity = {}, preserveLe
   const count = split.batch_input ? split.planned_batch_count : plannedCapacitySplitMetrics(split).planned_batch_count || 1
   const keepQuantity = preserveLegacy && isLegacyPartialCapacitySplit(split) && Number(split.batch_size_qty) === Number(capacity.batch_size_qty) && String(split.batch_size_unit) === String(capacity.batch_size_unit)
   const next = { ...split, workstation_capacity_id: Number(capacity.id), workstation_id: Number(capacity.workstation_id || 0), workstation: capacity.workstation || '', workstation_capacity_name: capacity.name || '',
-    scheduling_mode: capacity.scheduling_mode || 'batch', throughput_per_hour: Number(capacity.throughput_per_hour || 0), batch_size_qty: Number(capacity.batch_size_qty || 0), batch_size_unit: capacity.batch_size_unit || '', standard_minutes: Number(capacity.standard_minutes || 0), hourly_rate: Number(capacity.hourly_rate || 0), cost_method: normalizeCapacityCostMethod(capacity), piece_rate: Number(capacity.piece_rate || 0) }
-  return next.scheduling_mode === 'quantity' ? { ...next, batch_input: false, planned_batch_count: 0, planned_qty: Number(split.planned_qty || 0) } : keepQuantity ? next : withCapacityBatchCount(next, count)
+    scheduling_mode: capacity.scheduling_mode || 'batch', throughput_per_hour: Number(capacity.throughput_per_hour || 0), batch_size_qty: Number(split.custom_batch_size_qty ?? capacity.batch_size_qty ?? 0), batch_size_unit: capacity.batch_size_unit || '', standard_minutes: Number(capacity.standard_minutes || 0), hourly_rate: Number(capacity.hourly_rate || 0), cost_method: normalizeCapacityCostMethod(capacity), piece_rate: Number(capacity.piece_rate || 0) }
+  return next.scheduling_mode === 'quantity' ? { ...next, custom_batch_size_qty: null, batch_input: false, planned_batch_count: 0, planned_qty: Number(split.planned_qty || 0) } : keepQuantity ? next : { ...withCapacityBatchCount(next, count), batch_count_source: split.batch_count_source || 'manual' }
+}
+
+export function withCustomCapacityBatchSize(split, value, rows = [], item = {}, capacity = null) {
+  const custom = { ...split, custom_batch_size_qty: value }
+  let next = capacity ? applyCapacityBatchSnapshot(custom, capacity) : { ...custom, batch_size_qty: Number(value || 0) }
+  const source = split.batch_count_source || 'manual'
+  let count = split.batch_input ? split.planned_batch_count : plannedCapacitySplitMetrics(split).planned_batch_count || 1
+  if (source === 'auto' && !capacitySplitInputError({ ...next, batch_input: false })) {
+    const recommendation = capacityBatchRecommendation(next, rows.map(row => row === split ? next : row), item)
+    if (recommendation?.batch_count > 0) count = recommendation.batch_count
+  }
+  return { ...withCapacityBatchCount(next, count), batch_count_source: source }
+}
+
+function signedSplitQty(qty) { return Number(Number(qty).toFixed(3)) }
+
+function capacityRowBaseQty(split, kind) {
+  const metrics = plannedCapacitySplitMetrics(split)
+  return kind === 'weight' ? metrics.planned_qty_g : metrics.planned_qty
+}
+
+export function capacityBatchRecommendation(split, rows = [], item = {}) {
+  if (split.scheduling_mode === 'quantity' || capacitySplitInputError({ ...split, batch_input: false })) return null
+  const basis = capacityBaseQty(split, item)
+  if (!(basis.batchBaseQty > 0 && basis.targetBaseQty > 0)) return null
+  const others = rows.filter(row => row !== split && !(split.local_key && row.local_key === split.local_key) && splitRowsSameOperation(row, split))
+  const used = others.reduce((sum, row) => sum + capacityRowBaseQty(row, basis.kind), 0)
+  const remaining = Math.max(0, basis.targetBaseQty - used)
+  const count = Math.ceil(remaining / basis.batchBaseQty - 1e-9)
+  const lower = Math.max(0, count - 1)
+  const toQty = value => basis.kind === 'weight' && ['kg', '千克', '公斤'].includes(normalizedCapacityUnit(split.batch_size_unit)) ? value / 1000 : value
+  return {
+    batch_count: count,
+    planned_qty: signedSplitQty(count * Number(split.batch_size_qty)),
+    diff_qty: signedSplitQty(toQty(used + count * basis.batchBaseQty - basis.targetBaseQty)),
+    lower_batch_count: lower,
+    lower_planned_qty: signedSplitQty(lower * Number(split.batch_size_qty)),
+    lower_diff_qty: signedSplitQty(toQty(used + lower * basis.batchBaseQty - basis.targetBaseQty)),
+    remaining_qty: signedSplitQty(toQty(remaining)),
+    unit: String(split.batch_size_unit || ''),
+  }
+}
+
+export function capacityOperationVariance(rows = [], item = {}, operation = {}) {
+  const matching = rows.filter(row => capacitySplitMatchesOperation(row, operation))
+  const reference = matching.find(row => capacityBaseQty(row, item).batchBaseQty > 0)
+  if (!reference) return null
+  const basis = capacityBaseQty(reference, item)
+  const arranged = matching.reduce((sum, row) => sum + capacityRowBaseQty(row, basis.kind), 0)
+  const factor = basis.kind === 'weight' && ['kg', '千克', '公斤'].includes(normalizedCapacityUnit(reference.batch_size_unit)) ? 1000 : 1
+  return { required_qty: signedSplitQty(basis.targetBaseQty / factor), arranged_qty: signedSplitQty(arranged / factor), diff_qty: signedSplitQty((arranged - basis.targetBaseQty) / factor), unit: reference.batch_size_unit }
 }
 
 export function capacitySplitAvailabilityError(split, item, operation, capacities = []) {
@@ -1255,7 +1311,7 @@ export function buildOperationCapacityAutoSplits(item = {}, operation = {}, capa
       sales_spec_count: Number(item.sales_spec_count || 0),
       item_target_g: outputTargetG,
       planned_qty: qtyFromBaseForCapacity(amount, capacity.batch_size_unit, item.spec_g || 0),
-      ...(wholeBatches && capacity.scheduling_mode !== 'quantity' ? { batch_input: true, planned_batch_count: Math.ceil(amount / row.batchBaseQty - 1e-9) } : {}),
+      ...(wholeBatches && capacity.scheduling_mode !== 'quantity' ? { batch_input: true, batch_count_source: 'auto', planned_batch_count: Math.ceil(amount / row.batchBaseQty - 1e-9) } : {}),
       note: '',
     }
   })
@@ -1273,6 +1329,7 @@ export function buildProductionPlanOperationSplitPayload(rows = []) {
         operation_seq: Math.max(0, Math.round(Number(row.operation_seq || 0))),
         operation: String(row.operation || '').trim(),
         workstation_capacity_id: Number(row.workstation_capacity_id || 0),
+        ...(row.custom_batch_size_qty != null ? { custom_batch_size_qty: Number(row.custom_batch_size_qty) } : {}),
         ...(row.batch_input ? { planned_batch_count: Number(row.planned_batch_count) } : { planned_qty: plannedCapacitySplitMetrics(row).planned_qty }),
       }
     })

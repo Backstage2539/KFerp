@@ -119,12 +119,14 @@ func (r Repository) SaveProductionPlanDraft(ctx context.Context, cmd productiona
 		}
 	}
 
-	if _, err := replaceProductionPlanOperationSplitsTx(ctx, tx, r.schema, cmd.ID, cmd.OperationSplits, cmd.AckSupplyRecheck); err != nil {
+	splits, err := replaceProductionPlanOperationSplitsTx(ctx, tx, r.schema, cmd.ID, cmd.OperationSplits, cmd.AckSupplyRecheck)
+	if err != nil {
 		return productionapp.ProductionPlanDetail{}, err
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "production_plan", &cmd.ID, "save_draft", postgresinfra.StrPtr("workspace"), nil,
 		postgresinfra.StrPtr("saved"), postgresinfra.AuditMeta{
 			"item_count": len(cmd.Items), "component_source_count": len(cmd.ComponentSources), "operation_split_count": len(cmd.OperationSplits),
+			"operation_splits": splits,
 		}); err != nil {
 		return productionapp.ProductionPlanDetail{}, err
 	}

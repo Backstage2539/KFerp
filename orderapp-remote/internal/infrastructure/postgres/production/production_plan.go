@@ -1223,7 +1223,7 @@ func loadProductionPlanOperationSplitsTx(ctx context.Context, tx pgx.Tx, schema 
 		       COALESCE(batch_size_qty,0)::float8,COALESCE(batch_size_unit,''),standard_minutes,
 		       COALESCE(hourly_rate,0)::float8,COALESCE(NULLIF(cost_method,''),'time'),
 		       COALESCE(piece_rate,0)::float8,planned_batch_count,COALESCE(planned_qty,0)::float8,
-		       planned_qty_g,planned_minutes,COALESCE(planned_operation_cost,0)::float8,note,COALESCE(scheduling_mode,'batch'),COALESCE(throughput_per_hour,0)::float8,planned_seconds
+		       planned_qty_g,planned_minutes,COALESCE(planned_operation_cost,0)::float8,note,COALESCE(scheduling_mode,'batch'),COALESCE(throughput_per_hour,0)::float8,planned_seconds,custom_batch_size_qty::float8
 		FROM %s.production_plan_operation_splits
 		WHERE production_plan_id=$1
 		ORDER BY production_plan_item_id, operation_seq, id
@@ -1239,7 +1239,7 @@ func loadProductionPlanOperationSplitsTx(ctx context.Context, tx pgx.Tx, schema 
 			&row.ID, &row.ProductionPlanID, &row.ProductionPlanItemID, &row.OperationSeq, &row.OperationID, &row.Operation,
 			&row.WorkstationID, &row.Workstation, &row.WorkstationCapacityID, &row.WorkstationCapacityName,
 			&row.BatchSizeQty, &row.BatchSizeUnit, &row.StandardMinutes, &row.HourlyRate, &row.CostMethod, &row.PieceRate, &row.PlannedBatchCount, &row.PlannedQty,
-			&row.PlannedQtyG, &row.PlannedMinutes, &row.PlannedOperationCost, &row.Note, &row.SchedulingMode, &row.ThroughputPerHour, &row.PlannedSeconds,
+			&row.PlannedQtyG, &row.PlannedMinutes, &row.PlannedOperationCost, &row.Note, &row.SchedulingMode, &row.ThroughputPerHour, &row.PlannedSeconds, &row.CustomBatchSizeQty,
 		); err != nil {
 			return nil, err
 		}
@@ -1270,7 +1270,7 @@ func (r Repository) SaveProductionPlanOperationSplits(ctx context.Context, cmd p
 	if err != nil {
 		return nil, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "production_plan", &cmd.ID, "save_operation_splits", postgresinfra.StrPtr("operation_splits"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", len(cmd.Items))), postgresinfra.AuditMeta{"split_count": len(cmd.Items)}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "production_plan", &cmd.ID, "save_operation_splits", postgresinfra.StrPtr("operation_splits"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", len(cmd.Items))), postgresinfra.AuditMeta{"split_count": len(cmd.Items), "operation_splits": out}); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1357,9 +1357,6 @@ func replaceProductionPlanOperationSplitsTx(ctx context.Context, tx pgx.Tx, sche
 		if err := validateProductionPlanOperationSplitIdentities(itemByID[itemID], splits); err != nil {
 			return nil, err
 		}
-		if err := validateQuantitySplitLimit(itemByID[itemID], splits); err != nil {
-			return nil, err
-		}
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.production_plan_operation_splits WHERE production_plan_id=$1`, schema), planID); err != nil {
 		return nil, err
@@ -1412,9 +1409,6 @@ func (r Repository) PreviewProductionPlanOperationSplits(ctx context.Context, cm
 	}
 	for itemID, itemSplits := range productionPlanSplitsByItem(splits) {
 		if err := validateProductionPlanOperationSplitIdentities(itemByID[itemID], itemSplits); err != nil {
-			return productionapp.ProductionPlanOperationSplitPreview{}, err
-		}
-		if err := validateQuantitySplitLimit(itemByID[itemID], itemSplits); err != nil {
 			return productionapp.ProductionPlanOperationSplitPreview{}, err
 		}
 	}
@@ -1485,7 +1479,7 @@ func (r Repository) SaveWorkOrderOperationSplits(ctx context.Context, cmd produc
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET operation_summary_json=$2::jsonb WHERE id=$1`, r.schema), wo.ID, summary); err != nil {
 		return productionapp.WorkOrderOperationSplitsResult{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "work_order", &wo.ID, "save_operation_splits", postgresinfra.StrPtr("operation_splits"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", len(splits))), postgresinfra.AuditMeta{"split_count": len(splits)}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "work_order", &wo.ID, "save_operation_splits", postgresinfra.StrPtr("operation_splits"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", len(splits))), postgresinfra.AuditMeta{"split_count": len(splits), "operation_splits": splits}); err != nil {
 		return productionapp.WorkOrderOperationSplitsResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1524,6 +1518,25 @@ func prepareOperationSplitForSaveTx(ctx context.Context, tx pgx.Tx, schema strin
 	item.SchedulingMode = snapshot.SchedulingMode
 	item.ThroughputPerHour = snapshot.ThroughputPerHour
 	item.BatchSizeQty = snapshot.BatchSizeQty
+	if item.CustomBatchSizeQty != nil {
+		customQty := *item.CustomBatchSizeQty
+		if item.SchedulingMode != "batch" {
+			return productionapp.ProductionPlanOperationSplit{}, fmt.Errorf("只有整批安排支持自定义每批数量")
+		}
+		if err := productionapp.ValidateCustomBatchSizeQty(customQty); err != nil {
+			return productionapp.ProductionPlanOperationSplit{}, err
+		}
+		customQty = roundProductionPlanQuantity(customQty)
+		if customQty <= 0 {
+			return productionapp.ProductionPlanOperationSplit{}, fmt.Errorf("自定义每批数量必须大于零")
+		}
+		item.CustomBatchSizeQty = &customQty
+		item.BatchSizeQty = customQty
+		if item.PlannedBatchCount > 0 {
+			// Explicit custom batches own their total, even when a reread includes an old projection.
+			item.PlannedQty = 0
+		}
+	}
 	item.BatchSizeUnit = snapshot.BatchSizeUnit
 	item.StandardMinutes = snapshot.StandardMinutes
 	item.HourlyRate = snapshot.HourlyRate
@@ -1606,13 +1619,13 @@ func insertProductionPlanOperationSplitTx(ctx context.Context, tx pgx.Tx, schema
 			production_plan_id,production_plan_item_id,operation_seq,operation_id,operation,
 			workstation_id,workstation,workstation_capacity_id,workstation_capacity_name,
 			batch_size_qty,batch_size_unit,standard_minutes,hourly_rate,cost_method,piece_rate,
-			planned_batch_count,planned_qty,planned_qty_g,planned_minutes,planned_operation_cost,note,scheduling_mode,throughput_per_hour,planned_seconds,created_at,updated_at
+			planned_batch_count,planned_qty,planned_qty_g,planned_minutes,planned_operation_cost,note,scheduling_mode,throughput_per_hour,planned_seconds,custom_batch_size_qty,created_at,updated_at
 		)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,now(),now())
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,now(),now())
 	`, schema), item.ProductionPlanID, item.ProductionPlanItemID, item.OperationSeq, item.OperationID, item.Operation,
 		item.WorkstationID, item.Workstation, item.WorkstationCapacityID, item.WorkstationCapacityName,
 		item.BatchSizeQty, item.BatchSizeUnit, item.StandardMinutes, item.HourlyRate, item.CostMethod, item.PieceRate,
-		item.PlannedBatchCount, item.PlannedQty, item.PlannedQtyG, item.PlannedMinutes, item.PlannedOperationCost, item.Note, item.SchedulingMode, item.ThroughputPerHour, item.PlannedSeconds)
+		item.PlannedBatchCount, item.PlannedQty, item.PlannedQtyG, item.PlannedMinutes, item.PlannedOperationCost, item.Note, item.SchedulingMode, item.ThroughputPerHour, item.PlannedSeconds, item.CustomBatchSizeQty)
 	return err
 }
 
@@ -1816,6 +1829,12 @@ func previewProductionPlanOperationSplits(items []productionapp.ProductionPlanIt
 			itemFactors[item.ID] = itemFactor
 		}
 	}
+	warnings := make([]string, 0)
+	for _, row := range coverageRows {
+		if warning := productionPlanCapacityVarianceWarning(row); warning != "" {
+			warnings = append(warnings, warning)
+		}
+	}
 	return productionapp.ProductionPlanOperationSplitPreview{
 		CoverageSummary: productionapp.ProductionPlanOperationSplitCoverageSummary{
 			RequiredG: requiredG,
@@ -1825,8 +1844,19 @@ func previewProductionPlanOperationSplits(items []productionapp.ProductionPlanIt
 		},
 		OperationCoverage: coverageRows,
 		MaterialSummary:   previewProductionPlanMaterialSummary(items, itemFactors),
-		Warnings:          nil,
+		Warnings:          warnings,
 	}
+}
+
+func productionPlanCapacityVarianceWarning(row productionapp.ProductionPlanOperationSplitCoverageRow) string {
+	if row.ArrangedQty <= 0 || (row.Status != "short" && row.Status != "over") {
+		return ""
+	}
+	direction := "不足"
+	if row.Status == "over" {
+		direction = "超排"
+	}
+	return fmt.Sprintf("%s · 工序“%s”%s%g%s，仅供核对，不影响继续", row.ProductName, row.Operation, direction, math.Abs(row.DiffQty), row.Unit)
 }
 
 func productionPlanItemTargetG(item productionapp.ProductionPlanItem) int64 {
@@ -2394,8 +2424,10 @@ func (r Repository) SubmitProductionPlan(ctx context.Context, cmd productionapp.
 		return productionapp.ProductionPlanSubmitResult{}, err
 	}
 	if !preflight.Readiness.CanSubmit {
-		if len(preflight.Readiness.Issues) > 0 {
-			return productionapp.ProductionPlanSubmitResult{}, fmt.Errorf("提交前核对未通过：%s", preflight.Readiness.Issues[0].Message)
+		for _, issue := range preflight.Readiness.Issues {
+			if issue.Severity == "blocking" {
+				return productionapp.ProductionPlanSubmitResult{}, fmt.Errorf("提交前核对未通过：%s", issue.Message)
+			}
 		}
 		return productionapp.ProductionPlanSubmitResult{}, fmt.Errorf("提交前核对未通过")
 	}
@@ -2700,24 +2732,6 @@ func unlinkProcessingRequestItemsFromCancelledPlanTx(ctx context.Context, tx pgx
 	return err
 }
 
-func validateQuantitySplitLimit(item productionapp.ProductionPlanItem, splits []productionapp.ProductionPlanOperationSplit) error {
-	for _, op := range productionPlanPreviewOperations(item, splits) {
-		var execution struct {
-			ReportingType string `json:"reporting_type"`
-		}
-		_ = json.Unmarshal([]byte(op.ExecutionJSON), &execution)
-		if execution.ReportingType != "incoming" && execution.ReportingType != "piece" {
-			continue
-		}
-		requiredG, arrangedG, _ := productionPlanPreviewOperationCoverage(item, op, splits)
-		required, arranged, unit := productionPlanPreviewOperationNativeCoverage(item, op, splits, requiredG, arrangedG)
-		if required > 0 && arranged > required+0.000001 {
-			return fmt.Errorf("工序“%s”的安排数量不能超过目标：需要%.3f%s，已安排%.3f%s", op.Operation, required, unit, arranged, unit)
-		}
-	}
-	return nil
-}
-
 func validateProductionPlanOperationSplitCoverage(item productionapp.ProductionPlanItem, splits []productionapp.ProductionPlanOperationSplit) error {
 	for _, split := range splits {
 		if strings.Contains(split.Note, supplyRecheckMarker) {
@@ -2741,8 +2755,6 @@ func validateProductionPlanOperationSplitCoverage(item productionapp.ProductionP
 			return fmt.Errorf("工序“%s”尚未选择工位产能", label)
 		}
 		kind := ""
-		arrangedG := int64(0)
-		arrangedCount := 0.0
 		for _, split := range matches {
 			rowKind := productionCapacityUnitKind(split.BatchSizeUnit)
 			if rowKind == "" {
@@ -2752,10 +2764,9 @@ func validateProductionPlanOperationSplitCoverage(item productionapp.ProductionP
 				return fmt.Errorf("工序“%s”不能同时使用重量和件数产能单位", label)
 			}
 			kind = rowKind
-			if rowKind == "count" {
-				arrangedCount += math.Max(0, split.PlannedQty)
-			} else if split.PlannedQtyG > 0 {
-				arrangedG += split.PlannedQtyG
+			if math.IsNaN(split.PlannedQty) || math.IsInf(split.PlannedQty, 0) || split.PlannedQty < 0 ||
+				(rowKind == "count" && split.PlannedQty <= 0) || (rowKind == "weight" && split.PlannedQtyG <= 0) {
+				return fmt.Errorf("工序“%s”的安排数量必须大于零", label)
 			}
 		}
 		if kind == "count" {
@@ -2763,14 +2774,6 @@ func validateProductionPlanOperationSplitCoverage(item productionapp.ProductionP
 			if requiredCount <= 0 {
 				return fmt.Errorf("工序“%s”缺少冻结销售规格件数，无法校验计件产能", label)
 			}
-			if arrangedCount+0.000001 < requiredCount {
-				return fmt.Errorf("工序“%s”的件数产能不足：需要%.4f件，已安排%.4f件", label, requiredCount, arrangedCount)
-			}
-			continue
-		}
-		requiredG := productionPlanItemTargetG(item)
-		if requiredG > 0 && arrangedG < requiredG {
-			return fmt.Errorf("工序“%s”的重量产能不足：需要%dg，已安排%dg", label, requiredG, arrangedG)
 		}
 	}
 	return nil
@@ -3080,11 +3083,11 @@ func insertPendingJobCardForOperationSplitTx(ctx context.Context, tx pgx.Tx, sch
 			work_order_id,sequence_no,operation_id,workstation_id,operation,workstation,
 			workstation_capacity_id,workstation_capacity_name,batch_size_qty,batch_size_unit,
 			planned_batch_count,planned_minutes,hourly_rate,cost_method,piece_rate,planned_operation_cost,
-			status,planned_input_qty,records_loss,parameter_schema_json,scheduling_mode,throughput_per_hour,planned_seconds
+			status,planned_input_qty,records_loss,parameter_schema_json,scheduling_mode,throughput_per_hour,planned_seconds,custom_batch_size_qty
 		)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'pending',$17,$18,$19::jsonb,$20,$21,$22)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'pending',$17,$18,$19::jsonb,$20,$21,$22,$23)
 		RETURNING id
-	`, schema), workOrderID, op.Seq, firstPositiveInt64(split.OperationID, op.OperationID), split.WorkstationID, operation, split.Workstation, split.WorkstationCapacityID, split.WorkstationCapacityName, split.BatchSizeQty, split.BatchSizeUnit, split.PlannedBatchCount, split.PlannedMinutes, split.HourlyRate, normalizeProductionCostMethod(split.CostMethod), split.PieceRate, split.PlannedOperationCost, plannedInputQty, op.RecordsLoss, defaultJSONObject(op.ParameterSchemaJSON), split.SchedulingMode, split.ThroughputPerHour, split.PlannedSeconds).Scan(&id); err != nil {
+	`, schema), workOrderID, op.Seq, firstPositiveInt64(split.OperationID, op.OperationID), split.WorkstationID, operation, split.Workstation, split.WorkstationCapacityID, split.WorkstationCapacityName, split.BatchSizeQty, split.BatchSizeUnit, split.PlannedBatchCount, split.PlannedMinutes, split.HourlyRate, normalizeProductionCostMethod(split.CostMethod), split.PieceRate, split.PlannedOperationCost, plannedInputQty, op.RecordsLoss, defaultJSONObject(op.ParameterSchemaJSON), split.SchedulingMode, split.ThroughputPerHour, split.PlannedSeconds, split.CustomBatchSizeQty).Scan(&id); err != nil {
 		return productionapp.JobCardRow{}, err
 	}
 	return productionapp.JobCardRow{
@@ -3098,6 +3101,11 @@ func insertPendingJobCardForOperationSplitTx(ctx context.Context, tx pgx.Tx, sch
 		WorkstationCapacityID:   split.WorkstationCapacityID,
 		WorkstationCapacityName: split.WorkstationCapacityName,
 		BatchSizeQty:            split.BatchSizeQty,
+		CustomBatchSizeQty:      split.CustomBatchSizeQty,
+		StandardMinutes:         split.StandardMinutes,
+		SchedulingMode:          split.SchedulingMode,
+		ThroughputPerHour:       split.ThroughputPerHour,
+		PlannedSeconds:          split.PlannedSeconds,
 		BatchSizeUnit:           split.BatchSizeUnit,
 		PlannedBatchCount:       split.PlannedBatchCount,
 		PlannedMinutes:          split.PlannedMinutes,
@@ -3503,6 +3511,11 @@ func operationRowsJSON(cards []productionapp.JobCardRow) string {
 			"workstation_capacity_id":   card.WorkstationCapacityID,
 			"workstation_capacity_name": card.WorkstationCapacityName,
 			"batch_size_qty":            card.BatchSizeQty,
+			"custom_batch_size_qty":     card.CustomBatchSizeQty,
+			"standard_minutes":          card.StandardMinutes,
+			"scheduling_mode":           card.SchedulingMode,
+			"throughput_per_hour":       card.ThroughputPerHour,
+			"planned_seconds":           card.PlannedSeconds,
 			"batch_size_unit":           card.BatchSizeUnit,
 			"planned_batch_count":       card.PlannedBatchCount,
 			"planned_minutes":           card.PlannedMinutes,
