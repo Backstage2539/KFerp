@@ -1,7 +1,8 @@
 export function canUseEmployeePriceCenter(session: { accountType: string; roles: string[] }): boolean {
   return session.accountType === 'employee' && session.roles.some(role => role === 'sales' || role === 'admin')
 }
-export function hasAuthenticatedCustomerSession(session: { token?: string; miniUserID?: number; accountType: string; bindings?: Array<{ status: string }> }): boolean {
+export function hasAuthenticatedCustomerSession(session: { token?: string; miniUserID?: number; currentCustomerID?: number; accountType: string; isCustomerPreview?: boolean; bindings?: Array<{ status: string }> }): boolean {
+  if (session.isCustomerPreview) return Boolean(session.token && Number(session.currentCustomerID) > 0)
   return Boolean(session.token && Number(session.miniUserID) > 0 && ['', 'customer', 'channel_customer'].includes(session.accountType) && session.bindings?.some(binding => binding.status === 'approved'))
 }
 export function pageEntryAccessAction(cause: unknown): 'login' | 'choose_customer' | 'denied' | 'retry' {

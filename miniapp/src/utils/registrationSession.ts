@@ -17,6 +17,9 @@ export async function restoreRegistrationSession(session: ReturnType<typeof useS
         if (session.autoRestoreBlocked || session.token !== expectedToken) return
         if (!isAuthenticationExpiredRequestError(cause)) throw cause
         session.clearSession(true)
+        // An expired admin preview restores the existing employee token.
+        // Do not replace that session with a fresh WeChat login.
+        if (session.token && session.token !== expectedToken) return
       }
     }
     const expectedToken = session.token

@@ -20,6 +20,7 @@ import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import { useSessionStore } from '../../stores/session'
 import { visibleHomeEntries } from '../../utils/capabilities'
+import { previewSafeEntries } from '../../utils/customerPreview'
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 
 const session = useSessionStore()
@@ -50,13 +51,14 @@ const employeeEntries = [
   { key: 'employeeOrderEntry', label: '录单', url: '/pages/employee-order-entry/employee-order-entry' },
   { key: 'employeeOrders', label: '查看订单', url: '/pages/employee-orders/employee-orders' },
   { key: 'employeeCustomers', label: '客户维护', url: '/pages/employee-customers/employee-customers' },
+  { key: 'customerPreview', label: '客户只读预览', url: '/pages/admin-customer-preview/admin-customer-preview' },
   { key: 'employeeProfile', label: '个人中心', url: '/pages/profile/profile' },
 ]
 const visibleEntries = computed(() => {
-  if (session.accountType !== 'employee') return entries.value
+  if (session.accountType !== 'employee') return session.isCustomerPreview ? previewSafeEntries(entries.value) : entries.value
   const canMaintainCustomers = session.permissions.includes('customers.read')
     && session.permissions.includes('customers.write')
-  return employeeEntries.filter((entry) => (entry.key !== 'employeeCustomers' || canMaintainCustomers) && (!['priceCenter','sampleRequests','staffNotifications'].includes(entry.key) || canUseEmployeePriceCenter(session)))
+  return employeeEntries.filter((entry) => (entry.key !== 'employeeCustomers' || canMaintainCustomers) && (entry.key !== 'customerPreview' || session.roles.includes('admin')) && (!['priceCenter','sampleRequests','staffNotifications'].includes(entry.key) || canUseEmployeePriceCenter(session)))
 })
 const customerName = computed(() => session.accountType === 'employee' ? `${session.employeeName || '员工'} · 简易 ERP` : (session.currentCustomerName || '客户中心'))
 const themeClass = computed(() => miniappThemeClass(session.themeKey))
@@ -75,10 +77,11 @@ async function loadContext() {
 
   loading.value = true
   errorMessage.value = ''
+  const requestToken = session.token
 
   try {
-    const response = await fetchMe(session.token)
-    if (version !== contextVersion) return
+    const response = await fetchMe(requestToken)
+    if (version !== contextVersion || session.token !== requestToken) return
     session.applyContext(response)
  if(response.account_type!=='employee'&&!response.current_customer_id){uni.reLaunch({url:'/pages/index/index'});return}
     fulfillmentSettings.value = undefined
@@ -90,10 +93,10 @@ async function loadContext() {
       const customerID = response.current_customer_id
       if (hasFulfillmentOverview.value) {
       const results = await Promise.allSettled([
-        fetchServicePage(session.token, 'orders', { page: 1, page_size: 1 }),
-        canSeeBills.value ? fetchCustomerIssuedBills(session.token, { status: 'unpaid', page: 1, limit: 1 }) : Promise.resolve(null),
+        fetchServicePage(requestToken, 'orders', { page: 1, page_size: 1 }),
+        canSeeBills.value ? fetchCustomerIssuedBills(requestToken, { status: 'unpaid', page: 1, limit: 1 }) : Promise.resolve(null),
       ])
-      if (version !== contextVersion || session.currentCustomerID !== customerID) return
+      if (version !== contextVersion || session.token !== requestToken || session.currentCustomerID !== customerID) return
       if (results[0].status === 'fulfilled') orderCounts.value = results[0].value.progress_counts || null
       else overviewError.value = true
       if (results[1].status === 'fulfilled' && results[1].value) {
@@ -104,7 +107,7 @@ async function loadContext() {
     }
     if(canUseEmployeePriceCenter(session)){try{staffUnread.value=(await fetchStaffNotifications(session.token,true)).unread_count||0}catch{staffUnread.value=0}}
   } catch (error) {
-    if (version !== contextVersion) return
+    if (version !== contextVersion || session.token !== requestToken) return
     errorMessage.value = error instanceof Error ? error.message : '客户信息加载失败'
     session.clearSession()
     uni.reLaunch({ url: '/pages/index/index' })

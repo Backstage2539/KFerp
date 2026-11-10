@@ -308,6 +308,11 @@ async function loadPage(pageNumber=1) {
     if (page.value.theme_key) {
       session.applyContext({
         mini_user_id: session.miniUserID,
+        account_type: session.accountType,
+        employee_id: session.employeeID,
+        employee_name: session.employeeName,
+        roles: session.roles,
+        permissions: session.permissions,
         current_customer_id: page.value.current_customer_id || session.currentCustomerID,
         current_customer_name: page.value.current_customer_name || session.currentCustomerName,
         theme_key: page.value.theme_key,

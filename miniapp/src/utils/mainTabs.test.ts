@@ -102,7 +102,8 @@ describe('miniapp startup route and main tabs', () => {
     const home = readSource('src/pages/home/home.vue')
 
     expect(index).toContain('phoneVerifiedDestination(')
-    expect(home).toContain('fetchMe(session.token)')
+    expect(home).toContain('fetchMe(requestToken)')
+    expect(home).toContain('session.token !== requestToken')
     expect(home).toContain('session.applyContext(response)')
     expect(home).toContain('session.clearSession()')
     expect(home).toContain("uni.reLaunch({ url: '/pages/index/index' })")
