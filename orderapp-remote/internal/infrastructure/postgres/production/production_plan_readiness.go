@@ -139,6 +139,15 @@ func productionPlanReadiness(detail productionapp.ProductionPlanDetail) producti
 			addBlocking(productionapp.ProductionPlanReadinessIssue{
 				Code: code, Category: "operation", ProductionPlanItemID: item.ID, Message: err.Error(), Action: "查看拆分",
 			})
+			continue
+		}
+		preview := previewProductionPlanOperationSplits([]productionapp.ProductionPlanItem{item}, splitsByItem[item.ID])
+		for _, warning := range preview.Warnings {
+			result.Issues = append(result.Issues, productionapp.ProductionPlanReadinessIssue{
+				Code: "operation_split_variance", Category: "operation", Severity: "warning",
+				ProductionPlanItemID: item.ID, Message: warning, Action: "查看拆分",
+			})
+			result.WarningCount++
 		}
 	}
 	result.CanSubmit = result.BlockingCount == 0
