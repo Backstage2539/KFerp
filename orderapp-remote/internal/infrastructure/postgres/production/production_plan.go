@@ -1262,7 +1262,7 @@ func (r Repository) SaveProductionPlanOperationSplits(ctx context.Context, cmd p
 	if status != "draft" {
 		return nil, fmt.Errorf("production plan must be draft to edit operation splits")
 	}
-	out, err := replaceProductionPlanOperationSplitsTx(ctx, tx, r.schema, cmd.ID, cmd.Items)
+	out, err := replaceProductionPlanOperationSplitsTx(ctx, tx, r.schema, cmd.ID, cmd.Items, true)
 	if err != nil {
 		return nil, err
 	}
@@ -1314,7 +1314,17 @@ func assignDefaultLeadsToPendingJobCardsTx(ctx context.Context, tx pgx.Tx, schem
 	return leads, nil
 }
 
-func replaceProductionPlanOperationSplitsTx(ctx context.Context, tx pgx.Tx, schema string, planID int64, requested []productionapp.ProductionPlanOperationSplit) ([]productionapp.ProductionPlanOperationSplit, error) {
+func replaceProductionPlanOperationSplitsTx(ctx context.Context, tx pgx.Tx, schema string, planID int64, requested []productionapp.ProductionPlanOperationSplit, ackSupplyRecheck bool) ([]productionapp.ProductionPlanOperationSplit, error) {
+	previous, err := loadProductionPlanOperationSplitsTx(ctx, tx, schema, planID)
+	if err != nil {
+		return nil, err
+	}
+	needsReview := map[int64]bool{}
+	for _, row := range previous {
+		if strings.Contains(row.Note, supplyRecheckMarker) {
+			needsReview[row.ProductionPlanItemID] = true
+		}
+	}
 	itemRows, err := loadProductionPlanItemsTx(ctx, tx, schema, planID)
 	if err != nil {
 		return nil, err
@@ -1325,6 +1335,10 @@ func replaceProductionPlanOperationSplitsTx(ctx context.Context, tx pgx.Tx, sche
 	}
 	preparedItems := make([]productionapp.ProductionPlanOperationSplit, 0, len(requested))
 	for _, item := range requested {
+		item.Note = strings.ReplaceAll(item.Note, supplyRecheckMarker, "")
+		if needsReview[item.ProductionPlanItemID] && !ackSupplyRecheck {
+			item.Note += supplyRecheckMarker
+		}
 		planItem, ok := itemByID[item.ProductionPlanItemID]
 		if !ok {
 			return nil, fmt.Errorf("production_plan_item_id does not belong to production plan")
@@ -2313,6 +2327,22 @@ func (r Repository) SubmitProductionPlan(ctx context.Context, cmd productionapp.
 	if status != "draft" {
 		return productionapp.ProductionPlanSubmitResult{}, fmt.Errorf("production plan must be draft to submit")
 	}
+	if cmd.DraftToken != "" {
+		current, err := loadProductionPlanDetailTx(ctx, tx, r.schema, cmd.ID)
+		if err != nil {
+			return productionapp.ProductionPlanSubmitResult{}, err
+		}
+		if current.DraftToken != cmd.DraftToken {
+			return productionapp.ProductionPlanSubmitResult{}, fmt.Errorf("草稿版本已变化，请重新核对生产安排")
+		}
+	}
+	changed, err := productionPlanSupplyChangesTx(ctx, tx, r.schema, cmd.ID)
+	if err != nil {
+		return productionapp.ProductionPlanSubmitResult{}, err
+	}
+	if changed {
+		return productionapp.ProductionPlanSubmitResult{}, fmt.Errorf("供应已变化，草稿已保留，请重新核对生产安排")
+	}
 	if err := validateLinkedReplenishmentAtSubmitTx(ctx, tx, r.schema, cmd.ID); err != nil {
 		return productionapp.ProductionPlanSubmitResult{}, err
 	}
@@ -2331,6 +2361,16 @@ func (r Repository) SubmitProductionPlan(ctx context.Context, cmd productionapp.
 	}
 	if err := validateProductionPlanComponentSourcesAtSubmitTx(ctx, tx, r.schema, cmd.ID, items); err != nil {
 		return productionapp.ProductionPlanSubmitResult{}, err
+	}
+	// Batch and in-flight locks can block while another transaction changes
+	// supply. Read the graph again after acquiring those locks so the plan
+	// cannot be submitted using the earlier snapshot.
+	changed, err = productionPlanSupplyChangesTx(ctx, tx, r.schema, cmd.ID)
+	if err != nil {
+		return productionapp.ProductionPlanSubmitResult{}, err
+	}
+	if changed {
+		return productionapp.ProductionPlanSubmitResult{}, fmt.Errorf("供应已变化，草稿已保留，请重新核对生产安排")
 	}
 	unresolvedSupplyGaps, err := countBlockingProductionPlanSupplyGapsTx(ctx, tx, r.schema, cmd.ID)
 	if err != nil {
@@ -2669,6 +2709,11 @@ func validateQuantitySplitLimit(item productionapp.ProductionPlanItem, splits []
 }
 
 func validateProductionPlanOperationSplitCoverage(item productionapp.ProductionPlanItem, splits []productionapp.ProductionPlanOperationSplit) error {
+	for _, split := range splits {
+		if strings.Contains(split.Note, supplyRecheckMarker) {
+			return fmt.Errorf("供应数量已变化，请重新核对工位安排")
+		}
+	}
 	if err := validateProductionPlanOperationSplitIdentities(item, splits); err != nil {
 		return err
 	}

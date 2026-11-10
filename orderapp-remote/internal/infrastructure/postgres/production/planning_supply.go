@@ -10,6 +10,7 @@ import (
 	app "orderapp/internal/application/production"
 	domain "orderapp/internal/domain/production"
 	infra "orderapp/internal/infrastructure/postgres"
+	"reflect"
 	"sort"
 	"strings"
 )
@@ -26,6 +27,213 @@ type manufacturingExpansion struct {
 	Specs    map[string]int64
 	Supplies map[string][]pendingMaterialSupply
 	Owners   map[string]int64
+}
+
+const supplyRecheckMarker = "[[SUPPLY_RECHECK_REQUIRED]]"
+
+func productionSupplyChangeSummary(before, after []app.ProductionPlanItem) string {
+	oldItems, newItems := map[int64]app.ProductionPlanItem{}, map[int64]app.ProductionPlanItem{}
+	for _, item := range before {
+		oldItems[item.ID] = item
+	}
+	for _, item := range after {
+		newItems[item.ID] = item
+	}
+	added, removed, changed := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	operationLabels := func(item app.ProductionPlanItem, out map[string]bool) {
+		name := firstNonEmpty(item.OutputName, item.ProductName)
+		for _, op := range productionPlanPreviewOperations(item, nil) {
+			if op.Operation != "" {
+				out[fmt.Sprintf("%s（%s）", op.Operation, name)] = true
+			}
+		}
+	}
+	for id, item := range newItems {
+		old, exists := oldItems[id]
+		if !exists {
+			operationLabels(item, added)
+			continue
+		}
+		if math.Abs(old.OutputQty-item.OutputQty) > 0.000001 || old.OutputUnit != item.OutputUnit {
+			changed[fmt.Sprintf("%s %s%s→%s%s", firstNonEmpty(item.OutputName, item.ProductName), formatOperationQuantity(old.OutputQty), old.OutputUnit, formatOperationQuantity(item.OutputQty), item.OutputUnit)] = true
+		}
+	}
+	for id, item := range oldItems {
+		if _, exists := newItems[id]; !exists {
+			operationLabels(item, removed)
+		}
+	}
+	parts := []string{}
+	for _, group := range []struct {
+		label  string
+		values map[string]bool
+	}{{"新增工序", added}, {"减少工序", removed}, {"数量变化", changed}} {
+		list := make([]string, 0, len(group.values))
+		for value := range group.values {
+			list = append(list, value)
+		}
+		sort.Strings(list)
+		if len(list) > 0 {
+			parts = append(parts, group.label+"："+strings.Join(list, "、"))
+		}
+	}
+	if len(parts) == 0 {
+		return "供应来源已更新，请核对生产安排"
+	}
+	return strings.Join(parts, "；") + "，请核对受影响的工位安排"
+}
+
+// productionPlanSupplyChangesTx compares a freshly calculated supply graph to
+// the saved draft without modifying either the plan or its reservations.
+// The caller holds the plan row lock before using this as a submission guard.
+func productionPlanSupplyChangesTx(ctx context.Context, tx pgx.Tx, schema string, planID int64) (bool, error) {
+	items, err := loadProductionPlanItemsTx(ctx, tx, schema, planID)
+	if err != nil {
+		return false, err
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT DISTINCT d.depends_on_plan_item_id FROM %[1]s.production_plan_item_dependencies d JOIN %[1]s.production_plan_items pi ON pi.id=d.depends_on_plan_item_id AND pi.production_plan_id=$1 WHERE d.production_plan_id=$1`, schema), planID)
+	if err != nil {
+		return false, err
+	}
+	children := map[int64]bool{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return false, err
+		}
+		children[id] = true
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return false, err
+	}
+	roots := make([]app.ProductionPlanItem, 0, len(items))
+	for _, item := range items {
+		if !children[item.ID] {
+			roots = append(roots, item)
+		}
+	}
+	expansion, err := buildManufacturingExpansionTx(ctx, tx, schema, roots)
+	if err != nil {
+		return false, err
+	}
+	var stored []byte
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT supply_graph_json FROM %s.production_plans WHERE id=$1`, schema), planID).Scan(&stored); err != nil {
+		return false, err
+	}
+	if len(stored) == 0 || string(stored) == "null" {
+		for _, edge := range expansion.Plan.Edges {
+			if edge.ShortageQty > 0 || edge.InflightCoveredQty > 0 {
+				return true, nil
+			}
+		}
+		for _, node := range expansion.Plan.Nodes {
+			if node.InflightCoveredQty > 0 {
+				return true, nil
+			}
+			if node.Action == domain.ManufacturingSupplyManufacture && node.ShortageQty > 0 {
+				if _, root := expansion.Roots[node.Item.Key()]; !root {
+					return true, nil
+				}
+			}
+		}
+		return false, nil
+	}
+	var oldGraph any
+	if err := json.Unmarshal(stored, &oldGraph); err != nil {
+		return false, err
+	}
+	raw, err := json.Marshal(expansion.Plan)
+	if err != nil {
+		return false, err
+	}
+	var newGraph any
+	if err := json.Unmarshal(raw, &newGraph); err != nil {
+		return false, err
+	}
+	if !reflect.DeepEqual(oldGraph, newGraph) {
+		return true, nil
+	}
+	return productionPlanInflightAllocationsChangedTx(ctx, tx, schema, planID, items, expansion)
+}
+
+type supplyIdentity struct {
+	Consumer, Supplier, Material, Owner int64
+	Warehouse                           string
+}
+type supplyAmounts struct{ G, Units int64 }
+
+// Equal totals do not imply equal source work orders. Reconstruct the proposed
+// allocation with the same ordering and depletion rules used when applying.
+func productionPlanInflightAllocationsChangedTx(ctx context.Context, tx pgx.Tx, schema string, planID int64, items []app.ProductionPlanItem, expansion manufacturingExpansion) (bool, error) {
+	itemIDs := map[string]int64{}
+	for key, root := range expansion.Roots {
+		itemIDs[key] = root.ID
+	}
+	for _, item := range items {
+		if _, root := expansion.Roots[fmt.Sprintf("%s::root:%d", manufacturingItemIdentityKey(item.OutputType, item.OutputProductID, item.BomSpecID), item.ID)]; root {
+			continue
+		}
+		typ, id := item.OutputType, item.OutputProductID
+		if typ == "material" {
+			id = item.OutputMaterialID
+		}
+		itemIDs[manufacturingItemIdentityKey(typ, id, item.BomSpecID)] = item.ID
+	}
+	refs := map[string]domain.ManufacturingItemRef{}
+	for _, node := range expansion.Plan.Nodes {
+		refs[node.Item.Key()] = node.Item
+	}
+	want := map[supplyIdentity]supplyAmounts{}
+	for _, edge := range expansion.Plan.Edges {
+		consumer := itemIDs[edge.ConsumerKey]
+		if consumer == 0 {
+			continue
+		}
+		ref := refs[edge.SupplierKey]
+		remaining := edge.InflightCoveredQty
+		options := expansion.Supplies[edge.SupplierKey]
+		for i := range options {
+			s := &options[i]
+			q := math.Min(remaining, manufacturingQtyFromCanonical(s.G, s.Units, ref.Unit))
+			if q <= 0 {
+				continue
+			}
+			g, n := canonicalFromManufacturingQty(q, ref.Unit)
+			s.G -= g
+			s.Units -= n
+			remaining -= q
+			key := supplyIdentity{consumer, s.ID, ref.ID, s.OwnerID, s.Warehouse}
+			amount := want[key]
+			amount.G += g
+			amount.Units += n
+			want[key] = amount
+		}
+		expansion.Supplies[edge.SupplierKey] = options
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT production_plan_item_id,supplier_work_order_id,material_id,owner_customer_id,warehouse,required_g,required_units FROM %s.production_supply_allocations WHERE production_plan_id=$1`, schema), planID)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	got := map[supplyIdentity]supplyAmounts{}
+	for rows.Next() {
+		var key supplyIdentity
+		var amount supplyAmounts
+		if err = rows.Scan(&key.Consumer, &key.Supplier, &key.Material, &key.Owner, &key.Warehouse, &amount.G, &amount.Units); err != nil {
+			return false, err
+		}
+		prior := got[key]
+		prior.G += amount.G
+		prior.Units += amount.Units
+		got[key] = prior
+	}
+	if err = rows.Err(); err != nil {
+		return false, err
+	}
+	return !reflect.DeepEqual(want, got), nil
 }
 
 func requestProductionKeyTx(ctx context.Context, tx pgx.Tx, schema, action, actor, key string, payload any) (int64, json.RawMessage, error) {
@@ -115,6 +323,141 @@ func buildManufacturingExpansionTx(ctx context.Context, tx pgx.Tx, schema string
 	bases, boms, specs, err := loadDefaultManufacturingOutputBOMsForPlanningTx(ctx, tx, schema, allNeeds)
 	if err != nil {
 		return result, err
+	}
+	// Recalculate an existing draft from its frozen upstream recipe and route,
+	// even after another version becomes the default. Roots are handled below.
+	if len(roots) > 0 && roots[0].PlanID > 0 {
+		planID := roots[0].PlanID
+		storedItems, e := loadProductionPlanItemsTx(ctx, tx, schema, planID)
+		if e != nil {
+			return result, e
+		}
+		rows, e := tx.Query(ctx, fmt.Sprintf(`SELECT DISTINCT d.depends_on_plan_item_id FROM %[1]s.production_plan_item_dependencies d JOIN %[1]s.production_plan_items i ON i.id=d.depends_on_plan_item_id AND i.production_plan_id=$1 WHERE d.production_plan_id=$1`, schema), planID)
+		if e != nil {
+			return result, e
+		}
+		childIDs := map[int64]bool{}
+		for rows.Next() {
+			var id int64
+			if e = rows.Scan(&id); e != nil {
+				rows.Close()
+				return result, e
+			}
+			childIDs[id] = true
+		}
+		e = rows.Err()
+		rows.Close()
+		if e != nil {
+			return result, e
+		}
+		frozen := []app.ProductionPlanItem{}
+		var frozenNeeds []materialConsumptionNeed
+		for _, item := range storedItems {
+			if !childIDs[item.ID] {
+				continue
+			}
+			needs, e := productionPlanItemConsumptionNeeds(item)
+			if e != nil {
+				return result, e
+			}
+			frozen = append(frozen, item)
+			frozenNeeds = append(frozenNeeds, needs...)
+		}
+		if len(frozenNeeds) > 0 {
+			extraBases, extraBOMs, extraSpecs, e := loadDefaultManufacturingOutputBOMsForPlanningTx(ctx, tx, schema, frozenNeeds)
+			if e != nil {
+				return result, e
+			}
+			for key, value := range extraBases {
+				if _, exists := bases[key]; !exists {
+					bases[key] = value
+				}
+			}
+			for key, value := range extraSpecs {
+				if _, exists := specs[key]; !exists {
+					specs[key] = value
+				}
+			}
+			known := map[string]bool{}
+			for _, bom := range boms {
+				known[bom.Output.Key()] = true
+			}
+			for _, bom := range extraBOMs {
+				if !known[bom.Output.Key()] {
+					boms = append(boms, bom)
+					known[bom.Output.Key()] = true
+				}
+			}
+		}
+		seen := map[string]bool{}
+		for _, item := range frozen {
+			typ, outputID := item.OutputType, item.OutputProductID
+			if typ == "material" {
+				outputID = item.OutputMaterialID
+			}
+			ref := domain.ManufacturingItemRef{Type: typ, ID: outputID, BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID, Name: item.OutputName, Unit: item.OutputUnit}
+			key := ref.Key()
+			if seen[key] {
+				return result, fmt.Errorf("上游任务身份重复，请先核对生产安排")
+			}
+			seen[key] = true
+			if item.OutputQty <= 0 || item.MaterialSnapshot == "" || item.ProcessSnapshotJSON == "" {
+				return result, fmt.Errorf("%s 的冻结生产资料不完整", item.OutputName)
+			}
+			var snapshot []materialSnapshotRow
+			if e = json.Unmarshal([]byte(item.MaterialSnapshot), &snapshot); e != nil || len(snapshot) == 0 {
+				return result, fmt.Errorf("%s 的冻结配方不完整", item.OutputName)
+			}
+			basisQty, basisUnit := snapshot[0].OutputQty, snapshot[0].OutputUnit
+			if basisQty <= 0 {
+				basisQty = 1
+			}
+			if strings.TrimSpace(basisUnit) == "" {
+				basisUnit = item.OutputUnit
+			}
+			outputG, outputUnits := canonicalOutputBasis(basisQty, basisUnit)
+			basisInventoryQty := manufacturingQtyFromCanonical(outputG, outputUnits, item.OutputUnit)
+			if basisInventoryQty <= 0 {
+				return result, fmt.Errorf("%s 的冻结产出单位不兼容", item.OutputName)
+			}
+			run := ProduceRunRow{Product: item.OutputName, ProductID: outputID, SpecG: item.SpecG, NeedG: outputG, InputG: outputG, MaterialSnapshot: item.MaterialSnapshot}
+			needs, ok, e := materialSnapshotNeedsTx(run, InvQty{Units: outputUnits, LooseG: outputG})
+			if e != nil {
+				return result, e
+			}
+			if !ok {
+				return result, fmt.Errorf("%s 的冻结配方缺少物料", item.OutputName)
+			}
+			components := []domain.ManufacturingBOMComponent{}
+			for _, need := range aggregateManufacturingConsumptionNeeds(needs) {
+				t, id, sg := manufacturingNeedIdentity(need)
+				bs, bv := manufacturingNeedBOMSpecIdentity(need)
+				unit := need.Unit
+				if basis, ok := bases[manufacturingItemIdentityKey(t, id, bs)]; ok {
+					unit = basis.InventoryUnit
+				}
+				g, n := manufacturingNeedCanonicalQuantities(need)
+				qty := manufacturingQtyFromCanonical(g, n, unit)
+				if qty > 0 {
+					components = append(components, domain.ManufacturingBOMComponent{Item: domain.ManufacturingItemRef{Type: t, ID: id, BomSpecID: bs, BomVariantID: bv, Name: need.MaterialName, Unit: unit}, Qty: qty})
+					specs[manufacturingItemIdentityKey(t, id, bs)] = sg
+				}
+			}
+			basis := manufacturingOutputBOMPlanBasis{VersionID: item.BomVersionID, OutputType: typ, OutputID: outputID, BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID, OutputName: item.OutputName, InventoryUnit: item.OutputUnit, OutputSpecG: item.SpecG, OutputQty: basisQty, OutputUnit: basisUnit, ProcessRouteID: item.ProcessRouteID, FrozenProcessRouteSnapshot: item.ProcessSnapshotJSON, Snapshot: item.MaterialSnapshot}
+			bases[key] = basis
+			bom := domain.ManufacturingBOM{VersionID: item.BomVersionID, Output: ref, OutputQty: basisInventoryQty, Components: components}
+			replaced := false
+			for i := range boms {
+				if boms[i].Output.Key() == key {
+					boms[i] = bom
+					replaced = true
+					break
+				}
+			}
+			if !replaced {
+				boms = append(boms, bom)
+			}
+		}
 	}
 	result.Bases = bases
 	result.Specs = specs
@@ -248,7 +591,17 @@ func manufacturingUpstreamDemandRoots(expansion manufacturingExpansion, key stri
 }
 
 func createExpandedProductionItemsTx(ctx context.Context, tx pgx.Tx, schema string, planID int64, roots []app.ProductionPlanItem) (app.ProductionPlanPreview, error) {
-	expansion, err := buildManufacturingExpansionTx(ctx, tx, schema, roots)
+	return createExpandedProductionItemsReusingTx(ctx, tx, schema, planID, roots, nil, nil)
+}
+
+func createExpandedProductionItemsReusingTx(ctx context.Context, tx pgx.Tx, schema string, planID int64, roots []app.ProductionPlanItem, reuse map[string]app.ProductionPlanItem, prepared *manufacturingExpansion) (app.ProductionPlanPreview, error) {
+	var expansion manufacturingExpansion
+	var err error
+	if prepared == nil {
+		expansion, err = buildManufacturingExpansionTx(ctx, tx, schema, roots)
+	} else {
+		expansion = *prepared
+	}
 	if err != nil {
 		return app.ProductionPlanPreview{}, err
 	}
@@ -265,9 +618,33 @@ func createExpandedProductionItemsTx(ctx context.Context, tx pgx.Tx, schema stri
 			continue
 		}
 		basis := expansion.Bases[node.Item.Key()]
-		item, err := insertManufacturingOutputProductionPlanItemTx(ctx, tx, schema, planID, basis, node.ShortageQty, manufacturingUpstreamDemandRoots(expansion, node.Item.Key()))
+		previous, exists := reuse[node.Item.Key()]
+		if exists && (previous.BomVersionID != basis.VersionID || previous.ProcessRouteID != basis.ProcessRouteID || previous.BomVariantID != basis.BomVariantID) {
+			return result, fmt.Errorf("%s 的冻结配方或工艺与当前配置不同，请先核对生产配置", previous.OutputName)
+		}
+		insertPlanID := planID
+		if exists {
+			insertPlanID = 0
+		}
+		item, err := insertManufacturingOutputProductionPlanItemTx(ctx, tx, schema, insertPlanID, basis, node.ShortageQty, manufacturingUpstreamDemandRoots(expansion, node.Item.Key()))
 		if err != nil {
 			return result, err
+		}
+		if exists {
+			item.ID, item.PlanID = previous.ID, planID
+			item.TargetWarehouse = previous.TargetWarehouse
+			item.MaterialSnapshot, item.ProcessSnapshotJSON = previous.MaterialSnapshot, previous.ProcessSnapshotJSON
+			_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_plan_items SET output_qty=$2,planned_inventory_qty=$2,planned_g=$3,planned_output_g=$4,gap_g=$4,sales_spec_count=$5,order_nos=$6 WHERE id=$1`, schema), item.ID, item.OutputQty, item.PlannedG, item.PlannedOutputG, item.SalesSpecCount, item.OrderNos)
+			if err != nil {
+				return result, err
+			}
+			if previous.PlannedG != item.PlannedG || previous.PlannedOutputG != item.PlannedOutputG || math.Abs(previous.OutputQty-item.OutputQty) > 0.000001 {
+				_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_plan_operation_splits SET note=CASE WHEN strpos(COALESCE(note,''),$2)>0 THEN note ELSE COALESCE(note,'') || $2 END WHERE production_plan_item_id=$1`, schema), item.ID, supplyRecheckMarker)
+				if err != nil {
+					return result, err
+				}
+			}
+			delete(reuse, node.Item.Key())
 		}
 		if item.ID == 0 {
 			item.ID = -int64(len(items) + 1)
@@ -612,87 +989,138 @@ func guardSupplierCancellationTx(ctx context.Context, tx pgx.Tx, schema string, 
 }
 
 func (r Repository) RefreshProductionPlanSupply(ctx context.Context, id int64, operator string) (app.ProductionPlanDetail, error) {
+	result, err := r.SyncProductionPlanSupply(ctx, id, operator, "", false)
+	return result.Plan, err
+}
+
+func (r Repository) SyncProductionPlanSupply(ctx context.Context, id int64, operator, token string, checkOnly bool) (app.ProductionPlanSupplySyncResult, error) {
+	result := app.ProductionPlanSupplySyncResult{}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return app.ProductionPlanDetail{}, err
+		return result, err
 	}
 	defer tx.Rollback(ctx)
 	var status string
 	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT status FROM %s.production_plans WHERE id=$1 FOR UPDATE`, r.schema), id).Scan(&status); err != nil {
-		return app.ProductionPlanDetail{}, err
+		return result, err
 	}
 	if status != "draft" {
-		return app.ProductionPlanDetail{}, fmt.Errorf("仅草稿可刷新供应；已提交工单继续使用冻结快照")
+		return result, fmt.Errorf("仅草稿可更新供应；已提交工单继续使用冻结快照")
+	}
+	var workOrders int
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.work_orders WHERE production_plan_id=$1`, r.schema), id).Scan(&workOrders); err != nil {
+		return result, err
+	}
+	if workOrders > 0 {
+		return result, fmt.Errorf("草稿已有工单，无法自动更新供应")
+	}
+	current, err := loadProductionPlanDetailTx(ctx, tx, r.schema, id)
+	if err != nil {
+		return result, err
+	}
+	if token != "" && token != current.DraftToken {
+		return result, fmt.Errorf("生产计划草稿版本已变化，请重新核对")
+	}
+	changed, err := productionPlanSupplyChangesTx(ctx, tx, r.schema, id)
+	if err != nil {
+		return result, err
+	}
+	result.Plan, result.Changed = current, changed
+	if !changed {
+		result.Summary = "已按最新供应核对"
+		return result, nil
+	}
+	result.Summary = "库存或在产供应已变化，生产安排需要更新"
+	if checkOnly {
+		return result, nil
 	}
 	items, err := loadProductionPlanItemsTx(ctx, tx, r.schema, id)
 	if err != nil {
-		return app.ProductionPlanDetail{}, err
+		return result, err
 	}
 	adjustments, err := preservedPickingAdjustmentsTx(ctx, tx, r.schema, id, items)
 	if err != nil {
-		return app.ProductionPlanDetail{}, err
-	}
-	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_plans SET picking_version=1 WHERE id=$1`, r.schema), id); err != nil {
-		return app.ProductionPlanDetail{}, err
+		return result, err
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT DISTINCT d.depends_on_plan_item_id FROM %[1]s.production_plan_item_dependencies d JOIN %[1]s.production_plan_items pi ON pi.id=d.depends_on_plan_item_id AND pi.production_plan_id=$1 WHERE d.production_plan_id=$1`, r.schema), id)
 	if err != nil {
-		return app.ProductionPlanDetail{}, err
+		return result, err
 	}
-	children := []int64{}
-	childSet := map[int64]bool{}
+	children := map[int64]bool{}
 	for rows.Next() {
 		var child int64
 		if err = rows.Scan(&child); err != nil {
 			rows.Close()
-			return app.ProductionPlanDetail{}, err
+			return result, err
 		}
-		children = append(children, child)
-		childSet[child] = true
+		children[child] = true
 	}
 	err = rows.Err()
 	rows.Close()
 	if err != nil {
-		return app.ProductionPlanDetail{}, err
+		return result, err
 	}
 	roots := []app.ProductionPlanItem{}
+	reuse := map[string]app.ProductionPlanItem{}
 	for _, item := range items {
-		if !childSet[item.ID] {
+		if !children[item.ID] {
 			roots = append(roots, item)
+			continue
 		}
-	}
-	// Preserve final output identity, frozen BOM, order sources and root capacity splits.
-	for _, table := range []string{"production_supply_allocations", "production_plan_item_dependencies", "production_plan_supply_gaps"} {
-		if _, err = tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.%s WHERE production_plan_id=$1`, r.schema, table), id); err != nil {
-			return app.ProductionPlanDetail{}, err
+		typ, outputID := item.OutputType, item.OutputProductID
+		if typ == "material" {
+			outputID = item.OutputMaterialID
 		}
-	}
-	for _, table := range []string{"production_plan_operation_splits", "production_plan_component_sources"} {
-		if _, err = tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.%s WHERE production_plan_item_id=ANY($1::bigint[])`, r.schema, table), children); err != nil {
-			return app.ProductionPlanDetail{}, err
+		key := manufacturingItemIdentityKey(typ, outputID, item.BomSpecID)
+		if _, exists := reuse[key]; exists {
+			return result, fmt.Errorf("存在多个相同产出任务，请先核对生产安排")
 		}
+		reuse[key] = item
 	}
-	if _, err = tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.production_plan_items WHERE id=ANY($1::bigint[])`, r.schema), children); err != nil {
-		return app.ProductionPlanDetail{}, err
-	}
-	expanded, err := createExpandedProductionItemsTx(ctx, tx, r.schema, id, roots)
-	if err != nil {
-		return app.ProductionPlanDetail{}, err
-	}
-	if err = syncProductionPlanComponentSourcesTx(ctx, tx, r.schema, id, expanded.Items); err != nil {
-		return app.ProductionPlanDetail{}, err
-	}
-	if err = restorePickingAdjustmentsTx(ctx, tx, r.schema, id, expanded.Items, adjustments); err != nil {
-		return app.ProductionPlanDetail{}, err
-	}
-	if err = infra.AuditInsertTx(ctx, tx, r.schema, operator, "production_plan", &id, "refresh_supply", nil, nil, nil, infra.AuditMeta{"replaced_upstream_items": children, "item_count": len(expanded.Items)}); err != nil {
-		return app.ProductionPlanDetail{}, err
-	}
-	result, err := loadProductionPlanDetailTx(ctx, tx, r.schema, id)
+	expansion, err := buildManufacturingExpansionTx(ctx, tx, r.schema, roots)
 	if err != nil {
 		return result, err
 	}
-	return result, tx.Commit(ctx)
+	for _, table := range []string{"production_supply_allocations", "production_plan_item_dependencies", "production_plan_supply_gaps"} {
+		if _, err = tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.%s WHERE production_plan_id=$1`, r.schema, table), id); err != nil {
+			return result, err
+		}
+	}
+	expanded, err := createExpandedProductionItemsReusingTx(ctx, tx, r.schema, id, roots, reuse, &expansion)
+	if err != nil {
+		return result, err
+	}
+	for _, item := range reuse {
+		for _, table := range []string{"production_plan_operation_splits", "production_plan_component_sources"} {
+			if _, err = tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.%s WHERE production_plan_item_id=$1`, r.schema, table), item.ID); err != nil {
+				return result, err
+			}
+		}
+		if _, err = tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.production_plan_items WHERE id=$1`, r.schema), item.ID); err != nil {
+			return result, err
+		}
+	}
+	if err = syncProductionPlanComponentSourcesTx(ctx, tx, r.schema, id, expanded.Items); err != nil {
+		return result, err
+	}
+	if err = restorePickingAdjustmentsTx(ctx, tx, r.schema, id, expanded.Items, adjustments); err != nil {
+		return result, err
+	}
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_plans SET picking_version=1,revision=revision+1 WHERE id=$1`, r.schema), id); err != nil {
+		return result, err
+	}
+	result.Summary = productionSupplyChangeSummary(current.Items, expanded.Items)
+	if err = infra.AuditInsertTx(ctx, tx, r.schema, operator, "production_plan", &id, "refresh_supply", nil, nil, nil, infra.AuditMeta{"item_count": len(expanded.Items), "changes": result.Summary}); err != nil {
+		return result, err
+	}
+	result.Plan, err = loadProductionPlanDetailTx(ctx, tx, r.schema, id)
+	if err != nil {
+		return result, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return app.ProductionPlanSupplySyncResult{}, err
+	}
+	return result, nil
 }
 
 func (r Repository) MaterialReceiptTotals(ctx context.Context, id int64) (int64, int64, error) {

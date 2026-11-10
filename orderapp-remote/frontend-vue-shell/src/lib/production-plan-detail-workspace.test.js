@@ -51,6 +51,15 @@ const item = (id, order) => ({
   target_warehouse: 'finished_goods', order_nos: order,
 })
 
+test('warehouse and legacy source selectors cannot be edited during save', async () => {
+  const Component = await workspaceComponent()
+  const detail = { id: 18, plan_no: 'PP-TEST', status: 'draft', items: [item(8, 'SO-TEST')], component_sources: [{ id: 51, production_plan_item_id: 8, component_type: 'material', component_id: 41, component_name: '袋子', unit: '条', options: [] }], readiness: { can_submit: false, blocking_count: 1, issues: [] } }
+  const html = await renderToString(createSSRApp(Component, { detail, warehouses: [], saving: true }))
+  const selects = [...html.matchAll(/<select\b[^>]*>/g)].map(match => match[0])
+  assert.equal(selects.length, 2)
+  assert.ok(selects.every(tag => /\bdisabled\b/.test(tag)))
+})
+
 test('renders grouped preparation directly under its stage and leaves multi-order task details collapsed', async () => {
   const Component = await workspaceComponent()
   const detail = {

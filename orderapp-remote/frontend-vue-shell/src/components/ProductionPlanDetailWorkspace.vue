@@ -57,7 +57,7 @@
               <span class="section-index">01</span>
               <div><h2>本次生产安排</h2><p>按物料流向从上游到成品排列，每张任务卡保留自己的订单、客户、规格和冻结版本。</p></div>
             </div>
-            <button v-if="isDraft" class="text-button" type="button" @click="$emit('edit-splits')">编辑工位与批次</button>
+            <button v-if="isDraft" class="text-button" type="button" :disabled="saving" @click="$emit('edit-splits')">编辑工位与批次</button>
           </div>
 
           <p class="preparation-guidance">每个规格组紧接展示本组备料总量；展开订单任务可查看各自订单、来源仓、货主和批次。</p>
@@ -109,7 +109,7 @@
                           </div>
                           <label class="warehouse-field">
                             <span>完工入库</span>
-                            <select v-if="isDraft" :value="task.item.target_warehouse" @change="$emit('warehouse-change', task.id, $event.target.value)">
+                            <select v-if="isDraft" :disabled="saving" :value="task.item.target_warehouse" @change="$emit('warehouse-change', task.id, $event.target.value)">
                               <option value="">请选择目标仓库</option>
                               <option v-for="warehouse in availableWarehouses(task.item)" :key="warehouse.code" :value="warehouse.code">{{ warehouse.name }}（{{ warehouse.code }}）</option>
                             </select>
@@ -122,7 +122,7 @@
                           <div v-else-if="task.component_sources.length" class="legacy-source-list">
                             <article v-for="source in task.component_sources" :id="`component-source-${source.id}`" :key="sourceIdentity(source)" class="legacy-source-row">
                               <div><strong>{{ source.component_name }}</strong><small>本项需求 {{ sourceRequired(source) }} · {{ source.source_warehouse || '待选择来源' }} · {{ source.source_owner_customer_id ? `客户 #${source.source_owner_customer_id}` : '工厂' }}</small></div>
-                              <select v-if="isDraft" :value="sourceOptionKey(source)" @change="$emit('source-change', source, $event.target.value)"><option value="">请选择来源</option><option v-for="option in source.options || []" :key="optionKey(option)" :value="optionKey(option)">{{ optionLabel(option, source) }}</option></select>
+                              <select v-if="isDraft" :disabled="saving" :value="sourceOptionKey(source)" @change="$emit('source-change', source, $event.target.value)"><option value="">请选择来源</option><option v-for="option in source.options || []" :key="optionKey(option)" :value="optionKey(option)">{{ optionLabel(option, source) }}</option></select>
                               <strong v-else>{{ selectedSourceLabel(source) }}</strong>
                             </article>
                           </div>

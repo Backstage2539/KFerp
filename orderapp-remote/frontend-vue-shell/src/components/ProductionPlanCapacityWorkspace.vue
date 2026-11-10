@@ -1,7 +1,7 @@
 <template>
   <section class="capacity-workspace">
     <header class="workspace-header">
-      <button class="back-button" type="button" @click="$emit('back')">← 返回生产计划</button>
+      <button class="back-button" type="button" :disabled="saving" @click="$emit('back')">← 返回生产计划</button>
       <div class="header-main">
         <div>
           <div class="eyebrow">生产计划 · 产能拆分</div>
@@ -12,7 +12,7 @@
           </div>
           <p>按本次计划冻结的工艺路线安排工位和产量，工序名称随计划实际配置展示。</p>
         </div>
-        <button class="secondary" type="button" :disabled="loading" @click="$emit('refresh')">重新计算</button>
+        <button class="secondary" type="button" :disabled="loading || saving" @click="$emit('refresh')">重新计算工位安排</button>
       </div>
       <div class="plan-summary">
         <article><span>计划内容</span><strong>{{ productSummary }}</strong><small>{{ itemCount }} 项生产任务</small></article>
@@ -22,6 +22,7 @@
       </div>
     </header>
 
+    <div v-if="needsSupplyRecheck" class="review-error" role="alert">供应数量已变化，请核对工位安排并确认。</div>
     <div v-if="error && groups.length" class="review-error" role="alert">{{ error }}</div>
     <div v-if="loading" class="workspace-state">正在加载本次计划的工序和产能…</div>
     <div v-else-if="error && !groups.length" class="workspace-state error-state">{{ error }}</div>
@@ -177,6 +178,7 @@ const props = defineProps({
   error: { type: String, default: '' },
   previewError: { type: String, default: '' },
   dirty: { type: Boolean, default: false },
+  needsSupplyRecheck: { type: Boolean, default: false },
 })
 const emit = defineEmits(['back', 'save', 'confirm', 'refresh', 'auto', 'add', 'remove', 'capacity-change', 'batch-change', 'quantity-change', 'take-all', 'workstations-updated'])
 

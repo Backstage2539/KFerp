@@ -247,7 +247,7 @@ func TestAutoPickingPreservesManualIntentOnRefreshAndRejectsShortSupply(t *testi
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservation_batches", "true", 0)
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %s.material_batch_locations SET qty_g=0 WHERE material_batch_id=3030 AND warehouse='raw_materials'`, schema))
 	rec = serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", plan.ID), nil)
-	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "生产生豆") || !strings.Contains(rec.Body.String(), "草稿已保留") {
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "供应已变化") || !strings.Contains(rec.Body.String(), "草稿已保留") {
 		t.Fatalf("short submit %s", rec.Body.String())
 	}
 	assertProductionFlowCount(t, pool, schema, "production_plans", fmt.Sprintf("id=%d AND status='draft'", plan.ID), 1)
