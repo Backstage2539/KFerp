@@ -6571,6 +6571,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - GREEN: frontend tests 1681/1681, frontend build, full backend, stock API, and local browser fixture. Production observed read-only; no production stock document or business data changed. Development/production deployment not performed.
 
 ### PR-750-ORDER-WECHAT-NOTIFICATIONS
+- 2026-11-11 最新现场跟进：Van 确认“已接单”“已发货”状态值审核通过，开发环境已分别保存这两个已审核值；“部分发货”仍待审核及单独实测，不能视为已发货。开发小程序账号 168 仍待完成服务号绑定；“口加生产”微信群的聊天控件目前不可读，服务号和群真实发送及回读验收均未完成。Van 要求提交下单、生产开始、生产完成、取消四类服务号模板暂缓，列为 TODO；不得将这些缺项记为已交付。PR/DEV 继续保持 doing。
 - 2026-11-11 跟进：DEV-PR750-05～07 正在实现逐笔收款、出账、接单、逐次发货及分渠道配置；上述 2026-11-08 发布证据不代表本次跟进已部署或通过。Van 提供的接单和发货状态枚举截图均为审核中；真实服务号与生产群送达尚待逐项核验。
 - 2026-11-11 开发交付：运行版本 `228c6394dd38ae27481e6fd88c5a291f97980f5a`，容器运行且数据库健康；四个服务号模板字段已在开发环境保存，两个自动发送开关关闭。实际服务号及“口加生产”群送达、指定测试账号绑定、模板枚举通过情况仍待验证，PR/DEV 保持 doing。开发小程序包 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，未上传微信平台。
 - 同日补充：新订单首笔收款、请求幂等与管理员核查解除已经完成本机验证，待重新合并与部署；未收款新单在嵌入/复制页面断网后重复创建的既有风险尚未覆盖。开发工具已打开测试账号 72，但二维码失效且绑定未完成。
