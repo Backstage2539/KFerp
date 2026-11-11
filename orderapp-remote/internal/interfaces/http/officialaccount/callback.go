@@ -107,7 +107,11 @@ func (h *Handler) Callback(c echo.Context) error {
 		if msg.Event == "subscribe" || msg.Event == "SCAN" {
 			key := strings.TrimPrefix(msg.Key, "qrscene_")
 			if strings.HasPrefix(key, "notify_") {
-				if err := h.Repo.NotificationScan(ctx, strings.TrimPrefix(key, "notify_"), h.Config.AppID, msg.From); err != nil {
+				challenge, err := app.NotificationChallenge(key)
+				if err != nil {
+					return c.NoContent(400)
+				}
+				if err := h.Repo.NotificationScan(ctx, challenge, h.Config.AppID, msg.From); err != nil {
 					return c.NoContent(503)
 				}
 				return c.String(200, "success")

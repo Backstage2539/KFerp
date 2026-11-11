@@ -2,14 +2,48 @@ package wechataccount
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	messages "orderapp/internal/application/messagecenter"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestNotificationQRCodeEncodesFullChallengeWithinSceneLimit(t *testing.T) {
+	challenge := strings.Repeat("ab", 32)
+	var scene string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var wire struct {
+			ActionInfo struct {
+				Scene struct {
+					SceneStr string `json:"scene_str"`
+				} `json:"scene"`
+			} `json:"action_info"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&wire); err != nil {
+			t.Fatal(err)
+		}
+		scene = wire.ActionInfo.Scene.SceneStr
+		fmt.Fprint(w, `{"errcode":0,"ticket":"ticket"}`)
+	}))
+	defer server.Close()
+	client := WechatClient{BaseURL: server.URL, token: "cached", expires: time.Now().Add(time.Hour)}
+	if _, err := client.NotificationQRCode(context.Background(), challenge); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(scene, "notify_") || len(scene) > 64 {
+		t.Fatalf("scene length/prefix invalid: %d", len(scene))
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(scene, "notify_"))
+	if err != nil || hex.EncodeToString(raw) != challenge {
+		t.Fatalf("challenge not preserved: %v", err)
+	}
+}
 
 func TestTemplateSixMilestonesAndWire(t *testing.T) {
 	for event := range messages.MilestoneLabels {
