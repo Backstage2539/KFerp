@@ -93,18 +93,48 @@ func (r Repository) incomingAllocationsTx(ctx context.Context, tx pgx.Tx, p app.
 		}
 		totalGrams += b.Remaining * f
 	}
-	if math.Abs(totalGrams-math.Round(totalGrams)) > 1e-6 {
-		return nil, fmt.Errorf("前序来料不足整克，请核对库存精度")
-	}
-	amounts, err := app.AllocateIncomingQuantities(int64(math.Round(totalGrams)), weights)
+	amounts, err := incomingQuantitiesFromGrams(totalGrams, p.InputUnit, weights)
 	if err != nil {
 		return nil, err
 	}
 	for i := range allocations {
-		allocations[i].Quantity = float64(amounts[i]) / factor
+		allocations[i].Quantity = amounts[i]
 		allocations[i].Unit = p.InputUnit
 	}
 	return allocations, nil
+}
+
+// Preserve the original gram-based distribution for integral grams. When a
+// handoff contains sub-gram amounts, distribute at the input unit's stored
+// eight-decimal precision so the actual quantity is not rounded up or lost.
+func incomingQuantitiesFromGrams(totalGrams float64, unit string, weights []float64) ([]float64, error) {
+	factor := app.OperationUnitFactor(unit)
+	if factor <= 0 || math.IsNaN(totalGrams) || math.IsInf(totalGrams, 0) || totalGrams < 0 {
+		return nil, fmt.Errorf("前序来料数量或单位无效")
+	}
+	divisor := factor
+	quantity := totalGrams
+	if math.Abs(totalGrams-math.Round(totalGrams)) > math.Min(1e-6, factor*1e-9) {
+		divisor = 1e8
+		quantity = totalGrams / factor * divisor
+		if math.Abs(quantity-math.Round(quantity)) > 1e-3 {
+			return nil, fmt.Errorf("前序来料无法按投入单位的精度表示，请核对单位")
+		}
+	}
+	// Float64 must represent every allocation quantum exactly before the
+	// largest-remainder algorithm is used.
+	if quantity >= 1<<53 {
+		return nil, fmt.Errorf("前序来料数量超出可分配范围")
+	}
+	amounts, err := app.AllocateIncomingQuantities(int64(math.Round(quantity)), weights)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]float64, len(amounts))
+	for i, amount := range amounts {
+		out[i] = float64(amount) / divisor
+	}
+	return out, nil
 }
 
 func (r Repository) freezeIncomingAllocationsTx(ctx context.Context, tx pgx.Tx, allocations []incomingAllocation) error {

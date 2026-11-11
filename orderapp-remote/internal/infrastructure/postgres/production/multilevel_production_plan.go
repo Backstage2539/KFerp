@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	productionapp "orderapp/internal/application/production"
+	bomdomain "orderapp/internal/domain/bom"
 	productiondomain "orderapp/internal/domain/production"
 	"sort"
 	"strings"
@@ -420,7 +421,11 @@ func loadDefaultManufacturingOutputBOMsForPlanningTx(ctx context.Context, tx pgx
 		if outputQty <= 0 {
 			return nil, nil, nil, fmt.Errorf("BOM output unit incompatible with inventory unit: %s", basis.OutputName)
 		}
-		run := ProduceRunRow{Product: basis.OutputName, ProductID: basis.OutputID, SpecG: basis.OutputSpecG, NeedG: outputG, InputG: outputG, MaterialSnapshot: basis.Snapshot}
+		calculationSnapshot, err := manufacturingOutputCalculationSnapshot(basis.Snapshot)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		run := ProduceRunRow{Product: basis.OutputName, ProductID: basis.OutputID, SpecG: basis.OutputSpecG, NeedG: outputG, InputG: outputG, MaterialSnapshot: calculationSnapshot}
 		needs, ok, err := materialSnapshotNeedsTx(run, InvQty{Units: outputUnits, LooseG: outputG})
 		if err != nil || !ok {
 			if err == nil {
@@ -458,12 +463,14 @@ func loadDefaultManufacturingOutputBOMsForPlanningTx(ctx context.Context, tx pgx
 			})
 		}
 		componentSpecs[key] = basis.OutputSpecG
-		boms = append(boms, productiondomain.ManufacturingBOM{
+		bom := productiondomain.ManufacturingBOM{
 			VersionID:  basis.VersionID,
 			Output:     productiondomain.ManufacturingItemRef{Type: basis.OutputType, ID: basis.OutputID, BomSpecID: basis.BomSpecID, BomVariantID: basis.BomVariantID, Name: basis.OutputName, Unit: basis.InventoryUnit},
 			OutputQty:  outputQty,
 			Components: components,
-		})
+		}
+		configureManufacturingGrossRatioBOM(basis.Snapshot, outputG, basis.InventoryUnit, &bom)
+		boms = append(boms, bom)
 		sort.Strings(requestedKeys)
 	}
 	return bases, boms, componentSpecs, nil
@@ -478,7 +485,11 @@ func canonicalOutputBasis(qty float64, unit string) (int64, int64) {
 
 func insertManufacturingOutputProductionPlanItemTx(ctx context.Context, tx pgx.Tx, schema string, planID int64, basis manufacturingOutputBOMPlanBasis, outputQty float64, roots []productionapp.ProductionPlanItem) (productionapp.ProductionPlanItem, error) {
 	outputG, outputUnits := canonicalFromManufacturingQty(outputQty, basis.InventoryUnit)
-	run := ProduceRunRow{Product: basis.OutputName, ProductID: basis.OutputID, SpecG: basis.OutputSpecG, NeedG: outputG, InputG: outputG, MaterialSnapshot: basis.Snapshot}
+	calculationSnapshot, err := manufacturingOutputCalculationSnapshot(basis.Snapshot)
+	if err != nil {
+		return productionapp.ProductionPlanItem{}, err
+	}
+	run := ProduceRunRow{Product: basis.OutputName, ProductID: basis.OutputID, SpecG: basis.OutputSpecG, NeedG: outputG, InputG: outputG, MaterialSnapshot: calculationSnapshot}
 	needs, ok, err := materialSnapshotNeedsTx(run, InvQty{Units: outputUnits, LooseG: outputG})
 	if err != nil {
 		return productionapp.ProductionPlanItem{}, err
@@ -489,6 +500,13 @@ func insertManufacturingOutputProductionPlanItemTx(ctx context.Context, tx pgx.T
 	plannedInputG := int64(0)
 	for _, need := range aggregateManufacturingConsumptionNeeds(needs) {
 		plannedInputG += need.DeductG
+	}
+	var recipeRows []materialSnapshotRow
+	if err := json.Unmarshal([]byte(basis.Snapshot), &recipeRows); err != nil {
+		return productionapp.ProductionPlanItem{}, err
+	}
+	if _, lossFactor, eligible := manufacturingGrossRatioRecipe(recipeRows); eligible && outputG > 0 {
+		plannedInputG = int64(math.Ceil(float64(outputG)*lossFactor - 1e-8))
 	}
 	frozenSnapshot, err := freezeManufacturingOutputMaterialSnapshot(basis.Snapshot)
 	if err != nil {
@@ -597,6 +615,91 @@ func insertManufacturingOutputProductionPlanItemTx(ctx context.Context, tx pgx.T
 	return item, nil
 }
 
+// Only a full, unique, equal-loss weight recipe can use one shared gross
+// input and deterministic gram allocation; all other BOMs retain their rules.
+func manufacturingGrossRatioRecipe(rows []materialSnapshotRow) (map[int64]float64, float64, bool) {
+	weights := map[int64]float64{}
+	var sum, rate float64
+	mode := ""
+	if len(rows) == 0 {
+		return nil, 0, false
+	}
+	for i, row := range rows {
+		ratio := bomdomain.NormalizeRatioPct(row.RatioPct)
+		loss := normalizeMaterialLossRate(row.MaterialLossRate)
+		m := strings.TrimSpace(row.LossCalculationMode)
+		if m == "" {
+			m = legacyMaterialLossCalculationMode
+		}
+		if productionWeightUnitGrams(row.OutputUnit) <= 0 || row.OutputQty <= 0 || row.Source == "packaging" || row.Source == "finished_product" || row.ComponentType == "finished_product" || row.MaterialID <= 0 || strings.TrimSpace(row.MaterialName) == "" || normalizeBomConsumeUnit(row.ConsumeUnit) != "ratio_pct" || !isWeightMaterialUnit(row.Unit) || ratio <= 0 || loss <= 0 {
+			return nil, 0, false
+		}
+		if i == 0 {
+			rate = loss
+			mode = m
+		} else if math.Abs(loss-rate) > 1e-9 || m != mode {
+			return nil, 0, false
+		}
+		if _, duplicate := weights[row.MaterialID]; duplicate {
+			return nil, 0, false
+		}
+		weights[row.MaterialID] = ratio
+		sum += ratio
+	}
+	if math.Abs(sum-100) > 0.001 {
+		return nil, 0, false
+	}
+	return weights, materialLossFactor(rate, mode), true
+}
+
+func configureManufacturingGrossRatioBOM(raw string, outputG int64, outputUnit string, b *productiondomain.ManufacturingBOM) bool {
+	var rows []materialSnapshotRow
+	if json.Unmarshal([]byte(strings.TrimSpace(raw)), &rows) != nil {
+		return false
+	}
+	weights, lossFactor, ok := manufacturingGrossRatioRecipe(rows)
+	outputFactor := productionWeightUnitGrams(outputUnit)
+	if !ok || outputG <= 0 || outputFactor <= 0 || len(b.Components) != len(weights) {
+		return false
+	}
+	for _, c := range b.Components {
+		if _, found := weights[c.Item.ID]; !found || c.Item.Type != "material" || productionWeightUnitGrams(c.Item.Unit) <= 0 {
+			return false
+		}
+	}
+	for i := range b.Components {
+		c := &b.Components[i]
+		f := productionWeightUnitGrams(c.Item.Unit)
+		c.GramFactor = f
+		c.RatioWeight = weights[c.Item.ID]
+		c.Qty = float64(outputG) * lossFactor * weights[c.Item.ID] / 100 / f
+	}
+	b.GrossRatioGrams = true
+	b.OutputGramFactor = outputFactor
+	b.OutputBasisGrams = float64(outputG)
+	b.GrossLossFactor = lossFactor
+	return true
+}
+
+// When starting from an output quantity, loss has not yet been included in
+// InputG. Clear the flag only in this temporary calculation snapshot; the
+// persisted execution snapshot continues to mark the calculated input as gross.
+func manufacturingOutputCalculationSnapshot(raw string) (string, error) {
+	var rows []materialSnapshotRow
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &rows); err != nil {
+		return "", err
+	}
+	for i := range rows {
+		rows[i].InputIncludesMaterialLoss = false
+		rows[i].RatioAllocationMode = ""
+	}
+	result, err := json.Marshal(rows)
+	if err != nil {
+		return "", err
+	}
+	return string(result), nil
+}
+
 // The upstream item's PlannedG already includes BOM loss. Freeze that fact so
 // detail, source selection, reservations and execution do not apply it again.
 func freezeManufacturingOutputMaterialSnapshot(raw string) (string, error) {
@@ -604,9 +707,13 @@ func freezeManufacturingOutputMaterialSnapshot(raw string) (string, error) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &rows); err != nil {
 		return "", err
 	}
+	_, _, eligible := manufacturingGrossRatioRecipe(rows)
 	for i := range rows {
 		if normalizeMaterialLossRate(rows[i].MaterialLossRate) > 0 {
 			rows[i].InputIncludesMaterialLoss = true
+		}
+		if eligible {
+			rows[i].RatioAllocationMode = grossLargestRemainderRatioAllocationMode
 		}
 	}
 	frozen, err := json.Marshal(rows)
