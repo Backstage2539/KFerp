@@ -117,6 +117,7 @@ func (h *Handler) register(e *echo.Echo) {
 	admin := "/api/message-center/external"
 	e.GET(admin, h.overview)
 	e.PUT(admin+"/config", h.saveConfig)
+	e.POST(admin+"/prompt/reselect", h.reselectPrompt)
 	e.GET(admin+"/templates", h.templates)
 	e.POST(admin+"/tests", h.test)
 	e.POST(admin+"/deliveries/:id/verify-business-test", h.verifyBusinessTest)
@@ -129,6 +130,7 @@ func (h *Handler) register(e *echo.Echo) {
 	e.GET("/api/mini/notification-details/bills/:id", h.billDetail)
 	e.GET(mini, h.preferences)
 	e.PUT(mini, h.savePreferences)
+	e.PUT(mini+"/prompt", h.savePromptChoice)
 	e.POST(mini+"/binding", h.startBinding)
 	e.GET(mini+"/binding/:token", h.bindingStatus)
 	e.POST(mini+"/binding/:token/confirm", h.confirmBinding)
@@ -350,7 +352,69 @@ func (h *Handler) preferences(c echo.Context) error {
 		return e
 	}
 	v, e := h.Repo.NotificationPreferences(c.Request().Context(), h.Client.Config.AppID, cur.MiniUserID)
-	return respond(c, map[string]any{"rows": v, "enabled": h.Client.Config.Ready()}, e)
+	if e != nil {
+		return respond(c, nil, e)
+	}
+	employee := int64(0)
+	if cur.AccountType == "employee" {
+		employee = cur.EmployeeID
+	}
+	scoped := make([]pg.NotificationPreference, 0, len(v))
+	for _, row := range v {
+		if row.CustomerID == cur.CurrentCustomerID && row.EmployeeID == employee {
+			scoped = append(scoped, row)
+		}
+	}
+	state, e := h.Repo.NotificationPrompt(c.Request().Context(), h.Client.Config.AppID, cur.MiniUserID, cur.CurrentCustomerID, employee)
+	c.Response().Header().Set("Cache-Control", "no-store")
+	return respond(c, map[string]any{"rows": scoped, "enabled": h.Client.Config.Ready(), "prompt_required": state.Required, "prompt_version": state.Version, "choice": state.Choice, "mini_user_id": cur.MiniUserID, "customer_id": cur.CurrentCustomerID, "employee_id": employee}, e)
+}
+
+type promptIdentity struct {
+	MiniUserID *int64 `json:"mini_user_id"`
+	CustomerID *int64 `json:"customer_id"`
+	EmployeeID *int64 `json:"employee_id"`
+}
+
+func (v promptIdentity) supplied() bool {
+	return v.MiniUserID != nil || v.CustomerID != nil || v.EmployeeID != nil
+}
+func (v promptIdentity) matches(mini, customer, employee int64) bool {
+	return v.MiniUserID != nil && v.CustomerID != nil && v.EmployeeID != nil && *v.MiniUserID == mini && *v.CustomerID == customer && *v.EmployeeID == employee
+}
+func (h *Handler) savePromptChoice(c echo.Context) error {
+	cur, e := h.me(c)
+	if e != nil {
+		return e
+	}
+	var v struct {
+		promptIdentity
+		Version int64    `json:"version"`
+		Enabled *bool    `json:"enabled"`
+		Events  []string `json:"events"`
+	}
+	if c.Bind(&v) != nil || v.Enabled == nil {
+		return echo.NewHTTPError(400, "通知选择无效")
+	}
+	employee := int64(0)
+	if cur.AccountType == "employee" {
+		employee = cur.EmployeeID
+	}
+	if !v.promptIdentity.matches(cur.MiniUserID, cur.CurrentCustomerID, employee) {
+		return c.JSON(409, map[string]string{"error": "当前账号或客户已变化，请重新选择"})
+	}
+	e = h.Repo.SaveNotificationChoice(c.Request().Context(), h.Client.Config.AppID, cur.MiniUserID, cur.CurrentCustomerID, employee, v.Version, *v.Enabled, v.Events, bearer(c))
+	if errors.Is(e, pg.ErrNotificationChoiceStale) || errors.Is(e, pg.ErrNotificationIdentityChanged) {
+		return c.JSON(409, map[string]string{"error": e.Error()})
+	}
+	return respond(c, map[string]bool{"ok": true}, e)
+}
+func (h *Handler) reselectPrompt(c echo.Context) error {
+	actor, e := h.admin(c)
+	if e != nil {
+		return e
+	}
+	return respond(c, map[string]bool{"ok": true}, h.Repo.RequireNotificationReselect(c.Request().Context(), actor))
 }
 func (h *Handler) savePreferences(c echo.Context) error {
 	cur, e := h.me(c)
@@ -358,8 +422,10 @@ func (h *Handler) savePreferences(c echo.Context) error {
 		return e
 	}
 	var v struct {
-		Enabled bool     `json:"enabled"`
-		Events  []string `json:"events"`
+		promptIdentity
+		Enabled       bool     `json:"enabled"`
+		Events        []string `json:"events"`
+		PromptVersion *int64   `json:"prompt_version"`
 	}
 	if c.Bind(&v) != nil {
 		return echo.NewHTTPError(400, "通知偏好无效")
@@ -368,7 +434,18 @@ func (h *Handler) savePreferences(c echo.Context) error {
 	if cur.AccountType == "employee" {
 		employee = cur.EmployeeID
 	}
-	return respond(c, map[string]bool{"ok": true}, h.Repo.SaveNotificationPreference(c.Request().Context(), h.Client.Config.AppID, cur.MiniUserID, cur.CurrentCustomerID, employee, v.Enabled, v.Events))
+	if v.promptIdentity.supplied() && !v.promptIdentity.matches(cur.MiniUserID, cur.CurrentCustomerID, employee) {
+		return c.JSON(409, map[string]string{"error": "当前账号或客户已变化，请重新选择"})
+	}
+	var versions []int64
+	if v.PromptVersion != nil {
+		versions = append(versions, *v.PromptVersion)
+	}
+	e = h.Repo.SaveNotificationPreferenceForSession(c.Request().Context(), h.Client.Config.AppID, cur.MiniUserID, cur.CurrentCustomerID, employee, v.Enabled, v.Events, bearer(c), versions...)
+	if errors.Is(e, pg.ErrNotificationChoiceStale) || errors.Is(e, pg.ErrNotificationIdentityChanged) {
+		return c.JSON(409, map[string]string{"error": e.Error()})
+	}
+	return respond(c, map[string]bool{"ok": true}, e)
 }
 func (h *Handler) startBinding(c echo.Context) error {
 	cur, e := h.me(c)
