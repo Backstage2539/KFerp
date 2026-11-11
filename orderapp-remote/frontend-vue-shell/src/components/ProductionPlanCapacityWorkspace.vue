@@ -23,8 +23,9 @@
       </div>
     </header>
 
-    <div v-if="pendingMaterials.length" class="review-error" role="alert">本计划的物料尚未进入生产仓：<span v-for="row in pendingMaterials" :key="row.id">{{ row.name }} 待入仓 {{ row.missing_label }}；</span>请在物料准备中核对来源并请仓库确认调拨后提交。 <button type="button" @click="$emit('back')">返回物料准备</button></div>
-    <div v-if="pendingTransferDocuments.length" class="review-error" role="alert">仍有调拨单待仓库确认或取消：{{ pendingTransferDocuments.map(row => row.entry_no || `#${row.id}`).join('、') }}</div>
+    <slot name="semi-finished" />
+    <div v-if="unhandledMaterials.length" class="review-error" role="alert">本计划的物料尚未进入 WIP 仓：<span v-for="row in unhandledMaterials" :key="row.id">{{ row.name }} 待入仓 {{ row.missing_label }}；</span>半成品可在上方直接转入 WIP 仓；其他物料请在物料准备中处理。 <button type="button" @click="$emit('back')">返回物料准备</button></div>
+    <div v-if="pendingTransferDocuments.length" class="review-error" role="alert">仍有待处理调拨单：{{ pendingTransferDocuments.map(row => row.entry_no || `#${row.id}`).join('、') }}；相关半成品可在上方转入 WIP 仓，其他单据请在物料准备中处理。</div>
     <div v-if="needsSupplyRecheck" class="review-error" role="alert">供应数量已变化，请核对工位安排并确认。</div>
     <div v-if="error && groups.length" class="review-error" role="alert">{{ error }}</div>
     <div v-if="loading" class="workspace-state">正在加载本次计划的工序和产能…</div>
@@ -218,8 +219,9 @@ const pendingMaterials = computed(() => (props.detail?.component_sources || []).
   if (!grams && !units) return []
   const unit = String(source.unit || '').toLowerCase()
   const missing = grams ? `${unit === 'kg' ? Number((grams / 1000).toFixed(6)) : grams} ${unit === 'kg' ? 'kg' : 'g'}` : `${units} ${source.unit || '件'}`
-  return [{ id: source.id, name: source.component_name || '物料', missing_label: missing }]
+  return [{ id: source.id, name: source.component_name || '物料', missing_label: missing, handled_by_selection: source.allocation_mode === 'semi_finished_selected' && (Number(source.transfer_g || 0) > 0 || Number(source.transfer_units || 0) > 0) && !Number(source.shortage_g || 0) && !Number(source.shortage_units || 0) }]
 }))
+const unhandledMaterials = computed(() => pendingMaterials.value.filter(row => !row.handled_by_selection))
 const pendingTransferDocuments = computed(() => [...new Map((props.detail?.material_transfer_documents || [])
   .filter(row => row.status === 'draft').map(row => [Number(row.id), row])).values()])
 const canSubmit = computed(() => !props.saving && !props.previewLoading && !props.previewError && !hasInvalidRows.value && readiness.value.can_confirm && !props.dirty && !props.needsSupplyRecheck && !!props.submissionReady && pendingMaterials.value.length === 0 && pendingTransferDocuments.value.length === 0)

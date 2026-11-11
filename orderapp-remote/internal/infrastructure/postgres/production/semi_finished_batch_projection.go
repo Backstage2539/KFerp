@@ -127,76 +127,91 @@ type semiFinishedNormalizedSelection struct {
 	batchCode, warehouse                       string
 }
 
-// Normalize only transfers made for this plan after each selection's baseline.
-// Historical warehouse moves are never attributed to a later selection.
-func normalizedSelectedSemiFinishedTx(ctx context.Context, tx pgx.Tx, schema string, planID int64) ([]semiFinishedNormalizedSelection, error) {
-	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT s.material_id,s.batch_id,COALESCE(b.batch_code,''),COALESCE(b.owner_customer_id,0),s.warehouse,s.qty_g,s.qty_units,s.transfer_baseline_g,s.transfer_baseline_units
- FROM %[1]s.production_plan_semi_finished_selections s LEFT JOIN %[1]s.material_batches b ON b.id=s.batch_id WHERE s.production_plan_id=$1 ORDER BY s.material_id,s.batch_id,s.warehouse`, schema), planID)
-	if err != nil {
-		return nil, err
-	}
-	type selection struct {
-		semiFinishedNormalizedSelection
-		baselineG, baselineN int64
-	}
-	selections := []selection{}
-	for rows.Next() {
-		var x selection
-		if err = rows.Scan(&x.materialID, &x.batchID, &x.batchCode, &x.owner, &x.warehouse, &x.qtyG, &x.qtyUnits, &x.baselineG, &x.baselineN); err != nil {
-			rows.Close()
-			return nil, err
+// The selection is a plan-wide budget for a batch. An external stock move can
+// put that same batch into WIP; prefer its actual available WIP balance while
+// retaining the original source warehouses for the uncovered remainder.
+func normalizeSelectedSemiFinishedLocations(selections []semiFinishedNormalizedSelection, available map[int64][2]int64) []semiFinishedNormalizedSelection {
+	totals, explicit := map[int64][2]int64{}, map[int64][2]int64{}
+	first := map[int64]semiFinishedNormalizedSelection{}
+	order := []int64{}
+	for _, s := range selections {
+		if _, ok := first[s.batchID]; !ok {
+			first[s.batchID] = s
+			order = append(order, s.batchID)
 		}
-		selections = append(selections, x)
+		q := totals[s.batchID]
+		q[0] += s.qtyG
+		q[1] += s.qtyUnits
+		totals[s.batchID] = q
+		if s.warehouse == "wip" {
+			q = explicit[s.batchID]
+			q[0] += s.qtyG
+			q[1] += s.qtyUnits
+			explicit[s.batchID] = q
+		}
 	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return nil, err
-	}
+	remainingMoved := map[int64][2]int64{}
 	out := []semiFinishedNormalizedSelection{}
-	wip := map[int64]semiFinishedNormalizedSelection{}
-	for _, x := range selections {
-		base := semiFinishedNormalizedSelection{materialID: x.materialID, batchID: x.batchID, batchCode: x.batchCode, owner: x.owner, warehouse: "wip"}
-		w, ok := wip[x.batchID]
-		if !ok {
-			w = base
+	for _, id := range order {
+		total, fixed, free := totals[id], explicit[id], available[id]
+		// Keep explicit WIP selections visible even if unavailable, so the caller
+		// reports the shortage rather than silently dropping a selection.
+		wipG := maxInt64(fixed[0], minInt64(total[0], free[0]))
+		wipN := maxInt64(fixed[1], minInt64(total[1], free[1]))
+		remainingMoved[id] = [2]int64{wipG - fixed[0], wipN - fixed[1]}
+		if wipG > 0 || wipN > 0 {
+			w := first[id]
+			w.warehouse = "wip"
+			w.qtyG = wipG
+			w.qtyUnits = wipN
+			out = append(out, w)
 		}
-		if x.warehouse == "wip" {
-			w.qtyG += x.qtyG
-			w.qtyUnits += x.qtyUnits
-			wip[x.batchID] = w
+	}
+	for _, s := range selections {
+		if s.warehouse == "wip" {
 			continue
 		}
-		var movedG, movedN int64
-		err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(i.qty_g),0),COALESCE(SUM(i.qty_units),0) FROM %[1]s.production_plan_material_transfer_links l JOIN %[1]s.stock_entries e ON e.id=l.stock_entry_id AND e.status='submitted' JOIN %[1]s.stock_entry_items i ON i.id=l.stock_entry_item_id AND i.stock_entry_id=e.id WHERE l.production_plan_id=$1 AND i.item_type='material' AND i.material_id=$2 AND i.batch_code=$3 AND i.from_warehouse=$4 AND i.owner_customer_id=$5`, schema), planID, x.materialID, x.batchCode, x.warehouse, x.owner).Scan(&movedG, &movedN)
-		if err != nil {
+		moved := remainingMoved[s.batchID]
+		g, n := minInt64(s.qtyG, moved[0]), minInt64(s.qtyUnits, moved[1])
+		s.qtyG -= g
+		s.qtyUnits -= n
+		moved[0] -= g
+		moved[1] -= n
+		remainingMoved[s.batchID] = moved
+		if s.qtyG > 0 || s.qtyUnits > 0 {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func normalizedSelectedSemiFinishedTx(ctx context.Context, tx pgx.Tx, schema string, planID int64) ([]semiFinishedNormalizedSelection, error) {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT s.material_id,s.batch_id,COALESCE(b.batch_code,''),COALESCE(b.owner_customer_id,0),s.warehouse,s.qty_g,s.qty_units,
+ CASE WHEN b.status='active' AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject') AND b.material_id=s.material_id THEN GREATEST(0,COALESCE(loc.qty_g,0)-COALESCE(r.g,0)) ELSE 0 END,
+ CASE WHEN b.status='active' AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject') AND b.material_id=s.material_id THEN GREATEST(0,COALESCE(loc.qty_units,0)-COALESCE(r.n,0)) ELSE 0 END
+ FROM %[1]s.production_plan_semi_finished_selections s LEFT JOIN %[1]s.material_batches b ON b.id=s.batch_id
+ LEFT JOIN %[1]s.material_batch_locations loc ON loc.material_batch_id=b.id AND loc.warehouse='wip'
+ LEFT JOIN LATERAL (SELECT SUM(GREATEST(0,reserved_g-consumed_g-returned_g)) g,SUM(GREATEST(0,reserved_units-consumed_units-returned_units)) n FROM %[1]s.work_order_material_reservation_batches WHERE material_batch_id=b.id AND warehouse='wip' AND status='reserved') r ON true
+ WHERE s.production_plan_id=$1 ORDER BY s.material_id,s.batch_id,s.warehouse`, schema), planID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	selections := []semiFinishedNormalizedSelection{}
+	available := map[int64][2]int64{}
+	for rows.Next() {
+		var s semiFinishedNormalizedSelection
+		var g, n int64
+		if err = rows.Scan(&s.materialID, &s.batchID, &s.batchCode, &s.owner, &s.warehouse, &s.qtyG, &s.qtyUnits, &g, &n); err != nil {
 			return nil, err
 		}
-		movedG = minInt64(x.qtyG, nonnegativeQuantity(movedG-x.baselineG))
-		movedN = minInt64(x.qtyUnits, nonnegativeQuantity(movedN-x.baselineN))
-		w.qtyG += movedG
-		w.qtyUnits += movedN
-		wip[x.batchID] = w
-		x.qtyG -= movedG
-		x.qtyUnits -= movedN
-		if x.qtyG > 0 || x.qtyUnits > 0 {
-			out = append(out, x.semiFinishedNormalizedSelection)
-		}
+		selections = append(selections, s)
+		available[s.batchID] = [2]int64{g, n}
 	}
-	result := make([]semiFinishedNormalizedSelection, 0, len(wip)+len(out))
-	// Follow deterministic batch order without iterating the map.
-	seen := map[int64]bool{}
-	for _, x := range selections {
-		if !seen[x.batchID] {
-			seen[x.batchID] = true
-			w := wip[x.batchID]
-			if w.qtyG > 0 || w.qtyUnits > 0 {
-				result = append(result, w)
-			}
-		}
+	if err = rows.Err(); err != nil {
+		return nil, err
 	}
-	result = append(result, out...)
-	return result, nil
+	return normalizeSelectedSemiFinishedLocations(selections, available), nil
 }
 
 func validateSelectedSemiFinishedTransfer(source app.ProductionPlanComponentSource, warehouse string, owner int64, code string, qtyG, qtyUnits, alreadyG, alreadyUnits int64) error {

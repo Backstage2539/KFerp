@@ -30,6 +30,22 @@ func TestProjectSemiFinishedBatchesLeavesOtherMaterialsUntouched(t *testing.T) {
 	}
 }
 
+func TestNormalizeSelectedSemiFinishedUsesActualWIPWithoutChangingBatch(t *testing.T) {
+	selected := []semiFinishedNormalizedSelection{
+		{materialID: 5, batchID: 17, owner: 0, warehouse: "raw_materials", qtyG: 10000},
+		{materialID: 5, batchID: 17, owner: 0, warehouse: "wip", qtyG: 5000},
+		{materialID: 5, batchID: 18, owner: 0, warehouse: "raw_materials", qtyG: 4000},
+	}
+	got := normalizeSelectedSemiFinishedLocations(selected, map[int64][2]int64{17: {10000, 0}, 18: {0, 0}})
+	quantities := map[string]int64{}
+	for _, s := range got {
+		quantities[fmt.Sprintf("%d:%s", s.batchID, s.warehouse)] += s.qtyG
+	}
+	if quantities["17:wip"] != 10000 || quantities["17:raw_materials"] != 5000 || quantities["18:raw_materials"] != 4000 {
+		t.Fatalf("unexpected allocation: %+v", quantities)
+	}
+}
+
 func TestSelectedSemiFinishedTransferRejectsUnselectedBatch(t *testing.T) {
 	source := app.ProductionPlanComponentSource{AllocationMode: "semi_finished_selected", Allocations: []app.ProductionPlanSourceAllocation{{Warehouse: "raw_materials", OwnerCustomerID: 4, Batches: []app.ProductionPlanSourceBatch{{BatchCode: "selected", QtyG: 5000}}}}}
 	if err := validateSelectedSemiFinishedTransfer(source, "raw_materials", 4, "wrong", 1, 0, 0, 0); err == nil {
@@ -88,6 +104,18 @@ func TestSemiFinishedProjectionAndReservationPreserveSelectedBatch(t *testing.T)
 	}
 	if sources[0].WIPCoveredG != 5000 || sources[0].TransferG != 2000 || sources[1].TransferG != 8000 {
 		t.Fatalf("unexpected allocation %+v", sources)
+	}
+	// The same chosen batch can be moved by a separate stock document. Its
+	// actual WIP location must be recognized without a link to this plan.
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.material_batch_locations SET qty_g=10000 WHERE material_batch_id=17 AND warehouse='wip'; UPDATE %[1]s.material_batch_locations SET qty_g=5000 WHERE material_batch_id=17 AND warehouse='raw_materials'`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	sources = []app.ProductionPlanComponentSource{{ComponentType: "material", ComponentID: 5, RequiredG: 7000}, {ComponentType: "material", ComponentID: 5, RequiredG: 8000}}
+	if err = applySelectedSemiFinishedBatchSourcesTx(ctx, tx, schema, 1, sources); err != nil {
+		t.Fatal(err)
+	}
+	if sources[0].WIPCoveredG != 7000 || sources[1].WIPCoveredG != 3000 || sources[1].TransferG != 5000 {
+		t.Fatalf("external move should be counted once for selected batch: %+v", sources)
 	}
 	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.material_batch_locations SET qty_g=15000 WHERE material_batch_id=17 AND warehouse='wip'; UPDATE %[1]s.material_batch_locations SET qty_g=0 WHERE material_batch_id=17 AND warehouse='raw_materials'; INSERT INTO %[1]s.stock_entries VALUES(55,'submitted'); INSERT INTO %[1]s.stock_entry_items VALUES(56,55,'raw_materials','material',5,0,'SELECTED',10000,0); INSERT INTO %[1]s.production_plan_material_transfer_links VALUES(1,55,56)`, schema)); err != nil {
 		t.Fatal(err)

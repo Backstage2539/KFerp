@@ -26,10 +26,6 @@
 
     <div v-else-if="productionPlanSplitDrawer && productionPlanCapacityActive" class="production-plan-workspace-shell production-plan-capacity-shell">
       <div v-if="productionPlanSplitDrawerDraft" :class="['supply-status', { 'supply-error': productionSupplyError }]" role="status">{{ productionSupplyStatus }} <button v-if="productionSupplyError" type="button" @click="syncProductionPlanSupply">重试</button></div>
-      <ProductionPlanSemiFinishedStock v-if="productionPlanSplitDrawerDraft && productionPlanSplitDrawer.source_type !== 'stock'" :detail="productionPlanSplitDrawer" :disabled="productionPlanSplitDirty || productionPlanSplitDrawerSaving || productionSupplySyncing" @editing="semiFinishedEditing = $event" @updated="applySemiFinishedStockPlan" />
-      <template v-if="!productionPlanSplitDirty && !productionPlanSplitDrawerLoading">
-        <div v-for="item in productionPlanSplitDrawer.items || []" :key="item.id"><strong>{{ item.output_name || item.product_name }}</strong><OperationReportingRecheck kind="plan_item" :id="Number(item.id)" @updated="closeProductionPlanSplitDrawer(true); reloadProductionPlanDetail()" /></div>
-      </template>
       <ProductionPlanCapacityWorkspace
         :detail="productionPlanSplitDrawer"
         :rows="productionPlanSplitRows"
@@ -58,7 +54,11 @@
         @workstations-updated="refreshSplitWorkstations"
         @split-change="(split, next) => Object.assign(split, next)"
         @preset-saved="addSavedCapacityPreset"
-      />
+      >
+        <template #semi-finished>
+        <ProductionPlanSemiFinishedStock v-if="productionPlanSplitDrawerDraft && productionPlanSplitDrawer.source_type !== 'stock'" :detail="productionPlanSplitDrawer" :allow-transfer="true" :disabled="productionPlanSplitDirty || productionPlanSplitDrawerSaving || productionSupplySyncing" @editing="semiFinishedEditing = $event" @updated="applySemiFinishedStockPlan" />
+        </template>
+      </ProductionPlanCapacityWorkspace>
     </div>
 
     <div v-else-if="productionPlanDetail" class="production-plan-workspace-shell">
@@ -704,7 +704,6 @@ import ProductionPlanDetailWorkspace from '../components/ProductionPlanDetailWor
 import ProductionPlanTransferDrawer from '../components/ProductionPlanTransferDrawer.vue'
 import ProductionPlanCapacityWorkspace from '../components/ProductionPlanCapacityWorkspace.vue'
 import ProductionPlanSemiFinishedStock from '../components/ProductionPlanSemiFinishedStock.vue'
-import OperationReportingRecheck from '../components/OperationReportingRecheck.vue'
 import ProductionReplanWorkspace from '../components/ProductionReplanWorkspace.vue'
 import { computed, nextTick, onActivated, onDeactivated, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect } from 'vue'
 import { apiGet, apiSend } from '../api/client'
@@ -2434,7 +2433,7 @@ async function syncProductionPlanSupply() {
   }
 }
 
-function applySemiFinishedStockPlan(plan) {
+function applySemiFinishedStockPlan(plan, action = 'selection') {
   if (!plan?.id) return
   const updated = normalizeProductionPlanDetailForSplitEditor(plan)
   productionPlanDetail.value = updated
@@ -2448,7 +2447,7 @@ function applySemiFinishedStockPlan(plan) {
     productionPlanSplitSavedFingerprint.value = productionPlanSplitFingerprint(rows)
     scheduleProductionPlanSplitPreview()
   }
-  notice.value = '半成品选择已保存，请核对更新后的生产与产能安排。'
+  notice.value = action === 'transfer' ? '半成品已转入 WIP 仓。' : '半成品选择已保存，请核对更新后的生产与产能安排。'
 }
 
 function handleProductionSupplyVisibility() {

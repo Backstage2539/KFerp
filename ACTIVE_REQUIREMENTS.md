@@ -1,3 +1,11 @@
+### PR-760-SEMI-FINISHED-DIRECT-WIP
+
+- Branch: `codex/semi-finished-direct-wip-20261111`；Owner: Codex；Status: 开发中，待用户验收。
+- Scope: 半成品单次确认、产能页直接调入 WIP、同批次实际仓位校验及精简报工核对。
+- DEV: `DEV-PR760-01` 同批 WIP 覆盖；`DEV-PR760-02` 原子调拨及权限；`DEV-PR760-03` 页面；`DEV-PR760-04` 手册与交付。
+- Verifier: 定向 RED/GREEN；隔离 PostgreSQL 和真实 HTTP 选批转仓工单链、多订单共享与并发外部入 WIP 通过；前端 1922 项及构建、桌面和窄屏模拟页面检查通过；详见验收记录。
+- Deployment: 待测试、合并 develop/main 后部署；不操作真实业务计划。
+
 ### PR-MINIAPP-INVENTORY-SUMMARY-20261111
 
 - Branch: `codex/miniapp-inventory-summary-20261111`；DEV: `DEV-MINIAPP-INVENTORY-SUMMARY-20261111`。

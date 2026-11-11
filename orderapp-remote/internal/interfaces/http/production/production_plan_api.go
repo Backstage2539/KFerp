@@ -105,6 +105,22 @@ func registerProductionPlanAPI(e *echo.Echo, productionSvc *productionapp.Servic
 		}
 		return c.JSON(http.StatusOK, result)
 	})
+	e.POST("/api/production-plans/:id/semi-finished-stock/transfer-to-wip", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "无效的生产计划"})
+		}
+		var cmd productionapp.SemiFinishedTransferCommand
+		if err = c.Bind(&cmd); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "无效的转仓请求"})
+		}
+		cmd.PlanID, cmd.Operator = id, support.ActorOf(c)
+		result, err := productionSvc.TransferSemiFinishedToWIP(c.Request().Context(), cmd)
+		if err != nil {
+			return c.JSON(http.StatusConflict, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
 	e.GET("/api/production-plans/:id/material-transfer-options", func(c echo.Context) error {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil || id <= 0 {

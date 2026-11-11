@@ -15,6 +15,8 @@ func TestPlanMaterialTransferRequiresProductionAndStockPermissions(t *testing.T)
 		{http.MethodPost, "/api/production-plans/25/material-transfers/preview", "production.read", "stock.read"},
 		{http.MethodPost, "/api/production-plans/25/material-transfers", "production.run", "stock.write"},
 		{http.MethodPost, "/app/api/production-plans/25/material-transfers", "production.run", "stock.write"},
+		{http.MethodPost, "/api/production-plans/25/semi-finished-stock/transfer-to-wip", "production.run", "stock.write"},
+		{http.MethodPost, "/app/api/production-plans/25/semi-finished-stock/transfer-to-wip", "production.run", "stock.write"},
 		{http.MethodPost, "/api/production-plans/25/submit", "production.run", ""},
 	} {
 		if got := requiredPermissionForRequest(tc.method, tc.path); got != tc.production {
@@ -38,6 +40,9 @@ func TestPlanMaterialTransferHTTPEnforcesBothPermissions(t *testing.T) {
 		{"create requires stock write", http.MethodPost, "/api/production-plans/25/material-transfers", []string{"production.run", "stock.read"}, 403},
 		{"create requires production run", http.MethodPost, "/api/production-plans/25/material-transfers", []string{"production.read", "stock.write"}, 403},
 		{"create allows both writes", http.MethodPost, "/api/production-plans/25/material-transfers", []string{"production.run", "stock.write"}, 200},
+		{"direct requires stock write", http.MethodPost, "/api/production-plans/25/semi-finished-stock/transfer-to-wip", []string{"production.run", "stock.read"}, 403},
+		{"direct requires production run", http.MethodPost, "/api/production-plans/25/semi-finished-stock/transfer-to-wip", []string{"production.read", "stock.write"}, 403},
+		{"direct allows both writes", http.MethodPost, "/api/production-plans/25/semi-finished-stock/transfer-to-wip", []string{"production.run", "stock.write"}, 200},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := echo.New()

@@ -124,7 +124,7 @@ func operationCompletionStockPermission(method, path string) string {
 		if method == http.MethodGet && strings.HasSuffix(path, "/material-transfer-options") || method == http.MethodPost && strings.HasSuffix(path, "/material-transfers/preview") {
 			return "stock.read"
 		}
-		if method == http.MethodPost && strings.HasSuffix(path, "/material-transfers") {
+		if method == http.MethodPost && (strings.HasSuffix(path, "/material-transfers") || strings.HasSuffix(path, "/semi-finished-stock/transfer-to-wip")) {
 			return "stock.write"
 		}
 	}
