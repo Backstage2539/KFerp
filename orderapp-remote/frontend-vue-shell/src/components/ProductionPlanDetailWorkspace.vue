@@ -56,7 +56,7 @@
           <div class="section-heading">
             <div>
               <span class="section-index">01</span>
-              <div><h2>物料准备</h2><p>点击物料名称查看库存；WIP 缺料时可生成调拨单。</p></div>
+              <div><h2>物料准备</h2><p>点击物料名称查看库存；前道供应等待生产，现货缺口可生成调拨单。</p></div>
             </div>
             <button v-if="isDraft" class="secondary" type="button" :disabled="saving" @click="$emit('bulk-material-transfer')">生成所有缺料调拨单</button>
           </div>

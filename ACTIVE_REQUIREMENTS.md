@@ -1,3 +1,10 @@
+### PR-758-UPSTREAM-WAIT
+- Branch: `codex/production-upstream-preparation-20261111`; base: `origin/develop`.
+- Scope: 物料准备区区分前道待生产与需现货调拨的数量，并核对单项及批量调拨保护。
+- DEV: `DEV-PR758-UPSTREAM-01` 页面提示及调拨入口；`DEV-PR758-UPSTREAM-02` 隔离接口回归、手册和验收。
+- Status: RED/GREEN、历史只读兼容、隔离接口、1884 项前端测试、构建及桌面/窄屏模拟页面检查通过；开发环境已发布，用户验收待完成，正式发布另行安排。
+- Development: ERP-only `a4112c102fa2eefa15017328b2018c8f96ee035c`，登录 200、未登录计划接口 401，应用运行、数据库健康，页面资源含等待前道提示；保留原小程序。回滚源 `/opt/stacks/erp/orderapp.backup.deploy-20261111095407-a4112c102fa2`。
+
 ### PR-757-PRODUCTION-CAPACITY-FLEXIBLE
 - Branch: `codex/production-capacity-flexible-20261110`; base: `origin/develop`.
 - Scope: 允许产能超排或不足；本次自定义批量、建议批数及自选加入工位预定义产能。

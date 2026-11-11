@@ -270,6 +270,9 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-758-UPSTREAM-WAIT", title: "物料准备区区分等待前道生产与现货调拨", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-11-production-upstream-wait.md；用户验收待完成"},
+		{table: "req_dev", code: "DEV-PR758-UPSTREAM-01", title: "前道待生产提示及调拨入口", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR758-UPSTREAM-02", title: "前道与现货混合供应校验及验收", status: "review", assignee: "Codex"},
 		{table: "req_product", code: "PR-758-PRODUCTION-MATERIAL-PREPARATION", title: "生产计划物料准备、产能安排与仓库调拨", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-10-production-material-preparation.md；用户验收待完成"},
 		{table: "req_dev", code: "DEV-PR758-01", title: "物料准备及产能安排两步流程", status: "review", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PR758-02", title: "计划调拨单、库存身份与并发保护", status: "review", assignee: "Codex"},

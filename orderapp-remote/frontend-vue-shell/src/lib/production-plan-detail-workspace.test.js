@@ -87,6 +87,7 @@ test('renders grouped preparation directly under its stage and leaves multi-orde
 
   assert.doesNotMatch(html, /同规格生产组|本组备料|生产任务明细|展开 2 项订单任务/)
   assert.match(html, /物料准备/)
+  assert.match(html, /前道供应等待生产/)
   assert.match(html, /下一步：产能安排/)
   assert.match(html, /生成所有缺料调拨单/)
   assert.match(html, /data-source-id="11"/)
