@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	app "orderapp/internal/application/production"
 	bomdomain "orderapp/internal/domain/bom"
 	stockdomain "orderapp/internal/domain/stock"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
@@ -54,6 +55,7 @@ type materialSnapshotRow struct {
 	MaterialLossRate          float64 `json:"material_loss_rate,omitempty"`
 	LossCalculationMode       string  `json:"loss_calculation_mode,omitempty"`
 	InputIncludesMaterialLoss bool    `json:"input_includes_material_loss,omitempty"`
+	RatioAllocationMode       string  `json:"ratio_allocation_mode,omitempty"`
 	Source                    string  `json:"source"`
 	ComponentType             string  `json:"component_type,omitempty"`
 	ComponentProductID        int64   `json:"component_product_id,omitempty"`
@@ -70,6 +72,7 @@ const (
 	yieldDenominatorMaterialLossCalculationMode = "yield_denominator"
 	additiveMaterialLossCalculationMode         = "additive"
 	legacyMaterialLossCalculationMode           = "legacy_fraction"
+	grossLargestRemainderRatioAllocationMode    = "gross_largest_remainder_v1"
 )
 
 func isWeightMaterialUnit(unit string) bool {
@@ -926,6 +929,65 @@ func buildMaterialSnapshotForBomVersionVariantTx(ctx context.Context, tx pgx.Tx,
 	return json.Marshal(snapshot)
 }
 
+// frozenRecipeGrossAllocations applies only to snapshots that explicitly
+// record the newer gross-input allocation policy. Unmarked historical
+// snapshots retain their original independently rounded material quantities.
+func frozenRecipeGrossAllocations(rows []materialSnapshotRow, rawG int64) (map[int]int64, error) {
+	marked := false
+	for _, row := range rows {
+		if row.RatioAllocationMode != "" {
+			marked = true
+			break
+		}
+	}
+	if !marked {
+		return nil, nil
+	}
+	indices := []int{}
+	weights := []float64{}
+	var ratioSum, lossRate float64
+	var lossMode string
+	for i, row := range rows {
+		if row.Source == "packaging" && row.RatioAllocationMode == "" {
+			continue
+		}
+		if normalizeBomConsumeUnit(row.ConsumeUnit) != "ratio_pct" {
+			if row.RatioAllocationMode != "" {
+				return nil, fmt.Errorf("冻结配方比例分摊标记无效")
+			}
+			continue
+		}
+		ratio := bomdomain.NormalizeRatioPct(row.RatioPct)
+		if row.RatioAllocationMode != grossLargestRemainderRatioAllocationMode || !row.InputIncludesMaterialLoss || row.MaterialID <= 0 || strings.TrimSpace(row.MaterialName) == "" || !isWeightMaterialUnit(row.Unit) || row.Source == "packaging" || row.Source == "finished_product" || ratio <= 0 {
+			return nil, fmt.Errorf("冻结配方比例分摊资料不完整")
+		}
+		currentLoss := normalizeMaterialLossRate(row.MaterialLossRate)
+		currentMode := strings.TrimSpace(row.LossCalculationMode)
+		if currentMode == "" {
+			currentMode = legacyMaterialLossCalculationMode
+		}
+		if currentLoss <= 0 || (len(indices) > 0 && (math.Abs(currentLoss-lossRate) > 1e-9 || currentMode != lossMode)) {
+			return nil, fmt.Errorf("冻结配方比例分摊损耗不一致")
+		}
+		lossRate, lossMode = currentLoss, currentMode
+		indices = append(indices, i)
+		weights = append(weights, ratio)
+		ratioSum += ratio
+	}
+	if len(indices) == 0 || math.Abs(ratioSum-100) > 0.001 {
+		return nil, fmt.Errorf("冻结配方比例分摊合计不是 100%%")
+	}
+	values, err := app.AllocateIncomingQuantities(rawG, weights)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int]int64, len(indices))
+	for i, index := range indices {
+		out[index] = values[i]
+	}
+	return out, nil
+}
+
 func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsumptionNeed, bool, error) {
 	raw := strings.TrimSpace(r.MaterialSnapshot)
 	if raw == "" || raw == "[]" || raw == "null" {
@@ -953,8 +1015,12 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 	if outputG <= 0 {
 		outputG = r.NeedG
 	}
+	allocations, err := frozenRecipeGrossAllocations(rows, rawG)
+	if err != nil {
+		return nil, true, err
+	}
 	needs := make([]materialConsumptionNeed, 0, len(rows))
-	for _, row := range rows {
+	for rowIndex, row := range rows {
 		if row.MaterialID <= 0 || strings.TrimSpace(row.MaterialName) == "" {
 			continue
 		}
@@ -986,10 +1052,14 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 		} else if source == "finished_product" {
 			qty = componentConsumptionQtyWithMaterialLossMode(row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, 0, row.OutputQty, row.OutputUnit, 0, lossCalculationMode)
 		} else if isWeightMaterialUnit(unit) {
-			deductG = componentConsumptionWeightGramsWithMaterialLossMode(
-				row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG,
-				packedUnits, 0, row.OutputQty, row.OutputUnit, materialLossRate, lossCalculationMode,
-			)
+			if allocation, ok := allocations[rowIndex]; ok {
+				deductG = allocation
+			} else {
+				deductG = componentConsumptionWeightGramsWithMaterialLossMode(
+					row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG,
+					packedUnits, 0, row.OutputQty, row.OutputUnit, materialLossRate, lossCalculationMode,
+				)
+			}
 			if productionWeightUnitGrams(unit) > 1 {
 				qtyDecimal = float64(deductG) / productionWeightUnitGrams(unit)
 			} else {
