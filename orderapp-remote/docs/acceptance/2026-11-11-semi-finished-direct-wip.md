@@ -1,6 +1,6 @@
 # PR-760 半成品选择与当前页转入 WIP
 
-状态：技术验证中；Van 产品验收待完成。
+状态：技术验证及正式发布完成；Van 产品验收待完成。
 
 ## 范围与验证
 
@@ -13,4 +13,8 @@
 
 ## 交付
 
-- develop、main、开发/正式部署、运行版本、页面检查和回滚证据待补充。
+- develop `470dcddd21a515a8d3b624cfad87904ca0ac0fec`；main 正式运行 `c739b3d82438f18e84ef5e5c8aa2485b0d95d303`。按照本次指定仅部署正式环境。
+- 正式发布服务器前端 1922 项、小程序 527 项、类型检查、构建和 Go 全量以及镜像内 Go 全量通过；应用运行且重启 0、数据库健康、登录 200、匿名计划接口 401、管理员计划接口 200。页面 JS 公网与服务器 SHA256 均为 `d8dfacf3a06b76912f191911b364bf56291540502ee87b1df0d51753aab6fb40`。
+- 正式计划 26 只读核对仍为总需求 60.112 kg、所选 15 kg、本次生产 45.112 kg；未操作该计划、调拨或提交。
+- 数据库备份 `/opt/stacks/erp-production/backups/pre-pr760-20261111191557.dump`，源码回滚 `/opt/stacks/erp-production/orderapp.backup.deploy-20261111191630-c739b3d82438`，回滚镜像 `kferp-orderapp-rollback:production-20261111191630-c739b3d82438`。
+- 生产小程序包 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，108 文件与版本清单已核对；微信上传、审核及发布未执行。
