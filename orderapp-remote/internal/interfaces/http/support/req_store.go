@@ -270,6 +270,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-760-SEMI-FINISHED-DIRECT-WIP", title: "半成品选择精简与产能页直接转入WIP", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-11-semi-finished-direct-wip.md；用户验收待完成"},
+		{table: "req_dev", code: "DEV-PR760-01", title: "按同批次实际WIP库存覆盖已选半成品", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR760-02", title: "一键原子调拨、幂等及库存权限", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR760-03", title: "精简半成品确认和产能页面", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR760-04", title: "隔离验收、操作手册及交付", status: "review", assignee: "Codex"},
 		{table: "req_product", code: "PR-759-SEMI-FINISHED-STOCK-SELECTION", title: "生产计划选择半成品库存并调整产能", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-11-semi-finished-stock-selection.md；用户验收待完成"},
 		{table: "req_dev", code: "DEV-PR759-01", title: "半成品库存策略、预览与生产重算", status: "review", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PR759-02", title: "选定批次的调拨、在制仓与工单一致性", status: "review", assignee: "Codex"},

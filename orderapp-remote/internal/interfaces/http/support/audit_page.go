@@ -281,6 +281,9 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 			return "生产管理 / 工艺模板", "维护工艺模板"
 		}
 	case "production_plan":
+		if action == "transfer_semi_finished_to_wip" {
+			return "生产管理 / 生产流程 / 生产计划", "半成品转入 WIP 仓"
+		}
 		if action == "cancel" {
 			return "生产管理 / 生产流程 / 生产计划", "撤销生产计划草稿"
 		}
@@ -758,6 +761,8 @@ func auditSummary(r *AuditLogRow, rawEntityType, rawAction, rawField string) str
 		return fmt.Sprintf("%s 在%s保存了%s", actor, menuName, target)
 	}
 	switch rawAction {
+	case "transfer_semi_finished_to_wip":
+		return fmt.Sprintf("%s 在%s将%s的已选半成品转入 WIP 仓", actor, menuName, auditTargetName(r, rawEntityType))
 	case "request":
 		status := ""
 		if r.NewValue != nil && strings.TrimSpace(*r.NewValue) != "" {
@@ -1227,6 +1232,8 @@ func labelEntityType(t string) string {
 
 func labelAction(a string) string {
 	switch strings.TrimSpace(a) {
+	case "transfer_semi_finished_to_wip":
+		return "转入 WIP 仓"
 	case "update":
 		return "修改"
 	case "create":

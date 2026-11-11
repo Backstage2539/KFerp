@@ -28,12 +28,11 @@ func (r Repository) selectedPlanWIPCoverageTx(ctx context.Context, tx pgx.Tx, pl
 	if policy != "manual" {
 		return coverage, selectedSources, nil
 	}
-	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT s.material_id,s.batch_id,COALESCE(b.owner_customer_id,0),s.warehouse,s.qty_g,s.qty_units,s.transfer_baseline_g,s.transfer_baseline_units,
- COALESCE(t.g,0),COALESCE(t.n,0),GREATEST(0,COALESCE(loc.qty_g,0)-COALESCE(res.g,0)),GREATEST(0,COALESCE(loc.qty_units,0)-COALESCE(res.n,0)),(b.status='active' AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject') AND b.material_id=s.material_id)
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT s.material_id,s.batch_id,COALESCE(b.owner_customer_id,0),s.qty_g,s.qty_units,
+ GREATEST(0,COALESCE(loc.qty_g,0)-COALESCE(res.g,0)),GREATEST(0,COALESCE(loc.qty_units,0)-COALESCE(res.n,0)),(b.status='active' AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject') AND b.material_id=s.material_id)
  FROM %[1]s.production_plan_semi_finished_selections s JOIN %[1]s.material_batches b ON b.id=s.batch_id
  LEFT JOIN %[1]s.material_batch_locations loc ON loc.material_batch_id=b.id AND loc.warehouse='wip'
  LEFT JOIN LATERAL (SELECT SUM(GREATEST(0,reserved_g-consumed_g-returned_g)) g,SUM(GREATEST(0,reserved_units-consumed_units-returned_units)) n FROM %[1]s.work_order_material_reservation_batches WHERE material_batch_id=b.id AND warehouse='wip' AND status='reserved') res ON true
- LEFT JOIN LATERAL (SELECT SUM(i.qty_g) g,SUM(i.qty_units) n FROM %[1]s.production_plan_material_transfer_links l JOIN %[1]s.stock_entries e ON e.id=l.stock_entry_id AND e.status='submitted' JOIN %[1]s.stock_entry_items i ON i.id=l.stock_entry_item_id AND i.stock_entry_id=e.id WHERE l.production_plan_id=s.production_plan_id AND i.item_type='material' AND i.material_id=s.material_id AND i.batch_code=b.batch_code AND i.from_warehouse=s.warehouse AND i.owner_customer_id=b.owner_customer_id) t ON true
  WHERE s.production_plan_id=$1 ORDER BY s.material_id,s.batch_id,s.warehouse`, r.schema), planID)
 	if err != nil {
 		return nil, nil, err
@@ -53,10 +52,9 @@ func (r Repository) selectedPlanWIPCoverageTx(ctx context.Context, tx pgx.Tx, pl
 		return b
 	}
 	for rows.Next() {
-		var material, batch, owner, g, n, bg, bn, tg, tn, availG, availN int64
-		var warehouse string
+		var material, batch, owner, g, n, availG, availN int64
 		var active bool
-		if err = rows.Scan(&material, &batch, &owner, &warehouse, &g, &n, &bg, &bn, &tg, &tn, &availG, &availN, &active); err != nil {
+		if err = rows.Scan(&material, &batch, &owner, &g, &n, &availG, &availN, &active); err != nil {
 			rows.Close()
 			return nil, nil, err
 		}
@@ -69,10 +67,6 @@ func (r Repository) selectedPlanWIPCoverageTx(ctx context.Context, tx pgx.Tx, pl
 		if !active {
 			batches[idx].availableG = 0
 			batches[idx].availableN = 0
-		}
-		if warehouse != "wip" {
-			g = min(g, tg-bg)
-			n = min(n, tn-bn)
 		}
 		batches[idx].selectedG += g
 		batches[idx].selectedN += n

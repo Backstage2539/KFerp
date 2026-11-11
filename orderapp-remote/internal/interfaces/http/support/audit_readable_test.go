@@ -541,3 +541,11 @@ func TestDecorateAuditLogRowScannedOperationRoutesUseCurrentMenuIA(t *testing.T)
 		})
 	}
 }
+
+func TestSemiFinishedWIPTransferAuditReadable(t *testing.T) {
+	row := AuditLogRow{Actor: "现场人员", EntityType: "production_plan", EntityID: int64Ptr(26), Action: "transfer_semi_finished_to_wip"}
+	decorateAuditLogRow(&row, nil, nil)
+	if row.Action != "转入 WIP 仓" || row.Feature != "半成品转入 WIP 仓" || !strings.Contains(row.Summary, "已选半成品转入 WIP 仓") {
+		t.Fatalf("unexpected audit row: %+v", row)
+	}
+}
