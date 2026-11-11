@@ -129,13 +129,21 @@ type BillingBill struct {
 	PaymentAdditionalAllowed bool   `json:"payment_additional_allowed"`
 	AdjustmentCents          int64  `json:"adjustment_cents"`
 	SettlementResult
-	CustomerName      string `json:"customer_name"`
-	Status            string `json:"status"`
-	IssuedAt          string `json:"issued_at"`
-	ReceivedCents     int64  `json:"current_received_cents"`
-	DueAmountCents    int64  `json:"current_due_amount_cents"`
-	PaymentReversible bool   `json:"payment_reversible"`
-	PaymentRevision   int64  `json:"payment_revision"`
+	CustomerName      string           `json:"customer_name"`
+	Status            string           `json:"status"`
+	IssuedAt          string           `json:"issued_at"`
+	ReceivedCents     int64            `json:"current_received_cents"`
+	DueAmountCents    int64            `json:"current_due_amount_cents"`
+	PaymentReversible bool             `json:"payment_reversible"`
+	PaymentRevision   int64            `json:"payment_revision"`
+	Receipts          []BillingReceipt `json:"receipts,omitempty"`
+}
+
+type BillingReceipt struct {
+	ReceiptNo   string `json:"receipt_no"`
+	ReceiptDate string `json:"receipt_date"`
+	AmountCents int64  `json:"amount_cents"`
+	Reversed    bool   `json:"reversed"`
 }
 
 type BillingPage struct {

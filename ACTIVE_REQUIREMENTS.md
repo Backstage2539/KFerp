@@ -6476,6 +6476,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - GREEN: frontend tests 1681/1681, frontend build, full backend, stock API, and local browser fixture. Production observed read-only; no production stock document or business data changed. Development/production deployment not performed.
 
 ### PR-750-ORDER-WECHAT-NOTIFICATIONS
+- 2026-11-11 跟进：DEV-PR750-05～07 正在实现逐笔收款、出账、接单、逐次发货及分渠道配置；上述 2026-11-08 发布证据不代表本次跟进已部署或通过。Van 提供的接单和发货状态枚举截图均为审核中；真实服务号与生产群送达尚待逐项核验。
 - Branch: codex/order-wechat-notifications-20261108
 - Owner/session: Codex / order-wechat-notifications
 - Status: automated verification and development deployment passed; live WeChat acceptance pending

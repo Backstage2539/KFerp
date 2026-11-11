@@ -4,6 +4,7 @@ async function readJson(res) {
   if (!res.ok) {
     const err = new Error(data.error || data.message || '请求失败')
     err.status = res.status
+	if (data.not_committed === true) err.not_committed = true
 	err.code = String(data.code || '')
     err.current_rule_revision = String(data.current_rule_revision || '')
 	if (Array.isArray(data.issues)) err.issues = data.issues

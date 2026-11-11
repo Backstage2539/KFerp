@@ -217,6 +217,8 @@ func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages Message
 	e.POST("/api/orders/status-batch/preview", h.batchStatusPreview)
 	e.POST("/api/orders/status-batch", h.batchStatusSave)
 	e.POST("/api/orders/status-batch/combined-payment", h.combinedPayment)
+	e.POST("/api/orders/:id/receipts", h.registerOrderReceipt)
+	e.GET("/api/orders/:id/receipts", h.orderReceipts)
 	e.GET("/api/orders/:id/combined-payments", h.orderCombinedPayments)
 	e.GET("/api/order/form", h.form)
 	e.GET("/api/order/catalog", h.catalog)

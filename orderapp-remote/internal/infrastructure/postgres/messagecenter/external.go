@@ -16,15 +16,25 @@ import (
 )
 
 type ExternalConfig struct {
-	OfficialEnabled bool                              `json:"official_enabled"`
-	DesktopEnabled  bool                              `json:"desktop_enabled"`
-	OfficialSince   time.Time                         `json:"official_since"`
-	DesktopSince    time.Time                         `json:"desktop_since"`
-	DesktopID       int64                             `json:"desktop_id"`
-	Events          []string                          `json:"events"`
-	Templates       map[string]wechat.TemplateMapping `json:"templates"`
+	OfficialEnabled    bool                              `json:"official_enabled"`
+	DesktopEnabled     bool                              `json:"desktop_enabled"`
+	OfficialSince      time.Time                         `json:"official_since"`
+	DesktopSince       time.Time                         `json:"desktop_since"`
+	DesktopID          int64                             `json:"desktop_id"`
+	Events             []string                          `json:"events"`
+	OfficialEvents     []string                          `json:"official_events"`
+	OfficialEventSince map[string]time.Time              `json:"official_event_since,omitempty"`
+	Templates          map[string]wechat.TemplateMapping `json:"templates"`
 }
 
+// A missing legacy field inherits the old shared setting; an explicit empty
+// array deliberately disables all service-account events.
+func (c ExternalConfig) ServiceEvents() []string {
+	if c.OfficialEvents == nil {
+		return c.Events
+	}
+	return c.OfficialEvents
+}
 func DefaultExternalConfig() ExternalConfig {
 	return ExternalConfig{Events: []string{"created", "paid", "production_started", "production_finished", "shipped", "cancelled"}, Templates: map[string]wechat.TemplateMapping{}}
 }
@@ -40,16 +50,24 @@ func (r Repository) ExternalConfig(ctx context.Context) (ExternalConfig, error) 
 func (r Repository) SaveExternalConfig(ctx context.Context, c ExternalConfig, actor string) error {
 	for _, e := range c.Events {
 		if app.MilestoneLabels[e] == "" {
-			return errors.New("未知通知节点")
+			return errors.New("未知群通知节点")
+		}
+	}
+	for _, e := range c.ServiceEvents() {
+		if app.NotificationLabel(e) == "" {
+			return errors.New("该服务号通知尚未接入，不能启用")
 		}
 		if c.OfficialEnabled {
 			if err := c.Templates[e].Validate(); err != nil {
-				return fmt.Errorf("%s：%w", app.MilestoneLabels[e], err)
+				return fmt.Errorf("%s：%w", app.NotificationLabel(e), err)
 			}
 		}
 	}
-	if len(c.Events) == 0 && (c.OfficialEnabled || c.DesktopEnabled) {
-		return errors.New("至少选择一个通知节点")
+	if c.OfficialEnabled && len(c.ServiceEvents()) == 0 {
+		return errors.New("服务号至少选择一个通知节点")
+	}
+	if c.DesktopEnabled && len(c.Events) == 0 {
+		return errors.New("生产群至少选择一个通知节点")
 	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -63,6 +81,25 @@ func (r Repository) SaveExternalConfig(ctx context.Context, c ExternalConfig, ac
 	old := DefaultExternalConfig()
 	if err = json.Unmarshal(raw, &old); err != nil {
 		return err
+	}
+	c.OfficialEventSince = map[string]time.Time{}
+	for _, event := range c.ServiceEvents() {
+		if !c.OfficialEnabled || app.BusinessMilestoneLabels[event] == "" {
+			continue
+		}
+		required := app.BusinessMilestoneLabels[event]
+		var ok bool
+		if err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM "+r.schema+".message_business_test_verifications WHERE event=$1 AND status_value=$2 AND template_fingerprint=$3 AND detail_verified=true)", event, required, businessTemplateFingerprint(c.Templates[event])).Scan(&ok); err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("%s：请先完成当前模板的真实测试及人工确认", required)
+		}
+		if old.OfficialEnabled && len(filterEvents([]string{event}, old.ServiceEvents())) > 0 && businessTemplateFingerprint(old.Templates[event]) == businessTemplateFingerprint(c.Templates[event]) && !old.OfficialEventSince[event].IsZero() {
+			c.OfficialEventSince[event] = old.OfficialEventSince[event]
+		} else {
+			c.OfficialEventSince[event] = time.Now().UTC()
+		}
 	}
 	c.OfficialSince, c.DesktopSince = old.OfficialSince, old.DesktopSince
 	if c.OfficialEnabled && !old.OfficialEnabled {
@@ -135,6 +172,7 @@ func (r Repository) NotificationRecipients(ctx context.Context, appID string) ([
 
 type Delivery struct {
 	ID         int64                  `json:"id"`
+	MiniUserID int64                  `json:"mini_user_id,omitempty"`
 	EventID    int64                  `json:"event_id"`
 	Channel    string                 `json:"channel"`
 	Target     string                 `json:"target"`
@@ -150,7 +188,7 @@ type Delivery struct {
 }
 
 func (r Repository) ExternalDeliveries(ctx context.Context) ([]Delivery, error) {
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT d.id,d.event_id,d.channel,CASE WHEN d.channel='wechat_desktop' THEN '生产群' ELSE '服务号接收人' END,d.status,d.attempts,d.error,d.created_at,d.provider_message_id,e.payload_json FROM %[1]s.message_deliveries d JOIN %[1]s.message_events e ON e.id=d.event_id WHERE d.lifecycle ORDER BY d.id DESC LIMIT 200`, r.schema))
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT d.id,d.event_id,d.channel,CASE WHEN d.channel='wechat_desktop' THEN '生产群' ELSE '服务号接收人' END,d.status,d.attempts,d.error,d.created_at,d.provider_message_id,e.payload_json,CASE WHEN e.payload_json->>'test'='true' AND d.channel='wechat_service_account' THEN COALESCE(NULLIF(d.recipient_json->>'mini_user_id','')::bigint,0) ELSE 0 END FROM %[1]s.message_deliveries d JOIN %[1]s.message_events e ON e.id=d.event_id WHERE d.lifecycle ORDER BY d.id DESC LIMIT 200`, r.schema))
 	if err != nil {
 		return nil, err
 	}
@@ -159,11 +197,14 @@ func (r Repository) ExternalDeliveries(ctx context.Context) ([]Delivery, error) 
 	for rows.Next() {
 		var d Delivery
 		var raw []byte
-		if err = rows.Scan(&d.ID, &d.EventID, &d.Channel, &d.Target, &d.Status, &d.Attempts, &d.Error, &d.CreatedAt, &d.ProviderID, &raw); err != nil {
+		if err = rows.Scan(&d.ID, &d.EventID, &d.Channel, &d.Target, &d.Status, &d.Attempts, &d.Error, &d.CreatedAt, &d.ProviderID, &raw, &d.MiniUserID); err != nil {
 			return nil, err
 		}
 		if err = json.Unmarshal(raw, &d.Notice); err != nil {
 			return nil, err
+		}
+		if !d.Notice.Test && len(d.Notice.Milestones) == 1 && (d.Notice.Milestones[0] == "receipt_received" || d.Notice.Milestones[0] == "bill_issued") {
+			d.Notice = app.OrderNotice{Milestones: d.Notice.Milestones}
 		}
 		out = append(out, d)
 	}

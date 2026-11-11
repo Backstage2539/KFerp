@@ -1,5 +1,6 @@
 // Amounts from the preview are integer cents. Never calculate aggregate
 // collection or overpayment using floating-point currency values.
+export function combinedPendingReceiptDate(pending) { return String(pending?.receipt_date || '').trim() || '未记录' }
 export function combinedPaymentSummary(orders = []) {
   const summary = { totalCents: 0, paidCents: 0, dueCents: 0, payableCount: 0, customerID: 0, error: '' }
   if (!orders.length) return { ...summary, error: '请先选择订单' }
@@ -29,7 +30,7 @@ export function parseCombinedMoneyCents(value) {
   return cents
 }
 
-export function combinedPaymentRequest(orders, { actual, method, key, voucherID = 0, shipStatusID = 0 }) {
+export function combinedPaymentRequest(orders, { actual, method, key, voucherID = 0, shipStatusID = 0, receiptDate = '' }) {
   const summary = combinedPaymentSummary(orders)
   if (summary.error) throw new Error(summary.error)
   if (summary.dueCents <= 0 || !summary.payableCount) throw new Error('所选订单没有待收金额，无需合并付款')
@@ -46,5 +47,6 @@ export function combinedPaymentRequest(orders, { actual, method, key, voucherID 
     payment_voucher_asset_id: Number(voucherID || 0),
     ...(Number(shipStatusID) > 0 ? { ship_status_id: Number(shipStatusID) } : {}),
     idempotency_key: String(key),
+    ...(receiptDate ? { receipt_date: String(receiptDate) } : {}),
   }
 }

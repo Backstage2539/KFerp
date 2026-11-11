@@ -12,6 +12,8 @@ import (
 	"github.com/labstack/echo/v4"
 	authzapp "orderapp/internal/application/authz"
 	salesapp "orderapp/internal/application/sales"
+	messagepg "orderapp/internal/infrastructure/postgres/messagecenter"
+	"orderapp/internal/infrastructure/postgres/receipts"
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
 )
 
@@ -19,14 +21,23 @@ func TestCombinedPaymentHTTP(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
 	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := receipts.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatal(err)
+	}
+	if err := messagepg.EnsureBusinessEventSchema(ctx, pool, schema); err != nil {
+		t.Fatal(err)
+	}
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+      INSERT INTO %[1]s.pay_statuses(id,name) VALUES(4,'预付款（付款未完成）');
       ALTER TABLE %[1]s.orders ADD COLUMN confirmation_required BOOLEAN NOT NULL DEFAULT false, ADD COLUMN confirmation_status TEXT NOT NULL DEFAULT 'accepted', ADD COLUMN delivery_mode TEXT NOT NULL DEFAULT 'ship', ADD COLUMN prepayment_amount NUMERIC(12,2) NOT NULL DEFAULT 0;
       ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS material_source_mode TEXT NOT NULL DEFAULT 'factory', ADD COLUMN IF NOT EXISTS customer_product_reference_id BIGINT NOT NULL DEFAULT 0;
       CREATE TABLE %[1]s.product_bom_spec_authorities(product_id BIGINT PRIMARY KEY,state TEXT NOT NULL DEFAULT 'legacy',configured BOOLEAN NOT NULL DEFAULT false);
 	      INSERT INTO %[1]s.orders(id,order_no,customer_id,order_type_id,order_date,document_date,pay_status_id,ship_status_id,payment_method,ship_method,total_amount,grand_total,is_void,notes)
       VALUES(901,'COMBINED-1',3,1,'2026-10-18','2026-10-18',1,1,'','pickup',100,100,false,'原备注'),
 	            (902,'COMBINED-2',3,1,'2026-10-18','2026-10-18',1,1,'','pickup',50,50,false,''),
-	            (903,'COMBINED-PAID',3,1,'2026-10-18','2026-10-18',2,1,'现金','pickup',75,75,false,'');
+	            (903,'COMBINED-PAID',3,1,'2026-10-18','2026-10-18',2,1,'现金','pickup',75,75,false,''),
+                  (904,'PARTIAL-1',3,1,'2026-10-18','2026-10-18',1,1,'','pickup',100,100,false,'');
+      CREATE TABLE %[1]s.order_single_receipt_requests(id BIGSERIAL PRIMARY KEY,idempotency_key TEXT NOT NULL UNIQUE,request_hash TEXT NOT NULL,receipt_id BIGINT NOT NULL DEFAULT 0,receipt_no TEXT NOT NULL DEFAULT '');
       CREATE TABLE %[1]s.order_combined_payments(id BIGSERIAL PRIMARY KEY,idempotency_key TEXT NOT NULL UNIQUE,request_hash TEXT NOT NULL,customer_id BIGINT NOT NULL,actual_cents BIGINT NOT NULL,due_cents BIGINT NOT NULL,unallocated_cents BIGINT NOT NULL,payment_method TEXT NOT NULL,payment_voucher_asset_id BIGINT NOT NULL DEFAULT 0,actor TEXT NOT NULL,result_json JSONB NOT NULL DEFAULT '{}'::jsonb,created_at TIMESTAMPTZ NOT NULL DEFAULT now());
       CREATE TABLE %[1]s.order_combined_payment_allocations(batch_id BIGINT NOT NULL REFERENCES %[1]s.order_combined_payments(id),order_id BIGINT NOT NULL REFERENCES %[1]s.orders(id),order_no TEXT NOT NULL,goods_cents BIGINT NOT NULL,shipping_cents BIGINT NOT NULL,amount_cents BIGINT NOT NULL,PRIMARY KEY(batch_id,order_id));
     `, schema))
@@ -44,6 +55,46 @@ func TestCombinedPaymentHTTP(t *testing.T) {
 		e.ServeHTTP(rec, req)
 		return rec
 	}
+	partialPreview := request(http.MethodPost, "/api/orders/status-batch/preview", map[string]any{"order_ids": []int{904}})
+	var partialRows struct {
+		Orders []batchStatusPreviewRow `json:"orders"`
+	}
+	if partialPreview.Code != 200 || json.Unmarshal(partialPreview.Body.Bytes(), &partialRows) != nil || len(partialRows.Orders) != 1 {
+		t.Fatalf("partial preview: %d %s", partialPreview.Code, partialPreview.Body.String())
+	}
+	partialBody := map[string]any{"edit_revision": partialRows.Orders[0].EditRevision, "actual_cents": 2000, "expected_due_cents": 10000, "receipt_date": "2026-11-10", "payment_method": "现金", "idempotency_key": "partial-1"}
+	badDate := map[string]any{"edit_revision": partialRows.Orders[0].EditRevision, "actual_cents": 2000, "expected_due_cents": 10000, "receipt_date": "2999-11-10", "payment_method": "现金", "idempotency_key": "partial-invalid"}
+	if invalid := request(http.MethodPost, "/api/orders/904/receipts", badDate); invalid.Code != 400 || !bytes.Contains(invalid.Body.Bytes(), []byte(`"not_committed":true`)) {
+		t.Fatalf("future date: %d %s", invalid.Code, invalid.Body.String())
+	}
+	partial := request(http.MethodPost, "/api/orders/904/receipts", partialBody)
+	if partial.Code != 200 {
+		t.Fatalf("partial receipt: %d %s", partial.Code, partial.Body.String())
+	}
+	partialReplay := request(http.MethodPost, "/api/orders/904/receipts", partialBody)
+	if partialReplay.Code != 200 || !bytes.Contains(partialReplay.Body.Bytes(), []byte(`"reused":true`)) {
+		t.Fatalf("partial replay: %d %s", partialReplay.Code, partialReplay.Body.String())
+	}
+	changedBody := map[string]any{"edit_revision": partialRows.Orders[0].EditRevision, "actual_cents": 3000, "expected_due_cents": 10000, "receipt_date": "2026-11-10", "payment_method": "现金", "idempotency_key": "partial-1"}
+	if changed := request(http.MethodPost, "/api/orders/904/receipts", changedBody); changed.Code != 409 || !bytes.Contains(changed.Body.Bytes(), []byte(`"not_committed":false`)) {
+		t.Fatalf("changed replay: %d %s", changed.Code, changed.Body.String())
+	}
+	historyPartial := request(http.MethodGet, "/api/orders/904/receipts", nil)
+	var receiptHistory struct {
+		Receipts []salesapp.OrderReceiptHistory `json:"receipts"`
+	}
+	if historyPartial.Code != 200 || json.Unmarshal(historyPartial.Body.Bytes(), &receiptHistory) != nil || len(receiptHistory.Receipts) != 1 || receiptHistory.Receipts[0].ActualCents != 2000 || receiptHistory.Receipts[0].ReceiptDate != "2026-11-10" {
+		t.Fatalf("receipt history: %d %s", historyPartial.Code, historyPartial.Body.String())
+	}
+	otherHistory := request(http.MethodGet, "/api/orders/901/receipts", nil)
+	if otherHistory.Code != 200 || !bytes.Contains(otherHistory.Body.Bytes(), []byte(`"receipts":[]`)) {
+		t.Fatalf("other order history: %d %s", otherHistory.Code, otherHistory.Body.String())
+	}
+	actor.actor.Permissions = []string{"orders.read"}
+	if denied := request(http.MethodPost, "/api/orders/904/receipts", partialBody); denied.Code != http.StatusForbidden {
+		t.Fatalf("permission: %d %s", denied.Code, denied.Body.String())
+	}
+	actor.actor.Permissions = []string{"orders.read", "orders.write"}
 	preview := request(http.MethodPost, "/api/orders/status-batch/preview", map[string]any{"order_ids": []int{901, 902}})
 	var p struct {
 		Orders []batchStatusPreviewRow `json:"orders"`

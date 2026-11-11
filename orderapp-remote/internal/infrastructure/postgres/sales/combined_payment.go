@@ -15,6 +15,8 @@ import (
 	salesapp "orderapp/internal/application/sales"
 	salesdomain "orderapp/internal/domain/sales"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
+	messagepg "orderapp/internal/infrastructure/postgres/messagecenter"
+	"orderapp/internal/infrastructure/postgres/receipts"
 )
 
 type combinedOrderLocked struct {
@@ -33,6 +35,11 @@ func combinedValidation(message string) error {
 // shipping change in one transaction. Row locks are always acquired by id.
 func (r Repository) CombinedOrderPayment(ctx context.Context, cmd salesapp.CombinedOrderPaymentCommand) (salesapp.CombinedOrderPaymentResult, error) {
 	var empty salesapp.CombinedOrderPaymentResult
+	if cmd.ReceiptDate != "" {
+		if err := salesapp.ValidateReceiptDate(cmd.ReceiptDate); err != nil {
+			return empty, err
+		}
+	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return empty, err
@@ -49,7 +56,8 @@ func (r Repository) CombinedOrderPayment(ctx context.Context, cmd salesapp.Combi
 		ActualCents, ExpectedDueCents, PaymentVoucherAssetID int64
 		ShipStatusID                                         *int64
 		PaymentMethod, Actor                                 string
-	}{orders, cmd.ActualCents, cmd.ExpectedDueCents, cmd.PaymentVoucherAssetID, cmd.ShipStatusID, strings.TrimSpace(cmd.PaymentMethod), strings.TrimSpace(cmd.Actor)}
+		ReceiptDate                                          string `json:",omitempty"`
+	}{orders, cmd.ActualCents, cmd.ExpectedDueCents, cmd.PaymentVoucherAssetID, cmd.ShipStatusID, strings.TrimSpace(cmd.PaymentMethod), strings.TrimSpace(cmd.Actor), cmd.ReceiptDate}
 	encoded, err := json.Marshal(fingerprint)
 	if err != nil {
 		return empty, err
@@ -73,6 +81,13 @@ func (r Repository) CombinedOrderPayment(ctx context.Context, cmd salesapp.Combi
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return empty, err
 	}
+	// Respect the finance-close lock order before taking order row locks.
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, r.schema+":finance-period"); err != nil {
+		return empty, err
+	}
+	if err = receipts.EnsureDateOpenTx(ctx, tx, r.schema, cmd.ReceiptDate); err != nil {
+		return empty, combinedValidation(err.Error())
+	}
 	// The batch owns its voucher independently of any voucher already linked
 	// to an order. Validate every supplied voucher even if it happens to match
 	// an existing order voucher, rather than relying on per-order change checks.
@@ -90,7 +105,7 @@ func (r Repository) CombinedOrderPayment(ctx context.Context, cmd salesapp.Combi
 		return empty, fmt.Errorf("查找已付款状态失败: %w", err)
 	}
 	locked := make([]combinedOrderLocked, 0, len(orders))
-	var customerID, totalDue int64
+	var customerID, totalDue, totalReceivable int64
 	for _, item := range orders {
 		var row combinedOrderLocked
 		var isVoid, managed bool
@@ -131,6 +146,10 @@ FROM %s.orders o LEFT JOIN %s.pay_statuses p ON p.id=o.pay_status_id WHERE o.id=
 			if row.Reason == "free_sample" || row.Grand <= 0 {
 				return empty, combinedValidation("免费样品或零金额订单不能参与合并收款，请单独处理")
 			}
+			if totalReceivable > math.MaxInt64-row.Grand {
+				return empty, combinedValidation("订单应收金额异常，请先核对")
+			}
+			totalReceivable += row.Grand
 			if row.Shipping < 0 || row.Shipping > row.Grand || row.Prepayment < 0 || row.Prepayment >= row.Grand || row.GoodsPaid < 0 || row.ShippingPaid < 0 {
 				return empty, combinedValidation("订单应收或已收金额异常，请先核对")
 			}
@@ -215,6 +234,17 @@ FROM %s.orders o LEFT JOIN %s.pay_statuses p ON p.id=o.pay_status_id WHERE o.id=
 		if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.order_combined_payment_allocations(batch_id,order_id,order_no,goods_cents,shipping_cents,amount_cents) VALUES($1,$2,$3,$4,$5,$6)`, r.schema), result.BatchID, a.OrderID, a.OrderNo, a.GoodsCents, a.ShippingCents, a.AmountCents); err != nil {
 			return empty, err
 		}
+	}
+	allocations, err := json.Marshal(result.Allocations)
+	if err != nil {
+		return empty, err
+	}
+	receiptID, receiptNo, receiptDate, err := receipts.RecordTx(ctx, tx, r.schema, receipts.Receipt{CustomerID: customerID, SourceType: "combined_payment", SourceID: result.BatchID, ActualCents: result.ActualCents, ReceivableCents: totalReceivable, ReceiptDate: cmd.ReceiptDate, Method: result.PaymentMethod, VoucherAssetID: result.PaymentVoucherAssetID, Actor: result.Actor, Allocations: allocations})
+	if err != nil {
+		return empty, err
+	}
+	if err = messagepg.RecordBusinessEvent(ctx, tx, r.schema, "receipt_received", fmt.Sprintf("receipt_received:%d", receiptID), 0, customerID, map[string]any{"receipt_id": receiptID, "receipt_no": receiptNo, "receipt_date": receiptDate, "amount_cents": result.ActualCents, "receivable_cents": totalReceivable, "allocations": result.Allocations}); err != nil {
+		return empty, err
 	}
 	raw, err := json.Marshal(result)
 	if err != nil {

@@ -19,6 +19,7 @@ func (h orderAPIHandler) combinedPayment(c echo.Context) error {
 	var request struct {
 		Orders                []salesapp.CombinedPaymentOrder `json:"orders"`
 		ActualCents           *int64                          `json:"actual_cents"`
+		ReceiptDate           string                          `json:"receipt_date"`
 		ExpectedDueCents      *int64                          `json:"expected_due_cents"`
 		PaymentMethod         string                          `json:"payment_method"`
 		PaymentVoucherAssetID int64                           `json:"payment_voucher_asset_id"`
@@ -46,7 +47,7 @@ func (h orderAPIHandler) combinedPayment(c echo.Context) error {
 		}
 	}
 	cmd := salesapp.CombinedOrderPaymentCommand{
-		Orders: request.Orders, ActualCents: *request.ActualCents, ExpectedDueCents: *request.ExpectedDueCents,
+		Orders: request.Orders, ActualCents: *request.ActualCents, ExpectedDueCents: *request.ExpectedDueCents, ReceiptDate: request.ReceiptDate,
 		PaymentMethod: strings.TrimSpace(request.PaymentMethod), PaymentVoucherAssetID: request.PaymentVoucherAssetID,
 		ShipStatusID: request.ShipStatusID, IdempotencyKey: strings.TrimSpace(request.IdempotencyKey), Actor: support.ActorOf(c),
 	}

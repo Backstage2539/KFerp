@@ -9,6 +9,9 @@ import (
 // Installed after all business schema migrations. Deferred order triggers capture
 // final transaction state, including shipment changes made by other triggers.
 func EnsureExternalSchema(ctx context.Context, p *pgxpool.Pool, s string) error {
+	if err := EnsureBusinessEventSchema(ctx, p, s); err != nil {
+		return err
+	}
 	_, err := p.Exec(ctx, fmt.Sprintf(`
  CREATE TABLE IF NOT EXISTS %[1]s.message_external_settings(id INT PRIMARY KEY CHECK(id=1),config JSONB NOT NULL DEFAULT '{}',updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
  INSERT INTO %[1]s.message_external_settings(id) VALUES(1) ON CONFLICT DO NOTHING;
@@ -20,6 +23,9 @@ func EnsureExternalSchema(ctx context.Context, p *pgxpool.Pool, s string) error 
  ALTER TABLE %[1]s.message_deliveries ADD COLUMN IF NOT EXISTS lifecycle BOOLEAN NOT NULL DEFAULT false;
  ALTER TABLE %[1]s.message_deliveries ADD COLUMN IF NOT EXISTS lease_token TEXT NOT NULL DEFAULT '';
  ALTER TABLE %[1]s.message_deliveries ADD COLUMN IF NOT EXISTS lease_until TIMESTAMPTZ;
+ ALTER TABLE %[1]s.message_deliveries ADD COLUMN IF NOT EXISTS template_fingerprint TEXT NOT NULL DEFAULT '';
+ CREATE TABLE IF NOT EXISTS %[1]s.message_business_test_verifications(event TEXT NOT NULL,status_value TEXT NOT NULL,template_fingerprint TEXT NOT NULL,delivery_id BIGINT NOT NULL UNIQUE,verified_by TEXT NOT NULL,verified_at TIMESTAMPTZ NOT NULL DEFAULT now(),PRIMARY KEY(event,status_value,template_fingerprint));
+ ALTER TABLE %[1]s.message_business_test_verifications ADD COLUMN IF NOT EXISTS detail_verified BOOLEAN NOT NULL DEFAULT false;
  ALTER TABLE %[1]s.message_deliveries ADD COLUMN IF NOT EXISTS provider_message_id TEXT NOT NULL DEFAULT '';
  ALTER TABLE %[1]s.message_deliveries ADD COLUMN IF NOT EXISTS recipient_json JSONB NOT NULL DEFAULT '{}';
  ALTER TABLE %[1]s.message_deliveries ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();

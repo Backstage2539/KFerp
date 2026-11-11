@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 type CombinedPaymentValidationError struct{ Message string }
@@ -26,6 +27,7 @@ func CombinedPaymentValidationMessage(err error) (string, bool) {
 type CombinedOrderPaymentCommand struct {
 	Orders                []CombinedPaymentOrder `json:"orders"`
 	ActualCents           int64                  `json:"actual_cents"`
+	ReceiptDate           string                 `json:"receipt_date,omitempty"`
 	ExpectedDueCents      int64                  `json:"expected_due_cents"`
 	PaymentMethod         string                 `json:"payment_method"`
 	PaymentVoucherAssetID int64                  `json:"payment_voucher_asset_id"`
@@ -67,6 +69,9 @@ type combinedOrderPaymentRepository interface {
 }
 
 func (s *Service) CombinedOrderPayment(ctx context.Context, cmd CombinedOrderPaymentCommand) (CombinedOrderPaymentResult, error) {
+	if cmd.ReceiptDate != "" && validateReceiptDate(cmd.ReceiptDate, time.Now()) != nil {
+		return CombinedOrderPaymentResult{}, NewCombinedPaymentValidationError("实际到账日期无效或晚于今天")
+	}
 	if len(cmd.Orders) < 1 || len(cmd.Orders) > 200 || cmd.ActualCents <= 0 || cmd.ExpectedDueCents <= 0 || cmd.ActualCents < cmd.ExpectedDueCents || strings.TrimSpace(cmd.PaymentMethod) == "" || len(cmd.PaymentMethod) > 128 || cmd.PaymentVoucherAssetID < 0 || strings.TrimSpace(cmd.Actor) == "" || strings.TrimSpace(cmd.IdempotencyKey) == "" || len(cmd.IdempotencyKey) > 128 || (cmd.ShipStatusID != nil && *cmd.ShipStatusID <= 0) {
 		return CombinedOrderPaymentResult{}, NewCombinedPaymentValidationError("合并收款资料无效，实际收款不得少于待收金额")
 	}
