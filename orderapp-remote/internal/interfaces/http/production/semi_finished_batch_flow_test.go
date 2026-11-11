@@ -128,7 +128,45 @@ func TestOrderSemiFinishedChoiceThroughTransferToReservation(t *testing.T) {
 	if source.ID == 0 || source.WIPCoveredG != 3000 || source.TransferG != 7000 {
 		t.Fatalf("source %+v, plan %s", source, get.Body.String())
 	}
-	transfer := serveMultilevelProductionJSON(t, e, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/material-transfers", plan.ID), map[string]any{"draft_token": plan.DraftToken, "idempotency_key": "order-selected-flow", "items": []any{map[string]any{"source_id": source.ID, "warehouse": "raw_materials", "batches": []any{map[string]any{"batch_code": "CHOSEN-SEMI", "qty_g": 7000}}}}})
+	// A separate stock operation moved 4 kg of the same batch after selection.
+	// Reopening the chooser must preserve the total, now split 7/3 by location.
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %[1]s.material_batch_locations SET qty_g=7000 WHERE material_batch_id=3010 AND warehouse='wip'; UPDATE %[1]s.material_batch_locations SET qty_g=3000 WHERE material_batch_id=3010 AND warehouse='raw_materials'`, schema))
+	currentMoved := serveMultilevelProductionJSON(t, e, http.MethodGet, url, nil)
+	var movedChoices app.SemiFinishedStockResult
+	if currentMoved.Code != 200 || json.Unmarshal(currentMoved.Body.Bytes(), &movedChoices) != nil {
+		t.Fatalf("choices after external move: %d %s", currentMoved.Code, currentMoved.Body.String())
+	}
+	selectedLocations := map[string]float64{}
+	for _, item := range movedChoices.Items {
+		for _, batch := range item.Batches {
+			if batch.BatchID == 3010 {
+				selectedLocations[batch.Warehouse] += batch.SelectedQty
+			}
+		}
+	}
+	if selectedLocations["wip"] != 7 || selectedLocations["raw_materials"] != 3 {
+		t.Fatalf("external move lost or duplicated selection: %s", currentMoved.Body.String())
+	}
+	movedSelection := []any{map[string]any{"key": "material:10", "batch_id": 3010, "warehouse": "wip", "qty": 7}, map[string]any{"key": "material:10", "batch_id": 3010, "warehouse": "raw_materials", "qty": 3}}
+	checkedMoved := serveMultilevelProductionJSON(t, e, http.MethodPost, url, map[string]any{"draft_token": movedChoices.DraftToken, "check_only": true, "selections": movedSelection})
+	var movedPreview app.SemiFinishedStockResult
+	if checkedMoved.Code != 200 || json.Unmarshal(checkedMoved.Body.Bytes(), &movedPreview) != nil || movedPreview.PreviewToken == "" {
+		t.Fatalf("recheck moved selection %d %s", checkedMoved.Code, checkedMoved.Body.String())
+	}
+	savedMoved := serveMultilevelProductionJSON(t, e, http.MethodPost, url, map[string]any{"draft_token": movedChoices.DraftToken, "check_only": false, "preview_token": movedPreview.PreviewToken, "selections": movedSelection})
+	if savedMoved.Code != 200 {
+		t.Fatalf("save moved selection %d %s", savedMoved.Code, savedMoved.Body.String())
+	}
+	get = serveMultilevelProductionJSON(t, e, http.MethodGet, fmt.Sprintf("/api/production-plans/%d", plan.ID), nil)
+	if get.Code != 200 || json.Unmarshal(get.Body.Bytes(), &plan) != nil {
+		t.Fatalf("get after save %d %s", get.Code, get.Body.String())
+	}
+	for _, s := range plan.ComponentSources {
+		if s.ComponentID == 10 {
+			source = s
+		}
+	}
+	transfer := serveMultilevelProductionJSON(t, e, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/material-transfers", plan.ID), map[string]any{"draft_token": plan.DraftToken, "idempotency_key": "order-selected-flow", "items": []any{map[string]any{"source_id": source.ID, "warehouse": "raw_materials", "batches": []any{map[string]any{"batch_code": "CHOSEN-SEMI", "qty_g": 3000}}}}})
 	if transfer.Code != 200 {
 		t.Fatalf("transfer %d %s", transfer.Code, transfer.Body.String())
 	}

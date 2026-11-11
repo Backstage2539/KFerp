@@ -24,46 +24,9 @@ async function setup(send, get = async () => structuredClone(fixture)) {
   return { state, calls, events, close: () => scope.stop() }
 }
 
-test('preview is read only and confirmation sends same explicit batch and updates plan', async () => {
-  const app = await setup(async (_, options) => options.body.check_only ? { preview_token: 'preview-v1', changes: [{ before_qty: 60.112, after_qty: 45.112, operations: [] }] } : { plan: { id: 26, draft_token: 'v2' } })
-  try {
-    await app.state.open()
-    app.state.values.value['material:1|raw_materials|3'] = 15
-    await app.state.requestPreview()
-    assert.equal(app.calls.filter(c => c[0] === 'send')[0][2].body.check_only, true)
-    assert.equal(app.state.preview.value.changes[0].after_qty, 45.112)
-    await app.state.commit()
-    const sends = app.calls.filter(c => c[0] === 'send')
-    assert.equal(sends[1][2].body.check_only, false)
-    assert.equal(sends[1][2].body.preview_token, 'preview-v1')
-    assert.deepEqual(sends[1][2].body.selections, [{ key: 'material:1', batch_id: 3, warehouse: 'raw_materials', qty: 15 }])
-    assert.deepEqual(app.events.find(e => e[0] === 'updated'), ['updated', { id: 26, draft_token: 'v2' }])
-  } finally { app.close() }
-})
-
-test('incomplete impact preview cannot be confirmed', async () => {
-  const app = await setup(async () => ({ changes: [{ before_qty: 60.112, after_qty: 45.112 }] }))
-  try {
-    await app.state.open()
-    app.state.values.value['material:1|raw_materials|3'] = 15
-    await app.state.requestPreview()
-    assert.equal(app.state.previewComplete.value, false)
-    await app.state.commit()
-    assert.equal(app.calls.filter(c => c[0] === 'send').length, 1)
-  } finally { app.close() }
-})
-
-test('conflict keeps chosen quantity and requests a new preview', async () => {
-  const app = await setup(async (_, options) => { if (options.body.check_only) return { preview_token: 'preview-v1', changes: [] }; throw new Error('库存已变化') })
-  try {
-    await app.state.open()
-    app.state.values.value['material:1|raw_materials|3'] = 10
-    await app.state.requestPreview()
-    await app.state.commit()
-    assert.equal(app.state.values.value['material:1|raw_materials|3'], 10)
-    assert.equal(app.state.preview.value, null)
-    assert.match(app.state.actionError.value, /库存已变化/)
-  } finally { app.close() }
+test('incomplete validation response cannot be confirmed', async () => {
+  const app = await setup(async () => ({ preview_token: 'p', changes: [{ before_qty: 60.112, after_qty: 45.112 }] }))
+  try { await app.state.open(); await app.state.commit(); assert.equal(app.calls.filter(c => c[0] === 'send').length, 1); assert.match(app.state.actionError.value, /校验结果不完整/) } finally { app.close() }
 })
 
 test('failed stock reload cannot preview stale choices and retry restores availability', async () => {
@@ -73,11 +36,11 @@ test('failed stock reload cannot preview stale choices and retry restores availa
     fail = true
     await app.state.open()
     assert.match(app.state.loadError.value, /网络中断/)
-    await app.state.requestPreview()
+    await app.state.commit()
     assert.equal(app.calls.filter(c => c[0] === 'send').length, 0)
     fail = false
     await app.state.load()
-    await app.state.requestPreview()
+    await app.state.commit()
     assert.equal(app.calls.filter(c => c[0] === 'send').length, 1)
   } finally { app.close() }
 })
@@ -89,7 +52,7 @@ test('malformed or tokenless response blocks preview instead of displaying no st
     invalid = true
     await app.state.open()
     assert.match(app.state.loadError.value, /数据|版本/)
-    await app.state.requestPreview()
+    await app.state.commit()
     assert.equal(app.calls.filter(c => c[0] === 'send').length, 0)
   } finally { app.close() }
 })
@@ -114,7 +77,6 @@ test('a successful response without a plan does not pretend the save was applied
   const app = await setup(async (_, options) => options.body.check_only ? { preview_token: 'preview-v1', changes: [] } : {})
   try {
     await app.state.open()
-    await app.state.requestPreview()
     await app.state.commit()
     assert.equal(app.state.opened.value, true)
     assert.match(app.state.actionError.value, /刷新计划核对/)
@@ -126,9 +88,8 @@ test('preview without verification token cannot be confirmed', async () => {
   const app = await setup(async () => ({ changes: [] }))
   try {
     await app.state.open()
-    await app.state.requestPreview()
-    assert.equal(app.state.previewComplete.value, false)
     await app.state.commit()
+    assert.match(app.state.actionError.value, /校验结果不完整/)
     assert.equal(app.calls.filter(c => c[0] === 'send').length, 1)
   } finally { app.close() }
 })
