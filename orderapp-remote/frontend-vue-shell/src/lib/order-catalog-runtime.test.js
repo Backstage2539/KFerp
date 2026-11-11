@@ -9,7 +9,7 @@ import { storedSampleSpecKey } from './sample-order-edit.js'
 const filename = new URL('../views/OrderEntryView.vue', import.meta.url)
 const { descriptor } = parse(fs.readFileSync(filename, 'utf8'), { filename: filename.pathname })
 let code = compileScript(descriptor, { id: 'order-catalog-runtime' }).content
-code = code.replace("import { apiGet, apiSend } from '../api/client'", 'const apiGet = (...args) => globalThis.catalogRuntimeAPI(...args); const apiSend = () => { throw Error("unexpected write") }')
+code = code.replace(/import \{[^}]*\bapiGet\b[^}]*\} from ['"]\.\.\/api\/client['"]/, 'const apiGet = (...args) => globalThis.catalogRuntimeAPI(...args); const apiSend = () => { throw Error("unexpected write") }; const apiFetch = () => { throw Error("unexpected request") }')
 code = code.replace(/import (\w+) from ['"][^'"]+\.vue['"]/g, (_, name) => `const ${name}={render:()=>null}`)
 code = code.replace(/from (['"])([^'"]+)\1/g, (_, q, path) => `from ${JSON.stringify(path.startsWith('.') ? new URL(/\.[a-z]+$/.test(path) ? path : `${path}.js`, filename).href : import.meta.resolve(path))}`)
 const { default: View } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)

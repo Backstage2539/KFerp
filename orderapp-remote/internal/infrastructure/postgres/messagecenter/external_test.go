@@ -763,9 +763,19 @@ func TestFinancialDetailRequiresExactCustomerAndActiveRecord(t *testing.T) {
  INSERT INTO %[1]s.freight_actual_shipments VALUES(74,42,8);
  INSERT INTO %[1]s.customer_settlement_lines VALUES(51,8,5,'customer_fee_item',71,NULL),(52,8,5,'customer_fee_item',72,NULL);
  INSERT INTO %[1]s.customer_settlement_payments VALUES(15,8,5,NULL);
- INSERT INTO %[1]s.cash_receipts VALUES(4,'RC4',8,'2026-11-11',100,200,NULL,'[{"line_id":50},{"line_id":51},{"line_id":52}]','billing_payment',15)`, s))
+ INSERT INTO %[1]s.cash_receipts VALUES(4,'RC4',8,'2026-11-11',100,200,NULL,'[{"line_id":50},{"line_id":51},{"line_id":52}]','billing_payment',15);
+ INSERT INTO %[1]s.cash_receipts VALUES(8,'RC8',8,'2026-11-11',2000,10000,NULL,'[{"order_id":42,"order_no":"ORDER42","amount_cents":2000}]','initial_order',42),(9,'RC9',8,'2026-11-11',2000,10000,NULL,'[{"order_id":42}]','initial_order',43),(10,'RC10',8,'2026-11-11',2000,10000,NULL,'[{"order_id":42},{"order_id":42}]','initial_order',42),(11,'RC11',8,'2026-11-11',2000,10000,now(),'[{"order_id":42}]','initial_order',42)`, s))
 	if err != nil {
 		t.Fatal(err)
+	}
+	initial, err := repo.ReceiptDetail(ctx, 8, 8)
+	if err != nil || initial.ReceiptNo != "RC8" || initial.ActualCents != 2000 {
+		t.Fatalf("initial receipt: %+v %v", initial, err)
+	}
+	for _, id := range []int64{9, 10, 11} {
+		if _, err = repo.ReceiptDetail(ctx, 8, id); !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("invalid initial receipt %d: %v", id, err)
+		}
 	}
 	receipt, err := repo.ReceiptDetail(ctx, 8, 1)
 	if err != nil || receipt.ReceiptNo != "RC1" || receipt.ActualCents != 100 {
@@ -816,6 +826,9 @@ func TestFinancialDetailRequiresExactCustomerAndActiveRecord(t *testing.T) {
 	if _, err = repo.ReceiptDetail(ctx, 8, 1); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("source ownership changed: %v", err)
 	}
+	if _, err = repo.ReceiptDetail(ctx, 8, 8); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("initial receipt leaked after source customer transfer: %v", err)
+	}
 	if _, err = repo.BillDetail(ctx, 8, 5); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("foreign order leaked bill: %v", err)
 	}
@@ -828,6 +841,9 @@ func TestFinancialDetailRequiresExactCustomerAndActiveRecord(t *testing.T) {
 	}
 	if _, err = repo.ReceiptDetail(ctx, 8, 1); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("null source ownership allowed: %v", err)
+	}
+	if _, err = repo.ReceiptDetail(ctx, 8, 8); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("initial receipt leaked after source customer cleared: %v", err)
 	}
 	if _, err = repo.BillDetail(ctx, 8, 5); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("null order owner leaked bill: %v", err)

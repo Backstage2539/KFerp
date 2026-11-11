@@ -132,7 +132,7 @@ func (r Repository) RegisterOrderReceipt(ctx context.Context, cmd app.OrderRecei
 
 // OrderReceipts exposes only receipt facts allocated solely to this order.
 func (r Repository) OrderReceipts(ctx context.Context, orderID int64) ([]app.OrderReceiptHistory, error) {
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT id,receipt_no,COALESCE(receipt_date::text,''),actual_cents,receivable_cents,payment_method,voucher_asset_id,actor FROM %s.cash_receipts WHERE source_type='single_payment' AND allocations @> jsonb_build_array(jsonb_build_object('order_id',$1::bigint)) ORDER BY id DESC`, r.schema), orderID)
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT id,receipt_no,COALESCE(receipt_date::text,''),actual_cents,receivable_cents,payment_method,voucher_asset_id,actor FROM %s.cash_receipts WHERE (source_type='single_payment' AND allocations @> jsonb_build_array(jsonb_build_object('order_id',$1::bigint))) OR (source_type='initial_order' AND source_id=$1) ORDER BY id DESC`, r.schema), orderID)
 	if err != nil {
 		return nil, err
 	}

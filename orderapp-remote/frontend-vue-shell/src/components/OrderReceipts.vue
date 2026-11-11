@@ -18,8 +18,8 @@
     </template>
     <button v-if="pending" type="button" class="secondary" :disabled="busy" @click="retry(false)">重试原次登记</button>
     <p v-if="result" role="status">登记成功：{{ result.receipt_no }}。 <button type="button" @click="again">继续登记</button></p>
-    <h4>本入口登记的收款</h4>
-    <p v-if="loaded && !rows.length">暂无通过本入口登记的收款。合并收款请查看“合并收款记录”，账单收款请查看账单。</p>
+    <h4>本订单逐笔收款</h4>
+    <p v-if="loaded && !rows.length">暂无本订单录单或逐笔登记的收款。合并收款请查看“合并收款记录”，账单收款请查看账单。</p>
     <article v-for="row in rows" :key="row.receipt_id">
       <strong>{{ row.receipt_no }}</strong>
       <p>实际到账日期：{{ row.receipt_date || '未记录' }} · {{ row.payment_method }} · {{ row.actor }}</p>

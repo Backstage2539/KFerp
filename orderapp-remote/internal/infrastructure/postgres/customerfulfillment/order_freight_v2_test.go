@@ -9,6 +9,7 @@ import (
 	domain "orderapp/internal/domain/freight"
 	freightpg "orderapp/internal/infrastructure/postgres/freight"
 	salespg "orderapp/internal/infrastructure/postgres/sales"
+	"strings"
 	"testing"
 	"time"
 )
@@ -356,5 +357,394 @@ func TestOrderFreightV2LegacyAndConcurrentImport(t *testing.T) {
 	}
 	if successes != 1 {
 		t.Fatalf("successes=%d want1", successes)
+	}
+}
+
+func TestNewOrderInitialReceiptAndReplay(t *testing.T) {
+	pool, schema := seedPR703StockProduct(t)
+	ctx := context.Background()
+	r := NewRepository(pool, schema)
+	sales := salespg.NewRepository(pool, schema)
+	amount := int64(2000)
+	override := &domain.Override{ManualAmountCents: &amount}
+	quote, err := r.QuoteFulfillmentFees(ctx, app.FulfillmentFeeQuoteCommand{CustomerID: 501, FulfillmentMode: "sale", FreightProtocol: domain.OrderProtocol, EmployeeAdjustment: true, Province: "云南省", Items: []app.FulfillmentFeeItem{{ProductID: 910, BomSpecID: 7031, BomVariantID: 7032, Qty: 2}}, FreightOverride: override})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var partial int64
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.pay_statuses WHERE name='预付款（付款未完成）' LIMIT 1`, schema)).Scan(&partial); err != nil {
+		t.Fatal(err)
+	}
+	price, deposit := 30.0, 20.0
+	product := int64(910)
+	cmd := salesapp.SaveOrderCommand{Actor: "test", CustomerID: 501, OrderDate: time.Now(), DocumentDate: time.Now(), PayStatusID: partial, ShipStatusID: 1, ShippingProvince: "云南省", FreightProtocol: domain.OrderProtocol, FreightQuoteToken: quote.Freight.Token, FreightOverride: override, ShippingAmount: 20, PrepaymentAmount: &deposit, PaymentMethod: "现金", ReceiptDate: "2026-11-10", CustomerRequestID: "receipt-order-request-1", CustomerRequestHash: "same-hash", Items: []salesapp.OrderItemCommand{{ProductID: &product, BomSpecID: 7031, BomVariantID: 7032, Name: "测试", Units: 2, SalesUnit: "袋", ManualPrice: &price}}}
+	cmd.PaymentGoodsAmount = 20
+	var paidID int64
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.pay_statuses WHERE name='已付款' LIMIT 1`, schema)).Scan(&paidID); err != nil {
+		t.Fatal(err)
+	}
+	zeroPaid := 0.0
+	badPaid := cmd
+	badPaid.CustomerRequestID = "receipt-order-bad-paid"
+	badPaid.CustomerRequestHash = "bad-paid"
+	badPaid.PayStatusID = paidID
+	badPaid.PrepaymentAmount = &zeroPaid
+	if _, err = sales.SaveOrder(ctx, badPaid); err == nil {
+		t.Fatal("已付款 80 实收 20 incorrectly accepted")
+	}
+	badSplit := cmd
+	badSplit.CustomerRequestID = "receipt-order-bad-split"
+	badSplit.CustomerRequestHash = "bad-split"
+	badSplit.PaymentGoodsAmount = 5
+	if _, err = sales.SaveOrder(ctx, badSplit); err == nil {
+		t.Fatal("部分收款累计与分项不符 incorrectly accepted")
+	}
+	fullPaid := 80.0
+	goodFull := cmd
+	goodFull.CustomerRequestID = "receipt-order-full-paid"
+	goodFull.CustomerRequestHash = "full-paid"
+	goodFull.PayStatusID = paidID
+	goodFull.PrepaymentAmount = &fullPaid
+	goodFull.PaymentGoodsAmount = 60
+	goodFull.PaymentShippingAmount = 20
+	full, err := sales.SaveOrder(ctx, goodFull)
+	if err != nil {
+		t.Fatalf("full receipt: %v", err)
+	}
+	var fullPre, fullGoods, fullShipping float64
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT prepayment_amount::float8,payment_goods_amount::float8,payment_shipping_amount::float8 FROM %s.orders WHERE id=$1`, schema), full.OrderID).Scan(&fullPre, &fullGoods, &fullShipping); err != nil || fullPre != 80 || fullGoods != 60 || fullShipping != 20 {
+		t.Fatalf("full order amount=%v/%v/%v err=%v", fullPre, fullGoods, fullShipping, err)
+	}
+	legacyFull := goodFull
+	legacyFull.CustomerRequestID = ""
+	legacyFull.CustomerRequestHash = ""
+	legacyFull.ReceiptDate = ""
+	legacyFull.PrepaymentAmount = &zeroPaid
+	legacyFullOrder, err := sales.SaveOrder(ctx, legacyFull)
+	if err != nil {
+		t.Fatalf("legacy full order: %v", err)
+	}
+	increasedCents := int64(4000)
+	increasedOverride := &domain.Override{ManualAmountCents: &increasedCents}
+	increasedQuote, err := r.QuoteFulfillmentFees(ctx, app.FulfillmentFeeQuoteCommand{CustomerID: 501, OrderID: legacyFullOrder.OrderID, ExpectedFreightToken: quote.Freight.Token, FulfillmentMode: "sale", FreightProtocol: domain.OrderProtocol, EmployeeAdjustment: true, Province: "云南省", Items: []app.FulfillmentFeeItem{{ProductID: 910, BomSpecID: 7031, BomVariantID: 7032, Qty: 2}}, FreightOverride: increasedOverride})
+	if err != nil {
+		t.Fatal(err)
+	}
+	freightEdit := legacyFull
+	freightEdit.EditID = legacyFullOrder.OrderID
+	freightEdit.CustomerRequestID = ""
+	freightEdit.CustomerRequestHash = ""
+	freightEdit.ExpectedFreightToken = quote.Freight.Token
+	freightEdit.FreightQuoteToken = increasedQuote.Freight.Token
+	freightEdit.FreightOverride = increasedOverride
+	freightEdit.ShippingAmount = 40
+	if _, err = sales.SaveOrder(ctx, freightEdit); err != nil {
+		t.Fatalf("increase freight: %v", err)
+	}
+	var newPayName string
+	var newTotal, newPre float64
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT ps.name,o.grand_total::float8,o.prepayment_amount::float8 FROM %[1]s.orders o JOIN %[1]s.pay_statuses ps ON ps.id=o.pay_status_id WHERE o.id=$1`, schema), legacyFullOrder.OrderID).Scan(&newPayName, &newTotal, &newPre); err != nil || newPayName != "预付款（付款未完成）" || newTotal != 100 || newPre != 80 {
+		t.Fatalf("increase freight result=%s %.2f %.2f err=%v", newPayName, newTotal, newPre, err)
+	}
+	bad := cmd
+	bad.ReceiptDate = "2999-01-01"
+	if _, err = sales.SaveOrder(ctx, bad); err == nil {
+		t.Fatal("future date accepted")
+	}
+	first, err := sales.SaveOrder(ctx, cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := sales.SaveOrder(ctx, cmd)
+	if err != nil || again.OrderID != first.OrderID || !again.Replayed {
+		t.Fatalf("replay=%+v err=%v", again, err)
+	}
+	inconsistent := cmd
+	inconsistent.CustomerRequestID = "receipt-order-inconsistent"
+	inconsistent.CustomerRequestHash = "inconsistent-hash"
+	inconsistent.PaymentGoodsAmount = 5
+	inconsistent.ReceiptDate = ""
+	warned, err := sales.SaveOrder(ctx, inconsistent)
+	if err != nil || warned.ReceiptWarning == "" {
+		t.Fatalf("expected warning: %+v %v", warned, err)
+	}
+	warnedAgain, err := sales.SaveOrder(ctx, inconsistent)
+	if err != nil || warnedAgain.ReceiptWarning != warned.ReceiptWarning {
+		t.Fatalf("replayed warning lost: %+v %v", warnedAgain, err)
+	}
+	var count int
+	var actual, total int64
+	var date string
+	err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*),max(actual_cents),max(receivable_cents),max(receipt_date::text) FROM %s.cash_receipts WHERE source_type='initial_order' AND source_id=$1`, schema), first.OrderID).Scan(&count, &actual, &total, &date)
+	if err != nil || count != 1 || actual != 2000 || total != 8000 || date != "2026-11-10" {
+		t.Fatalf("initial receipt count=%d actual=%d total=%d date=%s err=%v", count, actual, total, date, err)
+	}
+	history, err := sales.OrderReceipts(ctx, first.OrderID)
+	if err != nil || len(history) != 1 || history[0].ActualCents != 2000 {
+		t.Fatalf("receipt history=%+v err=%v", history, err)
+	}
+	changed := cmd
+	changed.CustomerRequestHash = "different-hash"
+	if _, err = sales.SaveOrder(ctx, changed); err == nil {
+		t.Fatal("changed replay accepted")
+	}
+	cross := cmd
+	cross.CustomerID = 502
+	if _, err = sales.SaveOrder(ctx, cross); err == nil || !strings.Contains(err.Error(), "请求标识") {
+		t.Fatalf("cross-customer replay accepted or wrong error: %v", err)
+	}
+	cross = cmd
+	cross.Actor = "another-employee"
+	if _, err = sales.SaveOrder(ctx, cross); err == nil || !strings.Contains(err.Error(), "请求标识") {
+		t.Fatalf("cross-actor replay accepted or wrong error: %v", err)
+	}
+	legacy := cmd
+	legacy.CustomerRequestID = "receipt-order-request-legacy"
+	legacy.ReceiptDate = ""
+	legacy.CustomerRequestHash = "legacy-hash"
+	old, err := sales.SaveOrder(ctx, legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var unknown bool
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT receipt_date IS NULL FROM %s.cash_receipts WHERE source_type='initial_order' AND source_id=$1`, schema), old.OrderID).Scan(&unknown); err != nil || !unknown {
+		t.Fatalf("legacy date unknown=%v err=%v", unknown, err)
+	}
+	unkeyed := cmd
+	unkeyed.CustomerRequestID = ""
+	unkeyed.CustomerRequestHash = ""
+	unkeyed.ReceiptDate = ""
+	compat, err := sales.SaveOrder(ctx, unkeyed)
+	if err != nil || compat.ReceiptWarning == "" {
+		t.Fatalf("legacy warning=%+v err=%v", compat, err)
+	}
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.cash_receipts WHERE source_type='initial_order' AND source_id=$1`, schema), compat.OrderID).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("unkeyed receipt count=%d err=%v", count, err)
+	}
+	backfill := cmd
+	backfill.BackfillMode = true
+	backfill.CustomerRequestID = "receipt-order-backfill"
+	backfill.CustomerRequestHash = "backfill-hash"
+	historical, err := sales.SaveOrder(ctx, backfill)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.cash_receipts WHERE source_type='initial_order' AND source_id=$1`, schema), historical.OrderID).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("historical receipt=%d err=%v", count, err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollback := cmd
+	rollback.CustomerRequestID = "receipt-order-request-rollback"
+	rollback.CustomerRequestHash = "rollback-hash"
+	temporary, err := sales.WithOrderTransaction(tx).SaveOrder(ctx, rollback)
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err = tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.cash_receipts WHERE source_type='initial_order' AND source_id=$1`, schema), temporary.OrderID).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("rollback retained receipt=%d err=%v", count, err)
+	}
+	pending := cmd
+	pending.RequireConfirmation = true
+	pending.CustomerRequestID = "receipt-order-request-pending"
+	pending.CustomerRequestHash = "pending-hash"
+	if _, err = sales.SaveOrder(ctx, pending); err == nil || !strings.Contains(err.Error(), "待首次确认") {
+		t.Fatalf("pending receipt was accepted: %v", err)
+	}
+	zero := 0.0
+	pending.PrepaymentAmount = &zero
+	pending.PaymentGoodsAmount = 0
+	pending.PaymentMethod = ""
+	pending.PayStatusID = 1
+	pending.ReceiptDate = ""
+	pendingOrder, err := sales.SaveOrder(ctx, pending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	var orderPrepayment float64
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT confirmation_status,prepayment_amount::float8 FROM %s.orders WHERE id=$1`, schema), pendingOrder.OrderID).Scan(&status, &orderPrepayment); err != nil || status != "pending" || orderPrepayment != 0 {
+		t.Fatalf("pending order=%s prepayment=%v err=%v", status, orderPrepayment, err)
+	}
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.cash_receipts WHERE source_type='initial_order' AND source_id=$1 AND actual_cents=2000`, schema), pendingOrder.OrderID).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("pending receipt=%d err=%v", count, err)
+	}
+	badEdit := cmd
+	badEdit.EditID = pendingOrder.OrderID
+	badEdit.RequireConfirmation = true
+	badEdit.CustomerRequestID = ""
+	badEdit.CustomerRequestHash = ""
+	pendingQuote, err := r.QuoteFulfillmentFees(ctx, app.FulfillmentFeeQuoteCommand{CustomerID: 501, OrderID: pendingOrder.OrderID, FulfillmentMode: "sale", FreightProtocol: domain.OrderProtocol, EmployeeAdjustment: true, Province: "云南省", Items: []app.FulfillmentFeeItem{{ProductID: 910, BomSpecID: 7031, BomVariantID: 7032, Qty: 2}}, FreightOverride: override})
+	if err != nil {
+		t.Fatal(err)
+	}
+	badEdit.FreightQuoteToken = pendingQuote.Freight.Token
+	editTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	badEdit.ExpectedEditRevision, err = salespg.CurrentOrderEditRevisionTx(ctx, editTx, schema, pendingOrder.OrderID)
+	_ = editTx.Rollback(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = sales.SaveOrder(ctx, badEdit); err == nil || !strings.Contains(err.Error(), "待首次确认") {
+		t.Fatalf("pending edit with receipt accepted: %v", err)
+	}
+	var revision int64
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT confirmation_revision FROM %s.orders WHERE id=$1`, schema), pendingOrder.OrderID).Scan(&revision); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = sales.ReviewOrder(ctx, salesapp.ReviewOrderCommand{OrderID: pendingOrder.OrderID, Revision: revision, Decision: "accepted", Admin: true, Actor: "test"}); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT prepayment_amount::float8 FROM %s.orders WHERE id=$1`, schema), pendingOrder.OrderID).Scan(&orderPrepayment); err != nil || orderPrepayment != 0 {
+		t.Fatalf("accepted prepayment=%v err=%v", orderPrepayment, err)
+	}
+	editTx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	acceptedRevision, err := salespg.CurrentOrderEditRevisionTx(ctx, editTx, schema, pendingOrder.OrderID)
+	_ = editTx.Rollback(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiptCommand := salesapp.OrderReceiptCommand{OrderID: pendingOrder.OrderID, EditRevision: acceptedRevision, ActualCents: 2000, ExpectedDueCents: 8000, ReceiptDate: "2026-11-10", PaymentMethod: "现金", IdempotencyKey: "accepted-order-receipt", Actor: "test"}
+	registered, err := sales.RegisterOrderReceipt(ctx, receiptCommand)
+	if err != nil {
+		t.Fatalf("accepted receipt: %v", err)
+	}
+	replayedReceipt, err := sales.RegisterOrderReceipt(ctx, receiptCommand)
+	if err != nil || !replayedReceipt.Reused || replayedReceipt.ReceiptID != registered.ReceiptID {
+		t.Fatalf("receipt replay=%+v err=%v", replayedReceipt, err)
+	}
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT prepayment_amount::float8 FROM %s.orders WHERE id=$1`, schema), pendingOrder.OrderID).Scan(&orderPrepayment); err != nil || orderPrepayment != 20 {
+		t.Fatalf("accepted actual receipt prepayment=%v err=%v", orderPrepayment, err)
+	}
+	pending.CustomerRequestID = "receipt-order-request-rejected"
+	pending.CustomerRequestHash = "rejected-hash"
+	rejected, err := sales.SaveOrder(ctx, pending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT confirmation_revision FROM %s.orders WHERE id=$1`, schema), rejected.OrderID).Scan(&revision); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = sales.ReviewOrder(ctx, salesapp.ReviewOrderCommand{OrderID: rejected.OrderID, Revision: revision, Decision: "rejected", Reason: "测试", Admin: true, Actor: "test"}); err != nil {
+		t.Fatal(err)
+	}
+	badEdit.EditID = rejected.OrderID
+	pendingQuote, err = r.QuoteFulfillmentFees(ctx, app.FulfillmentFeeQuoteCommand{CustomerID: 501, OrderID: rejected.OrderID, FulfillmentMode: "sale", FreightProtocol: domain.OrderProtocol, EmployeeAdjustment: true, Province: "云南省", Items: []app.FulfillmentFeeItem{{ProductID: 910, BomSpecID: 7031, BomVariantID: 7032, Qty: 2}}, FreightOverride: override})
+	if err != nil {
+		t.Fatal(err)
+	}
+	badEdit.FreightQuoteToken = pendingQuote.Freight.Token
+	editTx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	badEdit.ExpectedEditRevision, err = salespg.CurrentOrderEditRevisionTx(ctx, editTx, schema, rejected.OrderID)
+	_ = editTx.Rollback(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = sales.SaveOrder(ctx, badEdit); err == nil || !strings.Contains(err.Error(), "待首次确认") {
+		t.Fatalf("rejected resubmit with receipt accepted: %v", err)
+	}
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.cash_receipts WHERE source_type='initial_order' AND source_id=$1`, schema), rejected.OrderID).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("rejected receipt=%d err=%v", count, err)
+	}
+	resolved, err := sales.CancelUncommittedOrderRequest(ctx, salesapp.OrderRequestCancelCommand{RequestID: cmd.CustomerRequestID, RequestActor: cmd.Actor, RequestHash: cmd.CustomerRequestHash, Actor: "admin", Reason: "核对已提交"})
+	if err != nil || resolved.Status != "committed" || resolved.OrderID != first.OrderID {
+		t.Fatalf("committed lookup: %+v %v", resolved, err)
+	}
+	cancelled := cmd
+	cancelled.CustomerRequestID = "receipt-order-request-cancelled"
+	cancelled.CustomerRequestHash = "cancelled-hash"
+	resolved, err = sales.CancelUncommittedOrderRequest(ctx, salesapp.OrderRequestCancelCommand{RequestID: cancelled.CustomerRequestID, RequestActor: cancelled.Actor, RequestHash: cancelled.CustomerRequestHash, Actor: "admin", Reason: "核对无订单"})
+	if err != nil || resolved.Status != "cancelled" {
+		t.Fatalf("cancel: %+v %v", resolved, err)
+	}
+	if _, err = sales.SaveOrder(ctx, cancelled); err == nil || !strings.Contains(err.Error(), "已解除") {
+		t.Fatalf("late request accepted: %v", err)
+	}
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.audit_logs WHERE entity_type='order_create_request' AND action='cancel_uncommitted' AND meta->>'request_id'=$1`, schema), cancelled.CustomerRequestID).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("cancel audit count=%d err=%v", count, err)
+	}
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.order_create_idempotency_keys WHERE request_id=$1`, schema), legacy.CustomerRequestID); err != nil {
+		t.Fatal(err)
+	}
+	legacyResult, err := sales.CancelUncommittedOrderRequest(ctx, salesapp.OrderRequestCancelCommand{RequestID: legacy.CustomerRequestID, RequestActor: "unknown", RequestHash: "unknown", Actor: "admin", Reason: "核对历史订单"})
+	if err != nil || legacyResult.Status != "committed" || legacyResult.OrderID != old.OrderID {
+		t.Fatalf("legacy lookup=%+v err=%v", legacyResult, err)
+	}
+	race := cmd
+	race.CustomerRequestID = "receipt-order-request-race"
+	race.CustomerRequestHash = "race-hash"
+	lockTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = lockTx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "order-create-global:"+race.CustomerRequestID); err != nil {
+		t.Fatal(err)
+	}
+	type cancelResult struct {
+		result salesapp.OrderRequestResolution
+		err    error
+	}
+	type saveResult struct {
+		result salesapp.SaveOrderResult
+		err    error
+	}
+	cancelDone := make(chan cancelResult, 1)
+	saveDone := make(chan saveResult, 1)
+	go func() {
+		v, e := sales.CancelUncommittedOrderRequest(ctx, salesapp.OrderRequestCancelCommand{RequestID: race.CustomerRequestID, RequestActor: race.Actor, RequestHash: race.CustomerRequestHash, Actor: "admin", Reason: "并发核对"})
+		cancelDone <- cancelResult{v, e}
+	}()
+	go func() { v, e := sales.SaveOrder(ctx, race); saveDone <- saveResult{v, e} }()
+	if err = lockTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	cr, sr := <-cancelDone, <-saveDone
+	if cr.err != nil || !((cr.result.Status == "committed" && sr.err == nil && cr.result.OrderID == sr.result.OrderID) || (cr.result.Status == "cancelled" && sr.err != nil && strings.Contains(sr.err.Error(), "已解除"))) {
+		t.Fatalf("racing cancellation=%+v/%v save=%+v/%v", cr.result, cr.err, sr.result, sr.err)
+	}
+	inflight := cmd
+	inflight.CustomerRequestID = "receipt-order-request-inflight"
+	inflight.CustomerRequestHash = "inflight-hash"
+	inflightTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inflightOrder, err := sales.WithOrderTransaction(inflightTx).SaveOrder(ctx, inflight)
+	if err != nil {
+		_ = inflightTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	inflightDone := make(chan cancelResult, 1)
+	go func() {
+		v, e := sales.CancelUncommittedOrderRequest(ctx, salesapp.OrderRequestCancelCommand{RequestID: inflight.CustomerRequestID, RequestActor: inflight.Actor, RequestHash: inflight.CustomerRequestHash, Actor: "admin", Reason: "核对在途请求"})
+		inflightDone <- cancelResult{v, e}
+	}()
+	select {
+	case early := <-inflightDone:
+		_ = inflightTx.Rollback(ctx)
+		t.Fatalf("resolved while original transaction in flight: %+v", early)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if err = inflightTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	inflightResolution := <-inflightDone
+	if inflightResolution.err != nil || inflightResolution.result.Status != "committed" || inflightResolution.result.OrderID != inflightOrder.OrderID {
+		t.Fatalf("inflight result=%+v err=%v", inflightResolution.result, inflightResolution.err)
 	}
 }
