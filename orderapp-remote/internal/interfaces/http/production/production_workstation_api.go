@@ -75,6 +75,67 @@ func registerProductionWorkstationAPI(e *echo.Echo, productionSvc *productionapp
 		return c.JSON(200, result)
 	})
 
+	e.POST("/api/production/workstation/material-issue/draft", func(c echo.Context) error {
+		if err := support.RequireEmployeeBound(c); err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		var cmd productionapp.BatchMaterialIssueCommand
+		if err := c.Bind(&cmd); err != nil {
+			return c.JSON(400, ErrorResponse{Error: "invalid request"})
+		}
+		cmd.Operator = support.ActorOf(c)
+		result, err := productionSvc.DraftBatchMaterialIssue(c.Request().Context(), cmd)
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, result)
+	})
+	e.GET("/api/production/workstation/material-issue/draft", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.QueryParam("job_card_id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(400, ErrorResponse{Error: "任务无效"})
+		}
+		result, err := productionSvc.FindBatchReplenishment(c.Request().Context(), id)
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, result)
+	})
+
+	e.POST("/api/production/workstation/material-issue/confirm", func(c echo.Context) error {
+		if err := support.RequireEmployeeBound(c); err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		var req struct {
+			RequestID string `json:"request_id"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(400, ErrorResponse{Error: "invalid request"})
+		}
+		result, err := productionSvc.ConfirmBatchMaterialIssue(c.Request().Context(), req.RequestID, support.ActorOf(c))
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, result)
+	})
+
+	e.POST("/api/production/workstation/material-issue/cancel", func(c echo.Context) error {
+		if err := support.RequireEmployeeBound(c); err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		var req struct {
+			RequestID string `json:"request_id"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(400, ErrorResponse{Error: "invalid request"})
+		}
+		out, err := productionSvc.CancelBatchReplenishment(c.Request().Context(), req.RequestID, support.ActorOf(c))
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, out)
+	})
+
 	e.GET("/production-overview", func(c echo.Context) error {
 		target := "/vue-shell?view=workstationView"
 		if raw := c.QueryString(); raw != "" {

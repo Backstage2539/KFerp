@@ -103,6 +103,36 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 	if status == "completed" || status == "cancelled" {
 		return out, fmt.Errorf("本工序已结束，请从记录更正")
 	}
+	var batchCount, pendingBatches int
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT count(*), count(*) FILTER (WHERE status='pending') FROM %s.production_execution_batches WHERE job_card_id=$1`, r.schema), cmd.ID).Scan(&batchCount, &pendingBatches); err != nil {
+		return out, err
+	}
+	if batchCount > 0 && p.Execution.ReportingType != "piece" && p.Execution.ReportingType != "incoming" && app.OperationUnitFactor(p.InputUnit) > 0 {
+		if cmd.ExecutionBatchID <= 0 {
+			return out, fmt.Errorf("请逐批填写并完成任务")
+		}
+		var state, batchUnit string
+		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT status,COALESCE(NULLIF(input_unit,''),$3) FROM %s.production_execution_batches WHERE id=$1 AND job_card_id=$2 FOR UPDATE`, r.schema), cmd.ExecutionBatchID, cmd.ID, p.InputUnit).Scan(&state, &batchUnit); err != nil {
+			return out, fmt.Errorf("执行批次不存在，请刷新")
+		}
+		if batchUnit != p.InputUnit {
+			return out, fmt.Errorf("前序实际产出单位与批次安排不一致，请重新核对工序")
+		}
+		if state != "pending" {
+			return out, fmt.Errorf("本批已完成，请刷新")
+		}
+		var output *float64
+		if cmd.ActualOutputPresent {
+			output = &cmd.ActualOutputQty
+		}
+		if err = app.ValidateExecutionBatchCompletion(output, cmd.DifferenceReason); err != nil {
+			return out, err
+		}
+		finish := pendingBatches == 1
+		cmd.FinishOperation = &finish
+	} else if batchCount == 0 && cmd.ExecutionBatchID > 0 {
+		return out, fmt.Errorf("请先启用分批报工")
+	}
 	owner, roster, err := resolveProductionWorkstationOwnerTx(ctx, tx, r.schema, stationID, station, productionWorkDate())
 	if err != nil {
 		return out, err
@@ -305,6 +335,11 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
  VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb) RETURNING id`, r.schema), wo.ID, cmd.ID, cmd.RequestID, cmd.ExpectedVersion, cmd.Operator, cmd.ActualInputQty, cmd.InputUnit, cmd.ActualOutputQty, cmd.OutputUnit, p.PlannedQty, cmd.DifferenceReason, plan.Warehouse, p.Execution.ReceiptEnabled, p.Final, opCost, estimated, string(payload)).Scan(&receipt.EventID)
 	if err != nil {
 		return out, err
+	}
+	if cmd.ExecutionBatchID > 0 {
+		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_execution_batches SET status='completed',actual_input_qty=$2,actual_output_qty=$3,event_id=$4 WHERE id=$1`, r.schema), cmd.ExecutionBatchID, cmd.ActualInputQty, cmd.ActualOutputQty, receipt.EventID); err != nil {
+			return out, err
+		}
 	}
 	stockCmd := stockapp.StockDocumentCommand{Purpose: stockapp.PurposeMaterialConsumption, WorkOrderID: wo.ID, JobCardID: cmd.ID, RunningItemID: runID, SourceType: "operation_completion", SourceID: receipt.EventID, Operator: cmd.Operator, IdempotencyKey: fmt.Sprintf("operation:%d:consume", receipt.EventID), Note: "工序完成自动用料；来源工单 " + wo.WorkOrderNo}
 	for _, m := range materials {

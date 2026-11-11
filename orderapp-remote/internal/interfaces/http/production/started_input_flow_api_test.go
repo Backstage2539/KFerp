@@ -132,6 +132,10 @@ func TestBOMStartTwoBatchesUseFrozenSequenceAndPartialReports(t *testing.T) {
  UPDATE %[1]s.work_order_material_reservations SET status='released' WHERE work_order_id=%[2]d AND material_id<>10;
  INSERT INTO %[1]s.work_order_material_reservations(work_order_id,material_id,component_type,component_id,material_name,unit,required_g,reserved_g,source_warehouse,status) VALUES(%[2]d,747,'material',747,'水洗生豆','kg',7000,0,'wip','reserved');
  `, schema, woID))
+	// This scenario models pre-existing cards with historical split reports.
+	// The fixture rewrites the newly created card's process and quantity by SQL;
+	// discard the automatic records created for the original, different route.
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`DELETE FROM %[1]s.production_execution_batches WHERE job_card_id IN (SELECT id FROM %[1]s.job_cards WHERE work_order_id=%[2]d)`, schema, woID))
 	seedProductionFlowWIPBatch(t, ctx, pool, schema, 74721, 747, "PR747-WASHED", "水洗生豆", 10000)
 	rows, err := pool.Query(ctx, fmt.Sprintf(`SELECT id FROM %s.job_cards WHERE work_order_id=$1 ORDER BY sequence_no,id`, schema), woID)
 	if err != nil {

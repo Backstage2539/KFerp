@@ -13,7 +13,15 @@ import (
 
 // Quantities in the read model are integral base quantities (grams or pieces).
 // Only user-entered Quantity is expressed in the displayed inventory unit.
+type ReplenishmentStartInput struct {
+	ExpectedVersion  string                 `json:"expected_version"`
+	InputUnit        string                 `json:"input_unit"`
+	ActualInputQty   float64                `json:"actual_input_qty"`
+	Materials        []OperationMaterialUse `json:"materials"`
+	DifferenceReason string                 `json:"difference_reason"`
+}
 type BatchMaterialIssueCommand struct {
+	StartInput     *ReplenishmentStartInput      `json:"start_input,omitempty"`
 	JobCardIDs     []int64                       `json:"job_card_ids"`
 	PreviewVersion string                        `json:"preview_version"`
 	RequestID      string                        `json:"request_id"`
@@ -206,4 +214,69 @@ func AllocateBatchMaterialIssue(g BatchMaterialIssueGroup, quantity int64) ([]Ba
 		return nil, fmt.Errorf("当前可领库存不足，请刷新领料建议")
 	}
 	return rows, nil
+}
+
+func (s *Service) DraftBatchMaterialIssue(ctx context.Context, cmd BatchMaterialIssueCommand) (BatchMaterialIssueResult, error) {
+	cmd, err := normalizeBatchMaterialIssue(cmd, true)
+	if err != nil {
+		return BatchMaterialIssueResult{}, err
+	}
+	repo, ok := s.repo.(interface {
+		DraftBatchMaterialIssue(context.Context, BatchMaterialIssueCommand) (BatchMaterialIssueResult, error)
+	})
+	if !ok {
+		return BatchMaterialIssueResult{}, fmt.Errorf("补料草稿暂不可用")
+	}
+	return repo.DraftBatchMaterialIssue(ctx, cmd)
+}
+func (s *Service) ConfirmBatchMaterialIssue(ctx context.Context, requestID, actor string) (BatchMaterialIssueResult, error) {
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" || len(requestID) > 128 {
+		return BatchMaterialIssueResult{}, fmt.Errorf("请求标识无效")
+	}
+	repo, ok := s.repo.(interface {
+		ConfirmBatchMaterialIssue(context.Context, string, string) (BatchMaterialIssueResult, error)
+	})
+	if !ok {
+		return BatchMaterialIssueResult{}, fmt.Errorf("补料确认暂不可用")
+	}
+	return repo.ConfirmBatchMaterialIssue(ctx, requestID, actor)
+}
+
+type BatchReplenishmentRecovery struct {
+	Found   bool                       `json:"found"`
+	Command *BatchMaterialIssueCommand `json:"command,omitempty"`
+	Result  *BatchMaterialIssueResult  `json:"result,omitempty"`
+}
+
+func (s *Service) FindBatchReplenishment(ctx context.Context, jobCardID int64) (BatchReplenishmentRecovery, error) {
+	if jobCardID <= 0 {
+		return BatchReplenishmentRecovery{}, fmt.Errorf("任务无效")
+	}
+	repo, ok := s.repo.(interface {
+		FindBatchReplenishment(context.Context, int64) (BatchReplenishmentRecovery, error)
+	})
+	if !ok {
+		return BatchReplenishmentRecovery{}, fmt.Errorf("补料恢复暂不可用")
+	}
+	return repo.FindBatchReplenishment(ctx, jobCardID)
+}
+
+type BatchReplenishmentCancelResult struct {
+	RequestID string `json:"request_id"`
+	Cancelled bool   `json:"cancelled"`
+}
+
+func (s *Service) CancelBatchReplenishment(ctx context.Context, requestID, actor string) (BatchReplenishmentCancelResult, error) {
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" || len(requestID) > 128 {
+		return BatchReplenishmentCancelResult{}, fmt.Errorf("请求标识无效")
+	}
+	repo, ok := s.repo.(interface {
+		CancelBatchReplenishment(context.Context, string, string) (BatchReplenishmentCancelResult, error)
+	})
+	if !ok {
+		return BatchReplenishmentCancelResult{}, fmt.Errorf("补料取消暂不可用")
+	}
+	return repo.CancelBatchReplenishment(ctx, requestID, actor)
 }

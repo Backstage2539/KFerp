@@ -55,3 +55,25 @@ export function batchIssueValidation(group, quantity) {
   if (base > group.max_quantity) return '实际数量超过当前可领库存'
   return ''
 }
+// A start deficit is a material identity, not a generic request for every reserved item.
+export function shortageIssueDefaults(groups, shortages) {
+ const selected=[], quantities={}
+ for(const group of groups) {
+  const key=`${group.item_type}:${Number(group.item_id)}:${Number(group.bom_spec_id||0)}:${Number(group.spec_g||0)}`
+  const matching=shortages.filter(s=>s.key===key && Number(s.owner_customer_id||0)===Number(group.owner_customer_id||0) && Number(s.bom_variant_id||0)===Number(group.bom_variant_id||0) && s.unit===group.unit)
+  const shortage=matching.reduce((sum,s)=>sum+Number(s.shortage_qty||0),0)
+  const qty=Math.min(shortage,batchIssueQuantity(group,group.max_quantity ?? group.available))
+  if(Number.isFinite(qty)&&qty>0){selected.push(group.key);quantities[group.key]=qty}
+ }
+ return {selected,quantities}
+}
+export function startPreviewShortages(preview) {
+ if (!preview || preview.predecessor_required || !Array.isArray(preview.materials)) return []
+ return preview.materials.filter(m=>m.warehouse==='wip' && Number.isFinite(Number(m.qty)) && Number.isFinite(Number(m.available_qty ?? 0)) && Number(m.qty)>Number(m.available_qty ?? 0)+1e-8).map(m=>({...m,shortage_qty:Number((Number(m.qty)-Number(m.available_qty ?? 0)).toFixed(6))}))
+}
+export function pendingFirstOperationCards(cards) {
+ const valid=(cards||[]).filter(c=>Number(c.sequence_no)>0)
+ if(!valid.length)return []
+ const first=Math.min(...valid.map(c=>Number(c.sequence_no)))
+ return valid.filter(c=>Number(c.sequence_no)===first&&['pending','ready','released'].includes(c.status))
+}
