@@ -5,4 +5,10 @@
 - 接口：`TestPlanTransferAPIHonoursUpstreamSupply` 在隔离 PostgreSQL 上验证纯前道与混合供应。直接创建或单项预览不能超出需现货数量；已有调拨草稿后批量只生成剩余数量，重复请求不重复开单，仓库库存不因创建草稿移动。该测试验证原有后端保护，不将其描述为修复前失败。
 - 手册：`OP_MANUAL_PRODUCTION.md`、`OP_MANUAL_STOCK.md` 和生产计划页面说明已同步。
 - 浏览器：本地 Vite 载入实际组件和模拟数据，桌面及 390×844 窄窗口检查了纯前道、混合供应及待确认单据的文案与按钮；窄屏可读。此检查并非真实接口端到端。
-- 开发环境交付待完成；不使用正式库存写入测试，正式发布另行安排。
+- 开发环境已发布；未使用正式库存写入测试，正式发布另行安排。
+
+## 开发环境发布与只读检查
+
+- 发布日志版本 `a4112c102fa2eefa15017328b2018c8f96ee035c`；应用 running、重启 0，数据库 healthy、重启 0，登录 200，未登录计划接口 401。
+- 公网、主机与容器内 `ProducePlanView-DpcMsTq6.js` 的 SHA-256 均为 `8795180e8f12e76d2dd7088e0ca2d3c04fb804bf77dc85acf59f8359ed7bb0a2`，包含等待前道生产文案。PR/DEV 均为待验收。未做真实业务写入或真实业务页面端到端验收。
+- 保留既有小程序包；回滚源 `/opt/stacks/erp/orderapp.backup.deploy-20261111095407-a4112c102fa2`，回滚镜像 `kferp-orderapp-rollback:development-20261111095407-a4112c102fa2`。
