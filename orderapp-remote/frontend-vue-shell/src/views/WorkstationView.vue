@@ -101,6 +101,7 @@
                 <summary>{{ materialSummary(task) }}</summary>
                 <div class="material-row material-head"><span>物料名称</span><span>需求</span><span>WIP 可用</span><span>缺口</span></div>
                 <div v-for="material in task.material_readiness" :key="material.reservation_id || material.material_id" class="material-row"><strong>{{ material.material_name }}</strong><span>{{ materialQuantity(material, 'required') }}</span><span>{{ materialQuantity(material, 'wip') }}</span><span :class="{ shortage: materialHasShortage(material) }">{{ materialQuantity(material, 'shortage') }}</span></div>
+                <button v-if="needsConfirmedStart(task) && task.material_readiness.some(materialHasShortage)" type="button" class="secondary" @click="openStartPanel(task)">核对缺口并生成补料单</button>
               </details>
               <div v-else-if="!task.has_predecessor && materialReadinessState(task) === 'unknown'" class="material-readiness material-state-unknown">用料待核对</div>
             </div>
@@ -109,7 +110,7 @@
             <div class="actions">
               <template v-if="isSimplifiedTask(task)">
                 <button v-if="needsConfirmedStart(task)" type="button" class="primary" :disabled="Boolean(busyKey) || loading || isTaskUnattended(task)" @click="openStartPanel(task)">开工</button>
-                <button v-else type="button" class="primary" :disabled="Boolean(busyKey) || loading || isTaskUnattended(task)" @click="openFinishPanel(task)">工序完成</button>
+                <button v-else type="button" class="primary" :disabled="Boolean(busyKey) || loading || isTaskUnattended(task)" @click="openFinishPanel(task)">{{ Number(task.planned_batch_count || 0) > 1 ? '查看批次并报工' : '工序完成' }}</button>
                 <small v-if="isTaskUnattended(task)" class="schedule-required">今日无人值班，请先完成排班</small>
                 <button type="button" class="secondary" @click="openExecutionHub(task, 'job_card')">查看工单</button>
               </template>
@@ -156,7 +157,7 @@
               <button class="secondary" @click="handleTaskAction(task,task.status==='paused'?'resume':'pause')">{{task.status==='paused'?'恢复':'暂停'}}</button>
             </div>
 
-            <OperationStartForm v-if="startPanel.open && sameTask(startPanel.task,task)" :key="`start-${task.job_card_id}-${startPanel.revision}`" :job-card-id="Number(task.job_card_id)" :locked="batchIssue.open" @close="startPanel.open=false" @posted="startPosted" @issue="openStartIssue(task, $event)" />
+            <OperationStartForm v-if="startPanel.open && sameTask(startPanel.task,task)" :key="`start-${task.job_card_id}`" :job-card-id="Number(task.job_card_id)" :refresh-token="startPanel.revision" :locked="batchIssue.open" @close="startPanel.open=false" @posted="startPosted" @issue="(shortages, input) => openStartIssue(task, shortages, input)" />
             <OperationCompletionForm v-if="isFinishPanelForTask(task)" :key="task.job_card_id" :job-card-id="Number(task.job_card_id)" :return-params="completionReturnParams(task)" @close="closeFinishPanel" @posted="automaticPosted" />
           </div>
         </div>
@@ -166,7 +167,7 @@
         <span>{{ emptyState.hint }}</span>
       </div>
     </section>
-    <WorkstationBatchIssueDrawer v-if="batchIssue.open" :task-ids="batchIssue.ids" :workstation="selectedWorkstation" :return-params="{scope}" :start-shortages="batchIssue.startShortages" @close="batchIssue.open = false" @posted="batchIssuePosted" />
+    <WorkstationBatchIssueDrawer v-if="batchIssue.open" :task-ids="batchIssue.ids" :workstation="selectedWorkstation" :return-params="{scope}" :start-shortages="batchIssue.startShortages" :start-input="batchIssue.startInput" @close="batchIssue.open = false" @posted="batchIssuePosted" @cancelled="batchIssueCancelled" />
     <ProductionExecutionHubDrawer
       :open="executionHub.open"
       :work-order-id="executionHub.workOrderId"
@@ -223,7 +224,7 @@ function needsConfirmedStart(task){return task.material_consumption_policy==='bo
 function openStartPanel(task){if(isTaskUnattended(task)){message.value='今日该工位无人值班，请先完成排班';return};finishPanel.open=false;startPanel.task=task;startPanel.open=true}
 async function startPosted(){startPanel.open=false;await load()}
 const selectedIssueTasks = ref([])
-const batchIssue = reactive({open: false, ids: [], startShortages: [], recovering: false})
+const batchIssue = reactive({open: false, ids: [], startShortages: [], startInput: null, recovering: false})
 const completionGroup = reactive({ open: false, key: '', ids: [] })
 const lastGroupResult = ref(null)
 const packagingSourceAvailability = ref(new Map())
@@ -245,8 +246,9 @@ function openPackagingGroupIssue(group) {
   batchIssue.ids = ids
   batchIssue.open = true
 }
-function openStartIssue(task, shortages) { if (batchIssue.open) return; batchIssue.recovering = false; batchIssue.ids = [Number(task.job_card_id)]; batchIssue.startShortages = shortages; batchIssue.open = true }
+function openStartIssue(task, shortages, input) { if (batchIssue.open) return; batchIssue.recovering = false; batchIssue.ids = [Number(task.job_card_id)]; batchIssue.startShortages = shortages; batchIssue.startInput = input; batchIssue.open = true }
 async function batchIssuePosted(result) { if (batchIssue.startShortages.length && Number(result?.success_count || 0) > 0) startPanel.revision++; await load() }
+async function batchIssueCancelled() { if (batchIssue.startShortages.length) startPanel.revision++; await load() }
 function openBatchIssue(section) { openBatchIssueForTasks(issueTasks(section).filter(task => selectedIssueTasks.value.includes(Number(task.job_card_id)))) }
 function openGroupCompletion(group) { completionGroup.key = group.key; completionGroup.ids = group.tasks.map(task => Number(task.job_card_id)); completionGroup.open = true; batchIssue.open = false }
 async function groupCompleted(result) { lastGroupResult.value = result; completionGroup.open = false; message.value = `已完成并入库 ${result.completed_qty} ${result.output_unit}`; await load() }
@@ -439,6 +441,7 @@ function taskMeta(task) {
 }
 
 function taskBatchLabel(task) {
+  if (Number(task?.planned_batch_count || 0) > 1) return `工位安排 · 共 ${Number(task.planned_batch_count)} 批`
   return `第 ${Number(task?.batch_index || 1)} 批 / 共 ${Number(task?.batch_count || 1)} 批`
 }
 

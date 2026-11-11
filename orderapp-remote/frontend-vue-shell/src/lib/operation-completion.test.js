@@ -1,6 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { completionDraft, completionPayload, routeExecution, completionQuantityLabel, completionRetry, suggestedMaterialQty } from './operation-completion.js'
+import { completionDraft, completionPayload, routeExecution, completionQuantityLabel, completionRetry, suggestedMaterialQty, executionBatchInputQty } from './operation-completion.js'
+
+test('batch planned input refuses to relabel a different frozen input unit',()=>{
+ assert.equal(executionBatchInputQty({planned_input_qty:15000,input_unit:'g'},'kg'),null)
+ assert.equal(executionBatchInputQty({planned_input_qty:14.962},'kg'),14.962)
+ assert.equal(executionBatchInputQty({planned_input_qty:5,input_unit:'袋'},'kg'),null)
+})
 
 const preview = {version:'v1',planned_qty:20,input_qty:4540,input_unit:'g',output_unit:'袋',materials:[{key:'bean',unit:'g',qty:4540}]}
 test('completion defaults to the planned batch and submits only the output quantity',()=>{

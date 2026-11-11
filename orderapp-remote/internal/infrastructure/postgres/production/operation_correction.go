@@ -226,6 +226,10 @@ func (r Repository) correctOperationOutputOnce(ctx context.Context, c app.Correc
 
 	result := map[string]any{"output_weight_g": app.OperationOutputWeight(c.ActualOutputQty, unit, wo.SpecG, wo.PlannedOutputG, operationPlannedTotal(wo)), "previous_qty": previous, "quantity": c.ActualOutputQty, "delta": c.ActualOutputQty - previous, "stock_entry_id": entryID, "reason": c.Reason}
 	raw, _ := json.Marshal(result)
+	// Keep the execution-batch view synchronized with the corrected event.
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_execution_batches SET actual_output_qty=$2 WHERE event_id=$1`, r.schema), original, c.ActualOutputQty); err != nil {
+		return out, err
+	}
 	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_operation_events SET status='posted',result=$2::jsonb WHERE id=$1`, r.schema), eventID, string(raw)); err != nil {
 		return out, err
 	}

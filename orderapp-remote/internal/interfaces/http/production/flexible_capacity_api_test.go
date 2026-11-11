@@ -115,6 +115,25 @@ INSERT INTO %[1]s.manufacturing_workstation_operations(workstation_id,operation_
 			t.Fatalf("read path lost custom marker: %s: %d %s", path, rec.Code, rec.Body.String())
 		}
 	}
+	// Four independently arranged cards must each own one physical execution
+	// batch, rather than multiplying the four cards by four a second time.
+	manual := []map[string]any{}
+	for i := 0; i < 4; i++ {
+		manual = append(manual, rows(15, 1)[0])
+	}
+	manual = append(manual, rows(15, 1)[1])
+	rec = serveMultilevelProductionJSON(t, e, http.MethodPost, fmt.Sprintf("/api/work-orders/%d/operation-splits", workID), map[string]any{"items": manual})
+	if rec.Code != 200 {
+		t.Fatalf("manual split: %s", rec.Body.String())
+	}
+	var taskCount, batchCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(DISTINCT j.id),count(b.id) FROM %[1]s.job_cards j LEFT JOIN %[1]s.production_execution_batches b ON b.job_card_id=j.id WHERE j.work_order_id=$1 AND j.sequence_no=1`, schema), workID).Scan(&taskCount, &batchCount); err != nil {
+		t.Fatal(err)
+	}
+	if taskCount != 4 || batchCount != 4 {
+		t.Fatalf("manual cards=%d execution batches=%d", taskCount, batchCount)
+	}
+
 }
 
 func TestFlexibleCapacityAPIQuantityModesAllowUnderAndOver(t *testing.T) {

@@ -1030,6 +1030,11 @@ export function capacityOperationVariance(rows = [], item = {}, operation = {}) 
   return { required_qty: signedSplitQty(basis.targetBaseQty / factor), arranged_qty: signedSplitQty(arranged / factor), diff_qty: signedSplitQty((arranged - basis.targetBaseQty) / factor), unit: reference.batch_size_unit }
 }
 
+export function workOrderCapacitySummary(rows = [], item = {}, operation = {}) {
+  const variance = capacityOperationVariance(rows, item, operation)
+  return variance ? { ...variance, output_g: productionPlanItemOutputTargetG(item) } : null
+}
+
 export function capacitySplitAvailabilityError(split, item, operation, capacities = []) {
   const inputError = capacitySplitInputError(split)
   if (inputError) return inputError

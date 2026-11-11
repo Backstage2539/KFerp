@@ -270,6 +270,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-761-WORKSTATION-BATCH-WIP", title: "工位逐批报工与缺料转入WIP", status: "doing", assignee: "Van"},
+		{table: "req_dev", code: "DEV-PR761-01", title: "稳定执行批次、历史投入与逐批完成", status: "doing", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR761-02", title: "真实缺料转仓草稿及当前页确认", status: "doing", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR761-03", title: "工位逐批界面与产能口径", status: "doing", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR761-04", title: "隔离验证、手册与交付", status: "doing", assignee: "Codex"},
 		{table: "req_product", code: "PR-760-SEMI-FINISHED-DIRECT-WIP", title: "半成品选择精简与产能页直接转入WIP", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-11-semi-finished-direct-wip.md；用户验收待完成"},
 		{table: "req_dev", code: "DEV-PR760-01", title: "按同批次实际WIP库存覆盖已选半成品", status: "review", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PR760-02", title: "一键原子调拨、幂等及库存权限", status: "review", assignee: "Codex"},

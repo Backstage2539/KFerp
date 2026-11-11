@@ -40,6 +40,51 @@ func (r Repository) CreatePlanStockDocumentDraftTx(ctx context.Context, tx pgx.T
 	return r.createStockDocumentDraftTx(ctx, tx, cmd)
 }
 
+// CreateWorkstationReplenishmentDraftTx participates in the caller's atomic draft group.
+func (r Repository) CreateWorkstationReplenishmentDraftTx(ctx context.Context, tx pgx.Tx, cmd stockapp.StockDocumentCommand) (stockapp.StockDocumentDetail, error) {
+	if cmd.ReturnSource != "workstation_replenishment" || cmd.Purpose != stockapp.PurposeMaterialTransferForManufacture || cmd.JobCardID <= 0 {
+		return stockapp.StockDocumentDetail{}, fmt.Errorf("invalid workstation replenishment")
+	}
+	return r.createStockDocumentDraftTx(ctx, tx, cmd)
+}
+
+// SubmitWorkstationReplenishmentTx may only be used after the production service revalidates the full draft group.
+func (r Repository) SubmitWorkstationReplenishmentTx(ctx context.Context, tx pgx.Tx, id int64, actor string) (stockapp.StockDocumentDetail, error) {
+	var source string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(return_source,'') FROM %s.stock_entries WHERE id=$1`, r.schema), id).Scan(&source); err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
+	if source != "workstation_replenishment" {
+		return stockapp.StockDocumentDetail{}, fmt.Errorf("非工位补料单")
+	}
+	return r.submitStockDocumentGuardedTx(ctx, tx, id, actor, true)
+}
+
+// CancelWorkstationReplenishmentDraftTx cancels only an unposted replenishment draft.
+func (r Repository) CancelWorkstationReplenishmentDraftTx(ctx context.Context, tx pgx.Tx, id int64, actor string) error {
+	status, err := r.lockStockDocumentStatusTx(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	detail, err := r.loadStockDocumentDetailTx(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if detail.ReturnSource != "workstation_replenishment" {
+		return fmt.Errorf("非工位补料单")
+	}
+	if status == "cancelled" {
+		return nil
+	}
+	if status != "draft" {
+		return fmt.Errorf("补料单已过账，不能取消草稿")
+	}
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.stock_entries SET status='cancelled',cancelled_at=now(),updated_at=now() WHERE id=$1`, r.schema), id); err != nil {
+		return err
+	}
+	return postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "stock_entry", &id, "cancel_draft", postgresinfra.StrPtr("status"), postgresinfra.StrPtr("draft"), postgresinfra.StrPtr("cancelled"), postgresinfra.AuditMeta{"source": "workstation_replenishment"})
+}
+
 func (r Repository) UpdateStockDocumentDraft(ctx context.Context, id int64, cmd stockapp.StockDocumentCommand) (stockapp.StockDocumentDetail, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -56,9 +101,12 @@ func (r Repository) UpdateStockDocumentDraft(ctx context.Context, id int64, cmd 
 	if status != "draft" {
 		return stockapp.StockDocumentDetail{}, fmt.Errorf("only draft stock document can be edited")
 	}
-	var sourceType string
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT source_type FROM %s.stock_entries WHERE id=$1`, r.schema), id).Scan(&sourceType); err != nil {
+	var sourceType, returnSource string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(source_type,''),COALESCE(return_source,'') FROM %s.stock_entries WHERE id=$1`, r.schema), id).Scan(&sourceType, &returnSource); err != nil {
 		return stockapp.StockDocumentDetail{}, err
+	}
+	if returnSource == "workstation_replenishment" {
+		return stockapp.StockDocumentDetail{}, fmt.Errorf("工位补料单不能直接修改")
 	}
 	if sourceType == planMaterialTransferSource {
 		return stockapp.StockDocumentDetail{}, fmt.Errorf("生产计划调拨单请回到生产计划重新核对，不能直接修改")
@@ -223,6 +271,9 @@ func (r Repository) CancelStockDocument(ctx context.Context, id int64, actor str
 	detail, err := r.loadStockDocumentDetailTx(ctx, tx, id)
 	if err != nil {
 		return stockapp.StockDocumentDetail{}, err
+	}
+	if detail.ReturnSource == "workstation_replenishment" {
+		return stockapp.StockDocumentDetail{}, fmt.Errorf("工位补料已过账，不能单独撤销")
 	}
 	if err := lockStockDocumentWorkOrderAndFinishedIdentitiesTx(ctx, tx, r.schema, detail); err != nil {
 		return stockapp.StockDocumentDetail{}, err
@@ -792,6 +843,9 @@ func (r Repository) resolveOrdinaryFinishedStockDocumentDetailTx(ctx context.Con
 }
 
 func (r Repository) submitStockDocumentTx(ctx context.Context, tx pgx.Tx, id int64, actor string) (stockapp.StockDocumentDetail, error) {
+	return r.submitStockDocumentGuardedTx(ctx, tx, id, actor, false)
+}
+func (r Repository) submitStockDocumentGuardedTx(ctx context.Context, tx pgx.Tx, id int64, actor string, allowReplenishment bool) (stockapp.StockDocumentDetail, error) {
 	if err := r.lockPlanMaterialTransferOwnerTx(ctx, tx, id); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
@@ -808,6 +862,9 @@ func (r Repository) submitStockDocumentTx(ctx context.Context, tx pgx.Tx, id int
 	detail, err := r.loadStockDocumentDetailTx(ctx, tx, id)
 	if err != nil {
 		return stockapp.StockDocumentDetail{}, err
+	}
+	if detail.ReturnSource == "workstation_replenishment" && !allowReplenishment {
+		return stockapp.StockDocumentDetail{}, fmt.Errorf("工位补料单请回到工位确认")
 	}
 	if err := r.validatePlanMaterialTransferDocumentTx(ctx, tx, detail); err != nil {
 		return stockapp.StockDocumentDetail{}, err

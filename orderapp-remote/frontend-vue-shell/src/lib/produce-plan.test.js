@@ -1553,3 +1553,12 @@ test('quantity scheduling preserves sub-second estimates without batch rounding'
  const m=plannedCapacitySplitMetrics({scheduling_mode:'quantity',throughput_per_hour:1000,batch_size_unit:'kg',planned_qty:0.001,hourly_rate:100})
  assert.equal(m.planned_seconds,0.0036)
 })
+
+test('work order capacity labels distinguish input scheduling from output and inventory', () => {
+  const item = { planned_g: 60113, planned_output_g: 60112 }
+  const operation = { seq: 1 }
+  const rows = [{ operation_seq: 1, batch_size_qty: 15, batch_size_unit: 'kg', planned_qty: 59.962, planned_qty_g: 59962, planned_batch_count: 4 }]
+  assert.deepEqual(producePlan.workOrderCapacitySummary(rows, item, operation), {
+    required_qty: 60.113, arranged_qty: 59.962, diff_qty: -0.151, unit: 'kg', output_g: 60112,
+  })
+})

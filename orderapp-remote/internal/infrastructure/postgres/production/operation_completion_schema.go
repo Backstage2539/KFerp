@@ -26,6 +26,15 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_operation_events (
 DROP INDEX IF EXISTS %[1]s.production_operation_events_completion_uq;
 CREATE INDEX IF NOT EXISTS production_operation_events_completion_idx ON %[1]s.production_operation_events(job_card_id,id) WHERE kind='complete';
 CREATE INDEX IF NOT EXISTS production_operation_events_work_idx ON %[1]s.production_operation_events(work_order_id,id);
+CREATE TABLE IF NOT EXISTS %[1]s.production_execution_batches (
+ id BIGSERIAL PRIMARY KEY, job_card_id BIGINT NOT NULL REFERENCES %[1]s.job_cards(id) ON DELETE CASCADE, batch_no INT NOT NULL CHECK(batch_no>0),
+ planned_input_qty NUMERIC(20,8) NOT NULL CHECK(planned_input_qty>0), init_request_id TEXT NOT NULL DEFAULT '', init_expected_version TEXT NOT NULL DEFAULT '', input_unit TEXT NOT NULL DEFAULT '', actual_input_qty NUMERIC(20,8),
+ actual_output_qty NUMERIC(20,8), status TEXT NOT NULL DEFAULT 'pending', event_id BIGINT REFERENCES %[1]s.production_operation_events(id),
+ UNIQUE(job_card_id,batch_no), UNIQUE(event_id)
+);
+ALTER TABLE %[1]s.production_execution_batches ADD COLUMN IF NOT EXISTS input_unit TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.production_execution_batches ADD COLUMN IF NOT EXISTS init_request_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.production_execution_batches ADD COLUMN IF NOT EXISTS init_expected_version TEXT NOT NULL DEFAULT '';
 CREATE TABLE IF NOT EXISTS %[1]s.production_operation_balances (
  id BIGSERIAL PRIMARY KEY, event_id BIGINT NOT NULL UNIQUE REFERENCES %[1]s.production_operation_events(id),
  work_order_id BIGINT NOT NULL, job_card_id BIGINT NOT NULL, sequence_no INT NOT NULL,
