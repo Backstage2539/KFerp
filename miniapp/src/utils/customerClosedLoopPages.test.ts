@@ -13,7 +13,7 @@ describe('customer closed-loop miniapp pages', () => {
 
     expect(page).not.toContain('累计已购买')
     expect(page).not.toContain('累计已入库')
-    expect(page).toContain('需补购')
+    expect(page).toContain('还需购货')
     expect(page).toContain('@tap="startTopup">商品下单</button>')
     expect(page).toContain('useCustomerOrderDraftStore')
     expect(page).toContain('选择收件客户')

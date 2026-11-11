@@ -506,7 +506,7 @@ onBeforeUnmount(() => { disposed = true; identityRevision++; quoteFlow.dispose()
         <text v-else-if="!stockOverview.length" class="muted">暂无可安排代发的库存，可先下单库存</text>
         <view v-for="row in stockOverview" :key="row.key" class="stock-overview-row" :class="{ 'stock-selected': row.requested > 0 }">
           <view class="stock-overview-copy"><text class="line-name">{{ row.name }}</text><text class="muted">{{ row.spec }}</text></view>
-          <view class="stock-overview-copy"><text>现货可用 {{ row.physical }}{{ row.unit }}</text><text>待入库已预订 {{ row.reserved }}{{ row.unit }}</text><text v-if="row.gap > 0" class="stock-gap">需补购 {{ row.gap }}{{ row.unit }}</text></view>
+          <view class="stock-overview-copy"><text>现货可用 {{ row.physical }}{{ row.unit }}</text><text>待入库已预订 {{ row.reserved }}{{ row.unit }}</text></view>
         </view>
         <button class="secondary" :loading="openingStockPurchase" :disabled="submitting || openingStockPurchase || loading" @tap="startTopup">商品下单</button>
       </view>

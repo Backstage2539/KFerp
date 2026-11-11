@@ -358,6 +358,22 @@ it.each([false, true])('stock summary keeps only physical and reserved amounts f
   } finally { app.unmount() }
 })
 
+it('stock summary stays two quantities during a shortage while order line retains top-up guidance', async () => {
+  api.directCatalog.mockResolvedValue({ current_customer_id: 901, fulfillment_mode: 'stock', fulfillment_settings: purchaseSettings, product_families: [{...purchaseFamily, specs: [{...purchaseFamily.specs[0], physical_available_qty: 0, pending_inbound_qty: 0, pending_reserved_qty: 0}]}], price_tables: [] })
+  const { app, root } = mount(DirectShip, { entryMode: 'stock' }, pinia => purchaseDraft(pinia, 'direct_ship', 'ship'))
+  try {
+    await settle()
+    const stockRow = find(root, node => node.type === 'view' && String(node.props.class || '').includes('stock-overview-row'))[0]
+    expect(stockRow).toBeDefined()
+    expect(text(stockRow)).toContain('现货可用 0袋')
+    expect(text(stockRow)).toContain('待入库已预订 0袋')
+    expect(text(stockRow)).not.toContain('需补购')
+    const line = find(root, node => node.type === 'view' && String(node.props.class || '').includes('stock-line-status'))[0]
+    expect(text(line)).toContain('还需购货1袋')
+    expect(find(root, node => node.type === 'button' && text(node) === '商品下单')).toHaveLength(1)
+  } finally { app.unmount() }
+})
+
 it('preview topup navigates without saving a customer draft', async () => {
   api.directCatalog.mockResolvedValue({ current_customer_id: 901, fulfillment_mode: 'stock', fulfillment_settings: purchaseSettings, product_families: [purchaseFamily], price_tables: [] })
   let store!: ReturnType<typeof useCustomerOrderDraftStore>
