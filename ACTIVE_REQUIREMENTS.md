@@ -1,9 +1,10 @@
 ### PR-759-SEMI-FINISHED-STOCK-SELECTION
-- Branch: `codex/semi-finished-stock-selection`；Owner: Codex；Status: 已部署开发环境，待用户验收。
+- Branch: `codex/semi-finished-stock-selection`；Owner: Codex；Status: 已部署开发与正式环境，待用户实际操作验收。
 - Scope: 订单计划手动选择半成品批次、预览并重算生产和产能，保留历史草稿及批次追溯。
 - DEV: `DEV-PR759-01` 供应策略、预览与重算；`DEV-PR759-02` 批次、库存与工单一致性；`DEV-PR759-03` 物料及产能页面；`DEV-PR759-04` 验证、手册与交付。
 - Verifier: 前端 1917 项及构建、无数据库 Go 全量、隔离数据库关键 API、库存/调拨及并发测试通过；开发服务器部署源码及开发数据库独立 schema 中的选批→调拨→入 WIP→提交→批次占用通过，生产接口全量分组的既有失败与基线逐项对照，详见验收文档。
 - Deployment: ERP-only development `bdc074cb5dcd2b1ad79dd53f75c1273464c71f94`；应用运行且重启次数 0、数据库健康、匿名身份 API 401、管理员身份 API 200、需求记录及前端资源标记可见，外部登录页 200；沿用原小程序包。回滚源 `/opt/stacks/erp/orderapp.backup.deploy-20261111154241-bdc074cb5dcd`。Van 验收待完成。
+- Production: ERP-only `8bf331c2c5068c2d5ece18487e8b01b09d48bb87`；应用运行、重启次数 0、数据库健康、匿名身份 API 401、管理员身份 API 200、外部登录 200、PR-759 及新接口可见，策略列及两张表已建立；计划 26 只读复核仍为 draft、revision 2、库存覆盖 15 kg、新生产 45.112 kg。保留原小程序包 `23ef40134e8bf4066f86aa4cd8a71afcc3abe9c5`；数据库备份 `/opt/stacks/erp-production/backups/pre-pr759-20261111161744.dump`，源码回滚源 `/opt/stacks/erp-production/orderapp.backup.deploy-20261111161827-8bf331c2c506`。
 
 ### PR-MINIAPP-PREVIEW-DROPSHIP-20261111
 

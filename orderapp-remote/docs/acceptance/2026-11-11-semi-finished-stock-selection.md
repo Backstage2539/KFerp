@@ -1,6 +1,6 @@
 # PR-759 半成品库存选择与产能
 
-状态：开发环境已部署；用户验收尚未完成。
+状态：开发及正式环境已部署；用户实际操作验收尚未完成。
 
 ## 验证记录
 
@@ -15,6 +15,7 @@
 - 开发服务器部署源码及开发数据库独立 schema `codex_qa_semi_1794384012057626410` 的真实 HTTP handler 测试 `TestOrderSemiFinishedChoiceThroughTransferToReservation` 通过：测试订单计划选择同批生产仓 3 kg、原料仓 7 kg，调拨过账后提交，工单预留同批 10 kg，其他批次未占用。此测试在隔离 schema 直接准备产能拆分，不经过真实页面或运行中的 ERP 进程；测试 schema 已保留，原有开发及正式业务数据未修改。
 - 第二次在开发数据库独立 schema `codex_qa_semi_capacity_1794384109108089265` 使用测试工位，改由 `/operation-splits/preview` 和 `/operation-splits` 真实 handler 安排产能，再走选批、调拨及工单占用链路，结果通过；独立数据已保留。此验证仍非运行中 ERP 网络进程或真实浏览器端到端。
 - 部署源码在开发数据库三个独立 schema 中补验通过：60.112 kg 需求选择 0/10/15/0 kg 及反复刷新、全覆盖后冻结配方恢复、原零覆盖旧草稿保持不变。schema 分别为 `codex_qa_semi_capacity_1794384163297113126`、`codex_qa_semi_capacity_1794384169903606358`、`codex_qa_semi_capacity_1794384176746451862`；隔离测试数据已保留。
+- 正式 ERP-only `8bf331c2c5068c2d5ece18487e8b01b09d48bb87`：合并后本机全量检查、服务器前端及 Go 检查、镜像内 Go 测试与构建通过；正式应用运行、重启次数 0、数据库健康，匿名身份 401、管理员身份 200、外部登录 200、PR-759 与新接口可见，策略字段和两张数据表已建立。旧草稿计划 26 发布前后均为 draft、revision 2；接口只读显示半成品总需求 60.112 kg、库存覆盖 15 kg、本次生产 45.112 kg，未刷新、提交或调拨。保留正式小程序包 `23ef40134e8bf4066f86aa4cd8a71afcc3abe9c5`；发布前数据库备份 `/opt/stacks/erp-production/backups/pre-pr759-20261111161744.dump` 已用 `pg_restore` 完整读取校验，源码备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20261111161827-8bf331c2c506`，回滚镜像 `kferp-orderapp-rollback:production-20261111161827-8bf331c2c506`。
 
 ## 待完成
 
