@@ -2,6 +2,7 @@ package costing
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -1336,5 +1337,100 @@ func TestUnavailableCostDoesNotCalculatePrices(t *testing.T) {
 	got := CalculateProduct(Parameters{}, ProductInput{ProductID: 1, Name: "待核算商品", CostUnavailable: true})
 	if !got.CostUnavailable || len(got.CommercialWholesaleTiers) > 0 || len(got.DripWholesaleTiers) > 0 || len(got.RetailBeanTiers) > 0 || len(got.Warnings) == 0 {
 		t.Fatalf("unavailable cost produced prices: %+v", got)
+	}
+}
+
+func TestUnavailableCostPreservesSalesCatalogMetadataWithoutPrices(t *testing.T) {
+	for _, kind := range []string{"roasted", "green_bean"} {
+		for _, identity := range []string{"legacy_sku", "bom_spec"} {
+			t.Run(kind+"/"+identity, func(t *testing.T) {
+				in := ProductInput{
+					ProductID: 52, ParentProductID: 52, EffectiveParentProductID: 52,
+					Name: "客户曲奇", ProductName: "曲奇", ProductCode: "PRODUCT-52", ProductKind: kind,
+					SKUName: "1KG袋装", SKUCode: "SPEC-219", Barcode: "219001", SpecKey: "bag-1kg", SpecLabel: "1KG袋装",
+					NetContentQty: 1, NetContentUnit: "kg", InventoryUnit: "袋", QuoteUnit: "袋", OrderUnit: "袋", IntegerUnit: true,
+					UnitConversionJSON: `{"袋":{"袋":1}}`, SpecIdentityMode: identity,
+					BomID: 891, BomVersionID: 672, BomVersionNo: "V003", BomUsageMode: "production_bom_output", BomStatus: "active",
+					CustomerID: 42, CustomerProductAliasID: 90, CustomerProductDisplayName: "客户曲奇", CustomerItemCode: "COOKIE-1",
+					BrandName: "客户品牌", BaseProductID: 50, Visibility: "customer_only", CustomType: "public_sku_alias",
+					DisplayCategoryID: 4, DisplayCategoryName: "客户咖啡", ClassificationTemplateID: 8, ClassificationTemplateName: "工厂价格表",
+					ClassificationCategoryID: 9, ClassificationCategoryName: "拼配", ProductCategoryID: 9, ProductCategoryPosition: 2,
+					ProductTypeCategoryID: 3, ProductSubtypeCategoryID: 9, ProductTypeName: "咖啡豆", ProductSubtypeName: "拼配",
+					CategoryPrimaryName: "咖啡豆", CategoryPrimaryPosition: 1, CategorySecondaryName: "拼配", CategorySecondaryPosition: 2,
+					OperationTemplateID: 7, Flavor: "曲奇饼干", Origin: "云南", ProcessingStation: "水洗站", Variety: "卡蒂姆",
+					ProcessMethod: "水洗", Grade: "A", Altitude: "1600m", BeanListNote: "风味记录",
+					SpecialAttrsJSON: `{"roast_level":"中烘"}`, SpecialAttrsSchemaJSON: `[{"key":"roast_level","label":"烘焙度","show_in_price_list":true}]`,
+					PriceListRuleJSON:  `{"pricing_mode":"cost_plus","rounding":"yuan"}`,
+					GreenBeanCostPerKg: 60, BomCostPerUnit: 61, OperationCostPerUnit: 1,
+					ProductPriceSnapshots: []ProductPriceSnapshot{{SourcePriceRecordID: 80, FinalUnitPrice: 99, PriceUnit: "袋", InventoryUnit: "袋"}},
+					GreenBeanSaleTiers:    []CommercialWholesaleTier{{Label: "旧售价", PricePerUnit: 88}},
+				}
+				if identity == "bom_spec" {
+					in.BomSpecID, in.BomVariantID, in.DefaultBOMSpecID = 219, 3054, 76
+					in.MigrationState, in.BomSpecAuthoritative = "cutover", true
+				} else {
+					in.SKUID, in.DefaultSKUID = 219, 76
+				}
+				known := CalculateProduct(DefaultParameters(), in)
+				in.CostUnavailable = true
+				got := CalculateProduct(DefaultParameters(), in)
+				toJSON := func(value ProductResult) map[string]any {
+					t.Helper()
+					data, err := json.Marshal(value)
+					if err != nil {
+						t.Fatal(err)
+					}
+					var row map[string]any
+					if err := json.Unmarshal(data, &row); err != nil {
+						t.Fatal(err)
+					}
+					return row
+				}
+				knownJSON, gotJSON := toJSON(known), toJSON(got)
+				for _, field := range strings.Fields(`product_id sku_id parent_product_id effective_parent_product_id sku_name sku_code barcode spec_key spec_label net_content_qty net_content_unit default_sku_id bom_spec_id bom_variant_id default_bom_spec_id migration_state spec_identity_mode bom_spec_authoritative effective_sales_spec product_code product_name name product_kind customer_id customer_product_alias_id customer_product_display_name customer_item_code brand_name base_product_id visibility custom_type display_category_id display_category_name classification_template_id classification_template_name classification_category_id classification_category_name bom_id bom_version_id bom_version_no bom_usage_mode product_category_id product_category_position product_type_category_id product_subtype_category_id product_type_name product_subtype_name category_primary_name category_primary_position category_secondary_name category_secondary_position operation_template_id inventory_unit quote_unit order_unit unit_conversion_json integer_unit price_list_rule_json product_attributes commercial_bean_list retail_bean_list drip_bean_list green_bean_list bean_list_quality flavor origin processing_station variety process_method grade altitude bean_list_note`) {
+					if !reflect.DeepEqual(gotJSON[field], knownJSON[field]) {
+						t.Errorf("unavailable cost changed catalog %s: got %#v, want %#v", field, gotJSON[field], knownJSON[field])
+					}
+				}
+				if !got.CostUnavailable || got.BomStatus != "active" {
+					t.Errorf("availability must not replace the original BOM status: %+v", got)
+				}
+				for _, field := range strings.Fields(`product_price_snapshots commercial_wholesale_tiers green_bean_sale_tiers drip_wholesale_tiers retail_bean_tiers wholesale_kg_prices wholesale_lb_prices wholesale_drip_bag_prices wholesale_drip_bag_with_pack_prices`) {
+					if values, ok := gotJSON[field].([]any); ok && len(values) != 0 {
+						t.Errorf("unavailable cost returned prices in %s: %#v", field, values)
+					}
+				}
+				for _, field := range strings.Fields(`green_bean_cost_per_kg bom_cost_per_unit operation_cost_per_unit operation_cost_per_kg roasted_bean_cost_per_kg small_batch_cost_per_kg large_batch_cost_per_kg drip_base_cost_per_bag retail_tax_per_kg retail_kg_price retail_454g_price retail_227g_price retail_250g_price retail_200g_price retail_100g_price retail_drip_10_bag_price`) {
+					if value, ok := gotJSON[field].(float64); ok && value != 0 {
+						t.Errorf("unavailable cost returned amount %s=%v", field, value)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestUnavailableCostWarningsKeepSpecificCauseAndDoNotMutateInput(t *testing.T) {
+	for _, cause := range []string{"工序参考速度未配置，标准成本待核算", "工序标准成本待核算，无法计算价格", "库存批次成本待核算，无法计算价格"} {
+		t.Run(cause, func(t *testing.T) {
+			backing := []string{"旧版规格沿用历史工序成本规则", cause, cause, "不得覆盖"}
+			in := ProductInput{ProductID: 52, CostUnavailable: true, Warnings: backing[:3]}
+			got := CalculateProduct(DefaultParameters(), in)
+			if !reflect.DeepEqual(got.Warnings, []string{backing[0], cause}) {
+				t.Errorf("keep the specific cause once without an unrelated inventory warning: %#v", got.Warnings)
+			}
+			if backing[3] != "不得覆盖" {
+				t.Fatal("calculation mutated the caller's warning storage")
+			}
+		})
+	}
+	got := CalculateProduct(DefaultParameters(), ProductInput{ProductID: 52, CostUnavailable: true, Warnings: []string{"旧版规格沿用历史工序成本规则"}})
+	if !reflect.DeepEqual(got.Warnings, []string{"旧版规格沿用历史工序成本规则", "成本待核算，无法计算价格"}) {
+		t.Fatalf("unknown cause must use a neutral warning: %#v", got.Warnings)
+	}
+	causes := []string{"工序标准成本待核算，无法计算价格", "库存批次成本待核算，无法计算价格"}
+	got = CalculateProduct(DefaultParameters(), ProductInput{ProductID: 52, CostUnavailable: true, Warnings: append(append([]string{}, causes...), causes...)})
+	if !reflect.DeepEqual(got.Warnings, causes) {
+		t.Fatalf("independent operation and inventory causes must both remain: %#v", got.Warnings)
 	}
 }

@@ -270,6 +270,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-PRICE-LIST-COST-AVAILABILITY-20261111", title: "修复商品价格表成本误判及规格展示", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-11-price-list-cost-availability.md；待用户验收"},
+		{table: "req_dev", code: "DEV-PRICE-LIST-COST-QUERY-20261111", title: "修复历史规格工序成本档位读取并区分成本异常", status: "done", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PRICE-LIST-SPEC-IDENTITY-20261111", title: "保留成本异常商品规格信息并修复勾选警告", status: "done", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PRICE-LIST-COST-VERIFY-20261111", title: "验证价格表成本与规格并更新手册", status: "done", assignee: "Codex"},
 		{table: "req_product", code: "PR-762-WORKSTATION-INLINE-BATCH", title: "工位任务直接展开逐批报工", status: "doing", assignee: "Van"},
 		{table: "req_dev", code: "DEV-PR762-01", title: "批次冻结默认值与历史兼容", status: "doing", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PR762-02", title: "单批及全部批次原子报工", status: "doing", assignee: "Codex"},

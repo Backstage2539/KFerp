@@ -76,7 +76,9 @@ func TestResolvedBomCostsKeepPublishedProductSpecificationsIsolatedPostgres(t *t
 			process_route_id BIGINT NOT NULL DEFAULT 0
 		);
 		CREATE TABLE %[1]s.process_route_operations(
-			id BIGINT PRIMARY KEY, route_id BIGINT NOT NULL, planned_operation_cost NUMERIC(14,4) NOT NULL DEFAULT 0
+			id BIGINT PRIMARY KEY, route_id BIGINT NOT NULL, operation TEXT NOT NULL DEFAULT '包装',
+			standard_cost_capacity_id BIGINT NOT NULL DEFAULT 0,
+			planned_operation_cost NUMERIC(14,4) NOT NULL DEFAULT 0
 		);
 		CREATE TABLE %[1]s.production_bom_version_items(
 			id BIGINT PRIMARY KEY, version_id BIGINT NOT NULL, variant_id BIGINT NOT NULL DEFAULT 0,
@@ -186,7 +188,35 @@ func TestResolvedBomCostsKeepPublishedProductSpecificationsIsolatedPostgres(t *t
 	if legacyUnknown[-702].Resolved || !legacyUnknown[-703].Resolved {
 		t.Fatalf("legacy workstation capacity fallback not isolated: %+v %+v", legacyUnknown[-702], legacyUnknown[-703])
 	}
-	if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.manufacturing_workstation_capacities SET scheduling_mode='batch' WHERE id=22`, schema)); err != nil {
+	// Match the live schema: operation is both a text column and was the SQL
+	// table alias. Reading to_jsonb(operation) must not mistake that name for
+	// the whole row and lose the explicitly selected standard-cost capacity.
+	// Standard capacity 23 takes precedence over old execution capacity 22.
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.manufacturing_workstation_capacities VALUES(23,'quantity','piece',120);
+ UPDATE %[1]s.process_route_operations SET standard_cost_capacity_id=23 WHERE id=2`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	legacyConfigured, err := NewRepository(pool, schema).loadResolvedProductionBomCosts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cost := legacyConfigured[-702]; !cost.Resolved || !cost.LegacyOperationCost || math.Abs(cost.OperationCostPerOutputUnit-0.3) > 1e-9 {
+		t.Fatalf("configured legacy packaging cost was falsely unavailable: %+v", cost)
+	}
+	if !legacyConfigured[-701].Resolved {
+		t.Fatalf("historical workstation capacity fallback was lost: %+v", legacyConfigured[-701])
+	}
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.process_route_operations SET standard_cost_capacity_id=999 WHERE id=2`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	missingCapacity, err := NewRepository(pool, schema).loadResolvedProductionBomCosts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if missingCapacity[-702].Resolved {
+		t.Fatal("missing standard-cost capacity must remain unavailable despite a legacy cost value")
+	}
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.process_route_operations SET standard_cost_capacity_id=23 WHERE id=2`, schema)); err != nil {
 		t.Fatal(err)
 	}
 	// New versions use a frozen cost per variant even when the live route changes.
