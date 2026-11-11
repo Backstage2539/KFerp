@@ -6,8 +6,8 @@
       <article v-for="source in sources" :id="`component-source-${source.id}`" :key="source.id" class="plan-material-row">
         <button class="material-name" type="button" @click="$emit('material-stock', source)">{{ source.component_name }}</button>
         <div><span>需求</span><strong>{{ amount(source, 'demand') }}</strong></div>
-        <div><span>WIP库存</span><strong>{{ amount(source, 'wip_covered') }}</strong><b :class="{missing: wipMissing(source)}">{{ wipMissing(source) ? `缺料 ${wipMissingAmount(source)}` : '充足' }}</b></div>
-        <button v-if="wipMissing(source)" type="button" :disabled="saving" @click="$emit('material-transfer', source)">生成调拨单</button>
+        <div><span>WIP库存</span><strong>{{ amount(source, 'wip_covered') }}</strong><b v-if="stockMissing(source)" class="missing">缺料 {{ stockMissingAmount(source) }}</b><b v-if="upstreamWaiting(source)" class="waiting">等待前道生产 {{ amount(source, 'upstream') }}</b><b v-if="!stockMissing(source) && !upstreamWaiting(source)">充足</b></div>
+        <button v-if="transferRemaining(source)" type="button" :disabled="saving" @click="$emit('material-transfer', source)">生成调拨单</button>
         <p v-for="doc in documentsFor(source)" :key="`${doc.id}-${doc.source_id}`" class="plan-transfer-document">{{ doc.entry_no || `#${doc.id}` }} · {{ documentStatus(doc.status) }} · {{ quantity(doc.qty_g, doc.qty_units, source) }}</p>
       </article>
     </div>
@@ -55,14 +55,18 @@ import { computed, ref } from 'vue'
 const props = defineProps({sources:{type:Array,default:()=>[]},documents:{type:Array,default:()=>[]},items:{type:Array,default:()=>[]},supplyAllocations:{type:Array,default:()=>[]},workOrders:{type:Array,default:()=>[]},editable:{type:Boolean,default:false},saving:{type:Boolean,default:false},showNote:{type:Boolean,default:true},planningDraft:{type:Boolean,default:false}})
 const emit=defineEmits(['adjust','issue','material-stock','material-transfer'])
 const editing=ref(null), edits=ref([]), editError=ref('')
-const isWeight=(s)=>Number(s.demand_g || s.required_g || 0)>0
-const displayUnit=(s)=>isWeight(s)?(['kg','g'].includes(s.unit)?s.unit:'g'):(s.unit||'件')
+const isProduct=(s)=>['product','finished_product'].includes(String(s.component_type||''))
+const isWeight=(s)=>(!props.planningDraft||!(isProduct(s)&&(Number(s.demand_units||0)>0||Number(s.required_units||0)>0)))&&Number(s.demand_g||s.required_g||0)>0
+const displayUnit=(s)=>isWeight(s)?(['kg','g'].includes(s.unit)?s.unit:'g'):(props.planningDraft&&isProduct(s)?'件':(s.unit||'件'))
 const quantity=(g,n,s)=>`${Number((isWeight(s)?Number(g||0)/(displayUnit(s)==='kg'?1000:1):Number(n||0)).toFixed(6))} ${displayUnit(s)}`
 const amount=(s,key)=>quantity(s[`${key}_g`] ?? (key==='demand'?s.required_g:0),s[`${key}_units`] ?? (key==='demand'?s.required_units:0),s)
 const documentsFor=(source)=>props.documents.filter(doc=>Number(doc.source_id)===Number(source.id))
 const documentStatus=(status)=>({draft:'待仓库确认',submitted:'已确认',cancelled:'已取消'})[status]||status||'待核对'
-const wipMissing=(s)=>Math.max(0, Number(s.demand_g ?? s.required_g ?? 0)-Number(s.wip_covered_g||0))>0 || Math.max(0,Number(s.demand_units ?? s.required_units ?? 0)-Number(s.wip_covered_units||0))>0
-const wipMissingAmount=(s)=>quantity(Math.max(0,Number(s.demand_g ?? s.required_g ?? 0)-Number(s.wip_covered_g||0)),Math.max(0,Number(s.demand_units ?? s.required_units ?? 0)-Number(s.wip_covered_units||0)),s)
+const stockRequired=(s,key)=>Math.max(0,Number(s[`required_${key}`]??Math.max(0,Number(s[`demand_${key}`]||0)-Number(s[`upstream_${key}`]||0)))-Number(s[`wip_covered_${key}`]||0))
+const stockMissing=(s)=>stockRequired(s,isWeight(s)?'g':'units')>0
+const stockMissingAmount=(s)=>quantity(stockRequired(s,'g'),stockRequired(s,'units'),s)
+const upstreamWaiting=(s)=>Number(s[isWeight(s)?'upstream_g':'upstream_units']||0)>0
+const transferRemaining=(s)=>{const key=isWeight(s)?'g':'units';const pending=documentsFor(s).filter(doc=>doc.status==='draft').reduce((n,doc)=>n+Number(doc[`qty_${key}`]||0),0);return stockRequired(s,key)>pending}
 const itemName=(s)=>{const i=props.items.find(i=>Number(i.id)===Number(s.production_plan_item_id));return i?.output_name||i?.product_name||''}
 const stateLabel=(s)=>s.preparation_status==='shortage'?'缺料':s.preparation_status==='awaiting_production'?'待生产入库':s.preparation_status==='awaiting_transfer'?'供给已落实':'现场已齐套'
 const upstreamOrders=(s)=>props.supplyAllocations.filter(a=>Number(a.production_plan_item_id)===Number(s.production_plan_item_id)&&Number(a.material_id)===Number(s.component_id))
@@ -76,6 +80,7 @@ function applyAdjustment(source){
 }
 </script>
 <style scoped>
+.plan-material-row b.waiting{color:#8a631c}
 .plan-transfer-document{grid-column:1/-1;margin:0;color:#657771;font-size:12px;overflow-wrap:anywhere}
 .plan-material-row{display:grid;grid-template-columns:minmax(150px,1.4fr) minmax(70px,.7fr) minmax(110px,1fr) auto;gap:12px;align-items:center;border-top:1px solid #e5ece8;padding:12px 0}.plan-material-row>div{display:grid;gap:4px}.plan-material-row span{color:#657771;font-size:12px}.plan-material-row b{color:#16834f;font-size:12px}.plan-material-row b.missing{color:#b22920}.preparation .material-name{border:0;background:none;padding:0;text-align:left;color:#2563a5;font-weight:700;overflow-wrap:anywhere}.preparation{font-size:14px;color:#18352e;min-width:0}.preparation-note{color:#657771;font-size:13px;margin:0 0 16px;line-height:1.6}.preparation-row{border:1px solid #dfe7e3;border-radius:10px;margin:9px 0;background:#fff;scroll-margin-top:220px}.preparation-row.shortage{border-color:#eab88c}.preparation-row summary{cursor:pointer;display:grid;grid-template-columns:minmax(120px,1fr) minmax(240px,2fr) auto;gap:14px;padding:15px;align-items:center;list-style:none}.preparation-row summary::-webkit-details-marker{display:none}.material{display:grid;gap:5px;overflow-wrap:anywhere}.material small,dt,.expand-label{font-size:12px;color:#657771}.preparation-row dl{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0}.preparation-row dd{margin:5px 0 0;font-weight:700;white-space:nowrap}.state{font-size:12px;color:#196145;background:#eaf5ef;border-radius:20px;padding:5px 9px;white-space:nowrap}.shortage .state{background:#fff1e2;color:#9e501a}.expand-label{grid-column:1/-1;text-align:right;line-height:1}.preparation-row[open] .expand-label{display:none}.preparation-detail{padding:0 15px 16px;border-top:1px solid #eef1ef}.allocations{list-style:none;margin:0;padding:0}.allocations li{display:grid;grid-template-columns:1fr auto;gap:8px;padding:12px 0;border-bottom:1px solid #eef1ef}.allocations small{display:block;color:#657771;margin-top:4px}.batches{grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;color:#657771;font-size:12px}.batches span{padding:4px 8px;border-radius:4px;background:#f5f8f6}.missing,.warning{color:#a34a1a}.upstream{padding:10px;background:#f4f7f5}.adjust-actions,.issue-orders{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}.preparation button{padding:8px 12px;background:#fff;border:1px solid #c5d8ce;border-radius:6px;color:#1e6a50;cursor:pointer}.preparation button:disabled{opacity:.5;cursor:wait}.adjustment{background:#f5f8f6;margin-top:12px;padding:12px;border-radius:8px}.adjustment p{font-size:12px;color:#657771}.adjustment label{display:grid;grid-template-columns:1fr 90px 28px;align-items:center;gap:8px;margin:10px 0}.adjustment label small{display:block;color:#657771}.adjustment input{width:100%;min-width:0;box-sizing:border-box;padding:8px;border:1px solid #c5d8ce;border-radius:5px}.empty{color:#657771;padding:12px}.issue-orders{align-items:center}.preparation button:focus-visible,.preparation summary:focus-visible{outline:2px solid #1e6a50;outline-offset:3px}
 @media(max-width:850px){.plan-material-row{grid-template-columns:minmax(120px,1fr) 1fr}.plan-material-row .material-name{grid-column:1/-1}.preparation-row summary{grid-template-columns:1fr auto}.preparation-row dl{grid-column:1/-1;grid-row:2;grid-template-columns:repeat(2,minmax(0,1fr))}.state{grid-column:2;grid-row:1}.preparation-row dd{white-space:nowrap}.preparation-detail{padding:0 12px 12px}}
