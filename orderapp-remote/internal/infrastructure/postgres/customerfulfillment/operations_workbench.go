@@ -23,9 +23,16 @@ func (r *Repository) fulfillmentOperations(ctx context.Context, id int64) (app.F
 	}
 	// One statement gives all fee stages the same snapshot. A fee contributes
 	// either to the unassigned balance or its settlement, never both.
-	err = r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT
-  (SELECT count(*) FROM %[1]s.customer_fee_items WHERE customer_id=$1 AND settlement_batch_id=0 AND status='unsettled'),
-  (SELECT round(coalesce(sum(amount-COALESCE((to_jsonb(f)->>'resolution_credit_cents')::numeric,0)/100),0)*100)::bigint FROM %[1]s.customer_fee_items f WHERE customer_id=$1 AND settlement_batch_id=0 AND status='unsettled'),
+	err = r.pool.QueryRow(ctx, fmt.Sprintf(`WITH billable_fees AS (
+  SELECT round(f.amount*100)::bigint-COALESCE((to_jsonb(f)->>'resolution_credit_cents')::bigint,0) AS due_cents
+  FROM %[1]s.customer_fee_items f
+  WHERE f.customer_id=$1 AND f.settlement_batch_id=0 AND f.status='unsettled'
+    AND f.fee_type<>'order_goods'
+    AND NOT (f.fee_type='shipping' AND f.source_type<>'freight_actual')
+)
+SELECT
+  (SELECT count(*) FROM billable_fees WHERE due_cents>0),
+  (SELECT coalesce(sum(due_cents),0)::bigint FROM billable_fees WHERE due_cents>0),
   round(coalesce(sum(total_amount) FILTER(WHERE status='draft'),0)*100)::bigint,
   round(coalesce(sum(total_amount) FILTER(WHERE status='confirmed'),0)*100)::bigint,
   round(coalesce(sum(total_amount) FILTER(WHERE status='paid'),0)*100)::bigint

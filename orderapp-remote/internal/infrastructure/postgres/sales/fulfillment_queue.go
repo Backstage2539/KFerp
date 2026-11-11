@@ -1,6 +1,10 @@
 package sales
 
-import "fmt"
+import (
+	"fmt"
+
+	resolutionpg "orderapp/internal/infrastructure/postgres/orderresolution"
+)
 
 // These predicates are shared by the full server counts and the paginated
 // destination list. They never depend on the number of rows loaded in a UI.
@@ -8,7 +12,8 @@ func FulfillmentOrderPredicate() string {
 	return "(o.portal_service_code IN ('direct_ship','processing_ship','product_order') OR COALESCE(to_jsonb(o)->>'delivery_mode','')='customer_stock')"
 }
 func FulfillmentPendingAmount(schema string) string {
-	return fmt.Sprintf(`CASE WHEN EXISTS(SELECT 1 FROM %s.pay_statuses fp WHERE fp.id=o.pay_status_id AND fp.name ~ '(已付款|已收款|已支付)') THEN 0 ELSE greatest(0,o.grand_total-COALESCE((to_jsonb(o)->>'prepayment_amount')::numeric,0)) END`, schema)
+	status := fmt.Sprintf(`(SELECT fp.name FROM %s.pay_statuses fp WHERE fp.id=o.pay_status_id)`, schema)
+	return resolutionpg.DueAmountSQL("o", status)
 }
 func FulfillmentQueuePredicate(schema, queue string) string {
 	pending := fmt.Sprintf(`(NOT COALESCE(o.is_void,false) AND COALESCE(to_jsonb(o)->>'delivery_mode','ship')<>'customer_stock' AND COALESCE(to_jsonb(o)->>'confirmation_status','accepted')='accepted' AND NOT EXISTS(SELECT 1 FROM %s.ship_statuses fs WHERE fs.id=o.ship_status_id AND fs.name IN ('已发货','已出库','已签收','已收货','已完成')))`, schema)
