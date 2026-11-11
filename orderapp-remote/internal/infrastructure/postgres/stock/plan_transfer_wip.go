@@ -92,6 +92,10 @@ func (r Repository) planCurrentWIPCoverageTx(ctx context.Context, tx pgx.Tx, pla
 	if err := validatePlanWIPNoMixedVariants(sources); err != nil {
 		return nil, err
 	}
+	selectedCoverage, selectedSources, err := r.selectedPlanWIPCoverageTx(ctx, tx, planID, sources)
+	if err != nil {
+		return nil, err
+	}
 	available := map[string]planWIPQty{}
 	used := map[string]planWIPQty{}
 	remain := map[int64]planWIPQty{}
@@ -183,9 +187,13 @@ func (r Repository) planCurrentWIPCoverageTx(ctx context.Context, tx pgx.Tx, pla
 	}
 	for _, s := range sources {
 		remain[s.ID] = planWIPQty{s.RequiredG, s.RequiredUnits}
+		if selectedSources[s.ID] {
+			coverage[s.ID] = selectedCoverage[s.ID]
+			remain[s.ID] = planWIPQty{}
+		}
 	}
 	for _, s := range sources {
-		if s.Mode != "manual" {
+		if s.Mode != "manual" || selectedSources[s.ID] {
 			continue
 		}
 		for _, a := range s.Manual {
@@ -198,6 +206,9 @@ func (r Repository) planCurrentWIPCoverageTx(ctx context.Context, tx pgx.Tx, pla
 		}
 	}
 	for _, s := range sources {
+		if selectedSources[s.ID] {
+			continue
+		}
 		v := remain[s.ID]
 		if err := allocate(s, "wip", v.g, v.n); err != nil {
 			return nil, err

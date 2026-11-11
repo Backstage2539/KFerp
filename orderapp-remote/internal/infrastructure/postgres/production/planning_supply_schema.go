@@ -9,6 +9,23 @@ import (
 func ensurePlanningSupplyTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	_, err := pool.Exec(ctx, fmt.Sprintf(`
  ALTER TABLE %[1]s.production_plans ADD COLUMN IF NOT EXISTS supply_graph_json JSONB;
+ ALTER TABLE %[1]s.production_plans ADD COLUMN IF NOT EXISTS semi_finished_stock_policy TEXT NOT NULL DEFAULT '';
+ CREATE TABLE IF NOT EXISTS %[1]s.production_plan_semi_finished_selections (
+  production_plan_id BIGINT NOT NULL REFERENCES %[1]s.production_plans(id),
+  item_key TEXT NOT NULL, material_id BIGINT NOT NULL, warehouse TEXT NOT NULL,
+  batch_id BIGINT NOT NULL, qty_g BIGINT NOT NULL DEFAULT 0 CHECK(qty_g>=0),
+  qty_units BIGINT NOT NULL DEFAULT 0 CHECK(qty_units>=0),
+  PRIMARY KEY(production_plan_id,item_key,warehouse,batch_id),
+  CHECK(qty_g>0 OR qty_units>0)
+ );
+ ALTER TABLE %[1]s.production_plan_semi_finished_selections ADD COLUMN IF NOT EXISTS transfer_baseline_g BIGINT NOT NULL DEFAULT 0;
+ ALTER TABLE %[1]s.production_plan_semi_finished_selections ADD COLUMN IF NOT EXISTS transfer_baseline_units BIGINT NOT NULL DEFAULT 0;
+ CREATE TABLE IF NOT EXISTS %[1]s.production_plan_frozen_manufacturing_outputs (
+  production_plan_id BIGINT NOT NULL REFERENCES %[1]s.production_plans(id),
+  item_key TEXT NOT NULL, item_snapshot JSONB NOT NULL,
+  PRIMARY KEY(production_plan_id,item_key)
+ );
+ ALTER TABLE %[1]s.production_plan_frozen_manufacturing_outputs ADD COLUMN IF NOT EXISTS operation_splits_snapshot JSONB NOT NULL DEFAULT '[]';
  ALTER TABLE %[1]s.production_plan_items ADD COLUMN IF NOT EXISTS demand_sources_json JSONB NOT NULL DEFAULT '[]';
  ALTER TABLE %[1]s.work_order_dependencies ADD COLUMN IF NOT EXISTS delivered_g BIGINT NOT NULL DEFAULT 0;
  ALTER TABLE %[1]s.work_order_dependencies ADD COLUMN IF NOT EXISTS delivered_units BIGINT NOT NULL DEFAULT 0;
