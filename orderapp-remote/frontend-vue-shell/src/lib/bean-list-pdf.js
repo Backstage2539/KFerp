@@ -566,7 +566,7 @@ export function buildPriceListGenerationSnapshot(input = {}) {
   return {
     config: {
       price_list_template_selection: {
-        product_pricing_scope: 'parent_product_shared',
+        product_pricing_scope: [defaults, ...groupSelections, ...productOverrides].some((row) => row.pricing_mode === 'spec_pricing_group') ? 'spec_pricing_group_aware' : 'parent_product_shared',
         defaults,
         group_selections: groupSelections,
         product_overrides: productOverrides,
@@ -583,6 +583,7 @@ function normalizeTemplateSelection(value = {}) {
     pricing_mode: stringField(value.pricing_mode ?? value.pricingMode),
     tier_template_id: firstNumber(value.tier_template_id, value.tierTemplateID),
     pricing_rule_id: firstNumber(value.pricing_rule_id, value.pricingRuleID),
+    ...(firstNumber(value.spec_pricing_group_id, value.specPricingGroupID) > 0 ? { spec_pricing_group_id: firstNumber(value.spec_pricing_group_id, value.specPricingGroupID) } : {}),
     fixed_unit_price: firstNumber(value.fixed_unit_price, value.fixedUnitPrice),
   }
 }
@@ -664,8 +665,10 @@ function normalizePriceListFlatRow(row = {}) {
       : {}),
     ...(stringField(row.tier_unit_compatibility_error ?? row.tierUnitCompatibilityError) ? { tier_unit_compatibility_error: stringField(row.tier_unit_compatibility_error ?? row.tierUnitCompatibilityError) } : {}),
     pricing_rule_id: firstNumber(row.pricing_rule_id, row.pricingRuleID),
+    ...(firstNumber(row.spec_pricing_group_id, row.specPricingGroupID) > 0 ? { spec_pricing_group_id: firstNumber(row.spec_pricing_group_id, row.specPricingGroupID), spec_pricing_group_revision: firstNumber(row.spec_pricing_group_revision, row.specPricingGroupRevision) } : {}),
     pricing_rule_source: stringField(row.pricing_rule_source ?? row.pricingRuleSource),
     pricing_rule_version: stringField(row.pricing_rule_version ?? row.pricingRuleVersion),
+    ...(stringField(row.pricing_rule_fingerprint) ? { pricing_rule_fingerprint: stringField(row.pricing_rule_fingerprint) } : {}),
     tier_pricing_rule_id: firstNumber(row.tier_pricing_rule_id, row.tierPricingRuleID),
     tier_pricing_rule_version: stringField(row.tier_pricing_rule_version ?? row.tierPricingRuleVersion),
     fixed_unit_price: firstNumber(row.fixed_unit_price, row.fixedUnitPrice),

@@ -6658,3 +6658,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - 范围：管理员对指定客户、指定订单记录可恢复的小程序隐藏标记；隐藏不按订单关闭状态批量推断，不新增客户按钮或 ERP 页面入口。
 - DEV：`DEV-MINIAPP-HIDE-ORDER-SCOPE` 精确过滤与首页汇总；`DEV-MINIAPP-HIDE-ORDER-AUDIT` 管理员隐藏/恢复及日志；`DEV-MINIAPP-HIDE-ORDER-REVIEW` 历史保护、测试与手册。
 - 验证待执行：客户隔离、分页及统计一致、重复隐藏与恢复、越权拒绝和日志；ERP 订单、账单、库存、生产历史保持不变。正式业务操作和现场验收单独记录结果，不预填通过。
+### PR-SPEC-PRICING-GROUPS-20261111
+- Branch: `codex/spec-pricing-groups-20261111`；Status: 开发中；用户验收待完成。
+- Scope: 商品规格模板入口、规格计价组及客户价格表按组试算、发布与代发使用；不修改生产 BOM。
+- DEV: `DEV-SPEC-GROUP-NAV`、`DEV-SPEC-GROUP-API`、`DEV-SPEC-GROUP-PRICING`、`DEV-SPEC-GROUP-DELIVERY`。
+- Verifier: 定向单元/API RED/GREEN、前端测试和构建、隔离数据库及浏览器验收；同步成本与生产手册。
+- Deployment: 未部署。

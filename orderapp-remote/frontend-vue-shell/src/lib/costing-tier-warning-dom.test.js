@@ -32,6 +32,7 @@ test('tier warnings follow the exact selected product and spec despite colliding
   const names = ['itemProductID', 'isPdfProductSelected', 'isPdfProductSpecSelected', 'priceListProductTierTemplateWarning']
   const methods = new Function(...Object.keys(bindings), names.map(viewFunction).join('\n') + `\nreturn {${names.join(',')}}`)(...Object.values(bindings))
   const app = Vue.createApp({ render, setup: () => ({ row, ...selection, ...methods,
+    priceListResolvedTemplateForItem: () => ({ pricing_mode: 'tier_template' }),
     priceListProductSpecPricingResolution: () => ({}), priceListProductFixedTiers: () => [],
     priceListProductSpecPricingWarning: () => '', togglePdfProductSpec: () => {},
   }) })
@@ -45,5 +46,33 @@ test('tier warnings follow the exact selected product and spec despite colliding
     await Vue.nextTick()
     options = document.querySelectorAll('.product-spec-option')
     assert.equal(options[1].querySelector('.product-picker-tier-warning'), null)
+  } finally { app.unmount() }
+})
+
+
+test('规格计价组锁定已选和未选规格，退出组模式后恢复手动选择', async () => {
+  const row = Vue.ref({ parent_product_id: 52, sku_options: [
+    { sku_id: 72, spec_label: '227g' }, { sku_id: 219, spec_label: '100g' },
+    { sku_id: 220, spec_label: '454g' },
+  ] })
+  const mode = Vue.ref('spec_pricing_group')
+  const selected = Vue.ref(new Set([72, 219]))
+  const app = Vue.createApp({ render, setup: () => ({ row, ...selection,
+    priceListResolvedTemplateForItem: () => ({ pricing_mode: mode.value }),
+    isPdfProductSpecSelected: (_row, spec) => selected.value.has(spec.sku_id),
+    priceListProductSpecPricingResolution: () => ({}), priceListProductFixedTiers: () => [],
+    priceListProductSpecPricingWarning: () => '', priceListProductTierTemplateWarning: () => null,
+    togglePdfProductSpec: () => {},
+  }) })
+  try {
+    app.mount(document.querySelector('#app'))
+    await Vue.nextTick()
+    let boxes = [...document.querySelectorAll('.product-spec-option input[type=checkbox]')]
+    assert.deepEqual(boxes.map((box) => box.checked), [true, true, false])
+    assert.deepEqual(boxes.map((box) => box.disabled), [true, true, true])
+    mode.value = 'pricing_rule'
+    await Vue.nextTick()
+    boxes = [...document.querySelectorAll('.product-spec-option input[type=checkbox]')]
+    assert.deepEqual(boxes.map((box) => box.disabled), [false, false, false])
   } finally { app.unmount() }
 })

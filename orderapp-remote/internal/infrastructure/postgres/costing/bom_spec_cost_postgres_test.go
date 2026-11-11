@@ -126,6 +126,9 @@ func TestResolvedBomCostsKeepPublishedProductSpecificationsIsolatedPostgres(t *t
 		INSERT INTO %[1]s.production_bom_version_items(
 			id,version_id,variant_id,component_type,material_id,consume_unit,qty_per_unit
 		) SELECT 6100+n,600,1700+n,'material',2,'unit',1 FROM generate_series(4,9) AS n;
+        -- 第4个规格：100g 熟豆加一个袋子。
+        INSERT INTO %[1]s.production_bom_version_items(id,version_id,variant_id,component_type,material_id,consume_unit,qty_per_unit)
+        VALUES(6065,600,1704,'material',30,'g',100);
 		-- 第10个规格引用不存在的物料，必须只让自身 fail closed。
 		INSERT INTO %[1]s.production_bom_version_items(
 			id,version_id,variant_id,component_type,material_id,consume_unit,qty_per_unit
@@ -155,6 +158,10 @@ func TestResolvedBomCostsKeepPublishedProductSpecificationsIsolatedPostgres(t *t
 		t.Fatal("227g specification must recursively cost its manufactured semi-finished material")
 	}
 
+	bag100 := costs[-704]
+	if !bag100.Resolved || math.Abs(bag100.InputCostPerOutputUnit-10.5) > 1e-9 {
+		t.Fatalf("100g specification cost = %+v, want 10.5", bag100)
+	}
 	bag454 := costs[-703]
 	if !bag454.Resolved || math.Abs(bag454.InputCostPerOutputUnit-45.9) > 1e-9 {
 		t.Fatalf("454g same-unit specification cost = %+v, want isolated 45.9", bag454)

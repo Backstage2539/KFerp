@@ -69,6 +69,8 @@ type ProductInput struct {
 	SKUCode                    string                    `json:"sku_code,omitempty"`
 	Barcode                    string                    `json:"barcode,omitempty"`
 	SpecKey                    string                    `json:"spec_key,omitempty"`
+	SourceSpecTemplateID       int64                     `json:"source_spec_template_id,omitempty"`
+	SourceSpecTemplateKey      string                    `json:"source_spec_template_key,omitempty"`
 	SpecLabel                  string                    `json:"spec_label,omitempty"`
 	NetContentQty              float64                   `json:"net_content_qty,omitempty"`
 	NetContentUnit             string                    `json:"net_content_unit,omitempty"`
@@ -356,6 +358,8 @@ type ProductResult struct {
 	SKUCode                        string                    `json:"sku_code,omitempty"`
 	Barcode                        string                    `json:"barcode,omitempty"`
 	SpecKey                        string                    `json:"spec_key,omitempty"`
+	SourceSpecTemplateID           int64                     `json:"source_spec_template_id,omitempty"`
+	SourceSpecTemplateKey          string                    `json:"source_spec_template_key,omitempty"`
 	SpecLabel                      string                    `json:"spec_label,omitempty"`
 	NetContentQty                  float64                   `json:"net_content_qty,omitempty"`
 	NetContentUnit                 string                    `json:"net_content_unit,omitempty"`
@@ -648,6 +652,8 @@ func productResultMetadata(in ProductInput) ProductResult {
 		SKUCode:                    in.SKUCode,
 		Barcode:                    in.Barcode,
 		SpecKey:                    in.SpecKey,
+		SourceSpecTemplateID:       in.SourceSpecTemplateID,
+		SourceSpecTemplateKey:      in.SourceSpecTemplateKey,
 		SpecLabel:                  in.SpecLabel,
 		NetContentQty:              in.NetContentQty,
 		NetContentUnit:             in.NetContentUnit,

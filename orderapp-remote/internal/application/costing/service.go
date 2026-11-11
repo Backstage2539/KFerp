@@ -51,6 +51,7 @@ type PriceExplanationCommand struct {
 }
 
 type ProductPricingRule struct {
+	Fingerprint     string         `json:"pricing_rule_fingerprint,omitempty"`
 	ID              int64          `json:"id"`
 	Name            string         `json:"name"`
 	Code            string         `json:"code,omitempty"`
@@ -378,6 +379,7 @@ type PricingRuleTrialWorkstationCostSnapshotRow struct {
 }
 
 type PricingRuleTrialResult struct {
+	PricingRuleFingerprint        string                                    `json:"pricing_rule_fingerprint,omitempty"`
 	PricingRuleID                 int64                                     `json:"pricing_rule_id"`
 	PricingRuleName               string                                    `json:"pricing_rule_name"`
 	FormulaVersion                string                                    `json:"formula_version"`
@@ -1176,6 +1178,7 @@ func pricingRuleTrialIncompleteResult(rule ProductPricingRule, input domain.Prod
 	productName := firstNonEmptyString(strings.TrimSpace(input.Name), strings.TrimSpace(input.ProductName))
 	processRouteName := pricingRuleTrialProcessRouteName(options.ProcessRoutes, input.ProcessRouteID, input.ProcessRouteName)
 	return &PricingRuleTrialResult{
+		PricingRuleFingerprint:   rule.Fingerprint,
 		PricingRuleID:            rule.ID,
 		PricingRuleName:          firstNonEmptyString(rule.Name, rule.Code),
 		FormulaVersion:           firstNonEmptyString(rule.FormulaVersion, "v1"),
@@ -2180,6 +2183,7 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 	standardManufacturingUnitCost := pricingRuleTrialResultAmount(formulaMode, baseCost)
 	processRouteName := pricingRuleTrialProcessRouteName(productionOptions.ProcessRoutes, input.ProcessRouteID, input.ProcessRouteName)
 	result := &PricingRuleTrialResult{
+		PricingRuleFingerprint:        rule.Fingerprint,
 		PricingRuleID:                 rule.ID,
 		PricingRuleName:               firstNonEmptyString(rule.Name, rule.Code),
 		FormulaVersion:                firstNonEmptyString(rule.FormulaVersion, "v1"),
@@ -3500,6 +3504,9 @@ func (s *Service) PublishBeanList(ctx context.Context, cmd PublishBeanListComman
 		return nil, err
 	}
 	if err := s.validateProductSpecSelections(ctx, &normalized); err != nil {
+		return nil, err
+	}
+	if err := s.ValidateSpecPricingGroups(ctx, &normalized); err != nil {
 		return nil, err
 	}
 	if !beanListUsesConcreteProductSpecSelections(&normalized) {

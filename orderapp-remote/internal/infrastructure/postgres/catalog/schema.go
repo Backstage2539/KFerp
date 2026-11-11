@@ -236,6 +236,18 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_customer_references (
 CREATE UNIQUE INDEX IF NOT EXISTS product_customer_references_product_customer_uq
 ON %[1]s.product_customer_references(product_id, customer_id)
 WHERE active=true;
+CREATE TABLE IF NOT EXISTS %[1]s.spec_pricing_groups (
+ id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, spec_template_id BIGINT NOT NULL,
+ spec_template_version_id BIGINT NOT NULL, revision BIGINT NOT NULL DEFAULT 1,
+ active BOOLEAN NOT NULL DEFAULT true, created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), created_by TEXT NOT NULL DEFAULT '', updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS %[1]s.spec_pricing_group_items (
+ id BIGSERIAL PRIMARY KEY, group_id BIGINT NOT NULL REFERENCES %[1]s.spec_pricing_groups(id),
+ spec_key TEXT NOT NULL, inventory_unit TEXT NOT NULL, pricing_rule_id BIGINT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX IF NOT EXISTS spec_pricing_group_items_identity_uq
+ ON %[1]s.spec_pricing_group_items(group_id, lower(spec_key), lower(inventory_unit));
 CREATE TABLE IF NOT EXISTS %[1]s.product_pricing_rules (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL,

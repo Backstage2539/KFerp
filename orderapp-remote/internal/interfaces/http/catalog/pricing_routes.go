@@ -3,6 +3,11 @@ package catalog
 import "github.com/labstack/echo/v4"
 
 func registerPricingRoutes(e *echo.Echo, h productHandler) {
+	e.GET("/api/spec-pricing-groups", h.listSpecPricingGroups)
+	e.GET("/api/spec-pricing-groups/options", h.specPricingGroupOptions)
+	e.POST("/api/spec-pricing-groups", h.saveSpecPricingGroup)
+	e.PUT("/api/spec-pricing-groups/:id", h.saveSpecPricingGroup)
+
 	e.GET("/api/product-pricing-rules", h.productPricingRulesAPI)
 	e.POST("/api/product-pricing-rules", h.saveProductPricingRuleAPI)
 	e.PUT("/api/product-pricing-rules/:id", h.saveProductPricingRuleAPI)

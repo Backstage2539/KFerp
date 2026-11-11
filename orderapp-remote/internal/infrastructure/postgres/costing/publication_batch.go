@@ -96,6 +96,9 @@ func (r Repository) insertBeanListBatchTable(ctx context.Context, tx pgx.Tx, cmd
 		return row, err
 	}
 	if status == "published" {
+		if err := r.lockAndValidateSpecPricingGroups(ctx, tx, cmd); err != nil {
+			return row, err
+		}
 		if err := r.validateCurrentProductRefs(ctx, tx, beanListContentCostRefs(cmd.Content)); err != nil {
 			return row, err
 		}

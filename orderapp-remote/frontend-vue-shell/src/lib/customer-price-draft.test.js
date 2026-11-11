@@ -145,3 +145,19 @@ test('the real price-row input handler retains a customer amount through draft r
  assert.equal(quote.final_unit_price,88)
  assert.equal(priceListFlatRowsReady([quote]),true)
 })
+
+test('explicitly applying a spec group releases frozen copied prices only in that scope', () => {
+ const current = {...row(10,30), parent_product_id:10, spec_pricing_group_id:4, pricing_mode:'pricing_rule', pricing_mode_source:'parent_product'}
+ const frozen = {...row(10,65), parent_product_id:10, frozen_final_price:true}
+ const original = applyCustomerPriceRows([current], [frozen], {}, 42, {configuredSources:{'product:10':true}})
+ assert.equal(original[0].final_unit_price,65)
+ const applied = applyCustomerPriceRows([current], [frozen], {}, 42, {configuredSources:{'product:10':true,'spec-group:product:10':true}})
+ assert.equal(applied[0].final_unit_price,30)
+ assert.equal(applied[0].spec_pricing_group_id,4)
+})
+
+test('a group draft follows current calculation rather than reusing older published prices', () => {
+ const current = {...row(10,30), parent_product_id:10, spec_pricing_group_id:4, pricing_mode:'pricing_rule', pricing_mode_source:'default'}
+ const historic = {...row(10,65), parent_product_id:10, frozen_final_price:false}
+ assert.equal(applyCustomerPriceRows([current], [historic], {}, 42)[0].final_unit_price,30)
+})

@@ -158,6 +158,9 @@ func (s *Service) saveBeanListBatch(ctx context.Context, cmd BeanListBatchComman
 		if err == nil {
 			err = s.validateProductSpecSelections(ctx, &item)
 		}
+		if err == nil && publish {
+			err = s.ValidateSpecPricingGroups(ctx, &item)
+		}
 		if err == nil && !beanListUsesConcreteProductSpecSelections(&item) {
 			err = s.validatePriceTierTemplateUnitCompatibility(ctx, &item)
 		}

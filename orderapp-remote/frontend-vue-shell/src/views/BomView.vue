@@ -2,8 +2,11 @@
   <div class="page">
     <div v-if="bomReturnNavigation" class="bom-return-banner">
       <button class="secondary bom-return-button" type="button" @click="returnToProductConfig">{{ bomReturnLabel }}</button>
-      <span>完成 BOM 明细维护后可回到来源操作界面。</span>
+      <span>{{ specTemplatePage ? '完成规格模板维护后可回到来源操作界面。' : '完成 BOM 明细维护后可回到来源操作界面。' }}</span>
     </div>
+    <div v-if="specTemplatePage && error" class="error" role="alert">{{ error }}</div>
+    <div v-if="specTemplatePage && ok" class="ok" role="status">{{ ok }}</div>
+    <div v-if="!specTemplatePage">
     <section class="panel">
       <div class="panel-head">
         <h2>生产 BOM（制造主档）</h2>
@@ -148,15 +151,16 @@
       </aside>
     </div>
 
+    </div>
     <SpecTemplateRollout v-if="rolloutVersionID" :version-id="rolloutVersionID" @close="rolloutVersionID = 0" @updated="refreshAfterTemplateRollout" />
-    <div v-if="specTemplateDrawerOpen" class="drawer-mask" @click.self="closeSpecTemplateDrawer">
-      <aside class="drawer spec-template-drawer" aria-label="BOM 规格模板管理">
+    <div v-if="specTemplateDrawerOpen || specTemplatePage" :class="specTemplatePage ? 'spec-template-page-container' : 'drawer-mask'" @click.self="closeSpecTemplateDrawer">
+      <aside :class="['drawer', 'spec-template-drawer', { 'spec-template-page-drawer': specTemplatePage }]" aria-label="BOM 规格模板管理">
         <div class="drawer-head">
           <div>
             <h3>BOM 规格模板</h3>
             <p class="muted left">模板是可复用蓝图；商品 BOM 创建时复制成专属规格组，发布后的 BOM 不随模板变化。</p>
           </div>
-          <button class="secondary compact-action" type="button" @click="closeSpecTemplateDrawer">关闭</button>
+          <button v-if="!specTemplatePage" class="secondary compact-action" type="button" @click="closeSpecTemplateDrawer">关闭</button>
         </div>
         <div class="spec-template-workspace">
           <section class="spec-template-list">
@@ -279,6 +283,7 @@
       </aside>
     </div>
 
+    <div v-if="!specTemplatePage">
     <div class="grid">
       <section class="panel list-panel">
         <div class="panel-head bom-list-head" data-pr442-bom-business-groups>
@@ -774,6 +779,7 @@
         </div>
       </aside>
     </div>
+    </div>
   </div>
 </template>
 
@@ -806,6 +812,7 @@ import { CUSTOMER_WORKSPACE_MODE } from '../lib/workspace-mode'
 
 const props = defineProps({
   viewParams: { type: Object, default: () => ({}) },
+  specTemplatePage: { type: Boolean, default: false },
   workspaceMode: { type: String, default: '' },
   customerContextId: { type: [Number, String], default: 0 },
   customerContextLabel: { type: String, default: '' },
@@ -1284,6 +1291,7 @@ function bomFormDraftKey() {
 }
 
 function saveBomFormDraft() {
+  if (props.specTemplatePage) return
   saveFormDraft(bomFormDraftKey(), {
     selectedProductionBomID: currentProductionBomID.value,
     itemForm: { ...itemForm },
@@ -2670,8 +2678,19 @@ function setTemplateDetail(response = {}, versionID = 0) {
 }
 
 function openSpecTemplateDrawer() {
-  specTemplateDrawerOpen.value = true
-  if (!selectedSpecTemplateID.value && productionBomSpecTemplates.value.length) selectSpecTemplate(productionBomSpecTemplates.value[0].id)
+  const bomID = currentProductionBomID.value
+  const templateID = Number(selectedProductionBomVersion.value?.source_spec_template_id || 0)
+  const versionID = Number(selectedProductionBomVersion.value?.source_spec_template_version_id || 0)
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: {
+      key: 'productSpecTemplates',
+      params: { ...(templateID ? { spec_template_id: templateID } : {}), ...(versionID ? { spec_template_version_id: versionID } : {}) },
+      returnNavigation: {
+        key: 'productionConfig', targetKey: 'productSpecTemplates', label: '返回生产 BOM',
+        params: bomID ? { tab: 'bom', production_bom_id: bomID } : { tab: 'bom' },
+      },
+    },
+  }))
 }
 
 function closeSpecTemplateDrawer() {
@@ -2793,6 +2812,38 @@ async function publishSpecTemplateVersion() {
     await selectSpecTemplateVersion(versionID)
     ok.value = '已整组发布 BOM 规格模板'
   })
+}
+
+async function loadSpecTemplatePageData() {
+  loading.value = true
+  error.value = ''
+  const optionalForReadOnly = async (promise) => {
+    try { return await promise } catch (err) { if (err.status === 403) return []; throw err }
+  }
+  try {
+    const [templateData, productData, materialData, unitData, routeData] = await Promise.all([
+      loadProductionBomSpecTemplates(),
+      optionalForReadOnly(apiGet('/api/bom/products')),
+      optionalForReadOnly(apiGet('/api/bom/materials')),
+      optionalForReadOnly(loadProductUnitDefinitions()),
+      optionalForReadOnly(apiGet('/api/process-routes?status=active')),
+    ])
+    productionBomSpecTemplates.value = Array.isArray(templateData) ? templateData : []
+    products.value = (productData || []).map(normalizeBomProduct)
+    materials.value = (materialData || []).map(normalizeBomMaterial)
+    productUnitDefinitions.value = unitData || []
+    processRoutes.value = routeData?.rows || routeData || []
+    const templateID = Number(props.viewParams?.spec_template_id || 0) || Number(productionBomSpecTemplates.value[0]?.id || 0)
+    const versionID = Number(props.viewParams?.spec_template_version_id || 0)
+    if (templateID) {
+      await selectSpecTemplate(templateID)
+      if (versionID) await selectSpecTemplateVersion(versionID)
+    }
+  } catch (err) {
+    error.value = err.message || '加载规格模板失败'
+  } finally {
+    loading.value = false
+  }
 }
 
 async function loadAll({ strict = false } = {}) {
@@ -3305,8 +3356,12 @@ async function mutate(action) {
 onMounted(async () => {
   const params = new URL(window.location.href).searchParams
   pendingProductionBomID.value = Number(props.viewParams?.production_bom_id || props.viewParams?.bom_id || params.get('production_bom_id') || params.get('bom_id') || 0)
-  await loadAll()
-  await restoreBomFormDraft()
+  if (props.specTemplatePage) {
+    await loadSpecTemplatePageData()
+  } else {
+    await loadAll()
+    await restoreBomFormDraft()
+  }
 })
 
 onBeforeUnmount(saveBomFormDraft)
@@ -3455,6 +3510,8 @@ tbody tr.active { background: #f3f7fb; }
 .drawer { width: min(560px, 100vw); height: 100%; background: #fff; box-shadow: -8px 0 28px rgba(0,0,0,.16); padding: 18px; overflow: auto; }
 .bom-settings-drawer { width: min(1180px, 96vw); }
 .spec-template-drawer { width: min(1240px, 98vw); }
+.spec-template-page-container { display: block; }
+.spec-template-page-drawer { width: 100%; height: auto; padding: 18px; box-shadow: none; border: 1px solid #e6e0d8; border-radius: 8px; overflow: visible; }
 .spec-template-workspace { display: grid; grid-template-columns: minmax(240px, .7fr) minmax(0, 2fr); gap: 16px; align-items: start; }
 .spec-template-list { display: grid; gap: 8px; position: sticky; top: 0; }
 .spec-template-list-row { display: grid; gap: 4px; width: 100%; height: auto; min-height: 54px; padding: 9px 11px; text-align: left; background: #fff; border-color: #d8d0c7; }
