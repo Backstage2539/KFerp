@@ -121,6 +121,7 @@ type RecipientAddressService interface {
 }
 
 func RegisterRoutes(e *echo.Echo, deps Dependencies) {
+	registerMiniLoginOptionsAPI(e, deps.EmployeeShareSettings, deps.DisableMiniPasswordLogin)
 	registerAdminPreviewAPI(e, deps.CustomerPortal, deps.CustomerMaintenance)
 	registerRegistrationAPI(e, deps.CustomerPortal, deps.Authz)
 	renderer := deps.BeanListPDFRenderer

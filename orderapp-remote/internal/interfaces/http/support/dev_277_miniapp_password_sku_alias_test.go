@@ -62,8 +62,8 @@ func TestDev277MiniappPasswordSkuAliasSourceGuards(t *testing.T) {
 			t.Fatalf("login.vue missing %q", want)
 		}
 	}
-	if strings.Contains(login, `placeholder="密码"`) || strings.Contains(login, "loginWithPassword") {
-		t.Fatalf("login.vue must not offer password login")
+	if !strings.Contains(login, `password placeholder="密码"`) || !strings.Contains(login, "loginWithPassword") {
+		t.Fatalf("login.vue must provide masked password login")
 	}
 
 	repository := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "customerportal", "business_repository.go")))

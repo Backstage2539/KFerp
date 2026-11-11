@@ -52,7 +52,7 @@ func previewRouteAllowed(c echo.Context) bool {
 		return false
 	}
 	switch path {
-	case "/api/mini/me", "/api/mini/order-price-tables/preview", "/api/mini/customer-issued-bills", "/api/mini/customer-inventory", "/api/mini/customer-inventory/assets", "/api/mini/processing-requests", "/api/mini/direct-ship/catalog", "/api/mini/recipient-addresses":
+	case "/api/mini/me", "/api/mini/order-price-tables/preview", "/api/mini/customer-issued-bills", "/api/mini/customer-inventory", "/api/mini/customer-inventory/assets", "/api/mini/processing-requests", "/api/mini/direct-ship/catalog", "/api/mini/product-orders/catalog", "/api/mini/recipient-addresses":
 		return true
 	case "/api/mini/services/:key":
 		return c.Param("key") == "orders" || c.Param("key") == "inventory" || c.Param("key") == "settlement" || c.Param("key") == "shipping"

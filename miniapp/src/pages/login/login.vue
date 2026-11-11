@@ -8,7 +8,7 @@ import {
 import { ref } from 'vue'
 import { restoreRegistrationSession } from '../../utils/registrationSession'
 import { safeLoginReturn } from '../../utils/loginReturn'
-import { loginWithPhoneIdentify, type LoginResponse } from '../../api/customerPortal'
+import { loginWithPhoneIdentify, loginWithPassword, fetchMiniLoginOptions, type LoginResponse } from '../../api/customerPortal'
 import { MiniRequestError } from '../../api/client'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
@@ -28,6 +28,13 @@ const {
 } = usePullUpBrandGesture()
 const loading = ref(false)
 const errorMessage = ref('')
+const showPasswordLogin = ref(false)
+const passwordExpanded = ref(false)
+const loginName = ref('')
+const password = ref('')
+let loginAttempt = 0
+let optionsAttempt = 0
+let pageVisible = false
 const themeClass = miniappThemeClass()
 const themeMeta = miniappThemeMeta()
 onLoad(query=>{try{returnTo.value=safeLoginReturn(decodeURIComponent(String(query?.return_to||'')))}catch{returnTo.value=''}})
@@ -68,37 +75,60 @@ async function handlePhoneLogin(event: { detail?: { code?: string; errMsg?: stri
     return
   }
 
+  const attempt = ++loginAttempt
   loading.value = true
   errorMessage.value = ''
 
   try {
     const code = await requestLoginCode()
     const response = await loginWithPhoneIdentify(code, phoneCode)
-    completeLogin(response)
+    if (attempt === loginAttempt && pageVisible) completeLogin(response)
   } catch (error) {
+    if (attempt !== loginAttempt || !pageVisible) return
     errorMessage.value = error instanceof MiniRequestError && (error.statusCode === 401 || error.statusCode === 403) ? '当前手机号无法登录，请联系管理员' : error instanceof Error ? error.message : '登录失败，请重试'
   } finally {
-    loading.value = false
+    if (attempt === loginAttempt) loading.value = false
+  }
+}
+
+async function handlePasswordLogin() {
+  if (loading.value || !showPasswordLogin.value) return
+  const name = loginName.value.trim(), secret = password.value
+  if (!name || !secret) { errorMessage.value = '请输入用户名和密码'; return }
+  const attempt = ++loginAttempt
+  loading.value = true
+  errorMessage.value = ''
+  try {
+    const response = await loginWithPassword(name, secret)
+    if (attempt === loginAttempt && pageVisible) completeLogin(response)
+  } catch (error) {
+    if (attempt === loginAttempt && pageVisible) errorMessage.value = error instanceof Error ? error.message : '登录失败，请重试'
+  } finally {
+    password.value = ''
+    if (attempt === loginAttempt) loading.value = false
   }
 }
 
 onShareAppMessage(defaultMiniappShare)
 onShareTimeline(defaultMiniappTimelineShare)
-let pageVisible = false
 const canRestoreRegistration = () => pageVisible && !session.autoRestoreBlocked
-onHide(() => { pageVisible = false })
+onHide(() => { pageVisible = false; loginAttempt++; optionsAttempt++; loading.value = false; password.value = '' })
 onShow(async () => {
   pageVisible = true
   void refreshMiniappShareMenu()
+  const attempt = loginAttempt
+  const optionsRun = ++optionsAttempt
+  showPasswordLogin.value = false
+  void fetchMiniLoginOptions().then(options => { if (pageVisible && optionsRun === optionsAttempt) showPasswordLogin.value = options.show_password_login === true }).catch(() => { if (pageVisible && optionsRun === optionsAttempt) showPasswordLogin.value = false })
   if (!canRestoreRegistration()) return
   const hadToken = !!session.token
   try {
     await restoreRegistrationSession(session)
-    if (canRestoreRegistration() && session.token && (session.accountType === 'employee' || session.bindings.some(binding => binding.status === 'approved'))) {
+    if (attempt === loginAttempt && !loading.value && canRestoreRegistration() && session.token && (session.accountType === 'employee' || session.bindings.some(binding => binding.status === 'approved'))) {
       completeLogin({ token: session.token, mini_user_id: session.miniUserID, current_customer_id: session.currentCustomerID, bindings: session.bindings, capabilities: session.capabilities, registration_complete: session.registrationComplete, registration: session.registration || undefined, account_type: session.accountType })
     }
   } catch (error) {
-    if (hadToken && canRestoreRegistration()) errorMessage.value = error instanceof Error ? error.message : '登录状态恢复失败'
+    if (attempt === loginAttempt && hadToken && canRestoreRegistration()) errorMessage.value = error instanceof Error ? error.message : '登录状态恢复失败'
   }
 })
 </script>
@@ -131,6 +161,14 @@ onShow(async () => {
         </button>
       </view>
 
+      <view v-if="showPasswordLogin" class="login-block">
+        <button class="browse-button" @tap="passwordExpanded = !passwordExpanded">账号密码登录</button>
+        <template v-if="passwordExpanded">
+          <input v-model="loginName" class="input" placeholder="用户名或手机号" />
+          <input v-model="password" class="input" password placeholder="密码" />
+          <button class="login-button" :loading="loading" :disabled="loading" @tap="handlePasswordLogin">登录</button>
+        </template>
+      </view>
       <text v-if="errorMessage" class="error">{{ errorMessage }}</text>
     </view>
 

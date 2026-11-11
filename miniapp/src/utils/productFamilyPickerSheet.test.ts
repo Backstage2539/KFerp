@@ -48,7 +48,7 @@ describe('shared product-family picker sheet', () => {
     expect(directShip).toContain('useCustomerOrderQuote<DirectShipPreview>')
     expect(directShip).toContain('const command = payload()')
     expect(directShip).toContain('price_quote_token: checked.price_quote_token')
-    expect(directShip).toContain('createDirectShipRequest(props.token, quotedCommand)')
+    expect(directShip).toContain('createDirectShipRequest(token, quotedCommand)')
     expect(directShip).toContain('fee_quote_token: checked.fee_quote_token')
     expect(directShip).toContain('quoteFlow.schedule()')
   })
