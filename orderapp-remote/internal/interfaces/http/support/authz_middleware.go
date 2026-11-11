@@ -456,6 +456,12 @@ func requiredPermissionForRequest(method, path string) string {
 	if path == "/api/fulfillment/order" {
 		return "orders.write"
 	}
+	if method == http.MethodGet && strings.HasPrefix(path, "/api/order/pending-request/") && strings.HasSuffix(path, "/status") {
+		requestID := strings.TrimSuffix(strings.TrimPrefix(path, "/api/order/pending-request/"), "/status")
+		if requestID != "" && !strings.Contains(requestID, "/") {
+			return "orders.write"
+		}
+	}
 	if strings.HasPrefix(path, "/api/order/form") || path == "/api/order/catalog" {
 		return "orders.write"
 	}

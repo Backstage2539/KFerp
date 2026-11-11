@@ -15,7 +15,8 @@ const response = (data, status = 200) => ({ ok: status < 400, status, json: asyn
 
 async function fixture(t, { rejectSave = false, failRefresh = false } = {}) {
   const oldFetch = globalThis.fetch, oldWindow = globalThis.window
-  globalThis.window = { location: { origin: 'http://localhost', href: 'http://localhost/vue-shell?view=orders' } }
+  const stored = new Map([['auth_token','employee-test-token']])
+  globalThis.window = { location: { origin: 'http://localhost', href: 'http://localhost/vue-shell?view=orders' }, navigator: {locks: {request: async (_key,_options,fn) => fn({})}}, localStorage: {getItem: k => stored.get(k) || null, setItem: (k,v) => stored.set(k,v), removeItem: k => stored.delete(k)} }
   t.after(() => { globalThis.fetch = oldFetch; globalThis.window = oldWindow })
   let editor
   const events = [], writes = []
@@ -34,11 +35,12 @@ async function fixture(t, { rejectSave = false, failRefresh = false } = {}) {
   let reads = 0
   globalThis.fetch = async (url, options = {}) => {
     const path = new URL(String(url), window.location.origin).pathname
+    if (path === '/api/auth/me') return response({employee_id: 11})
     if (path === '/api/order/stock-batch-preview') return response({ sufficient: false })
     if (path === '/api/order' && options.method === 'POST') {
       const payload = JSON.parse(options.body)
       writes.push(payload)
-      if (rejectSave) return response({ error: '分两次保存' }, 409)
+      if (rejectSave) return response(typeof rejectSave === 'object' ? rejectSave : { error: '分两次保存' }, 409)
       if (writes.length > 1 && (payload.edit_revision !== 'revision-2' || payload.expected_freight_token !== 'freight-2')) return response({ error: '旧版本' }, 409)
       return response({ order_id: 12, order_no: 'SO-TEST-12', edited: true })
     }
@@ -153,6 +155,7 @@ test('retained payment save requires its customer warehouse but no recipient or 
 
 test('new retained purchase hides and clears draft receipt values while existing orders retain them', async t => {
   const { editor, writes } = await fixture(t)
+  window.navigator = {}
   editor.form.edit_id = 0
   editor.form.delivery_mode = 'customer_stock'
   editor.form.delivery_warehouse_code = 'CUSTOMER-8'
@@ -169,4 +172,116 @@ test('new retained purchase hides and clears draft receipt values while existing
   assert.equal(writes[0].prepayment_amount, '0')
   assert.equal(writes[0].payment_goods_amount, '')
   assert.equal(writes[0].payment_voucher_asset_id, 0)
+})
+
+test('嵌入录单重开后按员工恢复原始请求并复用请求标识', async t => {
+ const oldFetch=globalThis.fetch,oldWindow=globalThis.window
+ const entries=new Map([['auth_token','employee-test-token']]), localStorage={getItem:k=>entries.get(k)||null,setItem:(k,v)=>entries.set(k,v),removeItem:k=>entries.delete(k)}
+ const alerts=[]
+ globalThis.window={location:{origin:'http://localhost',href:'http://localhost/vue-shell?view=orders'},navigator:{locks:{request:async(_key,_options,fn)=>fn({})}},localStorage,alert:(message)=>alerts.push(message)}
+ t.after(()=>{globalThis.fetch=oldFetch;globalThis.window=oldWindow})
+ const pending={route:'/api/order',payload:{request_id:'initial-order-request-123',customer_id:3,prepayment_amount:'20',receipt_date:'2026-11-10'}}
+ localStorage.setItem('kferp.order-create.pending.employee-11',JSON.stringify(pending))
+ let received=null
+ globalThis.fetch=async(url,options={})=>{if(String(url).includes('/api/auth/me'))return response({employee_id:11,permissions:['orders.write']});received=JSON.parse(options.body);return response({order_id:71,order_no:'SO-71',receipt_warning:'请财务核对'})}
+ let editor;const events=[]
+ await renderToString(createSSRApp({setup(){editor=View.setup({embedded:true,editId:0,copyId:12,customerPortal:false,fulfillmentMode:false,viewParams:{}},{expose(){},emit:(...args)=>events.push(args)});return ()=>h('div')}}))
+ await editor.restorePendingOrderCreate();assert.deepEqual(editor.pendingOrderCreate.value,pending)
+ await editor.retryPendingOrderCreate();assert.deepEqual(received,pending.payload);assert.equal(localStorage.getItem('kferp.order-create.pending.employee-11'),null);assert.deepEqual(alerts,['请财务核对']);assert.equal(events[0][0],'saved')
+})
+
+test('首次提交明确未提交可修改；结果不明后重试的拒绝必须保留原请求', async t => {
+ const {editor,writes}=await fixture(t,{rejectSave:{error:'价格规则需要确认',not_committed:true}})
+ Object.assign(editor.form,{edit_id:0,delivery_mode:'ship',prepayment_amount:'30',payment_goods_amount:'30',payment_shipping_amount:'0',payment_method:'现金',pay_status_id:3,receipt_date:'2026-11-10'})
+ await editor.save()
+ assert.equal(writes.length,1)
+ assert.equal(editor.pendingOrderCreate.value,null)
+ assert.equal(window.localStorage.getItem('kferp.order-create.pending.employee-11'),null)
+ assert.equal(editor.form.customer_request_id,'')
+ const pending={route:'/api/order',payload:{request_id:'initial-order-request-456',customer_id:8}}
+ window.localStorage.setItem('kferp.order-create.pending.employee-11',JSON.stringify(pending))
+ await editor.restorePendingOrderCreate()
+ await editor.retryPendingOrderCreate()
+ assert.deepEqual(editor.pendingOrderCreate.value,pending)
+ assert.deepEqual(JSON.parse(window.localStorage.getItem('kferp.order-create.pending.employee-11')),pending)
+})
+
+test('同一员工另一页面保存中时阻止并发新建', async t => {
+ const {editor,writes}=await fixture(t)
+ let held=false, release
+ window.navigator.locks.request=async(_key,_opts,fn)=>{
+   if(held)return fn(null)
+   held=true
+   try{return await fn({})}finally{held=false}
+ }
+ const prior=editor.withNewOrderLock(()=>new Promise(resolve=>{release=resolve}))
+ while(!release) await new Promise(resolve=>setTimeout(resolve,0))
+ Object.assign(editor.form,{edit_id:0,delivery_mode:'ship',prepayment_amount:'30',payment_method:'现金',pay_status_id:3,receipt_date:'2026-11-10'})
+ await editor.save()
+ assert.match(editor.error.value,/另一个页面正在保存订单/)
+ assert.equal(writes.length,0)
+ release();await prior
+})
+
+test('获取录单锁后切换登录账号不会读取新账号待确认订单或提交', async t => {
+ const {editor,writes}=await fixture(t)
+ Object.assign(editor.form,{edit_id:0,delivery_mode:'ship',prepayment_amount:'30',payment_method:'现金',pay_status_id:3,receipt_date:'2026-11-10'})
+ window.localStorage.setItem('kferp.order-create.pending.employee-11',JSON.stringify({route:'/api/order',payload:{request_id:'pending-order-identity-test',customer_id:8}}))
+ window.navigator.locks.request=async(_key,_options,fn)=>{window.localStorage.setItem('auth_token','other-user-token');return fn({})}
+ await editor.save()
+ assert.match(editor.error.value,/账号已变化/)
+ assert.equal(editor.pendingOrderCreate.value,null)
+ assert.equal(writes.length,0)
+ assert.ok(window.localStorage.getItem('kferp.order-create.pending.employee-11'))
+})
+
+test('初始预付款先校验分项，纠正后提交；全款从明确的分项计算已收总额', async t => {
+ for (const full of [false,true]) {
+  const {editor,writes}=await fixture(t)
+  Object.assign(editor.form,{edit_id:0,delivery_mode:'ship',prepayment_amount:full?'0':'30',payment_goods_amount:full?'70':'',payment_shipping_amount:full?'20':'',outsource_material_fee:full?'10':'',payment_method:'现金',payment_voucher_asset_id:full?71:0,pay_status_id:full?2:3,receipt_date:'2026-11-10'})
+  if(full) editor.effectiveCopyID.value=12
+  assert.equal(editor.paymentReceiptVisible.value,true)
+  if(!full){await editor.save();assert.equal(writes.length,0);assert.match(editor.error.value,/货款和运费分项/);editor.form.payment_goods_amount='30';editor.form.payment_shipping_amount='0'}
+  await editor.save()
+  assert.equal(writes.length,1,`${editor.error.value} total=${JSON.stringify(editor.orderTotalPreviewValue.value)} item=${editor.itemsTotal.value} shipping=${editor.form.shipping_amount}`)
+  assert.equal(writes[0].prepayment_amount,full?'90.00':'30')
+  if(full) assert.equal(writes[0].outsource_material_fee,'10')
+ }
+})
+
+test('管理员只能在服务端核对解除成功后清除原请求', async t => {
+ const oldFetch=globalThis.fetch,oldWindow=globalThis.window
+ const entries=new Map([['auth_token','employee-test-token']]), storage={getItem:k=>entries.get(k)||null,setItem:(k,v)=>entries.set(k,v),removeItem:k=>entries.delete(k)}
+ const pending={route:'/api/order',payload:{request_id:'initial-order-admin-test-123',customer_id:3,prepayment_amount:'20'}}
+ storage.setItem('kferp.order-create.pending.employee-11',JSON.stringify(pending))
+ globalThis.window={location:{origin:'http://localhost',href:'http://localhost/'},localStorage:storage,navigator:{locks:{request:async(_key,_options,fn)=>fn({})}},prompt:()=> '已核对'}
+ t.after(()=>{globalThis.fetch=oldFetch;globalThis.window=oldWindow})
+ let calls=0
+ globalThis.fetch=async(url,options={})=>{if(String(url).includes('/api/auth/me'))return response({employee_id:11,roles:[{code:'admin'}]});assert.equal(options.headers.Authorization,'Bearer employee-test-token');assert.deepEqual(JSON.parse(options.body).original,pending.payload);calls++;return response(calls===1?{status:'committed',order_id:71}:{status:'cancelled'})}
+ let editor
+ await renderToString(createSSRApp({setup(){editor=View.setup({embedded:true,editId:0,copyId:0,customerPortal:false,fulfillmentMode:false,viewParams:{}},{expose(){},emit(){}});return ()=>h('div')}}))
+ await editor.restorePendingOrderCreate();assert.equal(editor.pendingOrderCanResolve.value,true)
+ await editor.resolvePendingOrderCreate();assert.match(editor.error.value,/已有订单 71/);assert.ok(storage.getItem('kferp.order-create.pending.employee-11'))
+ await editor.resolvePendingOrderCreate();assert.equal(storage.getItem('kferp.order-create.pending.employee-11'),null);assert.match(editor.ok.value,/已核对无订单/)
+})
+
+test('管理员按员工请求号解除后员工核对成功才能清除本机待确认', async t => {
+ const oldFetch=globalThis.fetch,oldWindow=globalThis.window
+ const entries=new Map([['auth_token','employee-test-token']]),storage={getItem:k=>entries.get(k)||null,setItem:(k,v)=>entries.set(k,v),removeItem:k=>entries.delete(k)}
+ const requestID='employee-order-request-12345',pending={route:'/api/order',payload:{request_id:requestID,customer_id:3}}
+ storage.setItem('kferp.order-create.pending.employee-11',JSON.stringify(pending))
+ globalThis.window={location:{origin:'http://localhost',href:'http://localhost/'},localStorage:storage,navigator:{locks:{request:async(_key,_options,fn)=>fn({})}},prompt:()=> '员工提交失败后核对'}
+ t.after(()=>{globalThis.fetch=oldFetch;globalThis.window=oldWindow})
+ let authorized=false,cancelled=false
+ globalThis.fetch=async(url,options={})=>{
+  const path=new URL(String(url),window.location.origin).pathname
+  if(path==='/api/auth/me')return response({employee_id:11,roles:authorized?[{code:'admin'}]:[]})
+  if(path.endsWith('/status'))return response({cancelled})
+  if(path==='/api/order/pending-request/resolve'){assert.equal(authorized,true);assert.equal(JSON.parse(options.body).request_id,requestID);cancelled=true;return response({status:'cancelled'})}
+  throw Error('unexpected request '+path)
+ }
+ let editor;await renderToString(createSSRApp({setup(){editor=View.setup({embedded:true,editId:0,copyId:0,customerPortal:false,fulfillmentMode:false,viewParams:{}},{expose(){},emit(){}});return ()=>h('div')}}))
+ await editor.restorePendingOrderCreate();await editor.checkPendingOrderCancelled();assert.ok(storage.getItem('kferp.order-create.pending.employee-11'));assert.match(editor.error.value,/尚未解除/)
+ authorized=true;await editor.restorePendingOrderCreate();editor.adminResolveRequestID.value=requestID;await editor.resolveOtherPendingOrderCreate();assert.equal(cancelled,true);assert.ok(storage.getItem('kferp.order-create.pending.employee-11'))
+ authorized=false;await editor.restorePendingOrderCreate();await editor.checkPendingOrderCancelled();assert.equal(storage.getItem('kferp.order-create.pending.employee-11'),null)
 })
