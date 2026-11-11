@@ -38,10 +38,10 @@ describe('miniapp customer switching', () => {
     const profile = readFileSync(resolve('src/pages/profile/profile.vue'), 'utf8')
 
     expect(pages.pages.map((page) => page.path)).toContain('pages/profile/profile')
-    expect(login).not.toContain('loginWithPassword')
+    expect(login).toContain('loginWithPassword')
     expect(login).toContain('loginWithPhoneIdentify')
-    expect(login).not.toContain('用户名或手机号')
-    expect(login).not.toContain('password placeholder="密码"')
+    expect(login).toContain('用户名或手机号')
+    expect(login).toContain('password placeholder="密码"')
     expect(login).toContain('手机号登录')
     expect(login).toContain('uni.login')
     expect(login).not.toContain('type="text" placeholder="密码"')
@@ -109,10 +109,10 @@ describe('verified phone routing', () => {
   })
 })
 
-it('offers only verified phone login and no username/password entry', () => {
+it('offers phone and configurable password login', () => {
   const login = readFileSync(resolve('src/pages/login/login.vue'), 'utf8')
   expect(login).toContain('loginWithPhoneIdentify')
-  expect(login).not.toContain('loginWithPassword')
-  expect(login).not.toContain('用户名或手机号')
-  expect(login).not.toContain('password placeholder')
+  expect(login).toContain('loginWithPassword')
+  expect(login).toContain('用户名或手机号')
+  expect(login).toContain('password placeholder')
 })

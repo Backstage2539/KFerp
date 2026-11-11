@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { priceUsageForMode } from '../utils/customerOrderFees'
 import {orderProgressLabel, directShipProgressLabel} from '../utils/orderProgress'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onShow, onHide } from '@dcloudio/uni-app'
 import {
   cancelDirectShipRequest,
@@ -44,7 +44,7 @@ import ProductFamilyPickerSheet from './ProductFamilyPickerSheet.vue'
 import { enabledDirectShipModes, initialDirectShipMode, purchaseDeliveryMode, stockItemKey, stockOverviewRows, stockTopupFromCatalog } from '../utils/directShipScenario'
 import { useCustomerOrderQuote } from '../composables/useCustomerOrderQuote'
 
-const props = withDefaults(defineProps<{ token: string; customerId: number; showCreate?: boolean; orderMode?: CustomerOrderMode; entryMode?: FulfillmentMode; stockPurchase?: boolean }>(), { showCreate: true, orderMode: 'direct_ship', stockPurchase: false })
+const props = withDefaults(defineProps<{ token: string; customerId: number; showCreate?: boolean; orderMode?: CustomerOrderMode; entryMode?: FulfillmentMode; stockPurchase?: boolean; readOnly?: boolean }>(), { showCreate: true, orderMode: 'direct_ship', stockPurchase: false, readOnly: false })
 type PickerChangeEvent = { detail?: { value?: string | number } }
 type RecipientEvent = { customerID?: number; orderMode?: CustomerOrderMode; fulfillmentMode?: FulfillmentMode }
 
@@ -86,6 +86,8 @@ const pageLimitOptions = [10, 20, 50]
 const pageLimitLabels = pageLimitOptions.map((value) => `每页 ${value} 条`)
 let loadVersion = 0
 let initialized = false
+let identityRevision = 0
+let disposed = false
 let restoredMode: FulfillmentMode | '' = ''
 
 const isProductOrder = computed(() => props.orderMode === 'product_order')
@@ -143,6 +145,7 @@ function currentOrderMode(): CustomerOrderMode { return isProductOrder.value ? p
 function draftFulfillmentMode(): FulfillmentMode | undefined { return isProductOrder.value ? undefined : fulfillmentMode.value || props.entryMode || 'stock' }
 
 function saveDraft() {
+  if (props.readOnly) return
   orderDraft.saveDraft(props.customerId, currentOrderMode(), {
     order_date: orderDate.value,
     recipient: selectedRecipient.value,
@@ -157,6 +160,7 @@ function saveDraft() {
 }
 
 function restoreDraft() {
+  if (props.readOnly) return
   const mode = draftFulfillmentMode()
   restoredMode = mode || ''
   const draft = orderDraft.restoreDraft(props.customerId, currentOrderMode(), mode)
@@ -173,6 +177,7 @@ function restoreDraft() {
 }
 
 function consumeReturnedRecipient(event?: RecipientEvent) {
+  if (props.readOnly) return
   if (event && (Number(event.customerID || 0) !== props.customerId || event.orderMode !== currentOrderMode())) return
   if (event?.fulfillmentMode !== undefined && event.fulfillmentMode !== draftFulfillmentMode()) return
   const recipient = orderDraft.consumeRecipient(props.customerId, currentOrderMode(), draftFulfillmentMode())
@@ -181,9 +186,9 @@ function consumeReturnedRecipient(event?: RecipientEvent) {
   saveDraft()
 }
 
-async function load() {
-  if (props.showCreate) return quoteFlow.refresh(async current => {
+async function loadCatalog(current: () => boolean) {
     loading.value = true
+    errorMessage.value = ''
     catalogLoaded.value = false; catalogLoadError.value = ''
     try {
       let [value, addressData] = await Promise.all([
@@ -201,6 +206,7 @@ async function load() {
           restoreDraft()
         }
       }
+      if (props.readOnly && (Number(value.current_customer_id) !== props.customerId || (addressData.rows || []).some(row => Number(row.customer_id) !== props.customerId))) throw new Error('客户数据不匹配，请返回后重试')
       catalog.value = value
       catalogLoaded.value = true
       if (isProductOrder.value) {
@@ -217,7 +223,18 @@ async function load() {
     } finally {
       if (current()) loading.value = false
     }
-  })
+}
+async function load() {
+  if (props.showCreate && props.readOnly) {
+    const version = ++loadVersion, token = props.token, customerId = props.customerId
+    try { await loadCatalog(() => version === loadVersion && token === props.token && customerId === props.customerId) }
+    catch (error) { if (version === loadVersion) errorMessage.value = error instanceof Error ? error.message : '库存加载失败，请重试' }
+    return
+  }
+  if (props.showCreate) {
+    const token = props.token, customerId = props.customerId, readOnly = props.readOnly
+    return quoteFlow.refresh(current => loadCatalog(() => current() && token === props.token && customerId === props.customerId && readOnly === props.readOnly))
+  }
   const version = ++loadVersion
   loading.value = true
   errorMessage.value = ''
@@ -239,6 +256,7 @@ async function load() {
 }
 
 function applyRecipientAddress(address: CustomerOrderRecipient, schedule = true) {
+  if (props.readOnly) return
   selectedRecipient.value = { ...address }
   recipientSelectorOpen.value = false
   invalidatePreview(schedule)
@@ -253,6 +271,7 @@ function openRecipientSelector() {
 function closeRecipientSelector() { recipientSelectorOpen.value = false }
 
 function openRecipientEditor(addressID = 0) {
+  if (props.readOnly) return
   saveDraft()
   recipientSelectorOpen.value = false
   const id = Math.max(0, Number(addressID || 0))
@@ -268,11 +287,13 @@ function fulfillmentModeLabel(value: string) { return value === 'stock' ? '库�
 function stockRow(line: DirectShipDraftLine) { return stockOverview.value.find(row => row.key === stockItemKey(line)) }
 function firstStockLine(line: DirectShipDraftLine) { return lines.value.find(row => stockItemKey(row) === stockItemKey(line))?.key === line.key }
 async function startTopup() {
+  if (props.readOnly) { uni.navigateTo({ url: '/pages/service/service?key=productOrder&stock_purchase=1' }); return }
+  const revision = identityRevision, token = props.token, customerId = props.customerId, current = () => !disposed && revision === identityRevision && token === props.token && customerId === props.customerId && !props.readOnly
   if (submitting.value || openingStockPurchase.value) return
   openingStockPurchase.value = true
   saveDraft()
   try {
-    if (!await load()) return
+    if (!await load() || !current()) return
     const topupLines = stockTopupFromCatalog(lines.value, catalog.value)
     orderDraft.saveDraft(props.customerId, 'stock_purchase', {
       order_date: orderDate.value, recipient: null, note: '库存代发补购', lines: topupLines,
@@ -280,8 +301,8 @@ async function startTopup() {
       delivery_mode: 'customer_stock', delivery_warehouse_code: activeFulfillmentSetting.value?.warehouse_code || '', return_to_direct_ship: true,
     })
     await new Promise<void>((resolve, reject) => uni.navigateTo({ url: '/pages/service/service?key=productOrder&stock_purchase=1', success: () => resolve(), fail: () => reject(new Error('页面打开失败，请重试')) }))
-  } catch (error) { errorMessage.value = error instanceof Error ? error.message : '页面打开失败，请重试' }
-  finally { openingStockPurchase.value = false }
+  } catch (error) { if (current()) errorMessage.value = error instanceof Error ? error.message : '页面打开失败，请重试' }
+  finally { if (current()) openingStockPurchase.value = false }
 }
 function returnToDraft() { saveDraft(); uni.navigateBack() }
 
@@ -291,18 +312,21 @@ function validateRecipient(): string {
 }
 
 function invalidatePreview(schedule = true) {
+  if (props.readOnly) return
   quoteFlow.invalidate()
   if (schedule && props.showCreate) quoteFlow.schedule()
   if (initialized) saveDraft()
 }
 
 function addLine() {
+  if (props.readOnly) return
   if (submitting.value) return
   lines.value.push(createDirectShipDraftLine())
   invalidatePreview()
 }
 
 function removeLine(index: number) {
+  if (props.readOnly) return
   if (submitting.value) return
   if (lines.value.length === 1) lines.value.splice(0, 1, createDirectShipDraftLine(lines.value[0]?.key))
   else lines.value.splice(index, 1)
@@ -339,6 +363,7 @@ function priceTableLabel(item: { table_name?: string; version_no?: string; list_
 }
 
 function openProductSelector(lineKey: string) {
+  if (props.readOnly) return
   if (loading.value || submitting.value) return
   editingLineKey.value = lineKey
   productSelectorOpen.value = true
@@ -347,6 +372,7 @@ function openProductSelector(lineKey: string) {
 function closeProductSelector() { productSelectorOpen.value = false; editingLineKey.value = '' }
 
 function chooseProduct(family: EmployeeOrderProductFamily) {
+  if (props.readOnly) return
   const line = lines.value.find((item) => item.key === editingLineKey.value)
   if (!line) return
   const selected = selectDirectShipDraftProduct(line, family)
@@ -357,12 +383,13 @@ function chooseProduct(family: EmployeeOrderProductFamily) {
 }
 
 function chooseInlineSpec(line: DirectShipDraftLine, spec: EmployeeOrderProductSpec) {
+  if (props.readOnly) return
   if (submitting.value) return
   Object.assign(line, selectDirectShipDraftSpec(line, spec))
   invalidatePreview()
 }
 
-function setOrderDate(event: PickerChangeEvent) { orderDate.value = String(event.detail?.value || shanghaiToday()); invalidatePreview() }
+function setOrderDate(event: PickerChangeEvent) { if (props.readOnly) return; orderDate.value = String(event.detail?.value || shanghaiToday()); invalidatePreview() }
 
 function payload() {
   const recipient = retainedPurchase.value ? null : selectedRecipient.value
@@ -392,44 +419,48 @@ function validate(): string {
 }
 
 async function previewRequest(silent = false): Promise<DirectShipPreview | null> {
+  if (props.readOnly) return null
   return quoteFlow.preview(silent)
 }
 
 async function submitRequest() {
+  if (props.readOnly) return
   if (submitting.value || loading.value || !catalogReady.value || openingStockPurchase.value) return
   const validation = validate()
   if (validation) { errorMessage.value = validation; return }
   const command = payload()
+  const revision = identityRevision, token = props.token, customerId = props.customerId, current = () => !disposed && revision === identityRevision && token === props.token && customerId === props.customerId && !props.readOnly
   submitting.value = true
   errorMessage.value = ''
   try {
     const checked = await previewRequest()
-    if (!checked) return
+    if (!checked || !current()) return
     if (!checked.can_submit) { if (!stockScenario.value || !checked.needs_topup) errorMessage.value = '当前可履约数量不足，请核对商品数量'; return }
     if (!checked.price_quote_token) throw new Error('报价版本缺失，请重新提交')
     const quotedCommand = { ...command, freight_protocol: 'deferred_freight_v1', price_quote_token: checked.price_quote_token, fee_quote_token: checked.fee_quote_token || checked.fees?.fee_quote_token }
-    await quoteFlow.completeSubmission(
-      () => isProductOrder.value ? createProductOrder(props.token, quotedCommand) : createDirectShipRequest(props.token, quotedCommand),
-      () => {
-        lines.value = [createDirectShipDraftLine()]
-        note.value = ''
-        idempotencyKey.value = newIdempotencyKey()
-        orderDraft.clearDraft(props.customerId, currentOrderMode(), draftFulfillmentMode())
-        submitting.value = false
-        uni.showToast({ title: isProductOrder.value ? retainedPurchase.value ? '购货订单已创建' : '订单已创建' : '代发订单已创建', icon: 'success' })
-      },
-      async () => { if (isProductOrder.value && returnToDirectShip.value) uni.navigateBack(); else await load() },
-    )
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '订单提交失败'
-  } finally {
+    if (isProductOrder.value) await createProductOrder(token, quotedCommand)
+    else await createDirectShipRequest(token, quotedCommand)
+    if (!current()) return
+    quoteFlow.suspend()
+    lines.value = [createDirectShipDraftLine()]
+    note.value = ''
+    idempotencyKey.value = newIdempotencyKey()
+    orderDraft.clearDraft(props.customerId, currentOrderMode(), draftFulfillmentMode())
     submitting.value = false
+    uni.showToast({ title: isProductOrder.value ? retainedPurchase.value ? '购货订单已创建' : '订单已创建' : '代发订单已创建', icon: 'success' })
+    if (isProductOrder.value && returnToDirectShip.value) uni.navigateBack(); else await load()
+  } catch (error) {
+    if (current()) errorMessage.value = error instanceof Error ? error.message : '订单提交失败'
+  } finally {
+    if (current()) submitting.value = false
   }
 }
 
 async function cancelRequest(item: DirectShipRequest) {
-  try { await cancelDirectShipRequest(props.token, item.id); uni.showToast({ title: '代发申请已取消', icon: 'success' }); await load() }
-  catch (error) { errorMessage.value = error instanceof Error ? error.message : '取消失败' }
+  if (props.readOnly) return
+  const revision = identityRevision, token = props.token, customerId = props.customerId, current = () => !disposed && revision === identityRevision && token === props.token && customerId === props.customerId && !props.readOnly
+  try { await cancelDirectShipRequest(token, item.id); if (!current()) return; uni.showToast({ title: '代发申请已取消', icon: 'success' }); await load() }
+  catch (error) { if (current()) errorMessage.value = error instanceof Error ? error.message : '取消失败' }
 }
 
 function directShipItemSpecLabel(item: { bom_spec_id?: number; spec_name?: string; bom_spec_name?: string; spec_label?: string; spec_g?: number }): string {
@@ -448,33 +479,45 @@ async function changePageLimit(event: PickerChangeEvent) { const index = Math.ma
 function recipientEventHandler(event: RecipientEvent) { consumeReturnedRecipient(event) }
 onMounted(() => { fulfillmentMode.value = props.entryMode || ''; restoreDraft(); initialized = true; uni.$on('customer-order-recipient-selected', recipientEventHandler); void load() })
 onShow(() => { if (!initialized) return; consumeReturnedRecipient(); void load() })
-onHide(() => { if (initialized && props.showCreate) { if (lines.value.some(line => line.product_id) || note.value) saveDraft(); quoteFlow.suspend(); loading.value = false } })
-onBeforeUnmount(() => { quoteFlow.dispose(); loadVersion++; uni.$off('customer-order-recipient-selected', recipientEventHandler) })
+watch(() => [props.token, props.customerId, props.readOnly], () => {
+  loadVersion++; identityRevision++
+  quoteFlow.suspend()
+  lines.value = [createDirectShipDraftLine()]; note.value = ''; orderDate.value = shanghaiToday()
+  fulfillmentMode.value = props.entryMode || ''; restoredMode = ''; deliveryMode.value = 'ship'; deliveryWarehouseCode.value = ''; returnToDirectShip.value = false
+  idempotencyKey.value = newIdempotencyKey(); preview.value = null; submitting.value = false; openingStockPurchase.value = false
+  productSelectorOpen.value = false; recipientSelectorOpen.value = false; editingLineKey.value = ''; errorMessage.value = ''
+  catalog.value = { current_customer_id: 0, product_families: [] }
+  recipientAddresses.value = []; selectedRecipient.value = null; catalogLoaded.value = false
+  if (!props.readOnly) restoreDraft()
+  if (initialized) void load()
+}, { flush: 'pre' })
+onHide(() => { if (props.readOnly) loadVersion++; if (initialized && props.showCreate) { if (lines.value.some(line => line.product_id) || note.value) saveDraft(); quoteFlow.suspend(); loading.value = false } })
+onBeforeUnmount(() => { disposed = true; identityRevision++; quoteFlow.dispose(); loadVersion++; uni.$off('customer-order-recipient-selected', recipientEventHandler) })
 </script>
 
 <template>
   <view class="workspace">
     <view v-if="showCreate" class="order-panel">
       <text class="title">{{ createTitle }}</text>
+      <text v-if="readOnly" class="muted">客户只读预览：可查看库存和下单页面，不能编辑或提交订单。</text>
       <view v-if="stockScenario" class="stock-overview">
-        <view class="section-head"><text class="subtitle">已购商品</text><text class="muted">累计数量</text></view>
+        <view class="section-head"><text class="subtitle">客户库存</text></view>
         <text v-if="loading" class="muted">正在刷新库存…</text>
         <text v-else-if="!stockOverview.length" class="muted">暂无可安排代发的库存，可先下单库存</text>
         <view v-for="row in stockOverview" :key="row.key" class="stock-overview-row" :class="{ 'stock-selected': row.requested > 0 }">
-          <view class="stock-overview-copy"><text class="line-name">{{ row.name }}</text><text class="muted">{{ row.spec }}<template v-if="row.requested"> · 本单 {{ row.requested }}{{ row.unit }}</template></text></view>
-          <view class="stock-overview-copy"><text>累计已购买 {{ row.purchased ?? '未记录' }}</text><text>累计已入库 {{ row.received ?? '未记录' }}</text><text v-if="row.gap > 0" class="stock-gap">需补购 {{ row.gap }}{{ row.unit }}</text></view>
+          <view class="stock-overview-copy"><text class="line-name">{{ row.name }}</text><text class="muted">{{ row.spec }}</text></view>
+          <view class="stock-overview-copy"><text>现货可用 {{ row.physical }}{{ row.unit }}</text><text>待入库已预订 {{ row.reserved }}{{ row.unit }}</text></view>
         </view>
-        <text class="muted">累计购买和入库不代表当前可发货数量；实际发货以可用实物为准。</text>
         <button class="secondary" :loading="openingStockPurchase" :disabled="submitting || openingStockPurchase || loading" @tap="startTopup">商品下单</button>
       </view>
       <text v-if="retainedPurchase" class="purchase-hint">本次购买的商品留在工厂，备货入库后供你安排代发。</text>
       <button v-if="returnToDirectShip" class="text-button" :disabled="submitting" @tap="returnToDraft">返回代发草稿</button>
       <view class="field-block">
         <text class="field-label">订单日期</text>
-        <picker mode="date" :value="orderDate" @change="setOrderDate"><view class="selector-field"><text>{{ orderDate }}</text><text class="chevron">›</text></view></picker>
+        <picker mode="date" :disabled="readOnly" :value="orderDate" @change="setOrderDate"><view class="selector-field"><text>{{ orderDate }}</text><text class="chevron">›</text></view></picker>
       </view>
       <view v-if="!retainedPurchase" class="field-block">
-        <view class="field-head"><text class="field-label">收件客户</text><text class="manage-link" @tap="openRecipientEditor(Number(selectedRecipient?.id || 0))">维护发货地址簿</text></view>
+        <view class="field-head"><text class="field-label">收件客户</text><text v-if="!readOnly" class="manage-link" @tap="openRecipientEditor(Number(selectedRecipient?.id || 0))">维护发货地址簿</text></view>
         <view class="selector-field recipient-field" @tap="openRecipientSelector"><text :class="{ muted: !selectedRecipientSummary }">{{ selectedRecipientSummary || '搜索并选择收件客户 *' }}</text><text class="chevron">›</text></view>
       </view>
       <view v-if="!stockScenario || (catalogLoaded && catalog.price_tables?.length)" class="price-table-card">
@@ -482,9 +525,17 @@ onBeforeUnmount(() => { quoteFlow.dispose(); loadVersion++; uni.$off('customer-o
         <button class="text-button" :disabled="loading || !catalogLoaded || !catalog.price_tables?.length" @tap="openPriceTablePreview">查看价格表</button>
       </view>
 
+      <view v-if="readOnly && catalogLoaded" class="preview-catalog">
+        <text class="subtitle">可用商品及规格</text>
+        <text v-if="!catalog.product_families.length" class="muted">暂无可用商品</text>
+        <view v-for="family in catalog.product_families" :key="family.parent_product_id" class="stock-overview-copy">
+          <text>{{ family.customer_product_display_name || family.name }}</text>
+          <text v-for="spec in family.specs" :key="`${spec.product_id}:${spec.bom_spec_id || 0}:${spec.bom_variant_id || 0}`" class="muted">{{ productSpecLabel(spec) }}</text>
+        </view>
+      </view>
       <view class="section-head"><text class="subtitle">商品明细</text><text class="muted">价格由 ERP 自动计算</text></view>
       <view v-for="(line, index) in lines" :key="line.key" class="line-card">
-        <view class="line-head"><text class="line-name">商品 {{ index + 1 }}</text><button class="remove" @tap="removeLine(index)">删除本行</button></view>
+        <view class="line-head"><text class="line-name">商品 {{ index + 1 }}</text><button class="remove" :disabled="readOnly" @tap="removeLine(index)">删除本行</button></view>
         <text class="field-label">商品</text>
         <view class="selector-field" @tap="openProductSelector(line.key)"><text :class="{ muted: !line.product_name }">{{ line.product_name || '搜索并选择商品' }}</text><text class="chevron">›</text></view>
         <text class="field-label">规格</text>
@@ -495,6 +546,7 @@ onBeforeUnmount(() => { quoteFlow.dispose(); loadVersion++; uni.$off('customer-o
             class="spec-choice"
             :class="{ selected: selectedSpecForLine(line) === spec }"
             type="button"
+            :disabled="readOnly"
             @tap="chooseInlineSpec(line, spec)"
           >
             <text>{{ productSpecLabel(spec) }}</text>
@@ -503,9 +555,8 @@ onBeforeUnmount(() => { quoteFlow.dispose(); loadVersion++; uni.$off('customer-o
         </view>
         <text v-else class="spec-empty">请先选择商品</text>
         <text class="field-label">数量（{{ line.sales_unit || line.inventory_unit || '件' }}）</text>
-        <view class="quantity-field"><input v-model.number="line.qty" type="number" :disabled="submitting" placeholder="填写数量" @input="invalidatePreview()" /><text>{{ line.sales_unit || line.inventory_unit || '件' }}</text></view>
+        <view class="quantity-field"><input v-model.number="line.qty" type="number" :disabled="readOnly || submitting" placeholder="填写数量" @input="invalidatePreview()" /><text>{{ line.sales_unit || line.inventory_unit || '件' }}</text></view>
         <view v-if="stockScenario && stockRow(line) && firstStockLine(line)" class="stock-line-status">
-          <view class="supply-metrics"><text>累计已购买 {{ stockRow(line)!.purchased ?? '未记录' }}</text><text>累计已入库 {{ stockRow(line)!.received ?? '未记录' }}</text></view>
           <text v-if="stockRow(line)!.gap > 0" class="stock-gap">还能安排{{ stockRow(line)!.available }}{{ stockRow(line)!.unit }}，本单{{ stockRow(line)!.requested }}{{ stockRow(line)!.unit }}，还需购货{{ stockRow(line)!.gap }}{{ stockRow(line)!.unit }}。</text>
           <text v-else-if="stockRow(line)!.requested > stockRow(line)!.physical" class="muted">本单还需等{{ stockRow(line)!.requested - stockRow(line)!.physical }}{{ stockRow(line)!.unit }}备货完成，入库齐全后发货。商品货款不重复收取。</text>
         </view>
@@ -514,10 +565,10 @@ onBeforeUnmount(() => { quoteFlow.dispose(); loadVersion++; uni.$off('customer-o
         <OrderItemWeights v-if="previewItemForLine(line)?.weight_snapshot_json" :item="previewItemForLine(line)" />
         <view class="line-price"><text>{{ stockScenario ? '已购商品' : '销售单价（只读）' }}</text><text>{{ stockScenario ? '不重复计货款' : lineUnitPrice(line) > 0 ? `¥${money(lineUnitPrice(line))}` : '自动核价' }}</text><text>小计 {{ stockScenario ? '¥0.00' : lineAmount(line) > 0 ? `¥${money(lineAmount(line))}` : '--' }}</text></view>
       </view>
-      <button class="add-line" :disabled="submitting" @tap="addLine">新增商品</button>
-      <view class="total-card"><text>商品估算合计</text><text class="amount">{{ previewing ? '核价中…' : `¥${money(totalAmount)}` }}</text></view>
+      <button class="add-line" :disabled="readOnly || submitting" @tap="addLine">新增商品</button>
+      <view class="total-card"><text>商品估算合计</text><text class="amount">{{ readOnly ? '提交前核算' : previewing ? '核价中…' : `¥${money(totalAmount)}` }}</text></view>
       <view v-if="preview?.fees" class="fee-breakdown"><text>代发服务费 ¥{{ money(serviceFee) }}</text><text v-if="preview.fees.freight">{{ preview.fees.freight.status === 'free' ? '包邮' : `预估运费 ¥${money(preview.fees.freight.estimated_total_cents / 100)} · 待出账` }}</text><text v-else>运费 ¥{{ money(shippingFee) }}</text><text class="amount">本次应付 ¥{{ money(payableAmount) }}</text><text class="muted">预估运费不计入当前应付，实际运费核对出账后另行收取。</text></view>
-      <textarea v-model="note" class="textarea" :disabled="submitting" placeholder="订单备注（可选）" @input="saveDraft" />
+      <textarea v-model="note" class="textarea" :disabled="readOnly || submitting" placeholder="订单备注（可选）" @input="saveDraft" />
       <text v-if="selectedSummary" class="selected-summary">已选：{{ selectedSummary }}</text>
       <text v-if="fulfillmentMessage" class="shortage">{{ fulfillmentMessage }}</text>
       <view v-if="showSupplyPreview && previewSupplyRows.length" class="supply-board">
@@ -532,8 +583,8 @@ onBeforeUnmount(() => { quoteFlow.dispose(); loadVersion++; uni.$off('customer-o
       <view v-if="showSupplyPreview && blockingShortages.length" class="shortage-detail">
         <text v-for="item in blockingShortages" :key="`${item.product_id}:${item.bom_spec_id || 0}`">需求 {{ item.qty }}；成品库存 {{ item.stock_available_qty || 0 }}；在制产出 {{ item.production_available_qty || 0 }}；缺口 {{ Math.max(0, Number(item.qty || 0) - Number(item.available_qty || 0)) }}</text>
       </view>
-      <button v-if="!catalogReady && !loading" class="secondary" @tap="load">重新加载库存与商品</button>
-      <button class="primary submit" :disabled="submitting || loading || !catalogReady || openingStockPurchase || (stockScenario && stockHasGap) || Boolean(preview && !preview.can_submit)" @tap="submitRequest">{{ submitting ? '提交中...' : submitTitle }}</button>
+      <button v-if="(readOnly ? !catalogLoaded : !catalogReady) && !loading" class="secondary" @tap="load">重新加载库存与商品</button>
+      <button class="primary submit" :disabled="readOnly || submitting || loading || !catalogReady || openingStockPurchase || (stockScenario && stockHasGap) || Boolean(preview && !preview.can_submit)" @tap="submitRequest">{{ submitting ? '提交中...' : submitTitle }}</button>
     </view>
 
     <view v-if="!showCreate" class="list-panel">
@@ -573,10 +624,10 @@ onBeforeUnmount(() => { quoteFlow.dispose(); loadVersion++; uni.$off('customer-o
         <view class="sheet-head"><view><text class="sheet-title">选择收件客户</text><text class="sheet-subtitle">选择后返回录单，已录商品会保留</text></view><text class="sheet-close" @tap="closeRecipientSelector">关闭</text></view>
         <input v-model="recipientQuery" class="search-input" focus confirm-type="search" placeholder="搜索姓名、电话、公司或地址" />
         <scroll-view scroll-y class="recipient-list">
-          <view v-for="row in filteredRecipients" :key="row.id" class="recipient-row" @tap="applyRecipientAddress(row)"><view class="recipient-copy"><view class="recipient-head"><text class="recipient-name">{{ row.recipient_name }} · {{ row.phone }}</text><text v-if="row.is_default" class="badge">默认</text></view><text v-if="row.company" class="muted">{{ row.company }}</text><text class="recipient-address">{{ row.province }}{{ row.city }}{{ row.district }}{{ row.detail_address }}</text></view><text class="edit-link" @tap.stop="openRecipientEditor(row.id)">编辑</text></view>
+          <view v-for="row in filteredRecipients" :key="row.id" class="recipient-row" @tap="applyRecipientAddress(row)"><view class="recipient-copy"><view class="recipient-head"><text class="recipient-name">{{ row.recipient_name }} · {{ row.phone }}</text><text v-if="row.is_default" class="badge">默认</text></view><text v-if="row.company" class="muted">{{ row.company }}</text><text class="recipient-address">{{ row.province }}{{ row.city }}{{ row.district }}{{ row.detail_address }}</text></view><text v-if="!readOnly" class="edit-link" @tap.stop="openRecipientEditor(row.id)">编辑</text></view>
           <text v-if="!filteredRecipients.length" class="empty">暂无匹配的收件客户</text>
         </scroll-view>
-        <button class="primary" @tap="openRecipientEditor(0)">新增收件客户</button>
+        <button v-if="!readOnly" class="primary" @tap="openRecipientEditor(0)">新增收件客户</button>
       </view>
     </view>
   </view>

@@ -26,9 +26,6 @@
 
     <div v-else-if="productionPlanSplitDrawer && productionPlanCapacityActive" class="production-plan-workspace-shell production-plan-capacity-shell">
       <div v-if="productionPlanSplitDrawerDraft" :class="['supply-status', { 'supply-error': productionSupplyError }]" role="status">{{ productionSupplyStatus }} <button v-if="productionSupplyError" type="button" @click="syncProductionPlanSupply">重试</button></div>
-      <template v-if="!productionPlanSplitDirty && !productionPlanSplitDrawerLoading">
-        <div v-for="item in productionPlanSplitDrawer.items || []" :key="item.id"><strong>{{ item.output_name || item.product_name }}</strong><OperationReportingRecheck kind="plan_item" :id="Number(item.id)" @updated="closeProductionPlanSplitDrawer(true); reloadProductionPlanDetail()" /></div>
-      </template>
       <ProductionPlanCapacityWorkspace
         :detail="productionPlanSplitDrawer"
         :rows="productionPlanSplitRows"
@@ -57,11 +54,16 @@
         @workstations-updated="refreshSplitWorkstations"
         @split-change="(split, next) => Object.assign(split, next)"
         @preset-saved="addSavedCapacityPreset"
-      />
+      >
+        <template #semi-finished>
+        <ProductionPlanSemiFinishedStock v-if="productionPlanSplitDrawerDraft && productionPlanSplitDrawer.source_type !== 'stock'" :detail="productionPlanSplitDrawer" :allow-transfer="true" :disabled="productionPlanSplitDirty || productionPlanSplitDrawerSaving || productionSupplySyncing" @editing="semiFinishedEditing = $event" @updated="applySemiFinishedStockPlan" />
+        </template>
+      </ProductionPlanCapacityWorkspace>
     </div>
 
     <div v-else-if="productionPlanDetail" class="production-plan-workspace-shell">
       <div v-if="productionPlanSelectable(productionPlanDetail)" :class="['supply-status', { 'supply-error': productionSupplyError }]" role="status">{{ productionSupplyStatus }} <button v-if="productionSupplyError" type="button" @click="syncProductionPlanSupply">重试</button></div>
+      <ProductionPlanSemiFinishedStock v-if="productionPlanSelectable(productionPlanDetail) && productionPlanDetail.source_type !== 'stock'" :detail="productionPlanDetail" :disabled="productionPlanDetailDirty || productionPlanDetailSaving || productionSupplySyncing" @editing="semiFinishedEditing = $event" @updated="applySemiFinishedStockPlan" />
       <ProductionPlanDetailWorkspace
         :detail="productionPlanDetail"
         :warehouses="warehouses"
@@ -701,7 +703,7 @@ import ProductionSupplyAllocations from '../components/ProductionSupplyAllocatio
 import ProductionPlanDetailWorkspace from '../components/ProductionPlanDetailWorkspace.vue'
 import ProductionPlanTransferDrawer from '../components/ProductionPlanTransferDrawer.vue'
 import ProductionPlanCapacityWorkspace from '../components/ProductionPlanCapacityWorkspace.vue'
-import OperationReportingRecheck from '../components/OperationReportingRecheck.vue'
+import ProductionPlanSemiFinishedStock from '../components/ProductionPlanSemiFinishedStock.vue'
 import ProductionReplanWorkspace from '../components/ProductionReplanWorkspace.vue'
 import { computed, nextTick, onActivated, onDeactivated, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect } from 'vue'
 import { apiGet, apiSend } from '../api/client'
@@ -872,6 +874,7 @@ const productionPlanSplitPreviewError = ref('')
 const productionSupplyStatus = ref('等待核对库存与在产供应')
 const productionSupplyError = ref(false)
 const productionSupplySyncing = ref(false)
+const semiFinishedEditing = ref(false)
 let productionSupplyTimer = 0
 let submitSupplyReconciliationPending = false
 const postSubmitActions = ref([])
@@ -2382,7 +2385,7 @@ function mergeReadonlySupplyObservations(target, fresh) {
 // and keep GET detail requests read-only.
 async function syncProductionPlanSupply() {
   const plan = productionPlanDetail.value || productionPlanSplitDrawer.value
-  if (!planningViewActive || document.visibilityState === 'hidden' || !productionPlanSelectable(plan) || productionSupplySyncing.value || saving.value || productionPlanDetailSaving.value || productionPlanSplitDrawerSaving.value || productionPlanDetailLoading.value || productionPlanSplitDrawerLoading.value) return
+  if (!planningViewActive || document.visibilityState === 'hidden' || !productionPlanSelectable(plan) || semiFinishedEditing.value || productionSupplySyncing.value || saving.value || productionPlanDetailSaving.value || productionPlanSplitDrawerSaving.value || productionPlanDetailLoading.value || productionPlanSplitDrawerLoading.value) return
   const planID = Number(plan.id)
   const dirty = !!hasUnsavedPlanningChanges()
   productionSupplySyncing.value = true
@@ -2428,6 +2431,23 @@ async function syncProductionPlanSupply() {
   } finally {
     productionSupplySyncing.value = false
   }
+}
+
+function applySemiFinishedStockPlan(plan, action = 'selection') {
+  if (!plan?.id) return
+  const updated = normalizeProductionPlanDetailForSplitEditor(plan)
+  productionPlanDetail.value = updated
+  productionPlanDetailSavedFingerprint.value = JSON.stringify(buildProductionPlanDraftPayload(updated))
+  if (updated.draft_token) reviewedProductionPlanTokens[String(updated.id)] = updated.draft_token
+  if (Number(currentPlan.value?.id || 0) === Number(updated.id)) currentPlan.value = updated
+  if (Number(productionPlanSplitDrawer.value?.id || 0) === Number(updated.id)) {
+    productionPlanSplitDrawer.value = updated
+    const rows = (updated.operation_splits || []).map(normalizeOperationSplit)
+    productionPlanSplitRows.value = rows
+    productionPlanSplitSavedFingerprint.value = productionPlanSplitFingerprint(rows)
+    scheduleProductionPlanSplitPreview()
+  }
+  notice.value = action === 'transfer' ? '半成品已转入 WIP 仓。' : '半成品选择已保存，请核对更新后的生产与产能安排。'
 }
 
 function handleProductionSupplyVisibility() {

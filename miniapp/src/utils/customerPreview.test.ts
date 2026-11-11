@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs'
 import { previewSafeEntries } from './customerPreview'
 
 describe('customer preview navigation', () => {
-  it('exposes only the inventory read entry, never ordering or creation flows', () => {
+  it('exposes configured direct ship and inventory entries while hiding other creation flows', () => {
     const entries = ['mall', 'productOrder', 'directShip', 'onDemandShip', 'processing', 'inventory'].map(key => ({ key, label: key, url: '/' + key }))
-    expect(previewSafeEntries(entries).map(entry => entry.key)).toEqual(['inventory'])
+    expect(previewSafeEntries(entries).map(entry => entry.key)).toEqual(['directShip', 'onDemandShip', 'inventory'])
   })
   it('provides admin entry and a return control without logout during preview', () => {
     const home = readFileSync(new URL('../pages/home/home.vue', import.meta.url), 'utf8')

@@ -247,7 +247,7 @@ func TestInflightSupplyConcurrentSubmissionAndCancellationRelease(t *testing.T) 
 				t.Fatal("double allocation")
 			}
 			winner = r.id
-		} else if strings.Contains(r.body, "在途供应余量已变化") {
+		} else if strings.Contains(r.body, "在途供应余量已变化") || strings.Contains(r.body, "供应已变化，草稿已保留") {
 			loser = r.id
 		} else {
 			t.Fatalf("unexpected submit %s", r.body)
@@ -444,12 +444,65 @@ func TestStockSupplyCoverageCombinesExistingStockWithEligibleInflightWarehouse(t
 	for _, node := range preview.ManufacturingPlan.Nodes {
 		if node.Item.Type == "material" && node.Item.ID == 10 {
 			found = true
-			if node.StockCoveredQty != 5 || math.Abs(node.InflightCoveredQty-17.7) > 0.00001 || node.ShortageQty != 0 {
-				t.Fatalf("mixed coverage %+v", node)
+			if node.StockCoveredQty != 0 || math.Abs(node.InflightCoveredQty-22.7) > 0.00001 || node.ShortageQty != 0 {
+				t.Fatalf("new order must not automatically use semi-finished stock: %+v", node)
 			}
 		}
 	}
 	if !found {
 		t.Fatal("roasted demand missing")
+	}
+
+	// A planner may deliberately choose the existing 5 kg. Both the preview
+	// and the persisted graph then cover the same demand with 5 kg stock and
+	// 17.7 kg of the already released upstream work order.
+	created := serveMultilevelProductionJSON(t, app, http.MethodPost, "/api/production-plans", map[string]any{"selected": []string{"1-227"}, "from": "2026-08-01", "to": "2026-08-31"})
+	if created.Code != 200 {
+		t.Fatalf("create order plan %d %s", created.Code, created.Body.String())
+	}
+	var order productionapp.ProductionPlanDetail
+	if err := json.Unmarshal(created.Body.Bytes(), &order); err != nil {
+		t.Fatal(err)
+	}
+	url := fmt.Sprintf("/api/production-plans/%d/semi-finished-stock", order.ID)
+	selections := []any{map[string]any{"key": "material:10", "batch_id": 1010, "warehouse": "raw_materials", "qty": 5}}
+	selectionPreview := serveMultilevelProductionJSON(t, app, http.MethodPost, url, map[string]any{"draft_token": order.DraftToken, "check_only": true, "selections": selections})
+	var reviewed productionapp.SemiFinishedStockResult
+	if selectionPreview.Code != 200 || json.Unmarshal(selectionPreview.Body.Bytes(), &reviewed) != nil || reviewed.PreviewToken == "" {
+		t.Fatalf("selected preview %d %s", selectionPreview.Code, selectionPreview.Body.String())
+	}
+	if len(reviewed.Items) != 1 || reviewed.Items[0].StockCoveredQty != 5 || math.Abs(reviewed.Items[0].InflightCoveredQty-17.7) > 0.00001 || reviewed.Items[0].ManufactureQty != 0 {
+		t.Fatalf("selected preview coverage %+v", reviewed.Items)
+	}
+	confirmed := serveMultilevelProductionJSON(t, app, http.MethodPost, url, map[string]any{"draft_token": order.DraftToken, "preview_token": reviewed.PreviewToken, "selections": selections})
+	var result productionapp.SemiFinishedStockResult
+	if confirmed.Code != 200 || json.Unmarshal(confirmed.Body.Bytes(), &result) != nil || result.Plan == nil {
+		t.Fatalf("confirm %d %s", confirmed.Code, confirmed.Body.String())
+	}
+	var graph struct {
+		Nodes []struct {
+			Item struct {
+				ID   int64  `json:"id"`
+				Type string `json:"type"`
+			} `json:"item"`
+			Stock    float64 `json:"stock_covered_qty"`
+			Inflight float64 `json:"inflight_covered_qty"`
+			Shortage float64 `json:"shortage_qty"`
+		} `json:"nodes"`
+	}
+	if err := json.Unmarshal(result.Plan.SupplyPlan, &graph); err != nil {
+		t.Fatal(err)
+	}
+	persisted := false
+	for _, node := range graph.Nodes {
+		if node.Item.Type == "material" && node.Item.ID == 10 {
+			persisted = true
+			if node.Stock != 5 || math.Abs(node.Inflight-17.7) > 0.00001 || node.Shortage != 0 {
+				t.Fatalf("persisted coverage %+v", node)
+			}
+		}
+	}
+	if !persisted {
+		t.Fatal("selected material missing from persisted graph")
 	}
 }

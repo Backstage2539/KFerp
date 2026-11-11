@@ -131,3 +131,15 @@ func (r Repository) LockPlanTransferInventoryTx(ctx context.Context, tx pgx.Tx, 
 	}
 	return lockStockDocumentPostingTx(ctx, tx, r.schema, detail)
 }
+
+// SubmitPlanStockDocumentTx posts a linked plan transfer inside the caller's transaction.
+func (r Repository) SubmitPlanStockDocumentTx(ctx context.Context, tx pgx.Tx, id int64, actor string) (stockapp.StockDocumentDetail, error) {
+	var sourceType string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT source_type FROM %s.stock_entries WHERE id=$1`, r.schema), id).Scan(&sourceType); err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
+	if sourceType != planMaterialTransferSource {
+		return stockapp.StockDocumentDetail{}, fmt.Errorf("调拨单不属于生产计划")
+	}
+	return r.submitStockDocumentTx(ctx, tx, id, actor)
+}

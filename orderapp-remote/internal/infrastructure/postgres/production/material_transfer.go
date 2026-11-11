@@ -72,7 +72,7 @@ func planTransferOptionMatchesSource(s app.ProductionPlanComponentSource, row st
 // CreatePlanMaterialTransfers creates all selected drafts in one plan-locked
 // transaction. It never moves or reserves stock.
 func (r Repository) CreatePlanMaterialTransfers(ctx context.Context, cmd app.PlanMaterialTransferCommand) (app.PlanMaterialTransferResult, error) {
-	return r.executePlanMaterialTransfers(ctx, cmd, false)
+	return r.executePlanMaterialTransfers(ctx, cmd, false, false)
 }
 func filterPlanTransferPreviewItems(items []app.PlanMaterialTransferItem, validate func([]app.PlanMaterialTransferItem) error) ([]app.PlanMaterialTransferItem, []app.PlanMaterialTransferUnavailable) {
 	accepted := []app.PlanMaterialTransferItem{}
@@ -131,7 +131,7 @@ func (r Repository) PreviewPlanMaterialTransfers(ctx context.Context, cmd app.Pl
 	accepted, rejected := filterPlanTransferPreviewItems(items, func(selected []app.PlanMaterialTransferItem) error {
 		probe := cmd
 		probe.Items = selected
-		_, e := r.executePlanMaterialTransfers(ctx, probe, true)
+		_, e := r.executePlanMaterialTransfers(ctx, probe, true, false)
 		if e != nil && !strings.Contains(e.Error(), "不可调拨") && !strings.Contains(e.Error(), "库存不足") && !strings.Contains(e.Error(), "超过该物料待补数量") {
 			fatal = e
 		}
@@ -144,7 +144,7 @@ func (r Repository) PreviewPlanMaterialTransfers(ctx context.Context, cmd app.Pl
 	if len(accepted) > 0 {
 		probe := cmd
 		probe.Items = accepted
-		valid, e := r.executePlanMaterialTransfers(ctx, probe, true)
+		valid, e := r.executePlanMaterialTransfers(ctx, probe, true, false)
 		if e != nil {
 			return app.PlanMaterialTransferPreview{}, e
 		}
@@ -185,7 +185,7 @@ func (r Repository) PreviewPlanMaterialTransfers(ctx context.Context, cmd app.Pl
 	}
 	return result, nil
 }
-func (r Repository) executePlanMaterialTransfers(ctx context.Context, cmd app.PlanMaterialTransferCommand, preview bool) (app.PlanMaterialTransferResult, error) {
+func (r Repository) executePlanMaterialTransfers(ctx context.Context, cmd app.PlanMaterialTransferCommand, preview, direct bool) (app.PlanMaterialTransferResult, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return app.PlanMaterialTransferResult{}, err
@@ -233,6 +233,34 @@ func (r Repository) executePlanMaterialTransfers(ctx context.Context, cmd app.Pl
 	}
 	if detail.DraftToken != cmd.DraftToken {
 		return app.PlanMaterialTransferResult{}, fmt.Errorf("草稿版本已变化，请重新核对")
+	}
+	// Direct transfers operate exclusively on the saved semi-finished selection.
+	directDocs := []int64{}
+	if direct {
+		selected := map[int64]bool{}
+		selectedSources := []app.ProductionPlanComponentSource{}
+		for _, source := range detail.ComponentSources {
+			if source.AllocationMode != "semi_finished_selected" {
+				continue
+			}
+			selected[source.ID] = true
+			selectedSources = append(selectedSources, source)
+			if source.ShortageG > 0 || source.ShortageUnits > 0 {
+				return app.PlanMaterialTransferResult{}, fmt.Errorf("所选半成品批次库存不足，请重新核对")
+			}
+		}
+		if len(selected) == 0 {
+			return app.PlanMaterialTransferResult{}, fmt.Errorf("请先选择半成品批次")
+		}
+		desired := planTransferSuggestions(selectedSources, nil)
+		lines, e := loadDirectTransferDraftLines(ctx, tx, r.schema, cmd.ProductionPlanID)
+		if e != nil {
+			return app.PlanMaterialTransferResult{}, e
+		}
+		cmd.Items, directDocs, e = reconcileDirectTransferDrafts(desired, selected, lines)
+		if e != nil {
+			return app.PlanMaterialTransferResult{}, e
+		}
 	}
 	previewResult := app.PlanMaterialTransferResult{Groups: []app.PlanMaterialTransferGroup{}, Unavailable: []app.PlanMaterialTransferUnavailable{}, PendingDocuments: []app.PlanMaterialTransferPending{}}
 	if preview {
@@ -301,6 +329,7 @@ func (r Repository) executePlanMaterialTransfers(ctx context.Context, cmd app.Pl
 	usedBatchG := map[string]int64{}
 	usedBatchUnits := map[string]int64{}
 	pendingBatch := map[string][2]int64{}
+	usedSelectedSourceBatch := map[string][2]int64{}
 	stockRepo := stockpg.NewRepository(r.pool, r.schema)
 	// Lock every physical identity before reading availability, matching stock posting's lock order.
 	lockItems := []stock.StockDocumentItemRow{}
@@ -357,6 +386,19 @@ func (r Repository) executePlanMaterialTransfers(ctx context.Context, cmd app.Pl
 			}
 			if candidate == nil {
 				return app.PlanMaterialTransferResult{}, fmt.Errorf("来源批次不可调拨，请重新核对")
+			}
+			if source.AllocationMode == "semi_finished_selected" {
+				key := fmt.Sprintf("%d:%s:%d:%s", choice.SourceID, choice.Warehouse, choice.OwnerCustomerID, batch.BatchCode)
+				used := usedSelectedSourceBatch[key]
+				var pendingG, pendingN int64
+				err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(i.qty_g),0),COALESCE(SUM(i.qty_units),0) FROM %[1]s.production_plan_material_transfer_links l JOIN %[1]s.stock_entries e ON e.id=l.stock_entry_id AND e.status='draft' JOIN %[1]s.stock_entry_items i ON i.id=l.stock_entry_item_id WHERE l.production_plan_id=$1 AND l.component_source_id=$2 AND i.from_warehouse=$3 AND i.owner_customer_id=$4 AND i.batch_code=$5`, r.schema), cmd.ProductionPlanID, choice.SourceID, choice.Warehouse, choice.OwnerCustomerID, batch.BatchCode).Scan(&pendingG, &pendingN)
+				if err != nil {
+					return app.PlanMaterialTransferResult{}, err
+				}
+				if err = validateSelectedSemiFinishedTransfer(source, choice.Warehouse, choice.OwnerCustomerID, batch.BatchCode, batch.QtyG, batch.QtyUnits, used[0]+pendingG, used[1]+pendingN); err != nil {
+					return app.PlanMaterialTransferResult{}, err
+				}
+				usedSelectedSourceBatch[key] = [2]int64{used[0] + batch.QtyG, used[1] + batch.QtyUnits}
 			}
 			key := fmt.Sprintf("%s:%s:%d:%d:%d:%d:%d:%s", choice.Warehouse, kind, source.ComponentID, source.ComponentBOMSpecID, source.ComponentBOMVariantID, source.ComponentSpecG, choice.OwnerCustomerID, batch.BatchCode)
 			pending, found := pendingBatch[key]
@@ -422,6 +464,15 @@ func (r Repository) executePlanMaterialTransfers(ctx context.Context, cmd app.Pl
 		return previewResult, nil
 	}
 	result := app.PlanMaterialTransferResult{Documents: []stock.StockDocumentDetail{}}
+	if direct {
+		for _, id := range directDocs {
+			posted, e := stockRepo.SubmitPlanStockDocumentTx(ctx, tx, id, cmd.Operator)
+			if e != nil {
+				return result, e
+			}
+			result.Documents = append(result.Documents, posted)
+		}
+	}
 	for _, g := range groups {
 		doc, err := stockRepo.CreatePlanStockDocumentDraftTx(ctx, tx, stock.StockDocumentCommand{Purpose: stock.PurposeMaterialTransfer, EntryType: stock.PurposeMaterialTransfer, SourceType: "production_plan_material_transfer", SourceID: cmd.ProductionPlanID, Operator: cmd.Operator, Items: g.items})
 		if err != nil {
@@ -441,7 +492,20 @@ func (r Repository) executePlanMaterialTransfers(ctx context.Context, cmd app.Pl
 				return result, err
 			}
 		}
+		if direct {
+			doc, err = stockRepo.SubmitPlanStockDocumentTx(ctx, tx, doc.ID, cmd.Operator)
+			if err != nil {
+				return result, err
+			}
+		}
 		result.Documents = append(result.Documents, doc)
+	}
+	if direct {
+		updated, e := loadProductionPlanDetailTx(ctx, tx, r.schema, cmd.ProductionPlanID)
+		if e != nil {
+			return result, e
+		}
+		result.Plan = &updated
 	}
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
@@ -451,7 +515,7 @@ func (r Repository) executePlanMaterialTransfers(ctx context.Context, cmd app.Pl
 	if err != nil {
 		return result, err
 	}
-	if err = postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "production_plan", &cmd.ProductionPlanID, "create_material_transfers", postgresinfra.StrPtr("stock_entries"), nil, nil, postgresinfra.AuditMeta{"count": len(result.Documents)}); err != nil {
+	if err = postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "production_plan", &cmd.ProductionPlanID, map[bool]string{true: "transfer_semi_finished_to_wip", false: "create_material_transfers"}[direct], postgresinfra.StrPtr("stock_entries"), nil, nil, postgresinfra.AuditMeta{"count": len(result.Documents)}); err != nil {
 		return result, err
 	}
 	if err = tx.Commit(ctx); err != nil {

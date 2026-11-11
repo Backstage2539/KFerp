@@ -76,7 +76,30 @@ func (s *Service) PreviewPlanMaterialTransfers(ctx context.Context, c PlanMateri
 	return r.PreviewPlanMaterialTransfers(ctx, c)
 }
 
+type SemiFinishedTransferCommand struct {
+	PlanID         int64  `json:"-"`
+	DraftToken     string `json:"draft_token"`
+	IdempotencyKey string `json:"idempotency_key"`
+	Operator       string `json:"-"`
+}
+
+type SemiFinishedTransferRepository interface {
+	TransferSemiFinishedToWIP(context.Context, SemiFinishedTransferCommand) (PlanMaterialTransferResult, error)
+}
+
+func (s *Service) TransferSemiFinishedToWIP(ctx context.Context, cmd SemiFinishedTransferCommand) (PlanMaterialTransferResult, error) {
+	if cmd.PlanID <= 0 || strings.TrimSpace(cmd.DraftToken) == "" || strings.TrimSpace(cmd.IdempotencyKey) == "" {
+		return PlanMaterialTransferResult{}, fmt.Errorf("请先保存计划并重新核对")
+	}
+	r, ok := s.repo.(SemiFinishedTransferRepository)
+	if !ok {
+		return PlanMaterialTransferResult{}, fmt.Errorf("半成品转仓暂不可用")
+	}
+	return r.TransferSemiFinishedToWIP(ctx, cmd)
+}
+
 type PlanMaterialTransferResult struct {
+	Plan             *ProductionPlanDetail             `json:"plan,omitempty"`
 	Documents        []stockapp.StockDocumentDetail    `json:"documents,omitempty"`
 	Groups           []PlanMaterialTransferGroup       `json:"groups,omitempty"`
 	Unavailable      []PlanMaterialTransferUnavailable `json:"unavailable,omitempty"`

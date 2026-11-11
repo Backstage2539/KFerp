@@ -1,3 +1,37 @@
+### PR-760-SEMI-FINISHED-DIRECT-WIP
+
+- Branch: `codex/semi-finished-direct-wip-20261111`；Owner: Codex；Status: 开发中，待用户验收。
+- Scope: 半成品单次确认、产能页直接调入 WIP、同批次实际仓位校验及精简报工核对。
+- DEV: `DEV-PR760-01` 同批 WIP 覆盖；`DEV-PR760-02` 原子调拨及权限；`DEV-PR760-03` 页面；`DEV-PR760-04` 手册与交付。
+- Verifier: 定向 RED/GREEN；隔离 PostgreSQL 和真实 HTTP 选批转仓工单链、多订单共享与并发外部入 WIP 通过；前端 1922 项及构建、桌面和窄屏模拟页面检查通过；详见验收记录。
+- Deployment: develop `470dcddd21a515a8d3b624cfad87904ca0ac0fec`；正式运行 `c739b3d82438f18e84ef5e5c8aa2485b0d95d303`，应用运行且重启 0、数据库健康、登录 200、匿名计划 API 401、管理员计划 API 200，页面资源公网与部署源码哈希一致。生产小程序包已构建导出，微信上传与发布待办；不操作真实业务计划。
+
+### PR-MINIAPP-INVENTORY-SUMMARY-20261111
+
+- Branch: `codex/miniapp-inventory-summary-20261111`；DEV: `DEV-MINIAPP-INVENTORY-SUMMARY-20261111`。
+- Scope: 客户小程序代发库存摘要只显示现货可用与待入库已预订，保留库存计算及补购行为。
+- Status: 定向 RED/GREEN 36 项、小程序全量 527 项、类型检查及 support Go 测试通过；开发／正式部署进行中，用户验收待完成。
+
+### PR-MINIAPP-CUSTOMER-ACCESS-20261111
+
+- Branch: `codex/miniapp-customer-access-repair-20261111`；DEV: `DEV-MINIAPP-ACCESS-PASSWORD`、`DEV-MINIAPP-ACCESS-PREVIEW`、`DEV-MINIAPP-ACCESS-DELIVERY`。
+- Scope: ERP 可控密码入口；客户代发完整只读预览、库存与补购入口；生产验证不提交真实订单。
+- Status: 定向 RED/GREEN、小程序 524 项、类型检查、Vue 1917 项及构建、无数据库 Go 全包通过；隔离数据库验证、开发／正式部署和用户验收待完成。
+
+### PR-759-SEMI-FINISHED-STOCK-SELECTION
+- Branch: `codex/semi-finished-stock-selection`；Owner: Codex；Status: 已部署开发环境，待用户验收。
+- Scope: 订单计划手动选择半成品批次、预览并重算生产和产能，保留历史草稿及批次追溯。
+- DEV: `DEV-PR759-01` 供应策略、预览与重算；`DEV-PR759-02` 批次、库存与工单一致性；`DEV-PR759-03` 物料及产能页面；`DEV-PR759-04` 验证、手册与交付。
+- Verifier: 前端 1917 项及构建、无数据库 Go 全量、隔离数据库关键 API、库存/调拨及并发测试通过；开发服务器部署源码及开发数据库独立 schema 中的选批→调拨→入 WIP→提交→批次占用通过，生产接口全量分组的既有失败与基线逐项对照，详见验收文档。
+- Deployment: ERP-only development `bdc074cb5dcd2b1ad79dd53f75c1273464c71f94`；应用运行且重启次数 0、数据库健康、匿名身份 API 401、管理员身份 API 200、需求记录及前端资源标记可见，外部登录页 200；沿用原小程序包。回滚源 `/opt/stacks/erp/orderapp.backup.deploy-20261111154241-bdc074cb5dcd`。Van 验收待完成。
+
+### PR-MINIAPP-PREVIEW-DROPSHIP-20261111
+
+- Scope: 管理员只读预览按所选客户已开通场景显示「一件代发」「无库存代发」入口，查看客户商品、规格和收件地址；不可下单、修改地址或读取/覆盖客户草稿。
+- Branch: `codex/customer-preview-dropship-20261111`；DEV: `DEV-MINIAPP-PREVIEW-DROPSHIP-UI`、`DEV-MINIAPP-PREVIEW-DROPSHIP-ACCESS`。
+- Verification: 小程序全量 510 项、类型检查及开发包构建通过；客户门户与权限接口测试通过，覆盖客户归属和写操作拒绝；服务器 Go 和镜像测试通过。用户业务验收待完成。
+- Development: `640d7d6dc0f5b68c884af79acf6cf3807cfa0fa7`；应用运行、数据库健康、匿名需求接口 401、登录 200、需求记录可见；开发小程序包 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，旧包备份及服务回滚源见验收记录。生产未部署。
+
 ### PR-758-UPSTREAM-WAIT
 - Branch: `codex/production-upstream-preparation-20261111`; base: `origin/develop`.
 - Scope: 物料准备区区分前道待生产与需现货调拨的数量，并核对单项及批量调拨保护。

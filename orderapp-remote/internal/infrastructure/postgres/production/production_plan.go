@@ -78,8 +78,8 @@ func (r Repository) CreateProductionPlan(ctx context.Context, cmd productionapp.
 	tmpNo := fmt.Sprintf("PP-TMP-%d", time.Now().UnixNano())
 	var planID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_plans(plan_no,source_type,status,from_date,to_date,customer_id,created_by,created_at,picking_version)
-		VALUES($1,$2,'draft',NULLIF($3,'')::date,NULLIF($4,'')::date,$5,$6,now(),1)
+		INSERT INTO %s.production_plans(plan_no,source_type,status,from_date,to_date,customer_id,created_by,created_at,picking_version,semi_finished_stock_policy)
+		VALUES($1,$2,'draft',NULLIF($3,'')::date,NULLIF($4,'')::date,$5,$6,now(),1,'manual')
 		RETURNING id
 	`, r.schema), tmpNo, firstNonEmpty(cmd.SourceType, "erp_order"), cmd.From, cmd.To, cmd.CustomerID, cmd.Operator).Scan(&planID); err != nil {
 		return productionapp.ProductionPlanDetail{}, err
@@ -203,6 +203,19 @@ func (r Repository) UpdateProductionPlan(ctx context.Context, cmd productionapp.
 		return productionapp.ProductionPlanDetail{}, fmt.Errorf("已生成工单的生产计划不可修改")
 	}
 
+	// Rebuilding demand replaces plan item IDs and the supply graph. Keep
+	// selected batches and linked transfer drafts from becoming orphaned.
+	var pendingTransfer, selectedSemiFinished bool
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.production_plan_material_transfer_links l JOIN %[1]s.stock_entries e ON e.id=l.stock_entry_id WHERE l.production_plan_id=$1 AND e.status='draft'), EXISTS(SELECT 1 FROM %[1]s.production_plan_semi_finished_selections s WHERE s.production_plan_id=$1)`, r.schema), cmd.ID).Scan(&pendingTransfer, &selectedSemiFinished); err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	if pendingTransfer {
+		return productionapp.ProductionPlanDetail{}, fmt.Errorf("存在待确认的物料调拨单，请先确认或取消后再修改需求")
+	}
+	if selectedSemiFinished {
+		return productionapp.ProductionPlanDetail{}, fmt.Errorf("已选择半成品库存，请先在半成品选择中清空已选数量，再修改需求")
+	}
+
 	oldItems, err := loadProductionPlanItemsTx(ctx, tx, r.schema, cmd.ID)
 	if err != nil {
 		return productionapp.ProductionPlanDetail{}, err
@@ -222,6 +235,11 @@ func (r Repository) UpdateProductionPlan(ctx context.Context, cmd productionapp.
 		oldByKey[productionPlanDraftArrangementKey(item)] = item
 	}
 
+	// A new demand set needs fresh frozen recipes, not archived outputs from
+	// the previous demand graph. This is in the same transaction as rebuild.
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.production_plan_frozen_manufacturing_outputs WHERE production_plan_id=$1`, r.schema), cmd.ID); err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
 	if err = unlinkProcessingRequestItemsFromCancelledPlanTx(ctx, tx, r.schema, cmd.ID); err != nil {
 		return productionapp.ProductionPlanDetail{}, err
 	}

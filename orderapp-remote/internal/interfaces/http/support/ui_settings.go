@@ -14,10 +14,12 @@ import (
 
 const keyHideCustomerAccountFulfillment = "ui.customer_account.hide_fulfillment_console"
 const keyMiniappShareImageNeedShowEntrance = "miniapp.share_image.need_show_entrance"
+const keyMiniappPasswordEntry = "miniapp.login.show_password"
 const keyMiniappShareScope = "miniapp.share.scope"
 
 type UISettings struct {
 	HideCustomerAccountFulfillment bool `json:"hide_customer_account_fulfillment"`
+	ShowMiniappPasswordLogin       bool `json:"show_miniapp_password_login"`
 }
 
 type AppConfigStore interface {
@@ -117,6 +119,7 @@ func effectiveAppConfigOldValue(key, raw string, exists bool) (string, bool) {
 		keyHideCustomerAccountFulfillment:    "true",
 		keyMiniappShareImageNeedShowEntrance: "true",
 		keyMiniappShareScope:                 "employee",
+		keyMiniappPasswordEntry:              "false",
 	}[strings.TrimSpace(key)]
 	if !hasDefault {
 		return raw, exists
@@ -143,6 +146,11 @@ func loadUISettings(ctx context.Context, store uiSettingsStore) (UISettings, err
 		if parseErr == nil {
 			settings.HideCustomerAccountFulfillment = parsed
 		}
+	}
+	if raw, ok, err := store.Get(ctx, keyMiniappPasswordEntry); err != nil {
+		return UISettings{}, err
+	} else if ok {
+		settings.ShowMiniappPasswordLogin, _ = strconv.ParseBool(strings.TrimSpace(raw))
 	}
 	return settings, nil
 }
@@ -172,13 +180,28 @@ func registerUISettingsAPI(e *echo.Echo, store uiSettingsStore, authz AuthzServi
 		if !actor.Can("settings.write") {
 			return c.JSON(http.StatusForbidden, map[string]string{"error": "permission denied", "permission": "settings.write"})
 		}
-		var req UISettings
+		var req struct {
+			HideCustomerAccountFulfillment *bool `json:"hide_customer_account_fulfillment"`
+			ShowMiniappPasswordLogin       *bool `json:"show_miniapp_password_login"`
+		}
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		}
-		value := strconv.FormatBool(req.HideCustomerAccountFulfillment)
-		if err := store.Set(c.Request().Context(), actor.Name, keyHideCustomerAccountFulfillment, value); err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		if req.ShowMiniappPasswordLogin != nil && req.HideCustomerAccountFulfillment != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "请分别保存小程序登录和其他设置"})
+		}
+		if req.ShowMiniappPasswordLogin != nil && !actor.IsAdmin() {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "仅管理员可修改小程序密码登录入口"})
+		}
+		if req.HideCustomerAccountFulfillment != nil {
+			if err := store.Set(c.Request().Context(), actor.Name, keyHideCustomerAccountFulfillment, strconv.FormatBool(*req.HideCustomerAccountFulfillment)); err != nil {
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			}
+		}
+		if req.ShowMiniappPasswordLogin != nil {
+			if err := store.Set(c.Request().Context(), actor.Name, keyMiniappPasswordEntry, strconv.FormatBool(*req.ShowMiniappPasswordLogin)); err != nil {
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			}
 		}
 		settings, err := loadUISettings(c.Request().Context(), store)
 		if err != nil {

@@ -978,6 +978,7 @@ onShow(() => { void refreshMiniappShareMenu() })
         :token="session.token"
         :customer-id="session.currentCustomerID"
         :entry-mode="directShipEntryMode"
+        :read-only="session.isCustomerPreview"
       />
       <CustomerDirectShipPanel
         v-else-if="serviceKey === 'productOrder'"
@@ -986,6 +987,7 @@ onShow(() => { void refreshMiniappShareMenu() })
         :customer-id="session.currentCustomerID"
         order-mode="product_order"
         :stock-purchase="stockPurchase"
+        :read-only="session.isCustomerPreview"
       />
       <CustomerProcessingPanel
         v-else-if="serviceKey === 'processing'"
