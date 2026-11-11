@@ -6570,6 +6570,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier: `node --test orderapp-remote/frontend-vue-shell/src/lib/stock-transfer-options*.test.js`; `scripts/verify_kferp.sh frontend-tests`; `scripts/verify_kferp.sh frontend-build`; `go test ./internal/interfaces/http/stock ./internal/application/stock`.
 - GREEN: frontend tests 1681/1681, frontend build, full backend, stock API, and local browser fixture. Production observed read-only; no production stock document or business data changed. Development/production deployment not performed.
 
+### PR-NOTIFICATION-CHOICE-20261111
+- Branch: `codex/order-wechat-notifications-20261108`; status doing. 首次/后台请求重选时提示；明确拒绝和稍后处理；服务号绑定与选择分开，不自动授权。DEV-NOTICE-CHOICE-01/02/03 分别覆盖后端、小程序、后台及验收。验收：状态隔离、重选并发、授权与日志、登录/深链、错误、前端与小程序构建。生产部署未授权。
+- `scripts/reserve_req_id.sh --claim` 在 macOS awk 报错且未写入；上游数值编号已并行使用，采用唯一语义编号避免冲突。
+
 ### PR-750-ORDER-WECHAT-NOTIFICATIONS
 - 生产账号 285 已绑定并开启通知，所选包含四类目标通知；四条虚拟测试各发送一次、微信回执均 success，Van 回复收到。账号 90 原绑定已转移；具体业务单据详情及生产群实测仍未通过，自动发送仍关闭。
 - Van 明确选择解除账号 90 并改绑 285；生产 ERP 显示账号 90 已解绑，公众号订单查询停止。账号 285 的手机确认及通知偏好尚待完成，不能记为改绑成功。

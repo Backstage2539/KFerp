@@ -111,7 +111,7 @@ func (h *Handler) Callback(c echo.Context) error {
 				if err != nil {
 					return c.NoContent(400)
 				}
-				if err := h.Repo.NotificationScan(ctx, challenge, h.Config.AppID, msg.From); err != nil {
+				if err := h.Repo.NotificationScan(ctx, challenge, h.Config.AppID, msg.From, msg.Created); err != nil {
 					return c.NoContent(503)
 				}
 				return c.String(200, "success")

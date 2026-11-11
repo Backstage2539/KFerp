@@ -78,6 +78,7 @@ func TestOrderNotificationsAPISixDesktopBindingAndGuards(t *testing.T) {
 	const agent = "/api/mini/notification-agent"
 	call("GET", admin, f.salesToken, nil, false, 403)
 	call("GET", mini, "", nil, false, 401)
+	call("PUT", mini+"/prompt", f.salesToken, map[string]any{"mini_user_id": f.sales.MiniUserID, "customer_id": 0, "employee_id": f.sales.EmployeeID, "version": 1, "enabled": true, "events": []string{"created", "paid", "production_started", "production_finished", "shipped", "cancelled"}}, false, 200)
 	out := call("POST", mini+"/binding", f.salesToken, nil, false, 200)
 	var challenge string
 	json.Unmarshal(out["token"], &challenge)

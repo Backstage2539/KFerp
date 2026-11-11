@@ -1128,7 +1128,14 @@ func TestNotificationExplicitRebindAfterDeactivation(t *testing.T) {
 	}
 	var mini int64
 	var active, enabled bool
-	if err = p.QueryRow(ctx, fmt.Sprintf(`SELECT mini_user_id,active,notifications_enabled FROM %s.wechat_bindings WHERE app_id='app' AND openid='openid'`, s)).Scan(&mini, &active, &enabled); err != nil || mini != 2 || !active || !enabled {
+	if err = p.QueryRow(ctx, fmt.Sprintf(`SELECT mini_user_id,active,notifications_enabled FROM %s.wechat_bindings WHERE app_id='app' AND openid='openid'`, s)).Scan(&mini, &active, &enabled); err != nil || mini != 2 || !active || enabled {
 		t.Fatalf("rebind failed: mini=%d active=%v enabled=%v err=%v", mini, active, enabled, err)
+	}
+	prefs, err := repo.NotificationPreferences(ctx, "app", 2)
+	if err != nil || len(prefs) != 1 || len(prefs[0].Events) != 0 {
+		t.Fatalf("rebind inherited old choices: %+v %v", prefs, err)
+	}
+	if err = repo.SaveNotificationChoice(ctx, "app", 2, 0, 10, 1, true, []string{"order_accepted"}); err != nil {
+		t.Fatal(err)
 	}
 }
