@@ -6611,6 +6611,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-NOTIFICATION-CHOICE-20261111
 - Branch: `codex/order-wechat-notifications-20261108`; status doing. 首次/后台请求重选时提示；明确拒绝和稍后处理；服务号绑定与选择分开，不自动授权。DEV-NOTICE-CHOICE-01/02/03 分别覆盖后端、小程序、后台及验收。验收：状态隔离、重选并发、授权与日志、登录/深链、错误、前端与小程序构建。生产部署未授权。
+- Development: 已合入并部署 `develop@6879bb2ce54165e711e3f65044606b712d800685`；开发小程序包 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`。运行检查通过；微信开发者工具已观察首次提示及稍后选择后的页面切换，真机和用户验收待确认。服务器磁盘剩余约 784 MB，需安排容量处理。本次未部署生产，也未上传或发布微信小程序。详见 `orderapp-remote/docs/acceptance/2026-11-11-notification-choice.md`。
 - `scripts/reserve_req_id.sh --claim` 在 macOS awk 报错且未写入；上游数值编号已并行使用，采用唯一语义编号避免冲突。
 
 ### PR-750-ORDER-WECHAT-NOTIFICATIONS
