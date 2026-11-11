@@ -2,7 +2,8 @@
 
 - Scope: 管理员只读预览按所选客户已开通场景显示「一件代发」「无库存代发」入口，查看客户商品、规格和收件地址；不可下单、修改地址或读取/覆盖客户草稿。
 - Branch: `codex/customer-preview-dropship-20261111`；DEV: `DEV-MINIAPP-PREVIEW-DROPSHIP-UI`、`DEV-MINIAPP-PREVIEW-DROPSHIP-ACCESS`。
-- Verification: 针对页面及接口进行 RED/GREEN、客户归属和写操作拒绝验证；用户业务验收待完成。
+- Verification: 小程序全量 510 项、类型检查及开发包构建通过；客户门户与权限接口测试通过，覆盖客户归属和写操作拒绝；服务器 Go 和镜像测试通过。用户业务验收待完成。
+- Development: `640d7d6dc0f5b68c884af79acf6cf3807cfa0fa7`；应用运行、数据库健康、匿名需求接口 401、登录 200、需求记录可见；开发小程序包 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，旧包备份及服务回滚源见验收记录。生产未部署。
 
 ### PR-758-UPSTREAM-WAIT
 - Branch: `codex/production-upstream-preparation-20261111`; base: `origin/develop`.
