@@ -565,3 +565,13 @@ test('source adjustment refreshes the drawer source after saving the draft', asy
   assert.equal(app.state.productionPlanTransferDrawer.value.source.component_name, '已更新来源')
  } finally { app.close() }
 })
+
+test('semi-finished-stock editing does not trigger supply reconciliation', async () => {
+  const app = await setup()
+  try {
+    app.state.productionPlanDetail.value = structuredClone(draft)
+    app.state.semiFinishedEditing.value = true
+    await app.state.syncProductionPlanSupply()
+    assert.equal(app.calls.filter(([method, path]) => method === 'apiSend' && String(path).includes('refresh-supply')).length, 0)
+  } finally { app.close() }
+})

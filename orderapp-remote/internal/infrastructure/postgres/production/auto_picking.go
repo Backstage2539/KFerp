@@ -177,6 +177,9 @@ func preparePickingSourcesTx(ctx context.Context, tx pgx.Tx, schema string, plan
 	}
 	if status == "draft" {
 		calculatePickingSources(sources)
+		if err := applySelectedSemiFinishedBatchSourcesTx(ctx, tx, schema, planID, sources); err != nil {
+			return err
+		}
 		return fillPickingBatchSuggestionsTx(ctx, tx, schema, sources)
 	}
 	return loadFrozenPickingProgressTx(ctx, tx, schema, sources)
@@ -274,6 +277,9 @@ func validateAutoPickingAtSubmitTx(ctx context.Context, tx pgx.Tx, schema string
 			return err
 		}
 	}
+	if err := guardSelectedSemiFinishedUnboundReservationsTx(ctx, tx, schema, planID); err != nil {
+		return err
+	}
 	sources, err := loadProductionPlanComponentSourcesTx(ctx, tx, schema, planID)
 	if err != nil {
 		return err
@@ -294,6 +300,9 @@ func fillPickingBatchSuggestionsTx(ctx context.Context, tx pgx.Tx, schema string
 	used := map[string][2]int64{}
 	for i := range sources {
 		s := &sources[i]
+		if s.AllocationMode == "semi_finished_selected" {
+			continue
+		}
 		for j := range s.Allocations {
 			a := &s.Allocations[j]
 			var rows pgx.Rows

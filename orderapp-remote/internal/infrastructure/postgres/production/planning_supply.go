@@ -304,8 +304,20 @@ func pendingMaterialSuppliesTx(ctx context.Context, tx pgx.Tx, schema string, ba
 }
 
 // The same frozen-root expansion is used by read-only previews and draft creation.
-func buildManufacturingExpansionTx(ctx context.Context, tx pgx.Tx, schema string, roots []app.ProductionPlanItem) (manufacturingExpansion, error) {
+func buildManufacturingExpansionTx(ctx context.Context, tx pgx.Tx, schema string, roots []app.ProductionPlanItem, newOrderPreview ...bool) (manufacturingExpansion, error) {
 	result := manufacturingExpansion{Roots: map[string]app.ProductionPlanItem{}, Supplies: map[string][]pendingMaterialSupply{}, Owners: map[string]int64{}}
+	policy := ""
+	planID := int64(0)
+	if len(roots) > 0 {
+		planID = roots[0].PlanID
+	}
+	if planID > 0 {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT semi_finished_stock_policy FROM %s.production_plans WHERE id=$1`, schema), planID).Scan(&policy); err != nil {
+			return result, err
+		}
+	} else if len(newOrderPreview) > 0 && newOrderPreview[0] {
+		policy = "manual"
+	}
 	rootNeeds := map[int64][]materialConsumptionNeed{}
 	allNeeds := []materialConsumptionNeed{}
 	for i, root := range roots {
@@ -352,6 +364,7 @@ func buildManufacturingExpansionTx(ctx context.Context, tx pgx.Tx, schema string
 		}
 		frozen := []app.ProductionPlanItem{}
 		var frozenNeeds []materialConsumptionNeed
+		liveFrozenKeys := map[string]bool{}
 		for _, item := range storedItems {
 			if !childIDs[item.ID] {
 				continue
@@ -362,6 +375,45 @@ func buildManufacturingExpansionTx(ctx context.Context, tx pgx.Tx, schema string
 			}
 			frozen = append(frozen, item)
 			frozenNeeds = append(frozenNeeds, needs...)
+			typ, id := item.OutputType, item.OutputProductID
+			if typ == "material" {
+				id = item.OutputMaterialID
+			}
+			liveFrozenKeys[manufacturingItemIdentityKey(typ, id, item.BomSpecID)] = true
+		}
+		if policy == "manual" {
+			archiveRows, e := tx.Query(ctx, fmt.Sprintf(`SELECT item_key,item_snapshot FROM %s.production_plan_frozen_manufacturing_outputs WHERE production_plan_id=$1 ORDER BY item_key`, schema), planID)
+			if e != nil {
+				return result, e
+			}
+			for archiveRows.Next() {
+				var key string
+				var raw []byte
+				if e = archiveRows.Scan(&key, &raw); e != nil {
+					archiveRows.Close()
+					return result, e
+				}
+				if liveFrozenKeys[key] {
+					continue
+				}
+				var item app.ProductionPlanItem
+				if e = json.Unmarshal(raw, &item); e != nil {
+					archiveRows.Close()
+					return result, e
+				}
+				needs, loadErr := productionPlanItemConsumptionNeeds(item)
+				if loadErr != nil {
+					archiveRows.Close()
+					return result, loadErr
+				}
+				frozen = append(frozen, item)
+				frozenNeeds = append(frozenNeeds, needs...)
+			}
+			e = archiveRows.Err()
+			archiveRows.Close()
+			if e != nil {
+				return result, e
+			}
 		}
 		if len(frozenNeeds) > 0 {
 			extraBases, extraBOMs, extraSpecs, e := loadDefaultManufacturingOutputBOMsForPlanningTx(ctx, tx, schema, frozenNeeds)
@@ -533,6 +585,27 @@ func buildManufacturingExpansionTx(ctx context.Context, tx pgx.Tx, schema string
 			}
 		}
 		available[key] = manufacturingQtyFromCanonical(g, n, ref.Unit)
+		if policy == "manual" && ref.Type == "material" {
+			if _, isManufactured := bases[key]; isManufactured {
+				var isSemi bool
+				if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(is_semi_finished,false) FROM %s.materials WHERE id=$1`, schema), ref.ID).Scan(&isSemi); err != nil {
+					return result, err
+				}
+				if isSemi {
+					var selectedG, selectedUnits int64
+					if planID > 0 {
+						if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(qty_g),0),COALESCE(SUM(qty_units),0) FROM %s.production_plan_semi_finished_selections WHERE production_plan_id=$1 AND item_key=$2`, schema), planID, key).Scan(&selectedG, &selectedUnits); err != nil {
+							return result, err
+						}
+					}
+					selected := manufacturingQtyFromCanonical(selectedG, selectedUnits, ref.Unit)
+					available[key], err = semiFinishedStockBudget(policy, true, available[key], selected)
+					if err != nil {
+						return result, fmt.Errorf("%s：%w", ref.Name, err)
+					}
+				}
+			}
+		}
 		if ref.Type == "material" {
 			if basis, ok := bases[key]; ok {
 				supplies, err := pendingMaterialSuppliesTx(ctx, tx, schema, basis, "", owner)
@@ -767,6 +840,46 @@ func createExpandedProductionItemsReusingTx(ctx context.Context, tx pgx.Tx, sche
 
 	result.MaterialSummary = aggregateProductionPlanMaterialSummary(result.Items)
 	if planID > 0 {
+		// Freeze every reachable manufacturing recipe, including one completely
+		// covered by stock or in-flight supply and therefore without a live task.
+		var policy string
+		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT semi_finished_stock_policy FROM %s.production_plans WHERE id=$1`, schema), planID).Scan(&policy); err != nil {
+			return result, err
+		}
+		if policy == "manual" {
+			keys := make([]string, 0, len(expansion.Bases))
+			for key, basis := range expansion.Bases {
+				if basis.Snapshot != "" {
+					keys = append(keys, key)
+				}
+			}
+			sort.Strings(keys)
+			for _, key := range keys {
+				basis := expansion.Bases[key]
+				var exists bool
+				if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.production_plan_frozen_manufacturing_outputs WHERE production_plan_id=$1 AND item_key=$2)`, schema), planID, key).Scan(&exists); err != nil {
+					return result, err
+				}
+				if exists {
+					continue
+				}
+				item, ok := items[key]
+				if !ok {
+					item, err = insertManufacturingOutputProductionPlanItemTx(ctx, tx, schema, 0, basis, 1, nil)
+					if err != nil {
+						return result, fmt.Errorf("%s 的冻结生产资料不完整：%w", basis.OutputName, err)
+					}
+				}
+				item.PlanID = planID
+				var snapshot []byte
+				if snapshot, err = json.Marshal(item); err != nil {
+					return result, err
+				}
+				if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.production_plan_frozen_manufacturing_outputs(production_plan_id,item_key,item_snapshot) VALUES($1,$2,$3::jsonb) ON CONFLICT DO NOTHING`, schema), planID, key, snapshot); err != nil {
+					return result, err
+				}
+			}
+		}
 		raw, _ := json.Marshal(expansion.Plan)
 		_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_plans SET supply_graph_json=$2 WHERE id=$1`, schema), planID, raw)
 	}
@@ -857,7 +970,11 @@ func (r Repository) PreviewProductionPlan(ctx context.Context, cmd app.CreatePro
 	if len(roots) == 0 {
 		return app.ProductionPlanPreview{}, fmt.Errorf("请选择待计划需求")
 	}
-	return createExpandedProductionItemsTx(ctx, tx, r.schema, 0, roots)
+	expansion, err := buildManufacturingExpansionTx(ctx, tx, r.schema, roots, cmd.SourceType != "stock")
+	if err != nil {
+		return app.ProductionPlanPreview{}, err
+	}
+	return createExpandedProductionItemsReusingTx(ctx, tx, r.schema, 0, roots, nil, &expansion)
 }
 
 func (r Repository) createStockProductionPlan(ctx context.Context, cmd app.CreateProductionPlanCommand) (app.ProductionPlanDetail, error) {
@@ -1034,6 +1151,23 @@ func (r Repository) SyncProductionPlanSupply(ctx context.Context, id int64, oper
 	if checkOnly {
 		return result, nil
 	}
+	// An order draft created before manual selection must keep its original
+	// half-finished allocation, including an original zero-stock allocation.
+	var legacyCovered bool
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(p.semi_finished_stock_policy,'')='' AND COALESCE(p.source_type,'')<>'stock' AND (EXISTS (
+ SELECT 1 FROM jsonb_array_elements(COALESCE(p.supply_graph_json->'nodes','[]'::jsonb)) n
+ JOIN %[1]s.materials m ON m.id=CASE WHEN n->'item'->>'type'='material' THEN COALESCE(NULLIF(n->'item'->>'id',''),'0')::bigint ELSE 0 END
+ WHERE COALESCE(m.is_semi_finished,false) AND %[2]s
+	 ) OR (p.supply_graph_json IS NULL AND EXISTS (
+	 SELECT 1 FROM %[1]s.production_plan_component_sources s JOIN %[1]s.materials m ON m.id=s.component_id
+	 WHERE s.production_plan_id=$1 AND s.component_type='material' AND COALESCE(m.is_semi_finished,false) AND %[2]s
+	 ))) FROM %[1]s.production_plans p WHERE p.id=$1`, r.schema, legacySemiFinishedManufacturableSQL(r.schema, "p.id", "m.id")), id).Scan(&legacyCovered); err != nil {
+		return result, err
+	}
+	if legacyCovered {
+		result.Summary = "原计划包含半成品，供应发生变化；请在半成品选择中核对后再调整"
+		return result, nil
+	}
 	items, err := loadProductionPlanItemsTx(ctx, tx, r.schema, id)
 	if err != nil {
 		return result, err
@@ -1091,6 +1225,9 @@ func (r Repository) SyncProductionPlanSupply(ctx context.Context, id int64, oper
 		return result, err
 	}
 	for _, item := range reuse {
+		if err = archiveSemiFinishedCapacityTx(ctx, tx, r.schema, id, item); err != nil {
+			return result, err
+		}
 		for _, table := range []string{"production_plan_operation_splits", "production_plan_component_sources"} {
 			if _, err = tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.%s WHERE production_plan_item_id=$1`, r.schema, table), item.ID); err != nil {
 				return result, err

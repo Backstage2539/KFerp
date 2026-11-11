@@ -711,8 +711,17 @@ func createMultilevelWorkOrderReservationsTx(ctx context.Context, tx pgx.Tx, sch
 				return err
 			}
 			if modern && hasSource {
+				strictSelected := false
+				if componentType == "material" {
+					strictSelected, err = hasSelectedSemiFinishedBatchesTx(ctx, tx, schema, source.ProductionPlanID, materialID)
+					if err != nil {
+						return err
+					}
+				}
 				for _, a := range source.Allocations {
-					if componentType == "material" {
+					if componentType == "material" && strictSelected {
+						err = bindSelectedSemiFinishedReservationTx(ctx, tx, schema, reservationID, workOrderID, materialID, a)
+					} else if componentType == "material" {
 						err = bindMaterialReservationBatchesTx(ctx, tx, schema, reservationID, workOrderID, materialID, a.Warehouse, a.OwnerCustomerID, a.QtyG, a.QtyUnits)
 					} else {
 						err = bindFinishedProductReservationBatchesTx(ctx, tx, schema, reservationID, workOrderID, componentID, componentBomSpecID, componentBomVariantID, componentSpecG, a.QtyG, a.QtyUnits, a.Warehouse, a.OwnerCustomerID)

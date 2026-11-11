@@ -23,7 +23,7 @@
       </div>
     </header>
 
-    <div v-if="pendingMaterials.length" class="review-error" role="alert">仍有物料未入 WIP，仓库确认后才能提交：<span v-for="row in pendingMaterials" :key="row.id">{{ row.name }} 缺 {{ row.missing_label }}；</span></div>
+    <div v-if="pendingMaterials.length" class="review-error" role="alert">本计划的物料尚未进入生产仓：<span v-for="row in pendingMaterials" :key="row.id">{{ row.name }} 待入仓 {{ row.missing_label }}；</span>请在物料准备中核对来源并请仓库确认调拨后提交。 <button type="button" @click="$emit('back')">返回物料准备</button></div>
     <div v-if="pendingTransferDocuments.length" class="review-error" role="alert">仍有调拨单待仓库确认或取消：{{ pendingTransferDocuments.map(row => row.entry_no || `#${row.id}`).join('、') }}</div>
     <div v-if="needsSupplyRecheck" class="review-error" role="alert">供应数量已变化，请核对工位安排并确认。</div>
     <div v-if="error && groups.length" class="review-error" role="alert">{{ error }}</div>
