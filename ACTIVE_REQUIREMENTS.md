@@ -7,12 +7,12 @@
 - Deployment: 不自动部署正式环境。
 
 ### PR-762-WORKSTATION-INLINE-BATCH
-- Branch: `codex/workstation-batch-inline-20261111`；Status: 已合并，正式部署待服务器扩容。
+- Branch: `codex/workstation-batch-inline-20261111`；Status: 已部署正式环境，用户验收待完成。
 - Scope: 工位任务直接展开全部批次，计划默认值、单批及原子完成全部。
 - DEV: `DEV-PR762-01` 冻结批次默认值；`DEV-PR762-02` 原子批量报工；`DEV-PR762-03` 工位交互；`DEV-PR762-04` 验证及手册。
 - Verifier: 先记录 RED，再验证单测、API、隔离数据库、前端构建与桌面/窄屏；正式环境只读。
 - Evidence: `orderapp-remote/docs/acceptance/2026-11-11-workstation-inline-batches.md`；用户验收待完成。
-- Deployment: develop `f436d83967f3aaa3ef77f7696497065c5f1ac16a`，main `e06d87204`；正式服务器仅约 1.7 GB 可用，保留历史备份与回滚镜像，尚未部署。
+- Deployment: develop `f436d83967f3aaa3ef77f7696497065c5f1ac16a`，正式运行 `cfa8174a060304c4677deebb9cc2aea919741c7a`；服务运行、数据库健康、页面资源一致、小程序包哈希不变；清理旧回滚镜像及发布副本后可用约 37 GB。详见验收记录。
 
 ### PR-761-WORKSTATION-BATCH-WIP- Branch: `codex/semi-finished-direct-wip-20261111`；Status: 已部署正式环境，用户验收待完成。
 - DEV: `DEV-PR761-01` 逐批事务；`DEV-PR761-02` 补料草稿和确认；`DEV-PR761-03` 工位页面和产能口径；`DEV-PR761-04` 手册、验证及交付。
