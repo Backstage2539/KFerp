@@ -2,6 +2,8 @@ package appmain
 
 import (
 	"crypto/sha1"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -27,6 +29,7 @@ func TestOrderNotificationsAPISixDesktopBindingAndGuards(t *testing.T) {
 	f := newSampleFixture(t)
 	cfg := wechat.Config{Enabled: true, AppID: "notify-app", AppSecret: "fixture-secret", Token: "fixture-token-16-chars", AESKey: strings.Repeat("a", 43), MiniAppID: "fixture-mini"}
 	h := notify.RegisterRoutes(f.e, f.pool, f.schema, f.portal, wechatTestAuthz{}, sales.NewService(salespg.NewRepository(f.pool, f.schema)), cfg)
+	officialhttp.RegisterRoutes(f.e, f.pool, f.schema, f.portal, wechatTestAuthz{}, cfg)
 	sent := 0
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -75,6 +78,7 @@ func TestOrderNotificationsAPISixDesktopBindingAndGuards(t *testing.T) {
 	const agent = "/api/mini/notification-agent"
 	call("GET", admin, f.salesToken, nil, false, 403)
 	call("GET", mini, "", nil, false, 401)
+	call("PUT", mini+"/prompt", f.salesToken, map[string]any{"mini_user_id": f.sales.MiniUserID, "customer_id": 0, "employee_id": f.sales.EmployeeID, "version": 1, "enabled": true, "events": []string{"created", "paid", "production_started", "production_finished", "shipped", "cancelled"}}, false, 200)
 	out := call("POST", mini+"/binding", f.salesToken, nil, false, 200)
 	var challenge string
 	json.Unmarshal(out["token"], &challenge)
@@ -82,8 +86,56 @@ func TestOrderNotificationsAPISixDesktopBindingAndGuards(t *testing.T) {
 		t.Fatal("missing QR challenge")
 	}
 	call("GET", mini+"/binding/"+challenge, f.otherToken, nil, false, 400)
-	if err := h.Repo.RecordNotificationScan(f.ctx, challenge, cfg.AppID, "notification-openid"); err != nil {
-		t.Fatal(err)
+	// Exercise the signed callback rather than bypassing it. New compact and
+	// previously issued legacy scenes must both recover the same challenge.
+	for _, tc := range []struct{ format, event string }{{"compact", "SCAN"}, {"legacy", "SCAN"}, {"compact", "subscribe"}} {
+		current := challenge
+		if tc.format == "legacy" || tc.event == "subscribe" {
+			other := call("POST", mini+"/binding", f.salesToken, nil, false, 200)
+			json.Unmarshal(other["token"], &current)
+		}
+		scene := "notify_" + current
+		if tc.format == "compact" {
+			raw, err := hex.DecodeString(current)
+			if err != nil {
+				t.Fatal(err)
+			}
+			scene = "notify_" + base64.RawURLEncoding.EncodeToString(raw)
+		}
+		if tc.event == "subscribe" {
+			scene = "qrscene_" + scene
+		}
+		message := fmt.Sprintf(`<xml><ToUserName>service-account</ToUserName><FromUserName>notification-openid</FromUserName><CreateTime>%d</CreateTime><MsgType>event</MsgType><Event>%s</Event><EventKey>%s</EventKey></xml>`, time.Now().Unix(), tc.event, scene)
+		cipher, err := officialhttp.EncryptMessage(cfg.AESKey, cfg.AppID, []byte(message))
+		if err != nil {
+			t.Fatal(err)
+		}
+		timestamp := fmt.Sprint(time.Now().Unix())
+		parts := []string{cfg.Token, timestamp, "nonce", cipher}
+		sort.Strings(parts)
+		sum := sha1.Sum([]byte(strings.Join(parts, "")))
+		q := url.Values{"encrypt_type": {"aes"}, "timestamp": {timestamp}, "nonce": {"nonce"}, "msg_signature": {fmt.Sprintf("%x", sum)}}
+		forged := url.Values{"encrypt_type": {"aes"}, "timestamp": {timestamp}, "nonce": {"nonce"}, "msg_signature": {strings.Repeat("0", 40)}}
+		forgedReq := httptest.NewRequest("POST", "/api/wechat/official-account/callback?"+forged.Encode(), strings.NewReader("<xml><Encrypt>"+cipher+"</Encrypt></xml>"))
+		forgedRes := httptest.NewRecorder()
+		f.e.ServeHTTP(forgedRes, forgedReq)
+		if forgedRes.Code != 403 {
+			t.Fatalf("%s %s forged signature accepted: %d", tc.format, tc.event, forgedRes.Code)
+		}
+		before, err := h.Repo.BindingChallenge(f.ctx, current, f.sales.MiniUserID)
+		if err != nil || before != "" {
+			t.Fatalf("%s %s forged callback changed binding", tc.format, tc.event)
+		}
+		req := httptest.NewRequest("POST", "/api/wechat/official-account/callback?"+q.Encode(), strings.NewReader("<xml><Encrypt>"+cipher+"</Encrypt></xml>"))
+		res := httptest.NewRecorder()
+		f.e.ServeHTTP(res, req)
+		if res.Code != 200 {
+			t.Fatalf("%s %s callback: %d", tc.format, tc.event, res.Code)
+		}
+		openid, err := h.Repo.BindingChallenge(f.ctx, current, f.sales.MiniUserID)
+		if err != nil || openid != "notification-openid" {
+			t.Fatalf("%s %s callback was not recorded: %v", tc.format, tc.event, err)
+		}
 	}
 	call("POST", mini+"/binding/"+challenge+"/confirm", f.otherToken, nil, false, 400)
 	call("POST", mini+"/binding/"+challenge+"/confirm", f.salesToken, nil, false, 200)
@@ -132,7 +184,6 @@ func TestOrderNotificationsAPISixDesktopBindingAndGuards(t *testing.T) {
 	}
 	call("PUT", admin+"/config", "", disabled, true, 200)
 	// Six actual handler -> queue -> HTTP transport -> signed callback contracts.
-	officialhttp.RegisterRoutes(f.e, f.pool, f.schema, f.portal, wechatTestAuthz{}, cfg)
 	settings := messagepg.DefaultExternalConfig()
 	for _, key := range settings.Events {
 		settings.Templates[key] = wechat.TemplateMapping{ID: "fixture-business-template", Fields: map[string]string{"thing1": "status", "character_string2": "order_no"}}

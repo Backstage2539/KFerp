@@ -1847,6 +1847,7 @@ type WorkOrderDetail struct {
 type JobCardActionCommand struct {
 	ExecutionBatchID           int64                        `json:"execution_batch_id,omitempty"`
 	ActualOutputPresent        bool                         `json:"actual_output_present,omitempty"`
+	ActualMinutesExplicit      bool                         `json:"actual_minutes_explicit,omitempty"`
 	SelectedUnissuedRemainders []PackagingUnissuedRemainder `json:"selected_unissued_remainders,omitempty"`
 	ActualRemainderG           *float64                     `json:"actual_remainder_g,omitempty"`
 	RemainderWarehouse         string                       `json:"remainder_warehouse,omitempty"`

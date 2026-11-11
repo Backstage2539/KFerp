@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { environmentBadgeText } from '../config/environment'
+import OrderNotificationPrompt from './OrderNotificationPrompt.vue'
 
 const label = environmentBadgeText()
 </script>
 
 <template>
   <view v-if="label" class="environment-badge">{{ label }}</view>
+  <OrderNotificationPrompt />
 </template>
 
 <style scoped>

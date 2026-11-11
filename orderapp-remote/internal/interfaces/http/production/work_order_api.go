@@ -33,6 +33,7 @@ type jobCardActualsRequest struct {
 	ExecutionBatchID           int64                                      `json:"execution_batch_id"`
 	ActualLossQty              float64                                    `json:"actual_loss_qty"`
 	ActualMinutes              int                                        `json:"actual_minutes"`
+	ActualMinutesExplicit      bool                                       `json:"actual_minutes_explicit"`
 	LossReason                 string                                     `json:"loss_reason"`
 	ExceptionReason            string                                     `json:"exception_reason"`
 	MetricsJSON                json.RawMessage                            `json:"metrics_json"`
@@ -464,7 +465,7 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 			RemainderWarehouse:         strings.TrimSpace(req.RemainderWarehouse),
 			WasteQty:                   req.WasteQty,
 			RequestID:                  req.RequestID, ExpectedVersion: req.ExpectedVersion, InputUnit: req.InputUnit, OutputUnit: req.OutputUnit, DifferenceReason: req.DifferenceReason, FinishOperation: req.FinishOperation, Materials: req.Materials,
-			ExecutionBatchID: req.ExecutionBatchID, ActualOutputPresent: req.ActualOutputQty != nil,
+			ExecutionBatchID: req.ExecutionBatchID, ActualOutputPresent: req.ActualOutputQty != nil, ActualMinutesExplicit: req.ActualMinutesExplicit,
 			ID:              id,
 			EmployeeID:      support.CurrentEmployeeID(c),
 			Operator:        support.ActorOf(c),
@@ -585,6 +586,27 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 		req.Operator = support.ActorOf(c)
 		req.EmployeeID = support.CurrentEmployeeID(c)
 		result, err := productionSvc.InitializeExecutionBatches(c.Request().Context(), req)
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, result)
+	})
+	e.POST("/api/job-cards/:id/execution-batches/complete-all", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(400, ErrorResponse{Error: "invalid job card"})
+		}
+		if err = support.RequireEmployeeBound(c); err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		var cmd productionapp.ExecutionBatchCompleteAllCommand
+		if c.Bind(&cmd) != nil {
+			return c.JSON(400, ErrorResponse{Error: "invalid request"})
+		}
+		cmd.ID = id
+		cmd.EmployeeID = support.CurrentEmployeeID(c)
+		cmd.Operator = support.ActorOf(c)
+		result, err := productionSvc.CompleteExecutionBatches(c.Request().Context(), cmd)
 		if err != nil {
 			return c.JSON(400, ErrorResponse{Error: err.Error()})
 		}

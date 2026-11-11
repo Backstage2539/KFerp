@@ -1,3 +1,11 @@
+### PR-762-WORKSTATION-INLINE-BATCH
+- Branch: `codex/workstation-batch-inline-20261111`；Status: 开发验证中。
+- Scope: 工位任务直接展开全部批次，计划默认值、单批及原子完成全部。
+- DEV: `DEV-PR762-01` 冻结批次默认值；`DEV-PR762-02` 原子批量报工；`DEV-PR762-03` 工位交互；`DEV-PR762-04` 验证及手册。
+- Verifier: 先记录 RED，再验证单测、API、隔离数据库、前端构建与桌面/窄屏；正式环境只读。
+- Evidence: `orderapp-remote/docs/acceptance/2026-11-11-workstation-inline-batches.md`；用户验收待完成。
+- Deployment: 尚未合并或部署。
+
 ### PR-761-WORKSTATION-BATCH-WIP- Branch: `codex/semi-finished-direct-wip-20261111`；Status: 已部署正式环境，用户验收待完成。
 - DEV: `DEV-PR761-01` 逐批事务；`DEV-PR761-02` 补料草稿和确认；`DEV-PR761-03` 工位页面和产能口径；`DEV-PR761-04` 手册、验证及交付。
 - Verifier: RED/GREEN；隔离数据库及 HTTP 验证批次、库存、成本、幂等、权限、回滚及补料到逐批完成；前端 1935 项、构建和桌面/窄屏模拟页面通过。生产业务数据仅只读检查。
@@ -6615,7 +6623,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier: `node --test orderapp-remote/frontend-vue-shell/src/lib/stock-transfer-options*.test.js`; `scripts/verify_kferp.sh frontend-tests`; `scripts/verify_kferp.sh frontend-build`; `go test ./internal/interfaces/http/stock ./internal/application/stock`.
 - GREEN: frontend tests 1681/1681, frontend build, full backend, stock API, and local browser fixture. Production observed read-only; no production stock document or business data changed. Development/production deployment not performed.
 
+### PR-NOTIFICATION-CHOICE-20261111
+- Branch: `codex/order-wechat-notifications-20261108`; status doing. 首次/后台请求重选时提示；明确拒绝和稍后处理；服务号绑定与选择分开，不自动授权。DEV-NOTICE-CHOICE-01/02/03 分别覆盖后端、小程序、后台及验收。验收：状态隔离、重选并发、授权与日志、登录/深链、错误、前端与小程序构建。生产部署未授权。
+- Development: 已合入并部署 `develop@6879bb2ce54165e711e3f65044606b712d800685`；开发小程序包 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`。运行检查通过；微信开发者工具已观察首次提示及稍后选择后的页面切换，真机和用户验收待确认。服务器磁盘剩余约 784 MB，需安排容量处理。本次未部署生产，也未上传或发布微信小程序。详见 `orderapp-remote/docs/acceptance/2026-11-11-notification-choice.md`。
+- `scripts/reserve_req_id.sh --claim` 在 macOS awk 报错且未写入；上游数值编号已并行使用，采用唯一语义编号避免冲突。
+
 ### PR-750-ORDER-WECHAT-NOTIFICATIONS
+- 生产账号 285 已绑定并开启通知，所选包含四类目标通知；四条虚拟测试各发送一次、微信回执均 success，Van 回复收到。账号 90 原绑定已转移；具体业务单据详情及生产群实测仍未通过，自动发送仍关闭。
+- Van 明确选择解除账号 90 并改绑 285；生产 ERP 显示账号 90 已解绑，公众号订单查询停止。账号 285 的手机确认及通知偏好尚待完成，不能记为改绑成功。
+- 生产实测：账号 285 扫码的微信已绑定账号 90，未改动该绑定；向账号 90 发送四类虚拟测试，微信回执均 success，Van 确认四条均收到并看到测试字样，点开一条可进入小程序订单通知页。这些测试未绑定具体单据，不能作为详情验收或账号 285 绑定通过；群控件仍不可读，自动发送保持关闭。
+- 2026-11-11 生产测试跟进：Van 确认服务号回调指向生产并要求使用生产小程序实测；生产四模板及已审接单/发货状态已保存，自动发送仍关闭。账号 285 未通过绑定、关注及通知设置校验，首次到账虚拟测试被拦截、未发送；真实送达和群实测尚未完成。固定虚拟内容可能与所选详情不一致，须修复或核对后才能确认通过。
+- 2026-11-11 最新现场跟进：Van 确认“已接单”“已发货”状态值审核通过，开发环境已分别保存这两个已审核值；“部分发货”仍待审核及单独实测，不能视为已发货。开发小程序账号 168 仍待完成服务号绑定；“口加生产”微信群的聊天控件目前不可读，服务号和群真实发送及回读验收均未完成。Van 要求提交下单、生产开始、生产完成、取消四类服务号模板暂缓，列为 TODO；不得将这些缺项记为已交付。PR/DEV 继续保持 doing。
 - 2026-11-11 跟进：DEV-PR750-05～07 正在实现逐笔收款、出账、接单、逐次发货及分渠道配置；上述 2026-11-08 发布证据不代表本次跟进已部署或通过。Van 提供的接单和发货状态枚举截图均为审核中；真实服务号与生产群送达尚待逐项核验。
 - 2026-11-11 开发交付：运行版本 `228c6394dd38ae27481e6fd88c5a291f97980f5a`，容器运行且数据库健康；四个服务号模板字段已在开发环境保存，两个自动发送开关关闭。实际服务号及“口加生产”群送达、指定测试账号绑定、模板枚举通过情况仍待验证，PR/DEV 保持 doing。开发小程序包 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，未上传微信平台。
 - 同日补充：新订单首笔收款、请求幂等与管理员核查解除已经完成本机验证，待重新合并与部署；未收款新单在嵌入/复制页面断网后重复创建的既有风险尚未覆盖。开发工具已打开测试账号 72，但二维码失效且绑定未完成。

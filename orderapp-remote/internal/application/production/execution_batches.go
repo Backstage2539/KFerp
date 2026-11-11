@@ -8,14 +8,46 @@ import (
 )
 
 type ExecutionBatch struct {
-	ID              int64    `json:"id"`
-	BatchNo         int      `json:"batch_no"`
-	PlannedInputQty float64  `json:"planned_input_qty"`
-	InputUnit       string   `json:"input_unit"`
-	ActualInputQty  *float64 `json:"actual_input_qty"`
-	ActualOutputQty *float64 `json:"actual_output_qty"`
-	Status          string   `json:"status"`
+	ID                       int64    `json:"id"`
+	BatchNo                  int      `json:"batch_no"`
+	PlannedInputQty          float64  `json:"planned_input_qty"`
+	InputUnit                string   `json:"input_unit"`
+	ActualInputQty           *float64 `json:"actual_input_qty"`
+	ActualOutputQty          *float64 `json:"actual_output_qty"`
+	Status                   string   `json:"status"`
+	PlannedOutputQty         *float64 `json:"planned_output_qty"`
+	OutputUnit               string   `json:"output_unit"`
+	PlannedMinutes           *int     `json:"planned_minutes"`
+	ActualMinutes            *int     `json:"actual_minutes"`
+	Remark                   string   `json:"remark"`
+	DefaultUnavailableReason string   `json:"default_unavailable_reason,omitempty"`
 }
+
+// ExecutionBatchPlannedOutput converts the frozen production-plan relationship
+// to an individual batch. The relationship must be independently verified by
+// the caller; started input and actual production are never suitable sources.
+func ExecutionBatchPlannedOutput(input float64, inputUnit, outputUnit string, planInputG, planOutputG int64) (float64, bool) {
+	inFactor, outFactor := OperationUnitFactor(inputUnit), OperationUnitFactor(outputUnit)
+	if input <= 0 || math.IsNaN(input) || math.IsInf(input, 0) || inFactor <= 0 || outFactor <= 0 || planInputG <= 0 || planOutputG <= 0 {
+		return 0, false
+	}
+	ratio := float64(planOutputG) / float64(planInputG)
+	return math.Round(input*inFactor*ratio/outFactor*1e6) / 1e6, true
+}
+
+// ExecutionBatchPlannedOutputSlice distributes rounding remainders over the
+// cumulative scheduled input, never filling an unplanned portion of the order.
+func ExecutionBatchPlannedOutputSlice(before, input float64, inputUnit, outputUnit string, planInputG, planOutputG int64) (float64, bool) {
+	inFactor, outFactor := OperationUnitFactor(inputUnit), OperationUnitFactor(outputUnit)
+	if before < 0 || input <= 0 || math.IsNaN(before) || math.IsInf(before, 0) || math.IsNaN(input) || math.IsInf(input, 0) || inFactor <= 0 || outFactor <= 0 || planInputG <= 0 || planOutputG <= 0 {
+		return 0, false
+	}
+	scale := inFactor * float64(planOutputG) / float64(planInputG) / outFactor * 1e6
+	beforeRounded := math.Floor(before*scale + 1e-8)
+	afterRounded := math.Floor((before+input)*scale + 1e-8)
+	return (afterRounded - beforeRounded) / 1e6, true
+}
+
 type ExecutionBatchList struct {
 	Batches       []ExecutionBatch `json:"batches"`
 	CanInitialize bool             `json:"can_initialize"`

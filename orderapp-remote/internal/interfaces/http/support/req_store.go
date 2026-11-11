@@ -203,7 +203,7 @@ func seedReqRow(ctx context.Context, pool *pgxpool.Pool, schema string, row reqS
 	}
 	// Delivery and Van's review happen after startup. Preserve their actual
 	// progress when subsequent restarts re-run the built-in requirement seeds.
-	if row.code == "PR-751-SHIPPING-RETURN-CANDIDATES" || strings.HasPrefix(row.code, "DEV-PR751-") || row.code == "PR-750-ORDER-WECHAT-NOTIFICATIONS" || strings.HasPrefix(row.code, "DEV-PR750-") || row.code == "PR-748-BOM-START-CONSUMPTION" || strings.HasPrefix(row.code, "DEV-PR748-") || row.code == "PR-DIRECTSHIP-REGION-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-REGION-") || row.code == "PR-DIRECTSHIP-HISTORICAL-STOCK-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-HISTORICAL-STOCK-") || row.code == "PR-ORDER-DATE-SAVE-20261104" || strings.HasPrefix(row.code, "DEV-ORDER-DATE-SAVE-") {
+	if row.code == "PR-NOTIFICATION-CHOICE-20261111" || strings.HasPrefix(row.code, "DEV-NOTICE-CHOICE-") || row.code == "PR-751-SHIPPING-RETURN-CANDIDATES" || strings.HasPrefix(row.code, "DEV-PR751-") || row.code == "PR-750-ORDER-WECHAT-NOTIFICATIONS" || strings.HasPrefix(row.code, "DEV-PR750-") || row.code == "PR-748-BOM-START-CONSUMPTION" || strings.HasPrefix(row.code, "DEV-PR748-") || row.code == "PR-DIRECTSHIP-REGION-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-REGION-") || row.code == "PR-DIRECTSHIP-HISTORICAL-STOCK-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-HISTORICAL-STOCK-") || row.code == "PR-ORDER-DATE-SAVE-20261104" || strings.HasPrefix(row.code, "DEV-ORDER-DATE-SAVE-") {
 		_, err := pool.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.%s(code,title,status,assignee,evidence)
 			VALUES($1,$2,$3,$4,$5) ON CONFLICT(code) DO NOTHING
@@ -270,6 +270,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-762-WORKSTATION-INLINE-BATCH", title: "工位任务直接展开逐批报工", status: "doing", assignee: "Van"},
+		{table: "req_dev", code: "DEV-PR762-01", title: "批次冻结默认值与历史兼容", status: "doing", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR762-02", title: "单批及全部批次原子报工", status: "doing", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR762-03", title: "工位展开批次和独立填写", status: "doing", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR762-04", title: "隔离验证与操作手册", status: "doing", assignee: "Codex"},
 		{table: "req_product", code: "PR-761-WORKSTATION-BATCH-WIP", title: "工位逐批报工与缺料转入WIP", status: "doing", assignee: "Van"},
 		{table: "req_dev", code: "DEV-PR761-01", title: "稳定执行批次、历史投入与逐批完成", status: "doing", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PR761-02", title: "真实缺料转仓草稿及当前页确认", status: "doing", assignee: "Codex"},
@@ -349,6 +354,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-PR751-01", title: "候选与发货条件分开并防止误配旧订单", status: "review", assignee: "Codex", evidence: "shipping_return_candidate_inventory_test.go"},
 		{table: "req_dev", code: "DEV-PR751-02", title: "显式现货补足及历史身份事务校验", status: "review", assignee: "Codex", evidence: "shipping_return_candidate_inventory_test.go；隔离 API 和日志回滚"},
 		{table: "req_dev", code: "DEV-PR751-03", title: "Vue 来源预览、手册与交付验证", status: "review", assignee: "Codex", evidence: "OP_MANUAL_SHIPPING_RETURN.md；fulfillment-full-edit-dom.test.js"},
+		{table: "req_product", code: "PR-NOTIFICATION-CHOICE-20261111", title: "进入小程序选择服务号通知", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-11-11-notification-choice.md；首次及后台请求时提示，用户可拒绝或稍后选择"},
+		{table: "req_dev", code: "DEV-NOTICE-CHOICE-01", title: "通知选择状态、版本与后台重选接口", status: "doing", assignee: "Codex", evidence: "授权隔离、版本冲突与操作日志待验证"},
+		{table: "req_dev", code: "DEV-NOTICE-CHOICE-02", title: "小程序进入时提示用户选择通知", status: "doing", assignee: "Codex", evidence: "登录、深链、明确拒绝及关注绑定体验待验证"},
+		{table: "req_dev", code: "DEV-NOTICE-CHOICE-03", title: "后台重选操作与通知手册", status: "doing", assignee: "Codex", evidence: "后台权限、审计与前后端验收待验证"},
 		{table: "req_product", code: "PR-750-ORDER-WECHAT-NOTIFICATIONS", title: "订单状态通知服务号订阅者与公司生产微信群", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-11-08-order-wechat-notifications.md；真实微信逐项送达验收待完成"},
 		{table: "req_dev", code: "DEV-PR750-01", title: "六类状态事务消息、权限、重试和回执", status: "doing", assignee: "Codex", evidence: "order_notifications_integration_test.go；隔离数据库与模拟微信接口已验证"},
 		{table: "req_dev", code: "DEV-PR750-02", title: "服务号关注授权、小程序订单跳转与通知设置", status: "doing", assignee: "Codex", evidence: "OP_MANUAL_NOTIFICATIONS.md；服务号业务模板及真机跳转待验证"},

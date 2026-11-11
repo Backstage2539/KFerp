@@ -109,3 +109,22 @@ test('multiple cards from one work order render individually instead of a duplic
  assert.equal(state.ungroupedTasks({tasks}).length,3)
  assert.equal(findNode(await tree(),node=>node.type==='button'&&node.children==='补齐物料'),null)
 })
+
+test('single or multiple weight batches expand through the task title without starting it', async () => {
+  const { state } = await harness()
+  const base = {job_card_id:42,work_order_id:3,reporting_type:'batch',material_consumption_policy:'bom_start_v1',status:'pending'}
+  assert.equal(state.isInlineBatchTask({...base,planned_batch_count:1}),true)
+  assert.equal(state.isInlineBatchTask({...base,planned_batch_count:4}),true)
+  assert.equal(state.isInlineBatchTask({...base,reporting_type:'piece'}),false)
+  assert.equal(state.isInlineBatchTask({...base,reporting_type:'incoming'}),false)
+  state.toggleFinishPanel(base);assert.equal(state.finishPanel.open,true)
+  state.toggleFinishPanel(base);assert.equal(state.finishPanel.open,false)
+})
+
+test('task header completes the expanded batch form',async()=>{
+ const {state,tree}=await harness()
+ const task={job_card_id:222,work_order_id:333,work_order_no:'WO-TEST',product_name:'豆',operation:'烘焙',workstation:'包装台',status:'running',roster_employee_id:1,reporting_type:'batch',material_consumption_policy:'bom_start_v1',planned_batch_count:1}
+ state.overview.value={tasks:[task]};state.openFinishPanel(task);let count=0;state.finishForm.value=[{completeAll(){count++}}]
+ const button=findNode(await tree(),node=>node.type==='button'&&node.children==='完成所有批次')
+ assert.ok(button);assert.equal(button.props.disabled,false);button.props.onClick();assert.equal(count,1)
+})
