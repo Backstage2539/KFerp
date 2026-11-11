@@ -175,6 +175,20 @@ CREATE TABLE IF NOT EXISTS %[1]s.customer_settlement_payment_keys (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	PRIMARY KEY(customer_id,settlement_batch_id,idempotency_key)
 );
+ALTER TABLE %[1]s.customer_settlement_payment_keys ADD COLUMN IF NOT EXISTS receipt_date TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.customer_settlement_payment_keys ADD COLUMN IF NOT EXISTS actual_cents BIGINT;
+ALTER TABLE %[1]s.customer_settlement_payment_keys ADD COLUMN IF NOT EXISTS allocation_hash TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.customer_settlement_payments ADD COLUMN IF NOT EXISTS actual_cents BIGINT;
+ALTER TABLE %[1]s.customer_settlement_payments ADD COLUMN IF NOT EXISTS fully_settled BOOLEAN NOT NULL DEFAULT true;
+CREATE TABLE IF NOT EXISTS %[1]s.customer_settlement_payment_line_allocations (
+ payment_id BIGINT NOT NULL REFERENCES %[1]s.customer_settlement_payments(id),
+ line_id BIGINT NOT NULL REFERENCES %[1]s.customer_settlement_lines(id),
+ amount_cents BIGINT NOT NULL CHECK(amount_cents>0), PRIMARY KEY(payment_id,line_id)
+);
+CREATE TABLE IF NOT EXISTS %[1]s.customer_settlement_payment_order_audit_refs (
+ payment_id BIGINT NOT NULL REFERENCES %[1]s.customer_settlement_payments(id),
+ order_id BIGINT NOT NULL, order_audit_id BIGINT NOT NULL, PRIMARY KEY(payment_id,order_audit_id)
+);
 ALTER TABLE %[1]s.customer_settlement_batches ADD COLUMN IF NOT EXISTS processing_billing_run_id BIGINT NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS %[1]s.customer_settlement_bill_pdf_settings (
 	customer_id BIGINT NOT NULL REFERENCES %[1]s.customers(id) ON DELETE CASCADE,

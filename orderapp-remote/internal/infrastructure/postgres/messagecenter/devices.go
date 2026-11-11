@@ -172,10 +172,42 @@ func (r Repository) DesktopResult(ctx context.Context, device DesktopDevice, id 
 	return e
 }
 func (r Repository) QueueTest(ctx context.Context, event, channel string, miniID, deviceID int64, appID, actor string) (int64, error) {
-	if app.MilestoneLabels[event] == "" {
+	return r.QueueTestStatus(ctx, event, channel, miniID, deviceID, appID, actor, "")
+}
+func (r Repository) QueueTestStatus(ctx context.Context, event, channel string, miniID, deviceID int64, appID, actor, statusValue string) (int64, error) {
+	return r.QueueTestDetail(ctx, event, channel, miniID, deviceID, appID, actor, statusValue, 0)
+}
+func (r Repository) QueueTestDetail(ctx context.Context, event, channel string, miniID, deviceID int64, appID, actor, statusValue string, detailID int64) (int64, error) {
+	if event == "shipment_created" {
+		if statusValue == "" {
+			statusValue = "已发货"
+		}
+		if statusValue != "已发货" && statusValue != "部分发货" {
+			return 0, errors.New("发货测试状态无效")
+		}
+	} else if statusValue != "" && !(event == "order_accepted" && statusValue == "已接单") {
+		return 0, errors.New("该测试节点不支持指定状态")
+	}
+	if app.NotificationLabel(event) == "" || (channel == "wechat_desktop" && app.MilestoneLabels[event] == "") {
 		return 0, errors.New("未知测试节点")
 	}
 	n := app.OrderNotice{Test: true, ChangeID: time.Now().UnixMilli(), OrderNo: "TEST-ORDER-001", CustomerName: "测试客户（虚拟）", Items: "测试商品 250g × 2袋", ResponsibleName: "测试负责人", OccurredAt: time.Now().In(time.FixedZone("CST", 8*3600)).Format("2006-01-02 15:04:05"), Milestones: []string{event}}
+	if event == "shipment_created" {
+		n.State.Shipping = statusValue
+		n.TrackingNo = "TEST12345"
+	}
+	if event == "receipt_received" {
+		n.ReceiptNo = "TESTRC001"
+		n.ReceiptDate = time.Now().In(time.FixedZone("CST", 8*3600)).Format("2006-01-02")
+		n.ReceivableAmount = "100.00"
+		n.ReceivedAmount = "25.00"
+	}
+	if event == "bill_issued" {
+		n.BillNo = "TESTBILL001"
+		n.BillAmount = "100.00"
+		n.BillPeriod = "2026-11-01~2026-11-11"
+	}
+
 	var recipients []Recipient
 	if channel == "wechat_service_account" {
 		all, e := r.NotificationRecipients(ctx, appID)
@@ -190,6 +222,9 @@ func (r Repository) QueueTest(ctx context.Context, event, channel string, miniID
 		if miniID <= 0 || len(recipients) == 0 {
 			return 0, errors.New("测试账号尚未绑定、关注并开启通知")
 		}
+		if len(recipients) != 1 {
+			return 0, errors.New("测试账号绑定多个微信，请先解除歧义后再测试")
+		}
 		deviceID = 0
 	} else if channel == "wechat_desktop" {
 		var ok bool
@@ -199,6 +234,39 @@ func (r Repository) QueueTest(ctx context.Context, event, channel string, miniID
 		}
 	} else {
 		return 0, errors.New("未知测试渠道")
+	}
+	if detailID < 0 {
+		return 0, errors.New("测试详情编号无效")
+	}
+	if detailID > 0 {
+		if channel != "wechat_service_account" || app.BusinessMilestoneLabels[event] == "" {
+			return 0, errors.New("该测试不支持真实详情链接")
+		}
+		var customerID int64
+		switch event {
+		case "order_accepted", "shipment_created":
+			var responsibleID int64
+			e := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(o.customer_id,0),CASE WHEN to_jsonb(o)->>'responsible_party_type'='employee' THEN COALESCE(NULLIF(to_jsonb(o)->>'responsible_party_id','')::bigint,0) ELSE COALESCE(c.responsible_employee_id,0) END FROM %[1]s.orders o LEFT JOIN %[1]s.customers c ON c.id=o.customer_id WHERE o.id=$1`, r.schema), detailID).Scan(&customerID, &responsibleID)
+			if e != nil || customerID <= 0 {
+				return 0, errors.New("测试订单不存在或不可用")
+			}
+			n.OrderID = detailID
+			n.ResponsibleID = responsibleID
+		case "receipt_received":
+			e := r.pool.QueryRow(ctx, "SELECT customer_id FROM "+r.schema+".cash_receipts WHERE id=$1", detailID).Scan(&customerID)
+			if e != nil || customerID <= 0 {
+				return 0, errors.New("测试收款单不存在或不可用")
+			}
+			n.ReceiptID = detailID
+		case "bill_issued":
+			e := r.pool.QueryRow(ctx, "SELECT customer_id FROM "+r.schema+".customer_settlement_batches WHERE id=$1", detailID).Scan(&customerID)
+			if e != nil || customerID <= 0 {
+				return 0, errors.New("测试账单不存在或不可用")
+			}
+			n.BillID = detailID
+		}
+		n.CustomerID = customerID
+		n.TestDetail = true
 	}
 	tx, e := r.pool.Begin(ctx)
 	if e != nil {

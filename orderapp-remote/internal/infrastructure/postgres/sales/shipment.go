@@ -222,6 +222,9 @@ func (r Repository) FillShipmentTracking(ctx context.Context, cmd salesapp.FillS
 		if err := r.deductOrderAllocatedStockTx(ctx, tx, item.OrderID, cmd.Actor); err != nil {
 			return salesapp.FillShipmentTrackingResult{}, err
 		}
+		if err := recordShipmentNotices(ctx, tx, r.schema, item.OrderID, cmd.ShipmentID, item.TrackingNo); err != nil {
+			return salesapp.FillShipmentTrackingResult{}, err
+		}
 		updated++
 		updatedOrderIDs = append(updatedOrderIDs, item.OrderID)
 	}
@@ -336,6 +339,9 @@ func (r Repository) FillShipmentTrackingByOrderNo(ctx context.Context, cmd sales
 		if err := r.deductOrderAllocatedStockTx(ctx, tx, orderID, cmd.Actor); err != nil {
 			return salesapp.FillShipmentTrackingResult{}, err
 		}
+		if err := recordShipmentNotices(ctx, tx, r.schema, orderID, shipmentID, item.TrackingNo); err != nil {
+			return salesapp.FillShipmentTrackingResult{}, err
+		}
 		updated++
 		updatedOrderIDs = append(updatedOrderIDs, orderID)
 		updatedOrderNos = append(updatedOrderNos, item.OrderNo)
@@ -413,6 +419,9 @@ func (r Repository) FillOrderTracking(ctx context.Context, cmd salesapp.FillOrde
 		return salesapp.FillShipmentTrackingResult{}, err
 	}
 	if err := r.deductOrderAllocatedStockTx(ctx, tx, orderID, cmd.Actor); err != nil {
+		return salesapp.FillShipmentTrackingResult{}, err
+	}
+	if err := recordShipmentNotices(ctx, tx, r.schema, orderID, shipmentID, cmd.TrackingNo); err != nil {
 		return salesapp.FillShipmentTrackingResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {

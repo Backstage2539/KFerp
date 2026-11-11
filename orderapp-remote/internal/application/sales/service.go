@@ -30,6 +30,7 @@ type SaveOrderCommand struct {
 	CustomerRequestHash               string
 	SelectedPriceTableIDs             []int64 `json:"selected_price_table_ids,omitempty"`
 	PrepaymentAmount                  *float64
+	ReceiptDate                       string
 	Actor                             string
 	DraftEmployeeID                   int64
 	EditID                            int64
@@ -135,6 +136,7 @@ type SaveOrderResult struct {
 	OrderNo            string
 	Edited             bool
 	StockBatchUsed     bool
+	ReceiptWarning     string
 }
 
 type EmployeeOrderDraft struct {

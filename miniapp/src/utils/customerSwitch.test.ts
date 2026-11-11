@@ -65,6 +65,25 @@ describe('miniapp customer switching', () => {
 })
 
 describe('verified phone routing', () => {
+  it('returns authenticated recipients to their validated notification details', async () => {
+    const { phoneVerifiedDestination } = await import('./customerSwitch')
+    const receipt = '/pages/notification-detail/notification-detail?type=receipt&id=42'
+    const bill = '/pages/notification-detail/notification-detail?type=bill&id=9'
+    const employeeOrder = '/pages/employee-order-detail/employee-order-detail?id=12'
+    const customerOrder = '/pages/service/service?key=orders&source=notice&order_id=12&customer_id=74'
+    expect(phoneVerifiedDestination({current_customer_id:74,bindings:[{customer_id:74,status:'approved'}]}, receipt)).toBe(receipt)
+    expect(phoneVerifiedDestination({current_customer_id:74,bindings:[{customer_id:74,status:'approved'}]}, customerOrder)).toBe(customerOrder)
+    expect(phoneVerifiedDestination({account_type:'employee'}, employeeOrder)).toBe(employeeOrder)
+    expect(phoneVerifiedDestination({current_customer_id:0,bindings:[{customer_id:74,status:'approved'},{customer_id:75,status:'approved'}]}, bill)).toBe(`/pages/customer-select/customer-select?return_to=${encodeURIComponent(bill)}`)
+  })
+  it('does not accept forged notification returns or bypass account type', async () => {
+    const { phoneVerifiedDestination } = await import('./customerSwitch')
+    const receipt = '/pages/notification-detail/notification-detail?type=receipt&id=42'
+    const customer = {current_customer_id:74,bindings:[{customer_id:74,status:'approved'}]}
+    expect(phoneVerifiedDestination(customer, receipt + '&customer_id=75')).toBe('/pages/home/home')
+    expect(phoneVerifiedDestination({account_type:'employee'}, receipt)).toBe('/pages/home/home')
+    expect(phoneVerifiedDestination(customer, '/pages/employee-order-detail/employee-order-detail?id=12')).toBe('/pages/home/home')
+  })
   it('sends an employee to the employee home', async () => {
     const { phoneVerifiedDestination } = await import('./customerSwitch')
     expect(phoneVerifiedDestination({account_type:'employee',bindings:[]}, '/pages/page-entry/page-entry?entry=abc')).toBe('/pages/home/home')
@@ -83,7 +102,9 @@ describe('verified phone routing', () => {
   })
   it('keeps the return destination for a visitor without approved customer bindings', async () => {
     const { phoneVerifiedDestination } = await import('./customerSwitch')
-    expect(phoneVerifiedDestination({current_customer_id:0,bindings:[]}, '/pages/page-entry/page-entry?entry=abc')).toBe('/pages/page-entry/page-entry?entry=abc')
+    const visitorEntry = '/pages/page-entry/page-entry?entry=abcdef0123456789abcdef0123456789'
+    expect(phoneVerifiedDestination({current_customer_id:0,bindings:[]}, visitorEntry)).toBe(visitorEntry)
+    expect(phoneVerifiedDestination({current_customer_id:0,bindings:[]}, 'https://evil.test')).toBe('/pages/index/index')
     expect(phoneVerifiedDestination({current_customer_id:0,bindings:[{customer_id:1,status:'revoked'}]}, '')).toBe('/pages/index/index')
   })
 })

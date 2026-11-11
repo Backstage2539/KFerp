@@ -342,6 +342,7 @@
               <OrderPaymentSummary :order="activeOrderDetail" />
             </div>
           </section>
+          <OrderReceipts v-if="canViewCombinedPayments" :key="`receipts-${Number(activeOrderDetail.id)}-${receiptIdentity}`" :order-id="Number(activeOrderDetail.id)" :actor-identity="receiptIdentity" :can-write="canWriteReceipts" @updated="refreshConfirmationOrder" />
           <OrderCombinedPaymentRecords v-if="canViewCombinedPayments" :key="Number(activeOrderDetail.id)" :order-id="Number(activeOrderDetail.id)" />
           <section v-if="activeOrderDetail.items?.length" class="drawer-section">
             <h4>商品明细</h4>
@@ -468,6 +469,8 @@ import { onBeforeUnmount as onConfirmationUnmount, onMounted as onConfirmationMo
 
 import OrderPaymentSummary from '../components/OrderPaymentSummary.vue'
 import OrderCombinedPaymentRecords from '../components/OrderCombinedPaymentRecords.vue'
+import OrderReceipts from '../components/OrderReceipts.vue'
+import { receiptActorIdentity } from '../lib/order-receipt.js'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { shippingReturnUploadMessage } from '../lib/shipping-return-upload.js'
@@ -505,8 +508,13 @@ const props = defineProps({
 const canViewCombinedPayments = computed(() => {
   const actor = props.actor
   if (!actor || props.customerAccountActor || actor.account_type === 'channel_customer') return false
-  return Boolean(actor.basic_auth_admin || actor.permissions?.includes('*') || actor.permissions?.includes('orders.read'))
+  return Boolean(actor.basic_auth_admin || actor.permissions?.includes('*') || actor.permissions?.includes('orders.read') || actor.permissions?.includes('orders.write'))
 })
+const canWriteReceipts = computed(() => {
+  const actor = props.actor
+  return Boolean(actor && receiptActorIdentity(actor) && !props.customerAccountActor && actor.account_type !== 'channel_customer' && (actor.basic_auth_admin || actor.permissions?.includes('*') || actor.permissions?.includes('orders.write')))
+})
+const receiptIdentity = computed(() => receiptActorIdentity(props.actor))
 
 const inlineDetail = reactive({})
 const inlineOrders = createOrderInlineDetails((id, generation) => apiGet(`/api/orders/${id}/detail?inline_generation=${generation}`), inlineDetail)

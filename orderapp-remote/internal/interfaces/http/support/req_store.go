@@ -270,6 +270,9 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-MINIAPP-PREVIEW-DROPSHIP-20261111", title: "客户只读预览显示已开通的一件代发入口", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-11-miniapp-preview-dropship.md；用户验收待完成"},
+		{table: "req_dev", code: "DEV-MINIAPP-PREVIEW-DROPSHIP-UI", title: "按客户能力显示代发入口及只读查看", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-MINIAPP-PREVIEW-DROPSHIP-ACCESS", title: "代发只读接口隔离与业务写入限制", status: "review", assignee: "Codex"},
 		{table: "req_product", code: "PR-758-UPSTREAM-WAIT", title: "物料准备区区分等待前道生产与现货调拨", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-11-production-upstream-wait.md；用户验收待完成"},
 		{table: "req_dev", code: "DEV-PR758-UPSTREAM-01", title: "前道待生产提示及调拨入口", status: "review", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PR758-UPSTREAM-02", title: "前道与现货混合供应校验及验收", status: "review", assignee: "Codex"},
@@ -330,6 +333,9 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-PR750-02", title: "服务号关注授权、小程序订单跳转与通知设置", status: "doing", assignee: "Codex", evidence: "OP_MANUAL_NOTIFICATIONS.md；服务号业务模板及真机跳转待验证"},
 		{table: "req_dev", code: "DEV-PR750-03", title: "专用 Mac 群发送端、设备配对及逐条读回", status: "doing", assignee: "Codex", evidence: "tools/wechat-notifier；当前微信控件不支持，真实发送未通过"},
 		{table: "req_dev", code: "DEV-PR750-04", title: "六类通知双渠道验收与开发交付", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-11-08-order-wechat-notifications.md；自动发送未启用，开发发布回执与真实验收分别记录"},
+		{table: "req_dev", code: "DEV-PR750-05", title: "逐笔收款台账、正式出账和通知事务", status: "doing", assignee: "Codex", evidence: "逐笔记录、现有收款入口兼容和真实到账通知待验证"},
+		{table: "req_dev", code: "DEV-PR750-06", title: "接单和逐次发货事件、模板及状态审核", status: "doing", assignee: "Codex", evidence: "模板状态枚举审核中；接单与发货真实送达待验证"},
+		{table: "req_dev", code: "DEV-PR750-07", title: "分渠道事件配置、权限与四类通知真实测试", status: "doing", assignee: "Codex", evidence: "服务号与原微信群分别验收；未知发送结果须人工核对"},
 		{table: "req_product", code: "PR-747-TRANSFER-FROZEN-OWNER", title: "历史成品批次转仓及客户货权确认", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-04-transfer-frozen-owner.md"},
 		{table: "req_dev", code: "DEV-PR747-01", title: "历史批次身份校验与客户货权事务和审计", status: "done", assignee: "Codex", evidence: "bom_spec_finished_writes_postgres_api_test.go; transfer_availability.go"},
 		{table: "req_dev", code: "DEV-PR747-02", title: "转仓货权确认界面、手册和回归", status: "done", assignee: "Codex", evidence: "StockEntriesView.vue; stock-transfer-options-runtime.test.js; docs/OP_MANUAL_STOCK.md"},

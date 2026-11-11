@@ -35,6 +35,27 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, p Portal, a
 	client := &wechat.WechatClient{Config: cfg}
 	h := &Handler{Repo: r, Portal: p, Authz: auth, Client: client}
 	h.Worker = &pg.Worker{Repo: r, AppID: cfg.AppID, Sender: client, Authorize: func(ctx context.Context, v pg.Recipient, n messages.OrderNotice) (bool, error) {
+		if len(n.Milestones) == 1 && (n.Milestones[0] == "receipt_received" || n.Milestones[0] == "bill_issued") {
+			if v.EmployeeID > 0 || v.CustomerID <= 0 || n.CustomerID != v.CustomerID {
+				return false, nil
+			}
+			current, err := portalpg.NewRepository(pool, schema).OfficialAccountContext(ctx, v.MiniUserID, v.CustomerID, v.BoundAt)
+			if err != nil {
+				return false, officialAuthorizationError(err)
+			}
+			if current.CurrentCustomerID != n.CustomerID || !current.HasCapability(portal.CapabilitySettlement) {
+				return false, nil
+			}
+			if n.Milestones[0] == "receipt_received" {
+				_, err = r.ReceiptDetail(ctx, v.CustomerID, n.ReceiptID)
+			} else {
+				_, err = r.BillDetail(ctx, v.CustomerID, n.BillID)
+			}
+			if errors.Is(err, pgx.ErrNoRows) {
+				return false, nil
+			}
+			return err == nil, err
+		}
 		if v.EmployeeID > 0 {
 			available, err := employeeNotificationAvailable(ctx, pool, schema, v.EmployeeID, v.MiniUserID, v.BoundAt, v.AppID, v.OpenID)
 			if err != nil || !available {
@@ -79,12 +100,18 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, p Portal, a
 		}
 		current, err := portalpg.NewRepository(pool, schema).OfficialAccountContext(ctx, v.MiniUserID, v.CustomerID, v.BoundAt)
 		if err != nil {
-			return false, nil
+			return false, officialAuthorizationError(err)
 		}
 		return current.CurrentCustomerID == n.CustomerID && current.HasAnyCapability([]string{portal.CapabilityProductOrder, portal.CapabilityDirectShip, portal.CapabilityShippingQuery, portal.CapabilityMall}), nil
 	}}
 	h.register(e)
 	return h
+}
+func officialAuthorizationError(err error) error {
+	if errors.Is(err, portal.ErrCustomerBindingNotFound) || errors.Is(err, portal.ErrCapabilityNotEnabled) {
+		return nil
+	}
+	return err
 }
 func (h *Handler) register(e *echo.Echo) {
 	admin := "/api/message-center/external"
@@ -92,11 +119,14 @@ func (h *Handler) register(e *echo.Echo) {
 	e.PUT(admin+"/config", h.saveConfig)
 	e.GET(admin+"/templates", h.templates)
 	e.POST(admin+"/tests", h.test)
+	e.POST(admin+"/deliveries/:id/verify-business-test", h.verifyBusinessTest)
 	e.POST(admin+"/deliveries/:id/retry", h.retry)
 	e.POST(admin+"/deliveries/:id/confirm", h.confirmSent)
 	e.POST(admin+"/devices", h.addDevice)
 	e.DELETE(admin+"/devices/:id", h.revokeDevice)
 	mini := "/api/mini/order-notifications"
+	e.GET("/api/mini/notification-details/receipts/:id", h.receiptDetail)
+	e.GET("/api/mini/notification-details/bills/:id", h.billDetail)
 	e.GET(mini, h.preferences)
 	e.PUT(mini, h.savePreferences)
 	e.POST(mini+"/binding", h.startBinding)
@@ -161,7 +191,11 @@ func (h *Handler) overview(c echo.Context) error {
 		return respond(c, nil, e)
 	}
 	devices, e := h.Repo.Devices(c.Request().Context())
-	return respond(c, map[string]any{"config": cfg, "deliveries": d, "devices": devices, "official_ready": h.Client.Config.Ready()}, e)
+	if e != nil {
+		return respond(c, nil, e)
+	}
+	failures, e := h.Repo.BusinessEventFailures(c.Request().Context())
+	return respond(c, map[string]any{"config": cfg, "deliveries": d, "devices": devices, "business_event_failures": failures, "official_ready": h.Client.Config.Ready()}, e)
 }
 func (h *Handler) saveConfig(c echo.Context) error {
 	actor, e := h.admin(c)
@@ -190,16 +224,35 @@ func (h *Handler) test(c echo.Context) error {
 		return e
 	}
 	var v struct {
-		Event    string `json:"event"`
-		Channel  string `json:"channel"`
-		MiniID   int64  `json:"mini_user_id"`
-		DeviceID int64  `json:"device_id"`
+		Event       string `json:"event"`
+		Channel     string `json:"channel"`
+		MiniID      int64  `json:"mini_user_id"`
+		DeviceID    int64  `json:"device_id"`
+		StatusValue string `json:"status_value"`
+		DetailID    int64  `json:"detail_id"`
 	}
 	if c.Bind(&v) != nil {
 		return echo.NewHTTPError(400, "测试参数无效")
 	}
-	id, e := h.Repo.QueueTest(c.Request().Context(), v.Event, v.Channel, v.MiniID, v.DeviceID, h.Client.Config.AppID, actor)
+	id, e := h.Repo.QueueTestDetail(c.Request().Context(), v.Event, v.Channel, v.MiniID, v.DeviceID, h.Client.Config.AppID, actor, v.StatusValue, v.DetailID)
 	return respond(c, map[string]int64{"event_id": id}, e)
+}
+func (h *Handler) verifyBusinessTest(c echo.Context) error {
+	actor, err := h.admin(c)
+	if err != nil {
+		return err
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		return echo.NewHTTPError(400, "测试记录无效")
+	}
+	var request struct {
+		Confirmed bool `json:"confirmed_received_and_opened"`
+	}
+	if c.Bind(&request) != nil || !request.Confirmed {
+		return echo.NewHTTPError(400, "请先确认实际收到测试消息并打开测试链接")
+	}
+	return respond(c, map[string]bool{"ok": true}, h.Repo.VerifyBusinessTest(c.Request().Context(), id, actor))
 }
 func (h *Handler) retry(c echo.Context) error {
 	actor, e := h.admin(c)
@@ -246,6 +299,50 @@ func (h *Handler) revokeDevice(c echo.Context) error {
 	}
 	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
 	return respond(c, map[string]bool{"ok": true}, h.Repo.RevokeDevice(c.Request().Context(), id, actor))
+}
+func (h *Handler) financialDetailContext(c echo.Context) (int64, int64, error) {
+	current, err := h.me(c)
+	if err != nil {
+		return 0, 0, err
+	}
+	if current.EmployeeID > 0 || current.CurrentCustomerID <= 0 || !current.HasCapability(portal.CapabilitySettlement) {
+		return 0, 0, echo.NewHTTPError(403, "需要当前客户的结算权限")
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		return 0, 0, echo.NewHTTPError(400, "单据编号无效")
+	}
+	return current.CurrentCustomerID, id, nil
+}
+func (h *Handler) receiptDetail(c echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "no-store")
+	customer, id, err := h.financialDetailContext(c)
+	if err != nil {
+		return err
+	}
+	data, err := h.Repo.ReceiptDetail(c.Request().Context(), customer, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return echo.NewHTTPError(404, "收款单不存在或不可查看")
+	}
+	if err != nil {
+		return echo.NewHTTPError(500, "暂时无法读取收款单")
+	}
+	return c.JSON(200, data)
+}
+func (h *Handler) billDetail(c echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "no-store")
+	customer, id, err := h.financialDetailContext(c)
+	if err != nil {
+		return err
+	}
+	data, err := h.Repo.BillDetail(c.Request().Context(), customer, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return echo.NewHTTPError(404, "账单不存在或不可查看")
+	}
+	if err != nil {
+		return echo.NewHTTPError(500, "暂时无法读取账单")
+	}
+	return c.JSON(200, data)
 }
 func (h *Handler) preferences(c echo.Context) error {
 	cur, e := h.me(c)

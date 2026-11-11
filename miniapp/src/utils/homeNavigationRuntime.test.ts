@@ -252,7 +252,7 @@ it('offers only administrators a customer preview entry', async () => {
   } finally { view.app.unmount() }
 })
 
-it('shows a read-only preview with a working return control and no order entry', async () => {
+it('shows configured direct ship entries in preview with a working return control', async () => {
   const employee = context({ account_type: 'employee', current_customer_id: 0, employee_id: 92, roles: ['admin'], permissions: [] })
   const preview = context({ mini_user_id: 0, bindings: [], account_type: 'preview', current_customer_id: 74, current_customer_name: '客户甲' })
   const view = mount(Home, employee)
@@ -260,7 +260,10 @@ it('shows a read-only preview with a working return control and no order entry',
   api.me.mockResolvedValue(preview)
   try {
     await view.show()
-    expect(labels(view.root, 'entry')).toEqual(['我的库存'])
+    expect(labels(view.root, 'entry')).toEqual(['一件代发', '无库存代发', '我的库存'])
+    const ship = find(view.root, node => hasClass(node, 'entry') && text(node) === '一件代发')[0]
+    await ship.props.onTap()
+    expect(uni.navigateTo).toHaveBeenCalledWith({url: '/pages/service/service?key=directShip&fulfillment_mode=stock'})
     expect(text(view.root)).toContain('客户只读预览')
     const back = find(view.root, node => node.type === 'button' && text(node) === '返回员工工作台')[0]
     expect(back).toBeTruthy()

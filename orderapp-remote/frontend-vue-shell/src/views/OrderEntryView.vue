@@ -30,6 +30,8 @@
       <button class="toast-close" type="button" aria-label="关闭错误提示" @click="error = ''">×</button>
     </div>
     <div v-if="ok" class="notice ok">订单已保存：{{ ok }}</div>
+    <div v-if="pendingOrderCreate" class="notice error" role="alert">上次新订单结果尚未确认，请告知管理员请求号：{{ pendingOrderCreate.payload.request_id }}。<button type="button" class="secondary" :disabled="saving" @click="retryPendingOrderCreate">重试原次订单</button><button type="button" class="secondary" :disabled="saving" @click="checkPendingOrderCancelled">核查管理员解除结果</button><button v-if="pendingOrderCanResolve" type="button" class="secondary" :disabled="saving" @click="resolvePendingOrderCreate">管理员核对解除</button></div>
+    <details v-if="pendingOrderCanResolve"><summary>管理员核对员工待确认订单</summary><label>员工提供的请求号 <input v-model="adminResolveRequestID" placeholder="输入完整请求号"></label><button type="button" class="secondary" :disabled="saving" @click="resolveOtherPendingOrderCreate">核对并解除未提交请求</button></details>
     <div v-if="copyMode" class="notice warn">复制订单会生成一张新订单，不会修改原订单。</div>
     <div v-if="sampleOrderEditing" class="notice">正在编辑样品销售订单：已确认的零元手动价和样品规格会保留。生产及发货后的编辑限制继续生效。</div>
     <div v-if="stockBatchNotice" class="notice warn">{{ stockBatchNotice }}</div>
@@ -157,7 +159,7 @@
 
         <div v-if="!props.customerPortal && !freeSampleSettlement && !newRetainedPurchase" class="prepayment-editor" data-prepayment-editor>
           <label>
-            <span>已支付预付款（元）</span>
+            <span>已收总额（含预付款，元）</span>
             <input v-model="form.prepayment_amount" type="number" min="0" step="0.01" placeholder="填写实际已收金额" @input="onManualPrepayment" />
           </label>
           <div class="prepayment-presets" aria-label="预付款比例">
@@ -165,6 +167,12 @@
           </div>
           <small>按应收合计 ¥{{ money(orderTotalPreviewValue.grandTotal) }} 计算{{ isCustomerStockOrder(form) ? '' : '（含运费）' }}；可修改实际已收金额。</small>
         </div>
+
+        <label v-if="initialReceiptExpected">
+          <span>实际到账日期</span>
+          <input v-model="form.receipt_date" type="date" />
+        </label>
+        <p v-if="props.fulfillmentMode && !form.edit_id && (Number(form.prepayment_amount || 0)>0 || Number(form.payment_goods_amount || 0)>0 || Number(form.payment_shipping_amount || 0)>0)" class="hint">待确认新订单不能登记收款；请先将付款状态设为未付款并清空实收金额，确认后再逐笔登记实际到账。</p>
 
         <label v-if="!props.customerPortal && !freeSampleSettlement && !newRetainedPurchase" :class="{ 'field-invalid': hasFieldError('payment_method') }" data-error-field="payment_method">
           <span>收款方式</span>
@@ -213,7 +221,8 @@
         </div>
 
         <div v-if="paymentReceiptVisible" class="conditional-panel full-span">
-          <div class="condition-title">收款凭证</div>
+          <div class="condition-title">实收货款和运费分项</div>
+          <p class="hint">请填写本次实际收到的货款和运费；没有到账的项目填 0。选择全款时，未填写已收总额会按这两项合计计算。</p>
           <label :class="{ 'field-invalid': hasFieldError('payment_goods_amount') }" data-error-field="payment_goods_amount">
             <span>货款金额</span>
             <div class="amount-suggestion-wrap">
@@ -230,7 +239,7 @@
           <label :class="{ 'field-invalid': hasFieldError('payment_shipping_amount') }" data-error-field="payment_shipping_amount">
             <span>实收运费（元）</span>
             <div class="amount-suggestion-wrap">
-              <input :disabled="!form.edit_id && (!!form.freight_state?.free || (!form.freight_state?.manual && (form.freight_state?.chargeMode==='deferred' || form.freight_state?.autoAmountCents==null)))" v-model.trim="form.payment_shipping_amount" type="number" min="0" step="0.01" />
+              <input :disabled="initialShippingReceiptZero && Number(form.payment_shipping_amount || 0) === 0" v-model.trim="form.payment_shipping_amount" type="number" min="0" step="0.01" />
               <button
                 v-if="showPaymentShippingAmountSuggestion"
                 class="amount-suggestion-popover"
@@ -710,7 +719,7 @@ import { orderDeliveryMode, isNonCourierShipMethod, requiresCourierLogistics } f
 import { prepaymentPresets, prepaymentByRate } from '../lib/prepayment-presets.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { createOrderCatalogSession, orderCatalogKey, staffPriceTableGroups } from '../lib/order-catalog.js'
-import { apiGet, apiSend } from '../api/client'
+import { apiFetch, apiGet, apiSend } from '../api/client'
 import FulfillmentOrderFees from '../components/FulfillmentOrderFees.vue'
 import OrderPaymentSummary from '../components/OrderPaymentSummary.vue'
 import { fulfillmentEditFamilies, fulfillmentSpecForRow, fulfillmentSpecRowPatch, fulfillmentEditCommand, fulfillmentFeeSummary, fulfillmentLinePreview, fulfillmentDraftGoodsCents } from '../lib/fulfillment-order-edit'
@@ -787,6 +796,7 @@ import {
   stockBatchQuantity,
 } from '../lib/order-entry'
 import { parseRecipientText } from '../lib/customer-recipient'
+import { initialReceiptDateRequired, initialReceiptPrepayment, validateInitialReceiptBreakdown, receiptActorIdentity, orderCreatePendingKey, readPendingOrderCreate, savePendingOrderCreate, receiptKeepPending } from '../lib/order-receipt.js'
 import OrderFreightEstimate from '../components/OrderFreightEstimate.vue'
 import {emptyFreightState,freightStateFromOrder,freightAmount} from '../lib/order-freight'
 import CustomerRecipientPicker from '../components/CustomerRecipientPicker.vue'
@@ -821,6 +831,120 @@ const ORDER_ENTRY_DRAFT_SCOPE = FORM_DRAFT_SCOPES.orderEntry
 let orderEntryDraftDisabled = false
 
 const loading = ref(false)
+const pendingOrderCreate = ref(null)
+const pendingOrderCanResolve = ref(false)
+const adminResolveRequestID = ref('')
+let pendingOrderCreateKey = ''
+let pendingOrderIdentity = ''
+async function restorePendingOrderCreate(expectedIdentity = '', token = '') {
+  if (props.customerPortal) return
+  if (token && window.localStorage?.getItem('auth_token') !== token) throw new Error('当前账号已变化，请重新打开录单核对')
+  const actor = token ? await getOrderLockActor(token) : await apiGet('/api/auth/me')
+  if (token && window.localStorage?.getItem('auth_token') !== token) throw new Error('当前账号已变化，请重新打开录单核对')
+  const identity = receiptActorIdentity(actor)
+  if (expectedIdentity && identity !== expectedIdentity) throw new Error('当前账号已变化，请重新打开录单核对')
+  const key = orderCreatePendingKey(identity)
+  pendingOrderCreateKey = key
+  pendingOrderIdentity = identity
+  pendingOrderCanResolve.value = actor?.basic_auth_admin === true || (actor?.roles || []).some(role => String(role?.code || '').trim().toLowerCase() === 'admin')
+  pendingOrderCreate.value = readPendingOrderCreate(window.localStorage,identity)
+}
+async function withNewOrderLock(run) {
+  const token = window.localStorage?.getItem('auth_token') || ''
+  if (!token) throw new Error('无法确认当前登录会话，请重新登录后录单')
+  const actor = await getOrderLockActor(token)
+  const identity = receiptActorIdentity(actor)
+  const key = orderCreatePendingKey(identity)
+  if (!window.navigator?.locks?.request) throw new Error('当前浏览器无法保护多页面并发录单，请使用支持安全锁的浏览器')
+  return window.navigator.locks.request(key, { mode: 'exclusive', ifAvailable: true }, async lock => {
+    if (!lock) throw new Error('同一账号的另一个页面正在保存订单，请等待结果并核对')
+    return run(identity,token)
+  })
+}
+async function getOrderLockActor(token) {
+  const response = await apiFetch('/api/auth/me',{headers:{Accept:'application/json',Authorization:`Bearer ${token}`}})
+  if (!response.ok) throw new Error('当前登录已失效，请重新登录后核对')
+  return response.json()
+}
+async function assertLockedOrderIdentity(identity,token) {
+  if (window.localStorage?.getItem('auth_token') !== token || receiptActorIdentity(await getOrderLockActor(token)) !== identity) throw new Error('当前账号已变化，请重新打开录单核对')
+}
+async function retryPendingOrderCreate() {
+  try { await withNewOrderLock(retryPendingOrderCreateLocked) }
+  catch (err) { error.value = err.message || '无法安全重试订单' }
+}
+async function resolvePendingOrderCreate() {
+  try { await withNewOrderLock(resolvePendingOrderCreateLocked) }
+  catch (err) { error.value = err.message || '核对结果未确认，请保留原请求' }
+}
+async function resolvePendingOrderCreateLocked(identity,token) {
+  if (!pendingOrderCreate.value || saving.value) return
+  saving.value=true
+  try {
+    const original=pendingOrderCreate.value
+    await restorePendingOrderCreate(identity,token)
+    if (!pendingOrderCanResolve.value || JSON.stringify(original)!==JSON.stringify(pendingOrderCreate.value)) throw new Error('需要管理员核对原请求')
+    const reason=window.prompt('请填写核对原因。系统会检查是否已有订单，确认无订单后永久阻止原请求继续提交。')
+    if (!String(reason || '').trim()) return
+    await assertLockedOrderIdentity(identity,token)
+    const result=await apiSend('/api/order/pending-request/resolve',{body:{original:original.payload,reason:String(reason).trim()},headers:{Authorization:`Bearer ${token}`}})
+    if (result.status==='committed') { error.value=`该请求已有订单 ${result.order_id}，请使用原次订单核对`; return }
+    if (result.status!=='cancelled') throw new Error('核对结果不明确，请保留原请求')
+    await assertLockedOrderIdentity(identity,token)
+    window.localStorage.removeItem(pendingOrderCreateKey);pendingOrderCreate.value=null;form.customer_request_id=''
+    ok.value='已核对无订单并解除原请求；原请求将不能再次提交。'
+  } catch(err) { error.value=err.message || '核对结果未确认，请保留原请求' }
+  finally { saving.value=false }
+}
+async function resolveOtherPendingOrderCreate() {
+  const requestID=String(adminResolveRequestID.value || '').trim()
+  if(requestID.length<16 || requestID.length>100){error.value='请输入员工提供的完整请求号';return}
+  const reason=window.prompt('请填写核对原因。系统会核查已提交订单，未提交时永久阻止该请求继续提交。')
+  if(!String(reason || '').trim())return
+  saving.value=true
+  try {
+    const result=await apiSend('/api/order/pending-request/resolve',{body:{request_id:requestID,reason:String(reason).trim()}})
+    if(result.status==='committed'){error.value=`该请求已有订单 ${result.order_id}，请联系员工核对`;return}
+    if(result.status!=='cancelled')throw new Error('核对结果不明确，请重试核查')
+    ok.value='已确认无订单并解除该请求，请员工在原页面核查解除结果。';adminResolveRequestID.value=''
+  } catch(err){error.value=err.message || '核对结果未确认，请重试核查'}finally{saving.value=false}
+}
+async function checkPendingOrderCancelled() {
+  try { await withNewOrderLock(checkPendingOrderCancelledLocked) }
+  catch(err){error.value=err.message || '核查结果未确认，请保留原请求'}
+}
+async function checkPendingOrderCancelledLocked(identity,token) {
+  if(!pendingOrderCreate.value || saving.value)return
+  saving.value=true
+  try {
+    const original=pendingOrderCreate.value
+    await restorePendingOrderCreate(identity,token)
+    if(JSON.stringify(original)!==JSON.stringify(pendingOrderCreate.value))throw new Error('原请求已变化，请重新核对')
+    await assertLockedOrderIdentity(identity,token)
+    const result=await apiFetch(`/api/order/pending-request/${encodeURIComponent(original.payload.request_id)}/status`,{headers:{Accept:'application/json',Authorization:`Bearer ${token}`}})
+    if(!result.ok || (await result.json()).cancelled!==true)throw new Error('管理员尚未解除该请求，请继续保留原请求')
+    await assertLockedOrderIdentity(identity,token)
+    window.localStorage.removeItem(pendingOrderCreateKey);pendingOrderCreate.value=null;form.customer_request_id=''
+    ok.value='管理员已核对并解除原请求，可以重新录单。'
+  } catch(err){error.value=err.message || '核查结果未确认，请保留原请求'}finally{saving.value=false}
+}
+async function retryPendingOrderCreateLocked(identity,token) {
+  if (!pendingOrderCreate.value || saving.value) return
+  saving.value = true; error.value = ''
+  try {
+    const original = pendingOrderCreate.value
+    await restorePendingOrderCreate(identity,token)
+    if (pendingOrderIdentity !== identity || !pendingOrderCreate.value || JSON.stringify(original)!==JSON.stringify(pendingOrderCreate.value)) throw new Error('当前账号或原订单已变化，请核对')
+    await assertLockedOrderIdentity(identity,token)
+    const data = await apiSend(original.route,{body:original.payload,headers:{Authorization:`Bearer ${token}`}})
+    if (data.receipt_warning) window.alert(data.receipt_warning)
+    window.localStorage.removeItem(pendingOrderCreateKey); pendingOrderCreate.value = null
+    orderEntryDraftDisabled = true; clearFormDraft(orderEntryDraftKey()); form.customer_request_id = ''
+    if (props.embedded) emit('saved',data)
+    else window.dispatchEvent(new CustomEvent('kferp:navigate-view',{detail:{key:'orders',params:{order_id:Number(data.order_id),highlight_order_id:Number(data.order_id)}}}))
+  } catch (err) { error.value = `原次订单结果未确认，请联系管理员核对：${err.message || '网络中断'}` }
+  finally { saving.value = false }
+}
 const sampleOrderEditing = ref(false)
 const fulfillmentEditData = ref(null)
 const effectiveCopyID = ref(0)
@@ -968,6 +1092,7 @@ const form = reactive({
   pay_status_id: 0,
   payment_method: '',
   prepayment_amount: '0',
+	 receipt_date: '',
   ship_status_id: 0,
   ship_method: '',
   ship_tracking_no: '',
@@ -1169,13 +1294,21 @@ const selectedShipStatusName = computed(() => optionName(shipStatuses.value, for
 const paymentReceiptVisible = computed(() => {
   if (props.customerPortal || freeSampleSettlement.value || newRetainedPurchase.value) return false
   const name = selectedPayStatusName.value
-  return name.includes('已收款') || name.includes('已付款') || name.includes('已支付')
+  return name.includes('已收款') || name.includes('已付款') || name.includes('已支付') || (!form.edit_id && initialReceiptExpected.value)
 })
+const initialReceiptExpected = computed(() => initialReceiptDateRequired(form, {customerPortal:props.customerPortal,freeSample:freeSampleSettlement.value,retainedNew:newRetainedPurchase.value,backfill:backfillMode.value,pendingConfirmation:props.fulfillmentMode}))
+// Only free or deferred billing establishes zero freight payable on this order.
+// An unavailable automatic quote does not establish an amount.
+const initialShippingReceiptZero = computed(() => !form.edit_id && (!!form.freight_state?.free || (!form.freight_state?.manual && form.freight_state?.chargeMode==='deferred')))
+const shippingReceiptAmountKnown = computed(() => Boolean(form.edit_id) || initialShippingReceiptZero.value || !!form.freight_state?.manual || form.freight_state?.autoAmountCents != null)
+watch([initialReceiptExpected, initialShippingReceiptZero, () => form.payment_shipping_amount], ([expected, zero, value]) => {
+  if (expected && zero && String(value ?? '').trim()==='') form.payment_shipping_amount='0'
+}, {immediate:true})
 const paymentReceiptRequired = computed(() => !newRetainedPurchase.value && !freeSampleSettlement.value && !props.customerPortal && requiresOrderPaymentReceipt(form, payStatuses.value))
 const paymentGoodsAmountSuggestion = computed(() => money(itemsTotal.value))
 const paymentShippingAmountSuggestion = computed(() => money(toNumber(form.shipping_amount)))
 const showPaymentGoodsAmountSuggestion = computed(() => paymentReceiptVisible.value && itemsTotal.value > 0)
-const showPaymentShippingAmountSuggestion = computed(() => paymentReceiptVisible.value)
+const showPaymentShippingAmountSuggestion = computed(() => paymentReceiptVisible.value && shippingReceiptAmountKnown.value)
 const logisticsRequired = computed(() => form.delivery_mode !== 'customer_stock' && !props.customerPortal && requiresCourierLogistics(form.ship_method, selectedShipStatusName.value))
 const deliveryMode = computed({
   get: () => orderDeliveryMode(form.ship_method),
@@ -1361,6 +1494,7 @@ function ensureLogisticsDefaults() {
 function ensurePaymentDefaults() {
   if (!paymentReceiptRequired.value) return
   if (String(form.payment_shipping_amount ?? '').trim() === '') {
+    if (!shippingReceiptAmountKnown.value) return
     form.payment_shipping_amount = money(toNumber(form.shipping_amount))
   }
 }
@@ -3027,6 +3161,7 @@ async function saveFulfillmentEdit() {
 
 function resetForBackfillContinuation() {
   if (props.fulfillmentMode) {resetCustomerContinuation(form);form.customer_request_id='';fulfillmentRecipientPaste.value=''}
+  form.customer_request_id = ''
   prepaymentRate.value = 0
   orderFreight.value=null
   form.freight_state=emptyFreightState()
@@ -3034,6 +3169,7 @@ function resetForBackfillContinuation() {
   form.edit_id = 0
   form.ship_tracking_no = ''
   form.prepayment_amount = '0'
+  form.receipt_date = ''
   form.payment_goods_amount = ''
   form.payment_shipping_amount = ''
   form.payment_voucher_asset_id = 0
@@ -3057,6 +3193,13 @@ function resetForBackfillContinuation() {
 }
 
 async function save(options = {}) {
+  if (props.customerPortal || form.edit_id) return saveOrderUnlocked(options)
+  if (pendingOrderCreate.value) { error.value = '请先重试并核对上次未确认订单'; return }
+  if (!initialReceiptExpected.value) return saveOrderUnlocked(options)
+  try { return await withNewOrderLock((identity,token) => saveOrderUnlocked(options,identity,token,true)) }
+  catch (err) { error.value = err.message || '无法安全保存订单' }
+}
+async function saveOrderUnlocked(options = {}, lockedIdentity = '', lockedToken = '', protectInitialReceipt = false) {
   if (saving.value || loading.value || editBlockReason.value) return
   if (fulfillmentOrderEditing.value) return saveFulfillmentEdit()
   if (!props.customerPortal && (staffCatalog.loading || staffCatalog.error)) { error.value = staffCatalog.error || '商品目录加载中，请稍后重试'; return }
@@ -3067,8 +3210,21 @@ async function save(options = {}) {
   stockBatchNotice.value = ''
   clearAllFieldErrors()
   const saveVersion = editorLoadVersion
+  let firstNewOrderAttempt = false
   try {
+    if (protectInitialReceipt) {
+      await restorePendingOrderCreate(lockedIdentity,lockedToken)
+      if (pendingOrderIdentity !== lockedIdentity) throw new Error('当前账号已变化，请重新打开录单核对')
+      if (pendingOrderCreate.value) { error.value = '请先重试并核对上次未确认订单'; return }
+    }
     const payload = buildOrderPayload({ form, rows: rows.value })
+    if (initialReceiptExpected.value && !protectInitialReceipt) throw new Error('收款信息已变化，请重新保存并核对')
+    if (props.fulfillmentMode && !form.edit_id && (Number(form.prepayment_amount || 0)>0 || Number(form.payment_goods_amount || 0)>0 || Number(form.payment_shipping_amount || 0)>0)) { raiseSaveError('待确认新订单不能登记收款；请先提交未收款订单，确认后逐笔登记实际到账'); return }
+    if (!props.customerPortal && !form.edit_id && backfillMode.value) payload.backfill_mode = true
+    if (initialReceiptExpected.value) {
+      if (!form.receipt_date) { raiseSaveError('请选择实际到账日期'); return }
+      payload.receipt_date = form.receipt_date
+    }
     const amendmentID = Number(new URL(window.location.href).searchParams.get('amendment_id') || 0)
     if (amendmentID > 0 && copyMode.value) payload.amendment_id = amendmentID
     if (newRetainedPurchase.value) Object.assign(payload, { pay_status_id: 0, payment_method: '', payment_goods_amount: '', payment_shipping_amount: '', payment_voucher_asset_id: 0, prepayment_amount: '0' })
@@ -3124,6 +3280,13 @@ async function save(options = {}) {
         return
       }
     }
+    if (initialReceiptExpected.value) {
+      payload.prepayment_amount=initialReceiptPrepayment({prepayment:payload.prepayment_amount,goods:payload.payment_goods_amount,shipping:payload.payment_shipping_amount,status:selectedPayStatusName.value})
+      const outsourceTotal=['outsource_material_fee','outsource_roast_fee','outsource_packaging_fee','outsource_manual_fee','outsource_tax_fee','outsource_other_fee'].reduce((sum,key)=>sum+Number(payload[key] || 0),0)
+      const receiptTotal=orderTotalPreview({itemsTotal:itemsTotal.value+outsourceTotal,shippingAmount:payload.shipping_amount,discountAmount:form.discount_amount,roundToInt:form.round_to_int}).grandTotal
+      const receiptError=validateInitialReceiptBreakdown({prepayment:payload.prepayment_amount,goods:payload.payment_goods_amount,shipping:payload.payment_shipping_amount,total:money(receiptTotal),freight:money(Number(payload.shipping_amount || 0)),status:selectedPayStatusName.value})
+      if(receiptError){raiseSaveError(receiptError,'payment_goods_amount');return}
+    }
     if (!payload.product_id.length) {
       raiseSaveError('请至少录入一条有效明细', 'product_items')
       return
@@ -3145,11 +3308,21 @@ async function save(options = {}) {
       payload.discount_type=payload.discount_type?.map(()=> '')
     }
     if (props.fulfillmentMode) { form.customer_request_id ||= crypto.randomUUID(); payload.request_id=form.customer_request_id; payload.portal_service_code=props.portalService; payload.orders_scope='fulfillment' }
+    if (!props.customerPortal && !props.fulfillmentMode && !form.edit_id) { form.customer_request_id ||= crypto.randomUUID(); payload.request_id=form.customer_request_id; saveOrderEntryDraft() }
     payload.edit_revision=form.edit_revision
     const stockDecision = (props.customerPortal || props.fulfillmentMode || payload.delivery_mode === 'customer_stock') ? '' : await previewStockBatchesBeforeSave(payload)
     if (stockDecision) payload.stock_batch_decision = stockDecision
-    const data = await apiSend(props.customerPortal ? '/api/customer-processing/portal/order' : props.fulfillmentMode ? '/api/fulfillment/order' : '/api/order', { body: payload })
+    const saveRoute = props.customerPortal ? '/api/customer-processing/portal/order' : props.fulfillmentMode ? '/api/fulfillment/order' : '/api/order'
+    if (protectInitialReceipt) {
+      await assertLockedOrderIdentity(lockedIdentity,lockedToken)
+      const pending = { route: saveRoute, payload }
+      savePendingOrderCreate(window.localStorage,pendingOrderIdentity,pending); pendingOrderCreate.value = pending
+      firstNewOrderAttempt = true
+    }
+    const data = await apiSend(saveRoute, { body: payload, ...(lockedToken ? {headers:{Authorization:`Bearer ${lockedToken}`}} : {}) })
+    if (protectInitialReceipt && pendingOrderCreate.value) { window.localStorage.removeItem(pendingOrderCreateKey); pendingOrderCreate.value = null }
     ok.value = data.confirmation_status === 'pending' ? `${data.order_no} 已保存，待确认` : data.order_no || '成功'
+    if (data.receipt_warning) { error.value = data.receipt_warning; window.alert(data.receipt_warning) }
     if (data.stock_batch_used) {
       stockBatchNotice.value = '已使用成品批次，订单状态已进入“库存待发货”。'
     } else if (stockDecision === 'produce') {
@@ -3174,6 +3347,11 @@ async function save(options = {}) {
     if (props.customerPortal) {form.customer_request_id='';emit('saved',data);return}
     if (!props.embedded) window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'orders', params: { order_id: Number(data.order_id), highlight_order_id: Number(data.order_id) } } }))
   } catch (err) {
+    if (firstNewOrderAttempt && pendingOrderCreate.value && !receiptKeepPending(err.status, err.not_committed, true)) {
+      window.localStorage.removeItem(pendingOrderCreateKey)
+      pendingOrderCreate.value = null
+      form.customer_request_id = ''
+    }
     if (!props.customerPortal && String(err.message || '').includes('bom_configuration_updated')) {
       const refreshed = await refreshStaffOrderCatalog()
       if (refreshed) { await nextTick(); await freightEstimator.value?.preview() }
@@ -3243,6 +3421,7 @@ onMounted(async () => {
     repriceHydratedRows()
   }
   await refreshStaffOrderCatalog()
+  if (!props.customerPortal && !form.edit_id) { try { await restorePendingOrderCreate() } catch (err) { error.value = err.message || '无法读取本机待确认订单，请联系管理员核对' } }
 })
 
 onBeforeUnmount(saveOrderEntryDraft)
@@ -3353,7 +3532,7 @@ watch(() => [form.delivery_mode, form.edit_id, loadedEditorOrderID.value], () =>
 })
 watch(()=>form.delivery_mode,mode=>{if(mode==='customer_stock'){form.shipping_amount='0'}else{try{form.shipping_amount=String(freightAmount(form.freight_state))}catch{}}})
 watch(() => form.shipping_amount, (next, previous) => {
-  if (paymentReceiptRequired.value && (String(form.payment_shipping_amount ?? '').trim() === '' || !form.edit_id && Number(form.payment_shipping_amount)===Number(previous||0))) {
+  if (paymentReceiptRequired.value && shippingReceiptAmountKnown.value && (String(form.payment_shipping_amount ?? '').trim() === '' || !form.edit_id && Number(form.payment_shipping_amount)===Number(previous||0))) {
     form.payment_shipping_amount = money(toNumber(form.shipping_amount))
   }
   clearFieldErrorIfValid('payment_shipping_amount')

@@ -33,4 +33,11 @@ test('只允许足额收款并提交全部订单版本，超额保留为待分�
   assert.deepEqual(request, { orders: [{ order_id: 1, edit_revision: 'v1' }, { order_id: 2, edit_revision: 'v2' }], actual_cents: 7525, expected_due_cents: 7000, payment_method: '微信支付', payment_voucher_asset_id: 3, ship_status_id: 9, idempotency_key: 'key-1' })
   const unchangedShipping = combinedPaymentRequest(orders, { actual: '70', method: '微信支付', key: 'key-2' })
   assert.equal(Object.hasOwn(unchangedShipping, 'ship_status_id'), false)
+  assert.equal(combinedPaymentRequest(orders, { actual: '70', method: '微信支付', key: 'key-3', receiptDate: '2026-11-10' }).receipt_date, '2026-11-10')
+})
+
+test('待确认合并付款保留实际到账日期，历史请求标明未记录', async () => {
+  const { combinedPendingReceiptDate } = await import('./combined-order-payment.js')
+  assert.equal(combinedPendingReceiptDate({receipt_date:'2026-11-10'}),'2026-11-10')
+  assert.equal(combinedPendingReceiptDate({}),'未记录')
 })

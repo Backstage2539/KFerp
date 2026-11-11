@@ -1,3 +1,10 @@
+### PR-MINIAPP-PREVIEW-DROPSHIP-20261111
+
+- Scope: 管理员只读预览按所选客户已开通场景显示「一件代发」「无库存代发」入口，查看客户商品、规格和收件地址；不可下单、修改地址或读取/覆盖客户草稿。
+- Branch: `codex/customer-preview-dropship-20261111`；DEV: `DEV-MINIAPP-PREVIEW-DROPSHIP-UI`、`DEV-MINIAPP-PREVIEW-DROPSHIP-ACCESS`。
+- Verification: 小程序全量 510 项、类型检查及开发包构建通过；客户门户与权限接口测试通过，覆盖客户归属和写操作拒绝；服务器 Go 和镜像测试通过。用户业务验收待完成。
+- Development: `640d7d6dc0f5b68c884af79acf6cf3807cfa0fa7`；应用运行、数据库健康、匿名需求接口 401、登录 200、需求记录可见；开发小程序包 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，旧包备份及服务回滚源见验收记录。生产未部署。
+
 ### PR-758-UPSTREAM-WAIT
 - Branch: `codex/production-upstream-preparation-20261111`; base: `origin/develop`.
 - Scope: 物料准备区区分前道待生产与需现货调拨的数量，并核对单项及批量调拨保护。
@@ -6575,6 +6582,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - GREEN: frontend tests 1681/1681, frontend build, full backend, stock API, and local browser fixture. Production observed read-only; no production stock document or business data changed. Development/production deployment not performed.
 
 ### PR-750-ORDER-WECHAT-NOTIFICATIONS
+- 2026-11-11 跟进：DEV-PR750-05～07 正在实现逐笔收款、出账、接单、逐次发货及分渠道配置；上述 2026-11-08 发布证据不代表本次跟进已部署或通过。Van 提供的接单和发货状态枚举截图均为审核中；真实服务号与生产群送达尚待逐项核验。
+- 2026-11-11 开发交付：运行版本 `228c6394dd38ae27481e6fd88c5a291f97980f5a`，容器运行且数据库健康；四个服务号模板字段已在开发环境保存，两个自动发送开关关闭。实际服务号及“口加生产”群送达、指定测试账号绑定、模板枚举通过情况仍待验证，PR/DEV 保持 doing。开发小程序包 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，未上传微信平台。
+- 同日补充：新订单首笔收款、请求幂等与管理员核查解除已经完成本机验证，待重新合并与部署；未收款新单在嵌入/复制页面断网后重复创建的既有风险尚未覆盖。开发工具已打开测试账号 72，但二维码失效且绑定未完成。
+- 首款补丁已发布开发环境：运行版本 `116d2b80679c059d321e5a11d4e52ed30f709f51`，ERP-only 保留 `228c6394dd38` 小程序包（小程序源码未变）；应用 running/restarts 0，数据库 healthy，登录 200、匿名通知接口 401，四个模板映射保留，服务号和群自动发送均关闭。真实微信仍未完成绑定及收发验收。
 - 正式发布：Van 明确要求随 develop 完整上线，正式运行版本 `d48ad618d27d69cd099c3df4e921ce24fc19a110`；两个自动发送开关关闭、设备 0、生命周期投递 0；真实微信送达及现场验收仍未完成，小程序包已构建导出但未上传/提审/发布。
 - Branch: codex/order-wechat-notifications-20261108
 - Owner/session: Codex / order-wechat-notifications

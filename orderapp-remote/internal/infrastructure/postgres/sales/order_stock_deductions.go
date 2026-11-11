@@ -734,8 +734,9 @@ func (r Repository) applySavedOrderShipmentTx(ctx context.Context, tx pgx.Tx, or
 	if !isShipped(next) {
 		return nil
 	}
+	previous := ""
 	if previousStatusID > 0 {
-		previous, err := lookupStatusName(ctx, tx, r.schema, "ship_statuses", previousStatusID)
+		previous, err = lookupStatusName(ctx, tx, r.schema, "ship_statuses", previousStatusID)
 		if err != nil {
 			return err
 		}
@@ -743,5 +744,17 @@ func (r Repository) applySavedOrderShipmentTx(ctx context.Context, tx pgx.Tx, or
 			return nil
 		}
 	}
-	return r.deductOrderAllocatedStockTx(ctx, tx, orderID, actor)
+	if err = r.deductOrderAllocatedStockTx(ctx, tx, orderID, actor); err != nil {
+		return err
+	}
+	if savedShipmentNotice(previous, next) {
+		var tracking string
+		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(ship_tracking_no,'') FROM %s.orders WHERE id=$1`, r.schema), orderID).Scan(&tracking); err != nil {
+			return err
+		}
+		if err = recordShipmentNotices(ctx, tx, r.schema, orderID, 0, tracking); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -53,6 +53,9 @@ func (w *Worker) Tick(ctx context.Context) error {
 	if err := w.CaptureCommitted(ctx); err != nil {
 		return err
 	}
+	if err := w.CaptureBusinessCommitted(ctx); err != nil {
+		return err
+	}
 	// A process may have died after sending. Never blindly retry an expired lease.
 	if _, err := w.Repo.pool.Exec(ctx, "UPDATE "+w.Repo.schema+".message_deliveries SET status='unknown',error='发送期间进程中断，请核对后处理',updated_at=now() WHERE lifecycle AND status='sending' AND lease_until<now()"); err != nil {
 		return err
@@ -119,31 +122,33 @@ func (w *Worker) CaptureCommitted(ctx context.Context) error {
 			return err
 		}
 		n.ChangeID, n.State = c.id, after
-		n.Milestones = filterEvents(app.OrderMilestones(before, after, c.created), cfg.Events)
-		if len(n.Milestones) > 0 {
+		milestones := app.OrderMilestones(before, after, c.created)
+		officialNotice := n
+		officialNotice.Milestones = filterEvents(milestones, cfg.ServiceEvents())
+		if len(officialNotice.Milestones) > 0 && cfg.OfficialEnabled && !c.at.Before(cfg.OfficialSince) {
 			var targets []Recipient
-			if cfg.OfficialEnabled && !c.at.Before(cfg.OfficialSince) {
-				for _, recipient := range recipients {
-					if c.at.Before(recipient.ConsentAt) || len(filterEvents(n.Milestones, recipient.Events)) == 0 {
-						continue
-					}
-					if w.Authorize == nil {
-						continue
-					}
-					ok, e := w.Authorize(ctx, recipient, n)
-					if e != nil {
-						return e
-					}
-					if ok {
-						targets = append(targets, recipient)
-					}
+			for _, recipient := range recipients {
+				if c.at.Before(recipient.ConsentAt) || len(filterEvents(officialNotice.Milestones, recipient.Events)) == 0 || w.Authorize == nil {
+					continue
+				}
+				ok, e := w.Authorize(ctx, recipient, officialNotice)
+				if e != nil {
+					return e
+				}
+				if ok {
+					targets = append(targets, recipient)
 				}
 			}
-			group := int64(0)
-			if cfg.DesktopEnabled && !c.at.Before(cfg.DesktopSince) {
-				group = cfg.DesktopID
+			if len(targets) > 0 {
+				if _, err = w.Repo.enqueueNotice(ctx, tx, officialNotice, targets, 0); err != nil {
+					return err
+				}
 			}
-			if _, err = w.Repo.enqueueNotice(ctx, tx, n, targets, group); err != nil {
+		}
+		groupNotice := n
+		groupNotice.Milestones = filterEvents(milestones, cfg.Events)
+		if len(groupNotice.Milestones) > 0 && cfg.DesktopEnabled && !c.at.Before(cfg.DesktopSince) {
+			if _, err = w.Repo.enqueueNotice(ctx, tx, groupNotice, nil, cfg.DesktopID); err != nil {
 				return err
 			}
 		}
@@ -164,6 +169,16 @@ func (r Repository) enqueueNotice(ctx context.Context, tx pgx.Tx, n app.OrderNot
 		return 0, err
 	}
 	key := fmt.Sprintf("order.change.%d", n.ChangeID)
+	if !n.Test {
+		if device > 0 {
+			key += ".group"
+		} else {
+			key += ".official"
+		}
+	}
+	if n.BusinessEventKey != "" && !n.Test {
+		key = "business." + n.BusinessEventKey
+	}
 	if n.Test {
 		key = "order.test." + randomToken()
 	}
@@ -258,15 +273,19 @@ func (w *Worker) send(ctx context.Context, d Delivery) {
 		finish("skipped", "", "已取消关注、通知或绑定")
 		return
 	}
+	if !d.Notice.Test && d.CreatedAt.Before(recipient.ConsentAt) {
+		finish("skipped", "", "订阅偏好变更前的旧通知")
+		return
+	}
 	d.Notice.Milestones = filterEvents(d.Notice.Milestones, recipient.Events)
 	if !d.Notice.Test {
-		d.Notice.Milestones = filterEvents(d.Notice.Milestones, cfg.Events)
+		d.Notice.Milestones = filterEvents(d.Notice.Milestones, cfg.ServiceEvents())
 	}
 	if len(d.Notice.Milestones) == 0 {
 		finish("skipped", "", "节点通知已关闭")
 		return
 	}
-	if !d.Notice.Test {
+	if !d.Notice.Test || d.Notice.TestDetail {
 		if w.Authorize == nil {
 			finish("failed", "", "缺少权限校验")
 			return
@@ -281,6 +300,24 @@ func (w *Worker) send(ctx context.Context, d Delivery) {
 			return
 		}
 	}
+	if !d.Notice.Test && len(d.Notice.Milestones) == 1 && app.BusinessMilestoneLabels[d.Notice.Milestones[0]] != "" {
+		event := d.Notice.Milestones[0]
+		since := cfg.OfficialEventSince[event]
+		if since.IsZero() || d.Notice.BusinessOccurredAt.IsZero() || d.Notice.BusinessOccurredAt.Before(since) {
+			finish("skipped", "", "节点停用或启用前的旧通知")
+			return
+		}
+		var verified bool
+		err = w.Repo.pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM "+w.Repo.schema+".message_business_test_verifications WHERE event=$1 AND status_value=$2 AND template_fingerprint=$3 AND detail_verified=true)", event, d.Notice.StatusText(), businessTemplateFingerprint(cfg.Templates[event])).Scan(&verified)
+		if err != nil {
+			finish("retry", "", "无法核对测试记录，尚未发送")
+			return
+		}
+		if !verified {
+			finish("failed", "", "该状态尚未通过真实测试")
+			return
+		}
+	}
 	tpl := cfg.Templates[d.Notice.Milestones[len(d.Notice.Milestones)-1]]
 	if err = tpl.Validate(); err != nil {
 		finish("failed", "", err.Error())
@@ -289,6 +326,12 @@ func (w *Worker) send(ctx context.Context, d Delivery) {
 	if w.Sender == nil {
 		finish("failed", "", "公众号发送服务不可用")
 		return
+	}
+	if d.Notice.Test && len(d.Notice.Milestones) == 1 && app.BusinessMilestoneLabels[d.Notice.Milestones[0]] != "" {
+		if _, err = w.Repo.pool.Exec(ctx, "UPDATE "+w.Repo.schema+".message_deliveries SET template_fingerprint=$1 WHERE id=$2 AND status='sending' AND lease_token=$3", businessTemplateFingerprint(tpl), d.ID, d.Lease); err != nil {
+			finish("retry", "", "无法记录测试模板，尚未发送")
+			return
+		}
 	}
 	id, err := w.Sender.SendOrderTemplate(ctx, recipient.OpenID, tpl, d.Notice, recipient.EmployeeID > 0)
 	reason := ""

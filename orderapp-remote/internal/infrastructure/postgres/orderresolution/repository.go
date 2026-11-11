@@ -69,6 +69,35 @@ func (r Repository) load(ctx context.Context, q querier, id int64) (domain.Conte
 	if err != nil {
 		return c, err
 	}
+	// The order-resolution financial model does not yet consume per-line
+	// partial receipt allocations. Refuse to preview or apply a disposition
+	// for affected bills instead of understating cash already received.
+	var paymentTable bool
+	if err = q.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, r.schema+".customer_settlement_payments").Scan(&paymentTable); err != nil {
+		return c, err
+	}
+	if paymentTable {
+		var allocationTables bool
+		if err = q.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL AND to_regclass($2) IS NOT NULL`, r.schema+".customer_settlement_payment_line_allocations", r.schema+".customer_settlement_payment_order_audit_refs").Scan(&allocationTables); err != nil {
+			return c, err
+		}
+		safePaid := "false"
+		if allocationTables {
+			safePaid = fmt.Sprintf(`(b.status='paid'
+ AND EXISTS(SELECT 1 FROM %[1]s.customer_settlement_payments last_payment WHERE last_payment.settlement_batch_id=b.id AND last_payment.reversed_at IS NULL AND COALESCE((to_jsonb(last_payment)->>'fully_settled')::boolean,true))
+ AND NOT EXISTS(SELECT 1 FROM %[1]s.customer_settlement_lines x WHERE x.settlement_batch_id=b.id AND x.reversed_at IS NULL AND x.amount_cents>COALESCE((SELECT sum(pa.amount_cents) FROM %[1]s.customer_settlement_payment_line_allocations pa JOIN %[1]s.customer_settlement_payments ap ON ap.id=pa.payment_id WHERE pa.line_id=x.id AND ap.reversed_at IS NULL),0))
+ AND NOT EXISTS(SELECT 1 FROM %[1]s.customer_settlement_lines x LEFT JOIN %[1]s.customer_fee_items f ON f.id=x.source_id AND f.customer_id=x.customer_id WHERE x.settlement_batch_id=b.id AND x.reversed_at IS NULL AND x.source_type='customer_fee_item' AND (f.id IS NULL OR round(f.amount*100)::bigint<>x.receivable_cents))
+ AND NOT EXISTS(SELECT 1 FROM %[1]s.order_audit_logs al WHERE al.order_id=o.id AND al.id>COALESCE((SELECT max(ar.order_audit_id) FROM %[1]s.customer_settlement_payment_order_audit_refs ar JOIN %[1]s.customer_settlement_payments rp ON rp.id=ar.payment_id WHERE ar.order_id=o.id AND rp.settlement_batch_id=b.id),0) AND al.field IN('pay_status_id','payment_method','prepayment_amount','payment_goods_amount','payment_shipping_amount','payment_voucher_asset_id','order','header') AND EXISTS(SELECT 1 FROM %[1]s.customer_settlement_payment_order_audit_refs ar JOIN %[1]s.customer_settlement_payments rp ON rp.id=ar.payment_id WHERE ar.order_id=o.id AND rp.settlement_batch_id=b.id)))`, r.schema)
+		}
+		var partial bool
+		err = q.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.orders o JOIN %[1]s.customer_settlement_lines l ON l.customer_id=o.customer_id AND l.reversed_at IS NULL AND ((l.source_type='order' AND l.source_id=o.id) OR (l.source_type='customer_fee_item' AND EXISTS(SELECT 1 FROM %[1]s.customer_fee_items f WHERE f.id=l.source_id AND %[2]s))) JOIN %[1]s.customer_settlement_batches b ON b.id=l.settlement_batch_id JOIN %[1]s.customer_settlement_payments p ON p.settlement_batch_id=l.settlement_batch_id AND p.customer_id=o.customer_id AND p.reversed_at IS NULL WHERE o.id=$1 AND COALESCE((to_jsonb(p)->>'fully_settled')::boolean,true)=false AND NOT %[3]s)`, r.schema, feePredicate, safePaid), id).Scan(&partial)
+		if err != nil {
+			return c, err
+		}
+		if partial {
+			return c, fmt.Errorf("关联账单存在部分收款，请先核对或撤销收款后再处理订单")
+		}
+	}
 	var raw []byte
 	err = q.QueryRow(ctx, fmt.Sprintf(`SELECT jsonb_build_object(
  'order',to_jsonb(o),'items',COALESCE((SELECT jsonb_agg(to_jsonb(i) ORDER BY i.id) FROM %[1]s.order_items i WHERE i.order_id=o.id),'[]'),

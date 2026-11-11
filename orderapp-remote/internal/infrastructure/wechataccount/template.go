@@ -12,13 +12,18 @@ import (
 	"strings"
 )
 
+type TemplateValidationError struct{ Reason string }
+
+func (e *TemplateValidationError) Error() string { return e.Reason }
+
 type APIError struct{ Code int }
 
 func (e *APIError) Error() string { return fmt.Sprintf("微信接口错误 %d", e.Code) }
 
 type TemplateMapping struct {
-	ID     string            `json:"id"`
-	Fields map[string]string `json:"fields"`
+	ID            string              `json:"id"`
+	Fields        map[string]string   `json:"fields"`
+	ApprovedEnums map[string][]string `json:"approved_enums,omitempty"`
 }
 
 var templateField = regexp.MustCompile(`^(thing|character_string|time|date|number|amount|phrase|name|phone_number|car_number|const|letter|symbol)[0-9]+$`)
@@ -28,12 +33,57 @@ func (t TemplateMapping) Validate() error {
 		return errors.New("请配置业务模板及字段映射")
 	}
 	allowed := messages.OrderNotice{}.Values()
+	// Permit administrators to prepare these mappings while finance delivery is
+	// disabled. No finance payload is supplied to the order sender.
+	for _, source := range []string{"receipt_date", "receivable_amount", "receipt_no", "received_amount", "bill_no", "bill_amount", "bill_period"} {
+		allowed[source] = ""
+	}
 	for field, source := range t.Fields {
 		if !templateField.MatchString(field) && field != "first" && field != "remark" && !regexp.MustCompile(`^keyword[0-9]+$`).MatchString(field) {
 			return errors.New("模板字段无效；一次性订阅模板不能用于持续订单通知")
 		}
+		if strings.HasPrefix(field, "const") {
+			if len(t.ApprovedEnums[field]) == 0 {
+				return errors.New("常量字段尚未配置审核通过的枚举值")
+			}
+			for _, value := range t.ApprovedEnums[field] {
+				if strings.TrimSpace(value) == "" || len([]rune(value)) > 20 {
+					return errors.New("常量枚举值无效")
+				}
+			}
+		}
 		if _, ok := allowed[source]; !ok {
 			return errors.New("不支持的订单模板字段")
+		}
+	}
+	return nil
+}
+
+// Conservative local validation; a valid value can still be rejected by WeChat.
+func validateTemplateValue(field, value string) error {
+	if strings.HasPrefix(field, "character_string") {
+		if !regexp.MustCompile(`^[!-~]{1,32}$`).MatchString(value) {
+			return &TemplateValidationError{Reason: "编号或单号格式无效"}
+		}
+	}
+	if strings.HasPrefix(field, "amount") {
+		if !regexp.MustCompile(`^(?:[¥￥])?[0-9]+(?:\.[0-9]+)?(?:元)?$`).MatchString(value) {
+			return &TemplateValidationError{Reason: "金额格式无效"}
+		}
+		digits := 0
+		for _, r := range value {
+			if r >= '0' && r <= '9' {
+				digits++
+			}
+		}
+		if digits > 12 {
+			return &TemplateValidationError{Reason: "金额超过字段长度"}
+		}
+	}
+	if strings.HasPrefix(field, "time") || strings.HasPrefix(field, "date") {
+		part := `(?:[0-9]{4}[-./][0-9]{1,2}[-./][0-9]{1,2}|[0-9]{4}年[0-9]{1,2}月[0-9]{1,2}日|[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?)(?: [0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?)?`
+		if !regexp.MustCompile(`^` + part + `(?:~` + part + `)?$`).MatchString(value) {
+			return &TemplateValidationError{Reason: "时间格式无效"}
 		}
 	}
 	return nil
@@ -46,15 +96,23 @@ func (w *WechatClient) SendOrderTemplate(ctx context.Context, openid string, t T
 	if strings.TrimSpace(openid) == "" {
 		return "", &APIError{Code: 40003}
 	}
-	token, err := w.accessToken(ctx)
-	if err != nil {
-		return "", &TokenError{}
-	}
 	data := map[string]map[string]string{}
 	values := n.Values()
 	for field, source := range t.Fields {
 		value := values[source]
-		if n.Test && source == "status" {
+		if strings.HasPrefix(field, "const") {
+			approved := false
+			for _, v := range t.ApprovedEnums[field] {
+				if value == v {
+					approved = true
+					break
+				}
+			}
+			if !approved {
+				return "", &TemplateValidationError{Reason: "常量字段的值尚未通过审核或未配置"}
+			}
+		}
+		if n.Test && ((source == "status" && !strings.HasPrefix(field, "const")) || (source == "items" && strings.HasPrefix(field, "thing"))) {
 			value = "测试·" + value
 		}
 		limit := 0
@@ -67,7 +125,14 @@ func (w *WechatClient) SendOrderTemplate(ctx context.Context, openid string, t T
 		if limit > 0 && len([]rune(value)) > limit {
 			value = string([]rune(value)[:limit])
 		}
+		if err := validateTemplateValue(field, value); err != nil {
+			return "", err
+		}
 		data[field] = map[string]string{"value": value}
+	}
+	token, err := w.accessToken(ctx)
+	if err != nil {
+		return "", &TokenError{}
 	}
 	body := map[string]any{"touser": openid, "template_id": t.ID, "data": data}
 	if w.Config.MiniAppID != "" {
@@ -99,6 +164,10 @@ func (*TokenError) Error() string { return "获取微信凭证失败，尚未发
 func TemplateFailureState(err error) string {
 	if err == nil {
 		return "accepted"
+	}
+	var validation *TemplateValidationError
+	if errors.As(err, &validation) {
+		return "failed"
 	}
 	var token *TokenError
 	if errors.As(err, &token) {

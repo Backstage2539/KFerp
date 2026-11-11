@@ -93,6 +93,7 @@ type orderSaveAPIRequest struct {
 	BackfillMode                    bool                    `json:"backfill_mode"`
 	SelectedPriceTableIDs           []int64                 `json:"selected_price_table_ids"`
 	PrepaymentAmount                *string                 `json:"prepayment_amount" form:"prepayment_amount"`
+	ReceiptDate                     string                  `json:"receipt_date,omitempty" form:"receipt_date"`
 	EditID                          int64                   `json:"edit_id"`
 	DocumentDate                    string                  `json:"document_date"`
 	OrderDate                       string                  `json:"order_date"`
@@ -217,6 +218,8 @@ func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages Message
 	e.POST("/api/orders/status-batch/preview", h.batchStatusPreview)
 	e.POST("/api/orders/status-batch", h.batchStatusSave)
 	e.POST("/api/orders/status-batch/combined-payment", h.combinedPayment)
+	e.POST("/api/orders/:id/receipts", h.registerOrderReceipt)
+	e.GET("/api/orders/:id/receipts", h.orderReceipts)
 	e.GET("/api/orders/:id/combined-payments", h.orderCombinedPayments)
 	e.GET("/api/order/form", h.form)
 	e.GET("/api/order/catalog", h.catalog)
@@ -227,6 +230,8 @@ func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages Message
 	e.POST("/api/order/stock-batch-preview", h.stockBatchPreview)
 	e.POST("/api/order/payment-vouchers", h.uploadPaymentVoucher)
 	e.POST("/api/order", h.save)
+	e.POST("/api/order/pending-request/resolve", h.resolvePendingOrderRequest)
+	e.GET("/api/order/pending-request/:requestID/status", h.pendingOrderRequestStatus)
 	e.POST("/api/fulfillment/order", h.save)
 	e.GET("/api/orders/:id/confirmation", h.confirmation)
 	e.POST("/api/orders/:id/confirmation", h.reviewConfirmation)
@@ -562,11 +567,11 @@ func (h orderAPIHandler) save(c echo.Context) error {
 	}
 	var req orderSaveAPIRequest
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "bad request"})
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request", "not_committed": true})
 	}
 	cmd, err := saveOrderCommandFromCreateRequest(req.toCreateRequest(), req.EditID, support.ActorOf(c))
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error(), "not_committed": true})
 	}
 	if support.CustomerFulfillmentOrderScopeLimited(c) {
 		if h.customerScope == nil {
@@ -587,8 +592,16 @@ func (h orderAPIHandler) save(c echo.Context) error {
 		cmd.AmendmentID = req.AmendmentID
 	}
 	cmd.SelectedPriceTableIDs = req.SelectedPriceTableIDs
+	cmd.BackfillMode = req.BackfillMode
 	cmd.ExpectedEditRevision = req.EditRevision
 	cmd.RequireConfirmation = req.AmendmentID > 0 || c.Path() == "/api/fulfillment/order" || strings.HasPrefix(c.Path(), "/api/customer-processing/portal/")
+	if c.Path() == "/api/order" && req.EditID == 0 && strings.TrimSpace(req.RequestID) != "" {
+		cmd.CustomerRequestID = strings.TrimSpace(req.RequestID)
+		if len(cmd.CustomerRequestID) < 16 || len(cmd.CustomerRequestID) > 100 {
+			return c.JSON(400, map[string]string{"error": "录单请求标识无效，请刷新后重试"})
+		}
+		cmd.CustomerRequestHash = confirmationRequestHash(req)
+	}
 	if c.Path() == "/api/fulfillment/order" {
 		if support.CustomerFulfillmentOrderScopeLimited(c) {
 			return c.JSON(403, map[string]string{"error": "请从客户履约录单入口保存"})
@@ -608,7 +621,7 @@ func (h orderAPIHandler) save(c echo.Context) error {
 	res, err := h.sales.SaveOrder(c.Request().Context(), cmd)
 	if err != nil {
 		if confirmation, ok := salesapp.PricingRuleConfirmationDetails(err); ok {
-			return c.JSON(http.StatusConflict, map[string]string{"error": err.Error(), "code": "pricing_rule_confirmation_required", "current_rule_revision": confirmation.Revision, "pricing_rule_name": confirmation.RuleName})
+			return c.JSON(http.StatusConflict, map[string]any{"error": err.Error(), "code": "pricing_rule_confirmation_required", "current_rule_revision": confirmation.Revision, "pricing_rule_name": confirmation.RuleName, "not_committed": true})
 		}
 		if message, conflict := salesapp.OrderEditConflictMessage(err); conflict {
 			return c.JSON(http.StatusConflict, map[string]string{"error": message})
@@ -630,6 +643,7 @@ func (h orderAPIHandler) save(c echo.Context) error {
 		"redirect_url":        redirectURL,
 		"stock_batch_used":    res.StockBatchUsed,
 		"confirmation_status": res.ConfirmationStatus,
+		"receipt_warning":     res.ReceiptWarning,
 	})
 }
 
@@ -694,6 +708,7 @@ func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 		DeliveryWarehouseCode: r.DeliveryWarehouseCode,
 		SpecConversion:        r.SpecConversion,
 		PrepaymentAmount:      r.PrepaymentAmount,
+		ReceiptDate:           r.ReceiptDate,
 		DocumentDate:          r.DocumentDate,
 		OrderDate:             r.OrderDate,
 		CustomerID:            r.CustomerID,

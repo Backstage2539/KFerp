@@ -82,6 +82,7 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 	}
 	return salesapp.SaveOrderCommand{
 		PrepaymentAmount:      prepayment,
+		ReceiptDate:           strings.TrimSpace(req.ReceiptDate),
 		Actor:                 actor,
 		EditID:                editID,
 		DocumentDate:          dd,

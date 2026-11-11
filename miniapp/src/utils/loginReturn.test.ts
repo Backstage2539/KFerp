@@ -50,3 +50,10 @@ it('keeps the employee notice order but rejects arbitrary employee navigation',(
  expect(safeLoginReturn(p+'&customer_id=8')).toBe('')
  expect(safeLoginReturn(p.replace('42','-1'))).toBe('')
 })
+it('permits only a numeric receipt or bill notification destination',()=>{
+ for(const type of ['receipt','bill']) {
+  const path=`/pages/notification-detail/notification-detail?type=${type}&id=42`
+  expect(safeLoginReturn(path)).toBe(path)
+  for(const bad of [path+'&customer_id=9',path.replace('42','0'),path.replace('42','-1'),path.replace('42','42.1'),path.replace(type,'orders')]) expect(safeLoginReturn(bad)).toBe('')
+ }
+})

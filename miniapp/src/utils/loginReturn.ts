@@ -15,6 +15,7 @@ export function safeLoginReturn(raw: unknown): string {
   if (/^\/pages\/service\/service\?key=orders&source=notice&order_id=[1-9][0-9]{0,14}&customer_id=[1-9][0-9]{0,14}$/.test(path)) return path
   if (/^\/pages\/employee-order-detail\/employee-order-detail\?id=[1-9][0-9]{0,14}$/.test(path)) return path
   if (path === '/pages/order-notifications/order-notifications') return path
+  if (/^\/pages\/notification-detail\/notification-detail\?type=(receipt|bill)&id=[1-9][0-9]{0,14}$/.test(path)) return path
   return ''
 }
 export function loginRouteFor(destination: string): string {

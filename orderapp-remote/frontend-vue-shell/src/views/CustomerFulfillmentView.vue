@@ -204,7 +204,7 @@
         <div v-if="billingView === 'bills'" class="table-scroll">
           <table class="billing-table"><thead><tr><th>账单号</th><th>出账日期</th><th>费用期间</th><th>出账金额</th><th>已收</th><th>未收</th><th>状态</th><th>操作</th></tr></thead>
             <tbody><tr v-for="bill in issuedBills" :key="bill.batch_id" @dblclick="openIssuedBill(bill.batch_id)">
-              <td>{{ bill.settlement_no }}</td><td>{{ bill.issued_at || '—' }}</td><td>{{ bill.period_from }} 至 {{ bill.period_to }}</td><td>{{ moneyFromCents(bill.total_amount_cents) }}</td><td>{{ moneyFromCents(bill.current_received_cents) }}</td><td>{{ moneyFromCents(bill.current_due_amount_cents) }}</td><td>{{ bill.current_due_amount_cents > 0 ? '未收清' : '已收清' }}</td><td><button class="link-button" type="button" @click="openIssuedBill(bill.batch_id)">费用明细</button><button v-if="canInternal('stock.write') && billPaymentAction(bill)" class="link-button" type="button" :disabled="billPaymentLoading || billPaymentNeedsRefresh" @click="requestBillPayment(bill)">{{ billPaymentAction(bill) === 'pay' ? '标记已收清' : '撤销收款' }}</button></td>
+              <td>{{ bill.settlement_no }}</td><td>{{ bill.issued_at || '—' }}</td><td>{{ bill.period_from }} 至 {{ bill.period_to }}</td><td>{{ moneyFromCents(bill.total_amount_cents) }}</td><td>{{ moneyFromCents(bill.current_received_cents) }}</td><td>{{ moneyFromCents(bill.current_due_amount_cents) }}</td><td>{{ bill.current_due_amount_cents > 0 ? '未收清' : '已收清' }}</td><td><button class="link-button" type="button" @click="openIssuedBill(bill.batch_id)">费用明细</button><button v-if="canInternal('stock.write') && billPaymentAction(bill)" class="link-button" type="button" :disabled="billPaymentLoading || billPaymentNeedsRefresh" @click="requestBillPayment(bill)">{{ billPaymentAction(bill) === 'pay' ? '标记已收清' : '撤销收款' }}</button><button v-if="canInternal('stock.write') && bill.payment_reversible && billPaymentAction(bill)==='pay'" class="link-button" type="button" :disabled="billPaymentLoading || billPaymentNeedsRefresh" @click="requestBillPayment(bill,'reverse')">撤销最近收款</button></td>
             </tr><tr v-if="!billingLoading && !issuedBills.length"><td colspan="8" class="muted">暂无已出账账单</td></tr></tbody>
           </table>
         </div>
@@ -367,7 +367,8 @@
       <aside class="sales-order-drawer billing-bill-drawer" aria-label="已出账费用明细">
         <header class="panel-head"><div><h3>{{ activeBill.settlement_no }}</h3><p>{{ activeBill.period_from }} 至 {{ activeBill.period_to }} · {{ activeBill.customer_name }}</p></div><button class="secondary" type="button" @click="activeBill = null">关闭</button></header>
         <div class="billing-bill-summary"><span>原出账 ¥{{ moneyFromCents(activeBill.total_amount_cents) }}</span><span v-if="activeBill.adjustment_cents">订单处理调整 ¥{{ moneyFromCents(-activeBill.adjustment_cents) }}</span><span>已收 ¥{{ moneyFromCents(activeBill.current_received_cents) }}</span><span>未收 ¥{{ moneyFromCents(activeBill.current_due_amount_cents) }}</span><span>{{ activeBill.issued_at }}</span></div>
-        <div class="head-actions"><button v-if="canInternal('stock.write') && billPaymentAction(activeBill)" class="primary" type="button" :disabled="billPaymentLoading || billPaymentNeedsRefresh" @click="requestBillPayment(activeBill)">{{ billPaymentLoading ? '处理中…' : billPaymentAction(activeBill) === 'pay' ? '标记已收清' : '撤销收款' }}</button><button class="secondary" type="button" :disabled="billingExportLoading" @click="downloadBillFile('xlsx')">导出费用 Excel</button><button class="secondary" type="button" :disabled="billPdfLoading" @click="downloadStampedBillPDF">{{ billPdfLoading ? '生成中…' : '下载费用 PDF' }}</button><button class="secondary" type="button" :disabled="billPdfLoading" @click="downloadBillImage">下载分享图片</button></div><p class="muted">商品、运费和服务费对应明细见下方；PDF 和图片使用已保存的公章设置。操作说明见客户履约手册。</p>
+        <details v-if="activeBill.receipts?.length"><summary>本账单逐笔收款</summary><p v-for="receipt in activeBill.receipts" :key="receipt.receipt_no">{{ receipt.receipt_no }} · 到账 {{ receipt.receipt_date || '未记录' }} · ¥{{ moneyFromCents(receipt.amount_cents) }}{{ receipt.reversed ? ' · 已撤销' : '' }}</p></details>
+        <div class="head-actions"><button v-if="canInternal('stock.write') && billPaymentAction(activeBill)" class="primary" type="button" :disabled="billPaymentLoading || billPaymentNeedsRefresh" @click="requestBillPayment(activeBill)">{{ billPaymentLoading ? '处理中…' : billPaymentAction(activeBill) === 'pay' ? '标记已收清' : '撤销收款' }}</button><button v-if="canInternal('stock.write') && activeBill.payment_reversible && billPaymentAction(activeBill)==='pay'" class="secondary" type="button" :disabled="billPaymentLoading || billPaymentNeedsRefresh" @click="requestBillPayment(activeBill,'reverse')">撤销最近收款</button><button class="secondary" type="button" :disabled="billingExportLoading" @click="downloadBillFile('xlsx')">导出费用 Excel</button><button class="secondary" type="button" :disabled="billPdfLoading" @click="downloadStampedBillPDF">{{ billPdfLoading ? '生成中…' : '下载费用 PDF' }}</button><button class="secondary" type="button" :disabled="billPdfLoading" @click="downloadBillImage">下载分享图片</button></div><p class="muted">商品、运费和服务费对应明细见下方；PDF 和图片使用已保存的公章设置。操作说明见客户履约手册。</p>
         <p v-if="billPaymentError" class="error" role="alert">{{ billPaymentError }}</p>
         <p v-if="billPaymentNotice" class="ok" role="status">{{ billPaymentNotice }}</p>
         <p v-if="canInternal('stock.write') && activeBill.status === 'paid' && !activeBill.payment_reversible" class="muted">{{ activeBill.payment_reversal_reason || '该账单没有可撤销的收款记录，请核对历史收款。' }}</p>
@@ -387,9 +388,13 @@
 
     <div v-if="billPaymentPrompt" class="bill-payment-mask" @click.self="billPaymentPrompt = null" @keydown.esc="billPaymentPrompt = null">
       <form ref="billPaymentDialogElement" tabindex="-1" class="panel bill-payment-dialog" role="dialog" aria-modal="true" aria-label="确认账单收款" @submit.prevent="confirmBillPayment">
-        <h3>确认账单收款</h3><p>{{ billPaymentPrompt.settlement_no }} · 本次收款 ¥{{ moneyFromCents(billPaymentPrompt.current_due_amount_cents) }}</p>
+        <h3>确认账单收款</h3><p>{{ billPaymentPrompt.settlement_no }} · 当前待收 ¥{{ moneyFromCents(billPaymentPrompt.current_due_amount_cents) }}</p>
+        <div><label><input v-model="billPaymentMode" type="radio" value="full" /> 收清全部待收</label> <label><input v-model="billPaymentMode" type="radio" value="partial" /> 按明细登记部分收款</label></div>
+        <div v-if="billPaymentMode==='partial'"><p>请明确填写每条账单明细本次收款金额，未填写的明细不分配。</p><label v-for="line in billPaymentPrompt.lines || []" :key="line.id"><span>{{ line.description || line.source_no || '费用' }} · 待收 ¥{{ moneyFromCents(line.due_cents) }}</span><input v-model="billPaymentAllocation[line.id]" type="number" min="0" step="0.01" /></label><p v-if="billPartialSummary">本次收款合计 ¥{{ moneyFromCents(billPartialSummary.actual_cents) }}</p></div>
+        <p v-if="billPaymentPromptError" role="alert" class="error">{{ billPaymentPromptError }}</p>
         <label><span>实际收款方式</span><select v-model="billPaymentMethod" required><option value="">请选择收款方式</option><option v-for="method in orderReceiptMethodOptions" :key="method" :value="method">{{ method }}</option></select></label>
-        <div class="head-actions"><button class="secondary" type="button" @click="billPaymentPrompt = null">取消</button><button class="primary" type="submit" :disabled="!billPaymentMethod || billPaymentLoading">确认收款</button></div>
+        <label><span>实际到账日期</span><input v-model="billPaymentDate" type="date" required /></label>
+        <div class="head-actions"><button class="secondary" type="button" @click="billPaymentPrompt = null">取消</button><button class="primary" type="submit" :disabled="!billPaymentMethod || !billPaymentDate || billPaymentLoading">确认收款</button></div>
       </form>
     </div>
 
@@ -418,7 +423,7 @@ import { apiFetch, apiGet, appURL } from '../api/client'
 
 import { fulfillmentModuleTabs, fulfillmentBusinessLabel as businessLabel } from '../lib/fulfillment-operations.js'
 import { settlementChargeOptions as buildSettlementChargeOptions, settlementPeriodRange } from '../lib/customer-settlement.js'
-import { billPaymentAction, customerBillingRowClass, isCustomerOrderFullyPaid, pageSelectionState, togglePageSelection } from '../lib/customer-billing.js'
+import { billPaymentAction, billingPartialAllocation, customerBillingRowClass, isCustomerOrderFullyPaid, pageSelectionState, togglePageSelection } from '../lib/customer-billing.js'
 import { defaultContractStampPlacement } from '../lib/contract-stamp.js'
 import PDFStampPreview from '../components/PDFStampPreview.vue'
 import {freightLabel} from '../lib/freight'
@@ -548,7 +553,9 @@ const selectedBillingSources = ref(new Map())
 const billingPreview = ref(null), billingPreviewLoading = ref(false), billingIssueLoading = ref(false), billingExportLoading = ref(false)
 const billPaymentLoading = ref(false), billPaymentError = ref(''), billPaymentNotice = ref('')
 const billPaymentNeedsRefresh = ref(false)
-const billPaymentPrompt = ref(null), billPaymentMethod = ref('')
+const billPaymentPrompt = ref(null), billPaymentMethod = ref(''), billPaymentDate = ref('')
+const billPaymentMode = ref('full'), billPaymentAllocation = ref({}), billPaymentPromptError = ref('')
+const billPartialSummary = computed(() => { try { return billingPartialAllocation(billPaymentPrompt.value?.lines, billPaymentAllocation.value) } catch { return null } })
 const billPaymentDialogElement = ref(null)
 useDialogFocus(computed(() => Boolean(billPaymentPrompt.value)), billPaymentDialogElement, () => { billPaymentPrompt.value = null })
 const activeBill = ref(null), billPDFSettings = ref({ seal_asset_id: 0, placements: [] }), billSeals = ref([]), billPDFPages = ref([]), billPdfLoading = ref(false)
@@ -836,35 +843,44 @@ async function confirmBillingIssue() {
   }
 }
 
-function requestBillPayment(bill) {
+function requestBillPayment(bill, requestedAction = '') {
   if (!canInternal('stock.write') || billPaymentLoading.value || billPaymentNeedsRefresh.value) return
-  const action = billPaymentAction(bill)
+  const action = requestedAction || billPaymentAction(bill)
   if (action === 'pay') {
     billPaymentPrompt.value = { ...bill }
     billPaymentMethod.value = ''
-  } else if (action === 'reverse' && window.confirm(`确认撤销账单 ${bill.settlement_no} 的本次收款？其他收款不会被撤销。`)) {
+    billPaymentDate.value = ''
+    billPaymentMode.value = 'full'; billPaymentAllocation.value = {}; billPaymentPromptError.value = ''
+  } else if (action === 'reverse' && bill.payment_reversible && window.confirm(`确认撤销账单 ${bill.settlement_no} 的最近一笔收款？其他收款不会被撤销。`)) {
     changeBillPayment(bill, action)
   }
 }
 
 function confirmBillPayment() {
-  if (!billPaymentPrompt.value || !orderReceiptMethodOptions.includes(billPaymentMethod.value)) return
+  if (!billPaymentPrompt.value || !billPaymentDate.value || !orderReceiptMethodOptions.includes(billPaymentMethod.value)) return
   const bill = billPaymentPrompt.value
   const method = billPaymentMethod.value
+  const receiptDate = billPaymentDate.value
+  let allocation = null
+  if (billPaymentMode.value === 'partial') {
+    try { allocation = billingPartialAllocation(bill.lines, billPaymentAllocation.value) }
+    catch (err) { billPaymentPromptError.value = err.message; return }
+    if (allocation.actual_cents >= Number(bill.current_due_amount_cents || 0)) { billPaymentPromptError.value = '部分收款须小于待收合计；全额收款请选择“收清全部待收”。'; return }
+  }
   billPaymentPrompt.value = null
-  changeBillPayment(bill, 'pay', method)
+  changeBillPayment(bill, 'pay', method, receiptDate, allocation)
 }
 
-async function changeBillPayment(bill, action, paymentMethod = '') {
+async function changeBillPayment(bill, action, paymentMethod = '', receiptDate = '', allocation = null) {
   const customerID = normalizedCustomerId.value
   const batchID = Number(bill?.batch_id || 0)
-  if (!canInternal('stock.write') || !customerID || !batchID || billPaymentLoading.value || billPaymentNeedsRefresh.value || billPaymentAction(bill) !== action) return
+  if (!canInternal('stock.write') || !customerID || !batchID || billPaymentLoading.value || billPaymentNeedsRefresh.value || (action === 'pay' ? billPaymentAction(bill) !== 'pay' : !bill.payment_reversible)) return
   if (action === 'pay' && !orderReceiptMethodOptions.includes(paymentMethod)) return
   billPaymentLoading.value = true
   billPaymentError.value = ''; billPaymentNotice.value = ''; error.value = ''; ok.value = ''
   let saved = false
   try {
-    const updated = await updateCustomerBillPayment(customerID, batchID, action, Number(bill.current_due_amount_cents || 0), createBillingIdempotencyKey(), Number(bill.payment_revision || 0), paymentMethod)
+    const updated = await updateCustomerBillPayment(customerID, batchID, action, Number(bill.current_due_amount_cents || 0), createBillingIdempotencyKey(), Number(bill.payment_revision || 0), paymentMethod, receiptDate, allocation)
     saved = true
     if (customerID !== normalizedCustomerId.value) return
     if (Number(activeBill.value?.batch_id) === batchID) activeBill.value = updated
@@ -881,7 +897,7 @@ async function changeBillPayment(bill, action, paymentMethod = '') {
       error.value = `收款已保存，但页面刷新失败：${refreshError}。请手动刷新。`
       if (Number(activeBill.value?.batch_id) === batchID) billPaymentError.value = error.value
     }
-    const notice = action === 'pay' ? `账单 ${bill.settlement_no} 已标记收清` : `账单 ${bill.settlement_no} 的收款已撤销`
+    const notice = action === 'pay' ? `账单 ${bill.settlement_no} ${allocation ? '部分收款已登记' : '已标记收清'}` : `账单 ${bill.settlement_no} 的收款已撤销`
     ok.value = notice
     if (Number(activeBill.value?.batch_id) === batchID) billPaymentNotice.value = notice
   } catch (err) {

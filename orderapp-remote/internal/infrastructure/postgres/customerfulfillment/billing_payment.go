@@ -2,6 +2,8 @@ package customerfulfillment
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -10,7 +12,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	app "orderapp/internal/application/customerfulfillment"
+	salesapp "orderapp/internal/application/sales"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
+	messagepg "orderapp/internal/infrastructure/postgres/messagecenter"
+	"orderapp/internal/infrastructure/postgres/receipts"
 	salesinfra "orderapp/internal/infrastructure/postgres/sales"
 )
 
@@ -38,6 +43,24 @@ type billingOrderAllocation struct {
 // allocation snapshots make reversal conservative in the presence of other
 // writers; no unrelated payment is silently removed.
 func (r *Repository) ChangeBillingPayment(ctx context.Context, cmd app.BillingPaymentCommand) (app.BillingBill, error) {
+	if cmd.ReceiptDate != "" && (cmd.Action != "pay" || salesapp.ValidateReceiptDate(cmd.ReceiptDate) != nil) {
+		return app.BillingBill{}, fmt.Errorf("实际到账日期无效或晚于今天")
+	}
+	if cmd.Action != "pay" && (cmd.ActualCents != nil || len(cmd.Allocations) > 0) {
+		return app.BillingBill{}, fmt.Errorf("撤销收款不能指定金额或分配")
+	}
+	if cmd.ActualCents != nil && (*cmd.ActualCents <= 0 || cmd.ExpectedDueAmountCents == nil || *cmd.ActualCents > *cmd.ExpectedDueAmountCents) {
+		return app.BillingBill{}, fmt.Errorf("实际收款金额无效")
+	}
+	allocationHash := ""
+	if len(cmd.Allocations) > 0 {
+		encoded, e := json.Marshal(cmd.Allocations)
+		if e != nil {
+			return app.BillingBill{}, e
+		}
+		digest := sha256.Sum256(encoded)
+		allocationHash = hex.EncodeToString(digest[:])
+	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return app.BillingBill{}, err
@@ -60,10 +83,11 @@ func (r *Repository) ChangeBillingPayment(ctx context.Context, cmd app.BillingPa
 	var previousExpected int64
 	var previousRevision int64
 	var resultRevision int64
-	var previousMethod string
-	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT action,expected_due_amount_cents,expected_payment_revision,payment_method,result_payment_revision FROM %s.customer_settlement_payment_keys WHERE customer_id=$1 AND settlement_batch_id=$2 AND idempotency_key=$3`, r.schema), cmd.CustomerID, cmd.BatchID, cmd.IdempotencyKey).Scan(&previousAction, &previousExpected, &previousRevision, &previousMethod, &resultRevision)
+	var previousMethod, previousDate, previousAllocationHash string
+	var previousActual *int64
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT action,expected_due_amount_cents,expected_payment_revision,payment_method,result_payment_revision,receipt_date,actual_cents,allocation_hash FROM %s.customer_settlement_payment_keys WHERE customer_id=$1 AND settlement_batch_id=$2 AND idempotency_key=$3`, r.schema), cmd.CustomerID, cmd.BatchID, cmd.IdempotencyKey).Scan(&previousAction, &previousExpected, &previousRevision, &previousMethod, &resultRevision, &previousDate, &previousActual, &previousAllocationHash)
 	if err == nil {
-		if previousAction != cmd.Action || cmd.ExpectedDueAmountCents == nil || previousExpected != *cmd.ExpectedDueAmountCents || cmd.ExpectedPaymentRevision == nil || previousRevision != *cmd.ExpectedPaymentRevision || previousMethod != strings.TrimSpace(cmd.PaymentMethod) {
+		if previousAction != cmd.Action || cmd.ExpectedDueAmountCents == nil || previousExpected != *cmd.ExpectedDueAmountCents || cmd.ExpectedPaymentRevision == nil || previousRevision != *cmd.ExpectedPaymentRevision || previousMethod != strings.TrimSpace(cmd.PaymentMethod) || previousDate != cmd.ReceiptDate || previousAllocationHash != allocationHash || !sameOptionalCents(previousActual, cmd.ActualCents) {
 			return app.BillingBill{}, fmt.Errorf("收款操作标识已用于其他操作")
 		}
 		bill, err := r.getIssuedBill(ctx, tx, cmd.CustomerID, cmd.BatchID, nil)
@@ -78,12 +102,15 @@ func (r *Repository) ChangeBillingPayment(ctx context.Context, cmd app.BillingPa
 	if err != pgx.ErrNoRows {
 		return app.BillingBill{}, err
 	}
+	if err = receipts.EnsureDateOpenTx(ctx, tx, r.schema, cmd.ReceiptDate); err != nil {
+		return app.BillingBill{}, err
+	}
 	finish := func() (app.BillingBill, error) {
 		result, err := r.getIssuedBill(ctx, tx, cmd.CustomerID, cmd.BatchID, nil)
 		if err != nil {
 			return app.BillingBill{}, err
 		}
-		if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_settlement_payment_keys(customer_id,settlement_batch_id,idempotency_key,action,expected_due_amount_cents,expected_payment_revision,payment_method,result_payment_revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, r.schema), cmd.CustomerID, cmd.BatchID, cmd.IdempotencyKey, cmd.Action, *cmd.ExpectedDueAmountCents, *cmd.ExpectedPaymentRevision, strings.TrimSpace(cmd.PaymentMethod), result.PaymentRevision); err != nil {
+		if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_settlement_payment_keys(customer_id,settlement_batch_id,idempotency_key,action,expected_due_amount_cents,expected_payment_revision,payment_method,result_payment_revision,receipt_date,actual_cents,allocation_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, r.schema), cmd.CustomerID, cmd.BatchID, cmd.IdempotencyKey, cmd.Action, *cmd.ExpectedDueAmountCents, *cmd.ExpectedPaymentRevision, strings.TrimSpace(cmd.PaymentMethod), result.PaymentRevision, cmd.ReceiptDate, cmd.ActualCents, allocationHash); err != nil {
 			return app.BillingBill{}, err
 		}
 		if err = tx.Commit(ctx); err != nil {
@@ -93,13 +120,24 @@ func (r *Repository) ChangeBillingPayment(ctx context.Context, cmd app.BillingPa
 	}
 	var paymentID int64
 	var raw []byte
-	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,allocations FROM %s.customer_settlement_payments WHERE customer_id=$1 AND settlement_batch_id=$2 AND reversed_at IS NULL ORDER BY id DESC LIMIT 1 FOR UPDATE`, r.schema), cmd.CustomerID, cmd.BatchID).Scan(&paymentID, &raw)
+	var activeActual *int64
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,allocations,actual_cents FROM %s.customer_settlement_payments WHERE customer_id=$1 AND settlement_batch_id=$2 AND reversed_at IS NULL ORDER BY id DESC LIMIT 1 FOR UPDATE`, r.schema), cmd.CustomerID, cmd.BatchID).Scan(&paymentID, &raw, &activeActual)
 	if err != nil && err != pgx.ErrNoRows {
 		return app.BillingBill{}, err
 	}
 	active := err == nil
-	if active && status != "paid" {
+	if active && status != "paid" && !(status == "confirmed" && activeActual != nil) {
 		return app.BillingBill{}, fmt.Errorf("账单状态与收款记录不一致，请核对")
+	}
+	if cmd.Action == "reverse" && active {
+		var receiptDate string
+		err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(receipt_date::text,'') FROM %s.cash_receipts WHERE source_type='billing_payment' AND source_id=$1`, r.schema), paymentID).Scan(&receiptDate)
+		if err != nil && err != pgx.ErrNoRows {
+			return app.BillingBill{}, err
+		}
+		if err = receipts.EnsureDateOpenTx(ctx, tx, r.schema, receiptDate); err != nil {
+			return app.BillingBill{}, err
+		}
 	}
 	if cmd.Action == "pay" && active {
 		bill, e := r.getIssuedBill(ctx, tx, cmd.CustomerID, cmd.BatchID, nil)
@@ -175,13 +213,57 @@ func (r *Repository) ChangeBillingPayment(ctx context.Context, cmd app.BillingPa
 	if cmd.ExpectedDueAmountCents == nil || currentBill.DueAmountCents != *cmd.ExpectedDueAmountCents || cmd.ExpectedPaymentRevision == nil || currentBill.PaymentRevision != *cmd.ExpectedPaymentRevision {
 		return app.BillingBill{}, fmt.Errorf("账单未收金额已变化，请刷新并重新核对")
 	}
+	expectedAfter := int64(-1)
+	auditIDs := map[int64][]int64{}
 	if cmd.Action == "pay" {
+		actual := currentBill.DueAmountCents
+		if cmd.ActualCents != nil {
+			actual = *cmd.ActualCents
+		}
+		if actual <= 0 || actual > currentBill.DueAmountCents {
+			return app.BillingBill{}, fmt.Errorf("实际收款金额无效")
+		}
+		if actual < currentBill.DueAmountCents && currentBill.AdjustmentCents > 0 {
+			return app.BillingBill{}, fmt.Errorf("账单含调整，部分收款请先核对")
+		}
+		selected := map[int64]int64{}
+		if len(cmd.Allocations) > 0 {
+			var sum int64
+			for _, a := range cmd.Allocations {
+				if a.LineID <= 0 || a.AmountCents <= 0 || selected[a.LineID] != 0 || a.AmountCents > actual-sum {
+					return app.BillingBill{}, fmt.Errorf("账单行分配无效")
+				}
+				selected[a.LineID] = a.AmountCents
+				sum += a.AmountCents
+			}
+			if sum != actual {
+				return app.BillingBill{}, fmt.Errorf("账单行分配合计须等于本次收款")
+			}
+		} else if actual != currentBill.DueAmountCents {
+			return app.BillingBill{}, fmt.Errorf("部分收款须明确分配到账单明细")
+		}
+		lineAllocations := make([]app.BillingPaymentLineAllocation, 0, len(currentBill.Lines))
 		due := make(map[int64]int64)
 		for _, line := range currentBill.Lines {
+			amount := line.DueCents
+			if len(cmd.Allocations) > 0 {
+				amount = selected[line.ID]
+				delete(selected, line.ID)
+			}
+			if amount < 0 || amount > line.DueCents {
+				return app.BillingBill{}, fmt.Errorf("账单明细待收已变化，请刷新核对")
+			}
+			if amount > 0 {
+				lineAllocations = append(lineAllocations, app.BillingPaymentLineAllocation{LineID: line.ID, AmountCents: amount})
+			}
 			if line.ChargeType == "order_goods" && line.SourceType == "order" {
-				due[line.SourceID] += line.DueCents
+				due[line.SourceID] += amount
 			}
 		}
+		if len(selected) > 0 {
+			return app.BillingBill{}, fmt.Errorf("分配包含不属于账单的明细")
+		}
+		expectedAfter = currentBill.DueAmountCents - actual
 		for i := range allocs {
 			a := &allocs[i]
 			a.Before = snapshots[a.OrderID]
@@ -223,9 +305,11 @@ func (r *Repository) ChangeBillingPayment(ctx context.Context, cmd app.BillingPa
 			if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.pay_statuses WHERE name=$1 ORDER BY id LIMIT 1`, r.schema), name).Scan(&a.After.Status); err != nil {
 				return app.BillingBill{}, fmt.Errorf("缺少付款状态 %s", name)
 			}
-			if err = r.writeBillingOrder(ctx, tx, cmd, a.OrderID, a.Before, a.After); err != nil {
+			ids := auditIDs[a.OrderID]
+			if err = r.writeBillingOrder(ctx, tx, cmd, a.OrderID, a.Before, a.After, &ids); err != nil {
 				return app.BillingBill{}, err
 			}
+			auditIDs[a.OrderID] = ids
 			if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(MAX(id),0) FROM %s.order_audit_logs WHERE order_id=$1`, r.schema), a.OrderID).Scan(&a.AuditWatermark); err != nil {
 				return app.BillingBill{}, err
 			}
@@ -234,10 +318,31 @@ func (r *Repository) ChangeBillingPayment(ctx context.Context, cmd app.BillingPa
 		if e != nil {
 			return app.BillingBill{}, e
 		}
-		if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_settlement_payments(customer_id,settlement_batch_id,allocations,actor) VALUES($1,$2,$3::jsonb,$4)`, r.schema), cmd.CustomerID, cmd.BatchID, data, cmd.Actor); err != nil {
+		if err = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.customer_settlement_payments(customer_id,settlement_batch_id,allocations,actor,actual_cents,fully_settled) VALUES($1,$2,$3::jsonb,$4,$5,$6) RETURNING id`, r.schema), cmd.CustomerID, cmd.BatchID, data, cmd.Actor, actual, expectedAfter == 0).Scan(&paymentID); err != nil {
 			return app.BillingBill{}, err
 		}
-		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_settlement_batches SET status='paid',paid_at=now() WHERE id=$1`, r.schema), cmd.BatchID); err != nil {
+		if err = r.saveBillingAuditRefs(ctx, tx, paymentID, auditIDs); err != nil {
+			return app.BillingBill{}, err
+		}
+		for _, a := range lineAllocations {
+			if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_settlement_payment_line_allocations(payment_id,line_id,amount_cents) VALUES($1,$2,$3)`, r.schema), paymentID, a.LineID, a.AmountCents); err != nil {
+				return app.BillingBill{}, err
+			}
+		}
+		if currentBill.DueAmountCents > 0 {
+			receiptAllocations, e := json.Marshal(lineAllocations)
+			if e != nil {
+				return app.BillingBill{}, e
+			}
+			receiptID, receiptNo, receiptDate, e := receipts.RecordTx(ctx, tx, r.schema, receipts.Receipt{CustomerID: cmd.CustomerID, SourceType: "billing_payment", SourceID: paymentID, ActualCents: actual, ReceivableCents: currentBill.TotalAmountCents, ReceiptDate: cmd.ReceiptDate, Method: cmd.PaymentMethod, Actor: cmd.Actor, Allocations: receiptAllocations})
+			if e != nil {
+				return app.BillingBill{}, e
+			}
+			if e = messagepg.RecordBusinessEvent(ctx, tx, r.schema, "receipt_received", fmt.Sprintf("receipt_received:%d", receiptID), 0, cmd.CustomerID, map[string]any{"receipt_id": receiptID, "receipt_no": receiptNo, "receipt_date": receiptDate, "amount_cents": actual, "receivable_cents": currentBill.TotalAmountCents, "bill_id": cmd.BatchID}); e != nil {
+				return app.BillingBill{}, e
+			}
+		}
+		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_settlement_batches SET status=CASE WHEN $2 THEN 'paid' ELSE 'confirmed' END,paid_at=CASE WHEN $2 THEN now() ELSE NULL END WHERE id=$1`, r.schema), cmd.BatchID, expectedAfter == 0); err != nil {
 			return app.BillingBill{}, err
 		}
 	} else {
@@ -249,20 +354,35 @@ func (r *Repository) ChangeBillingPayment(ctx context.Context, cmd app.BillingPa
 				return app.BillingBill{}, fmt.Errorf("关联订单收款或金额在登记后发生变化，不能自动撤销，请核对")
 			}
 			var laterChange bool
-			if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.order_audit_logs WHERE order_id=$1 AND id>$2 AND field IN ('pay_status_id','payment_method','prepayment_amount','payment_goods_amount','payment_shipping_amount','payment_voucher_asset_id','order','header'))`, r.schema), a.OrderID, a.AuditWatermark).Scan(&laterChange); err != nil {
+			if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.order_audit_logs l WHERE l.order_id=$1 AND l.id>$2 AND l.field IN ('pay_status_id','payment_method','prepayment_amount','payment_goods_amount','payment_shipping_amount','payment_voucher_asset_id','order','header') AND NOT EXISTS(SELECT 1 FROM %[1]s.customer_settlement_payment_order_audit_refs ref JOIN %[1]s.customer_settlement_payments p ON p.id=ref.payment_id WHERE ref.order_audit_id=l.id AND ref.order_id=l.order_id AND p.settlement_batch_id=$3 AND p.customer_id=$4 AND p.reversed_at IS NOT NULL))`, r.schema), a.OrderID, a.AuditWatermark, cmd.BatchID, cmd.CustomerID).Scan(&laterChange); err != nil {
 				return app.BillingBill{}, err
 			}
 			if laterChange {
 				return app.BillingBill{}, fmt.Errorf("关联订单收款在登记后发生变化，不能自动撤销，请核对")
 			}
-			if err = r.writeBillingOrder(ctx, tx, cmd, a.OrderID, a.After, a.Before); err != nil {
+			ids := auditIDs[a.OrderID]
+			if err = r.writeBillingOrder(ctx, tx, cmd, a.OrderID, a.After, a.Before, &ids); err != nil {
 				return app.BillingBill{}, err
 			}
+			auditIDs[a.OrderID] = ids
+		}
+		if err = r.saveBillingAuditRefs(ctx, tx, paymentID, auditIDs); err != nil {
+			return app.BillingBill{}, err
 		}
 		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_settlement_payments SET reversed_at=now(),reversed_by=$2 WHERE id=$1`, r.schema), paymentID, cmd.Actor); err != nil {
 			return app.BillingBill{}, err
 		}
-		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.customer_settlement_batches SET status=CASE WHEN EXISTS(SELECT 1 FROM %[1]s.customer_settlement_payments WHERE settlement_batch_id=$1 AND reversed_at IS NULL)THEN 'paid' ELSE 'confirmed' END,paid_at=CASE WHEN EXISTS(SELECT 1 FROM %[1]s.customer_settlement_payments WHERE settlement_batch_id=$1 AND reversed_at IS NULL)THEN paid_at ELSE NULL END WHERE id=$1`, r.schema), cmd.BatchID); err != nil {
+		var receiptID int64
+		err = tx.QueryRow(ctx, fmt.Sprintf(`UPDATE %s.cash_receipts SET reversed_at=now(),reversed_by=$2 WHERE source_type='billing_payment' AND source_id=$1 AND reversed_at IS NULL RETURNING id`, r.schema), paymentID, cmd.Actor).Scan(&receiptID)
+		if err != nil && err != pgx.ErrNoRows {
+			return app.BillingBill{}, err
+		}
+		if err == nil {
+			if err = postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "cash_receipt", &receiptID, "reverse", nil, nil, nil, postgresinfra.AuditMeta{"customer_id": cmd.CustomerID, "settlement_id": cmd.BatchID, "source_payment_id": paymentID}); err != nil {
+				return app.BillingBill{}, err
+			}
+		}
+		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.customer_settlement_batches SET status=CASE WHEN EXISTS(SELECT 1 FROM %[1]s.customer_settlement_payments WHERE settlement_batch_id=$1 AND reversed_at IS NULL AND fully_settled)THEN 'paid' ELSE 'confirmed' END,paid_at=CASE WHEN EXISTS(SELECT 1 FROM %[1]s.customer_settlement_payments WHERE settlement_batch_id=$1 AND reversed_at IS NULL AND fully_settled)THEN paid_at ELSE NULL END WHERE id=$1`, r.schema), cmd.BatchID); err != nil {
 			return app.BillingBill{}, err
 		}
 	}
@@ -273,10 +393,14 @@ func (r *Repository) ChangeBillingPayment(ctx context.Context, cmd app.BillingPa
 	if err != nil {
 		return app.BillingBill{}, err
 	}
-	if cmd.Action == "pay" && result.DueAmountCents > 0 {
-		return app.BillingBill{}, fmt.Errorf("账单未能全部结清，请核对")
+	if cmd.Action == "pay" && result.DueAmountCents != expectedAfter {
+		return app.BillingBill{}, fmt.Errorf("账单收款后待收金额不一致，请核对")
 	}
 	return finish()
+}
+
+func sameOptionalCents(a, b *int64) bool {
+	return a == nil && b == nil || a != nil && b != nil && *a == *b
 }
 
 func (r *Repository) lockBillingOrder(ctx context.Context, tx pgx.Tx, customerID, orderID int64) (billingOrderSnapshot, error) {
@@ -289,7 +413,7 @@ func (r *Repository) lockBillingOrder(ctx context.Context, tx pgx.Tx, customerID
 	return s, nil
 }
 
-func (r *Repository) writeBillingOrder(ctx context.Context, tx pgx.Tx, cmd app.BillingPaymentCommand, orderID int64, before, after billingOrderSnapshot) error {
+func (r *Repository) writeBillingOrder(ctx context.Context, tx pgx.Tx, cmd app.BillingPaymentCommand, orderID int64, before, after billingOrderSnapshot, auditIDs *[]int64) error {
 	if before == after {
 		return nil
 	}
@@ -298,9 +422,11 @@ func (r *Repository) writeBillingOrder(ctx context.Context, tx pgx.Tx, cmd app.B
 		return err
 	}
 	if before.Method != after.Method {
-		if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.order_audit_logs(order_id,actor,field,old_value,new_value) VALUES($1,$2,'payment_method',$3,$4)`, r.schema), orderID, cmd.Actor, before.Method, after.Method); err != nil {
+		var auditID int64
+		if err = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.order_audit_logs(order_id,actor,field,old_value,new_value) VALUES($1,$2,'payment_method',$3,$4) RETURNING id`, r.schema), orderID, cmd.Actor, before.Method, after.Method).Scan(&auditID); err != nil {
 			return err
 		}
+		*auditIDs = append(*auditIDs, auditID)
 		field := "payment_method"
 		if err = postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "order", &orderID, "update", &field, &before.Method, &after.Method, postgresinfra.AuditMeta{"order_id": orderID, "source": "fulfillment-bill-payment", "settlement_id": cmd.BatchID}); err != nil {
 			return err
@@ -318,12 +444,25 @@ func (r *Repository) writeBillingOrder(ctx context.Context, tx pgx.Tx, cmd app.B
 			old = fmt.Sprintf("%.2f", float64(d.old)/100)
 			new = fmt.Sprintf("%.2f", float64(d.new)/100)
 		}
-		if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.order_audit_logs(order_id,actor,field,old_value,new_value) VALUES($1,$2,$3,$4,$5)`, r.schema), orderID, cmd.Actor, d.field, old, new); err != nil {
+		var auditID int64
+		if err = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.order_audit_logs(order_id,actor,field,old_value,new_value) VALUES($1,$2,$3,$4,$5) RETURNING id`, r.schema), orderID, cmd.Actor, d.field, old, new).Scan(&auditID); err != nil {
 			return err
 		}
+		*auditIDs = append(*auditIDs, auditID)
 		if err = postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "order", &orderID, "update", postgresinfra.StrPtr(d.field), postgresinfra.StrPtr(old), postgresinfra.StrPtr(new), postgresinfra.AuditMeta{"order_id": orderID, "source": "fulfillment-bill-payment", "settlement_id": cmd.BatchID}); err != nil {
 			return err
 		}
 	}
 	return salesinfra.InvalidateConfirmedOrderDocumentsTx(ctx, tx, r.schema, orderID)
+}
+
+func (r *Repository) saveBillingAuditRefs(ctx context.Context, tx pgx.Tx, paymentID int64, refs map[int64][]int64) error {
+	for orderID, ids := range refs {
+		for _, id := range ids {
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_settlement_payment_order_audit_refs(payment_id,order_id,order_audit_id) VALUES($1,$2,$3)`, r.schema), paymentID, orderID, id); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

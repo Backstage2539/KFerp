@@ -13,13 +13,14 @@ import {miniRequest} from '../../api/client'
 import {fetchMe} from '../../api/customerPortal'
 import {useSessionStore} from '../../stores/session'
 import {loginRouteFor} from '../../utils/loginReturn'
+import {defaultOrderNotificationEvents,orderNotificationChoices} from '../../utils/orderNotificationChoices'
 const session=useSessionStore(),busy=ref(false),error=ref(''),message=ref(''),ready=ref(false),qr=ref(''),challenge=ref(''),enabled=ref(false),subscribed=ref(false),bound=ref(false),events=ref<string[]>([])
-const choices=[['created','下单成功'],['paid','付款成功'],['production_started','开始生产'],['production_finished','生产完成'],['shipped','发货进度'],['cancelled','订单取消']]
+const choices=orderNotificationChoices
 const base='/api/mini/order-notifications',destination='/pages/order-notifications/order-notifications'
 const account=computed(()=>session.accountType==='employee'?'员工账号':session.currentCustomerName||'客户账号')
 async function request<T>(path='',method:'GET'|'POST'|'PUT'='GET',data?:Record<string,unknown>){return miniRequest<T>(base+path,{token:session.token,method,data})}
 async function run(fn:()=>Promise<void>){if(busy.value)return;busy.value=true;error.value='';message.value='';try{await fn()}catch(e){error.value=e instanceof Error?e.message:'暂时无法操作'}finally{busy.value=false}}
-async function load(){if(!session.token){uni.redirectTo({url:loginRouteFor(destination)});return}session.applyContext(await fetchMe(session.token));const v=await request<{enabled:boolean,rows:Array<{employee_id:number,customer_id:number,enabled:boolean,subscribed:boolean,events:string[]}>}>();ready.value=v.enabled;const p=v.rows.find(p=>session.accountType==='employee'?p.employee_id===session.employeeID:p.customer_id===session.currentCustomerID&&p.employee_id===0);bound.value=!!p;enabled.value=!!p?.enabled;subscribed.value=!!p?.subscribed;events.value=p?.events||choices.map(v=>v[0])}
+async function load(){if(!session.token){uni.redirectTo({url:loginRouteFor(destination)});return}session.applyContext(await fetchMe(session.token));const v=await request<{enabled:boolean,rows:Array<{employee_id:number,customer_id:number,enabled:boolean,subscribed:boolean,events:string[]}>}>();ready.value=v.enabled;const p=v.rows.find(p=>session.accountType==='employee'?p.employee_id===session.employeeID:p.customer_id===session.currentCustomerID&&p.employee_id===0);bound.value=!!p;enabled.value=!!p?.enabled;subscribed.value=!!p?.subscribed;events.value=p?.events||[...defaultOrderNotificationEvents]}
 async function bind(){const v=await request<{qr_url:string,token:string}>('/binding','POST');qr.value=v.qr_url;challenge.value=v.token}
 async function confirm(){const v=await request<{scanned:boolean}>('/binding/'+challenge.value);if(!v.scanned)throw Error('请先识别二维码并关注服务号，再返回确认');await request('/binding/'+challenge.value+'/confirm','POST');qr.value='';challenge.value='';await load();message.value='已确认接收订单通知'}
 async function save(){await request('','PUT',{enabled:enabled.value,events:events.value});await load();message.value='通知偏好已保存'}
