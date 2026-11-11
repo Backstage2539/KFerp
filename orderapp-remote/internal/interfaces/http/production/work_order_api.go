@@ -29,12 +29,20 @@ type jobCardActualsRequest struct {
 	Materials                  []productionapp.OperationMaterialUse       `json:"materials"`
 	PlannedInputQty            float64                                    `json:"planned_input_qty"`
 	ActualInputQty             float64                                    `json:"actual_input_qty"`
-	ActualOutputQty            float64                                    `json:"actual_output_qty"`
+	ActualOutputQty            *float64                                   `json:"actual_output_qty"`
+	ExecutionBatchID           int64                                      `json:"execution_batch_id"`
 	ActualLossQty              float64                                    `json:"actual_loss_qty"`
 	ActualMinutes              int                                        `json:"actual_minutes"`
 	LossReason                 string                                     `json:"loss_reason"`
 	ExceptionReason            string                                     `json:"exception_reason"`
 	MetricsJSON                json.RawMessage                            `json:"metrics_json"`
+}
+
+func derefJobCardOutput(p *float64) float64 {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 type workOrderCompleteRequest struct {
@@ -412,7 +420,7 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 			ID:              id,
 			PlannedInputQty: req.PlannedInputQty,
 			ActualInputQty:  req.ActualInputQty,
-			ActualOutputQty: req.ActualOutputQty,
+			ActualOutputQty: derefJobCardOutput(req.ActualOutputQty),
 			ActualMinutes:   req.ActualMinutes,
 			ExceptionReason: req.ExceptionReason,
 			MetricsJSON:     metricsJSON,
@@ -456,11 +464,12 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 			RemainderWarehouse:         strings.TrimSpace(req.RemainderWarehouse),
 			WasteQty:                   req.WasteQty,
 			RequestID:                  req.RequestID, ExpectedVersion: req.ExpectedVersion, InputUnit: req.InputUnit, OutputUnit: req.OutputUnit, DifferenceReason: req.DifferenceReason, FinishOperation: req.FinishOperation, Materials: req.Materials,
+			ExecutionBatchID: req.ExecutionBatchID, ActualOutputPresent: req.ActualOutputQty != nil,
 			ID:              id,
 			EmployeeID:      support.CurrentEmployeeID(c),
 			Operator:        support.ActorOf(c),
 			ActualInputQty:  req.ActualInputQty,
-			ActualOutputQty: req.ActualOutputQty,
+			ActualOutputQty: derefJobCardOutput(req.ActualOutputQty),
 			ActualLossQty:   req.ActualLossQty,
 			ActualMinutes:   req.ActualMinutes,
 			LossReason:      req.LossReason,
@@ -549,6 +558,38 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 			return c.JSON(200, result)
 		})
 	}
+	e.GET("/api/job-cards/:id/execution-batches", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(400, ErrorResponse{Error: "invalid job card"})
+		}
+		result, err := productionSvc.ListExecutionBatches(c.Request().Context(), id)
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, result)
+	})
+	e.POST("/api/job-cards/:id/execution-batches", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(400, ErrorResponse{Error: "invalid job card"})
+		}
+		if err = support.RequireEmployeeBound(c); err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		var req productionapp.ExecutionBatchInitCommand
+		if c.Bind(&req) != nil {
+			return c.JSON(400, ErrorResponse{Error: "invalid request"})
+		}
+		req.ID = id
+		req.Operator = support.ActorOf(c)
+		req.EmployeeID = support.CurrentEmployeeID(c)
+		result, err := productionSvc.InitializeExecutionBatches(c.Request().Context(), req)
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, result)
+	})
 	e.GET("/api/job-cards/:id/start-preview", func(c echo.Context) error {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil || id <= 0 {

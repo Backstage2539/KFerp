@@ -89,6 +89,7 @@
           <button class="secondary compact" type="button" @click="closeWorkOrderSplitDrawer">关闭</button>
         </div>
         <OperationReportingRecheck kind="work_order" :id="Number(workOrderSplitRow.id || workOrderSplitRow.work_order_id)" @updated="closeWorkOrderSplitDrawer(); load()" />
+        <WorkOrderMaterialShortages :key="Number(workOrderSplitRow.id || workOrderSplitRow.work_order_id)" :work-order-id="Number(workOrderSplitRow.id || workOrderSplitRow.work_order_id)" />
         <div v-if="workOrderSplitError" class="error">{{ workOrderSplitError }}</div>
         <div v-for="operation in workOrderSplitOperations" :key="`${operation.seq || operation.sequence_no || operation.operation}-${operation.operation_id || 0}`" class="split-operation-block">
           <div class="split-operation-head">
@@ -97,7 +98,7 @@
             <button class="secondary compact" type="button" @click="autoSplitWorkOrderOperation(operation)" :disabled="!applicableOperationCapacities(operation, activeWorkstationCapacities).length">自动拆分</button>
             <button class="secondary compact" type="button" @click="addWorkOrderOperationSplit(operation)">添加拆分</button>
           </div>
-          <p class="split-variance">{{ workOrderVarianceLabel(operation) }}。不足或超排仅作提示，不阻止保存。</p>
+          <p class="split-variance">{{ workOrderVarianceLabel(operation) }}。产能少安排或超安排仅作提示，不阻止保存。</p>
           <div class="split-row" v-for="(split, splitIndex) in workOrderSplitRowsForOperation(operation)" :key="split.local_key || split.id || `${operation.seq}-${splitIndex}`">
             <label>
               <span>工位产能</span>
@@ -214,6 +215,7 @@ import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDr
 import ProductionTopNav from '../components/ProductionTopNav.vue'
 import OperationReportingRecheck from '../components/OperationReportingRecheck.vue'
 import CapacityBatchEditor from '../components/CapacityBatchEditor.vue'
+import WorkOrderMaterialShortages from '../components/WorkOrderMaterialShortages.vue'
 import { fetchCurrentActor } from '../api/auth'
 import { actorHasFullViewAccess } from '../lib/menu-permissions'
 import { weightUnit } from '../lib/operation-completion.js'
@@ -224,14 +226,14 @@ import { loadProductionPlanWorkOrders } from '../lib/production-plan-work-orders
 import {
   applicableOperationCapacities,
   applyCapacityBatchSnapshot,
-  capacityOperationVariance,
+  workOrderCapacitySummary,
   capacitySplitAvailabilityError,
   isLegacyPartialCapacitySplit,
   buildOperationCapacityAutoSplits,
   operationCapacityAutoSplitError,
   maxAssignableQtyForCapacitySplit,
   plannedCapacitySplitMetrics,
-  productionPlanItemOutputTargetG,
+  productionPlanItemTargetG,
   productionPlanSplitBatchCards,
   qtyFromGForCapacityUnit,
 } from '../lib/produce-plan'
@@ -802,7 +804,7 @@ function normalizeWorkOrderSplit(row = {}) {
     planned_batch_count: Number(row.planned_batch_count || 0),
     spec_g: Number(row.spec_g || workOrderSplitRow.value?.spec_g || 0),
     sales_spec_count: Number(row.sales_spec_count || workOrderSplitRow.value?.sales_spec_count || 0),
-    item_target_g: Number(row.item_target_g || productionPlanItemOutputTargetG(workOrderSplitRow.value || {})),
+    item_target_g: Number(row.item_target_g || productionPlanItemTargetG(workOrderSplitRow.value || {})),
     planned_qty: row.scheduling_mode === 'quantity' ? Number(row.planned_qty ?? row.planned_input_qty ?? 0) : Number(row.planned_qty || qtyFromGForSplitUnit(Number(row.planned_input_qty || row.planned_qty_g || 0), row.batch_size_unit)),
     planned_qty_g: Number(row.planned_qty_g || row.planned_input_qty || 0),
     planned_minutes: Number(row.planned_minutes || 0),
@@ -833,7 +835,7 @@ function applyWorkOrderSplitCapacity(split) {
   Object.assign(split, applyCapacityBatchSnapshot({ ...split, custom_batch_size_qty: null }, capacity))
   split.spec_g = Number(split.spec_g || workOrderSplitRow.value?.spec_g || 0)
   split.sales_spec_count = Number(split.sales_spec_count || workOrderSplitRow.value?.sales_spec_count || 0)
-  split.item_target_g = Number(split.item_target_g || productionPlanItemOutputTargetG(workOrderSplitRow.value || {}))
+  split.item_target_g = Number(split.item_target_g || productionPlanItemTargetG(workOrderSplitRow.value || {}))
   if (Number(split.planned_qty || 0) <= 0) {
     split.planned_qty = defaultPlannedQtyForWorkOrderSplit(split)
   }
@@ -848,10 +850,11 @@ function workOrderSplitInputError(split) {
 }
 
 function workOrderVarianceLabel(operation) {
-  const result = capacityOperationVariance(workOrderSplitRows.value, workOrderSplitRow.value || {}, operation)
+  const result = workOrderCapacitySummary(workOrderSplitRows.value, workOrderSplitRow.value || {}, operation)
   if (!result) return '尚未安排工位'
-  const diff = result.diff_qty > 0 ? `超排 ${splitQtyText(result.diff_qty, result.unit)}` : result.diff_qty < 0 ? `不足 ${splitQtyText(-result.diff_qty, result.unit)}` : '刚好满足目标'
-  return `目标 ${splitQtyText(result.required_qty, result.unit)} · 已安排 ${splitQtyText(result.arranged_qty, result.unit)} · ${diff}`
+  const diff = result.diff_qty > 0 ? `超安排 ${splitQtyText(result.diff_qty, result.unit)}` : result.diff_qty < 0 ? `少安排 ${splitQtyText(-result.diff_qty, result.unit)}` : '刚好满足目标'
+  const quantityLabel = weightUnit(result.unit) ? '投入' : '数量'
+  return `计划${quantityLabel} ${splitQtyText(result.required_qty, result.unit)} · 已安排${quantityLabel} ${splitQtyText(result.arranged_qty, result.unit)} · ${diff} · 目标产出 ${formatG(result.output_g)}`
 }
 
 function autoSplitWorkOrderOperation(operation) {

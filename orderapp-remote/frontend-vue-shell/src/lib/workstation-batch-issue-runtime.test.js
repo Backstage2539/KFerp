@@ -18,10 +18,12 @@ async function harness(startShortages = [], overrideGroup = null, savedStorage =
   globalThis.window = { sessionStorage, dispatchEvent: event => navigation.push(event.detail), addEventListener(){}, removeEventListener(){} }
   globalThis.CustomEvent = class { constructor(type, options) { this.type = type; this.detail = options.detail } }
   const group = overrideGroup || { key: 'g', version: 'gv', name: '测试包装袋', owner_name: '工厂自有', unit: '个', quantity_basis: 'count', from_warehouse: 'raw_materials', required: 20, wip: 5, remaining: 15, available: 15, max_quantity: 100, allocations: [{ job_card_id: 1, work_order_no: 'WO-1', batch_code: 'B-1', remaining: 15, available: 15, extra_available: 85 }] }
-  const mocks = { fail: false, apiGet: async () => ({ rows: [{ code: 'packaging', name: '包材仓' }] }), apiSend: async (url, options) => {
+  const mocks = { fail: false, draftLookup:null, apiGet: async url => url.includes('/material-issue/draft?') ? mocks.draftLookup : ({ rows: [{ code: 'packaging', name: '包材仓' }] }), apiSend: async (url, options) => {
     writes.push({ url, body: JSON.parse(JSON.stringify(options.body)) })
     if (url.endsWith('/preview')) return { job_card_ids: [1], version: 'v', groups: [group], blocked: [] }
     if (mocks.fail) { if (mocks.fail instanceof Error) throw mocks.fail; throw new Error('网络暂时中断') }
+    if (url.endsWith('/draft')) return {request_id:options.body.request_id,success_count:1,failed_count:0,groups:[{key:'g',name:group.name,unit:group.unit,status:'draft',quantity:5302,documents:[{id:9,entry_no:'SE-9'}]}]}
+    if (url.endsWith('/cancel')) return {request_id:options.body.request_id,cancelled:true}
     return { request_id:options.body.request_id, success_count: 1, failed_count: 0, groups: [{ key: 'g', name: group.name, unit: '个', quantity_basis: 'count', status: 'submitted', quantity: 30, extra: 15, remaining: 0, documents: [{ id: 9, entry_no: 'SE-9' }] }] }
   } }
   globalThis[id] = mocks
@@ -65,15 +67,54 @@ test('uncertain network result locks edits and retries the identical request wit
   assert.equal(state.result.value.success_count, 1)
 })
 test('replenishment shows start deficit separately from reservation and permits the extra needed amount', async () => {
-  const group = { key:'g',version:'gv',name:'水洗 A',unit:'kg',quantity_basis:'weight',from_warehouse:'raw_materials',required:45000,wip:40171,remaining:4829,available:4829,max_quantity:10000,allocations:[{job_card_id:1,work_order_no:'WO-1',remaining:4829,available:4829,extra_available:5171}] }
-  const { state, html, writes } = await harness([{key:'g',name:'水洗 A', unit:'kg', shortage_qty:5.302}], group)
+  const group = { key:'g',version:'gv',item_type:'material',item_id:7,bom_spec_id:0,spec_g:0,owner_customer_id:0,name:'水洗 A',unit:'kg',quantity_basis:'weight',from_warehouse:'raw_materials',required:45000,wip:40171,remaining:4829,available:4829,max_quantity:10000,allocations:[{job_card_id:1,work_order_no:'WO-1',remaining:4829,available:4829,extra_available:5171}] }
+  const { state, html, writes } = await harness([{key:'material:7:0:0',name:'水洗 A', unit:'kg', shortage_qty:5.302}], group)
   assert.match(await html(), /本批开工缺口/)
   assert.match(await html(), /5\.302/)
-  assert.equal(state.quantities.value.g,4.829)
+  assert.equal(state.quantities.value.g,5.302)
   state.quantities.value.g=5.302
   assert.equal(state.invalid.value,false)
   await state.submit()
   assert.equal(writes.at(-1).body.groups[0].quantity,5.302)
+  assert.match(writes.at(-1).url,/\/draft$/)
+  assert.match(await html(),/待确认/)
+  assert.equal(writes.filter(row=>row.url.endsWith('/confirm')).length,0)
+  await state.submit()
+  assert.match(writes.at(-1).url,/\/confirm$/)
+  assert.equal(writes.at(-1).body.request_id,writes.at(-2).body.request_id)
+})
+test('failed replenishment confirmation retains the original draft and retries the same request',async()=>{
+ const group={key:'g',version:'gv',item_type:'material',item_id:7,bom_spec_id:0,spec_g:0,owner_customer_id:0,name:'水洗 A',unit:'kg',quantity_basis:'weight',from_warehouse:'raw_materials',required:5302,wip:0,remaining:5302,available:5302,max_quantity:5302,allocations:[{job_card_id:1,work_order_no:'WO-1',remaining:5302,available:5302,extra_available:0}]}
+ const {state,writes,mocks,sessionStorage}=await harness([{key:'material:7:0:0',name:'水洗 A',unit:'kg',shortage_qty:5.302}],group)
+ await state.submit();const requestID=writes.at(-1).body.request_id
+ mocks.fail=Object.assign(new Error('库存变化'),{status:409});await state.submit()
+ assert.equal(state.draftReceipt.value.groups[0].documents[0].entry_no,'SE-9');assert.equal(state.uncertain.value,true)
+ assert.ok(sessionStorage.getItem('kferp:workstation-batch-issue:pending:v1'))
+ mocks.fail=false;await state.submit();assert.equal(writes.at(-1).body.request_id,requestID);assert.equal(writes.filter(r=>r.url.endsWith('/draft')).length,1)
+})
+test('a draft from another device can be restored for the blocked task and confirmed',async()=>{
+ const {state,mocks,writes,sessionStorage}=await harness()
+ const command={request_id:'resume-r',preview_version:'v',job_card_ids:[1],groups:[{key:'g',version:'gv',quantity:15}]}
+ mocks.draftLookup={found:true,command,result:{request_id:'resume-r',success_count:1,failed_count:0,groups:[{key:'g',status:'draft',name:'测试包装袋',unit:'个',quantity_basis:'count',quantity:15,documents:[{id:9,entry_no:'SE-9'}]}]}}
+ await state.restoreDraft({job_card_id:1})
+ assert.equal(state.draftReceipt.value.groups[0].documents[0].entry_no,'SE-9')
+ assert.ok(sessionStorage.getItem('kferp:workstation-batch-issue:pending:v1'))
+ await state.submit();assert.match(writes.at(-1).url,/\/confirm$/);assert.equal(writes.at(-1).body.request_id,'resume-r')
+})
+test('a rejected confirmation keeps the draft and can safely cancel the entire group',async()=>{
+ const group={key:'g',version:'gv',item_type:'material',item_id:7,bom_spec_id:0,spec_g:0,owner_customer_id:0,name:'水洗 A',unit:'kg',quantity_basis:'weight',from_warehouse:'raw_materials',required:5302,wip:0,remaining:5302,available:5302,max_quantity:5302,allocations:[{job_card_id:1,work_order_no:'WO-1',remaining:5302,available:5302,extra_available:0}]}
+ const {state,writes,mocks,sessionStorage,events}=await harness([{key:'material:7:0:0',name:'水洗 A',unit:'kg',shortage_qty:5.302}],group)
+ await state.submit();const id=writes.at(-1).body.request_id
+ mocks.fail=Object.assign(new Error('库存变化'),{status:409});await state.submit()
+ mocks.fail=false;await state.cancelDraft()
+ const cancel=writes.find(row=>row.url.endsWith('/cancel'));assert.equal(cancel.body.request_id,id)
+ assert.equal(sessionStorage.getItem('kferp:workstation-batch-issue:pending:v1'),null);assert.equal(events.at(-1)[0],'cancelled')
+})
+test('a cancellation rejected because it already posted permits recovery of the confirmation',async()=>{
+ const group={key:'g',version:'gv',item_type:'material',item_id:7,bom_spec_id:0,spec_g:0,owner_customer_id:0,name:'水洗 A',unit:'kg',quantity_basis:'weight',from_warehouse:'raw_materials',required:5302,wip:0,remaining:5302,available:5302,max_quantity:5302,allocations:[{job_card_id:1,work_order_no:'WO-1',remaining:5302,available:5302,extra_available:0}]}
+ const {state,mocks}=await harness([{key:'material:7:0:0',name:'水洗 A',unit:'kg',shortage_qty:5.302}],group)
+ await state.submit();mocks.fail=Object.assign(new Error('补料已过账，不能取消草稿'),{status:400});await state.cancelDraft()
+ assert.equal(state.cancelUncertain.value,false);assert.match(state.error.value,/重试确认/)
 })
 test('uncertain result keeps the drawer open and blocks navigation until the same request is resolved', async () => {
   const { state, mocks, html, navigation } = await harness()

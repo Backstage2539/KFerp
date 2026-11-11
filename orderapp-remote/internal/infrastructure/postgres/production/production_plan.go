@@ -3058,6 +3058,54 @@ func createPendingJobCardsForWorkOrderTx(ctx context.Context, tx pgx.Tx, schema 
 			ParameterSchemaJSON:     defaultJSONObject(op.ParameterSchemaJSON),
 		})
 	}
+	var orderOutputUnit, orderInventoryUnit, policy string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(output_unit,''),COALESCE(inventory_unit,''),COALESCE(material_consumption_policy,'legacy') FROM %s.work_orders WHERE id=$1`, schema), workOrderID).Scan(&orderOutputUnit, &orderInventoryUnit, &policy); err != nil {
+		return nil, err
+	}
+	if policy == "bom_start_v1" {
+		// New batch-mode tasks receive stable execution records at release. The
+		// frozen route determines units; incompatible legacy configurations remain
+		// available through the explicit initialization workflow.
+		for _, card := range out {
+			if card.SchedulingMode != "batch" || card.PlannedBatchCount <= 0 {
+				continue
+			}
+			var op processSnapshotOperation
+			for _, candidate := range operationsFromProcessSnapshot(processSnapshotJSON) {
+				if candidate.Seq == card.SequenceNo {
+					op = candidate
+					break
+				}
+			}
+			cfg, _, decodeErr := decodeFrozenOperationExecution(op.ExecutionJSON)
+			if decodeErr != nil || cfg.ReportingType == "piece" || cfg.ReportingType == "incoming" {
+				continue
+			}
+			defaultUnit := firstNonEmpty(orderOutputUnit, orderInventoryUnit)
+			inputUnit, unitOK := frozenExecutionInputUnit(operationsFromProcessSnapshot(processSnapshotJSON), card.SequenceNo, defaultUnit)
+			if !unitOK {
+				continue
+			}
+			inputFactor := productionapp.OperationUnitFactor(inputUnit)
+			sizeFactor := productionapp.OperationUnitFactor(card.BatchSizeUnit)
+			if inputFactor <= 0 || sizeFactor <= 0 {
+				continue
+			}
+			size := card.BatchSizeQty
+			if card.CustomBatchSizeQty != nil && *card.CustomBatchSizeQty > 0 {
+				size = *card.CustomBatchSizeQty
+			}
+			plan, planErr := productionapp.ExecutionBatchPlan(card.PlannedInputQty/inputFactor, size*sizeFactor/inputFactor, card.PlannedBatchCount)
+			if planErr != nil {
+				continue
+			}
+			for batchNo, qty := range plan {
+				if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.production_execution_batches(job_card_id,batch_no,planned_input_qty,input_unit,init_request_id) VALUES($1,$2,$3,$4,'automatic')`, schema), card.ID, batchNo+1, qty, inputUnit); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
 	leads, err := assignDefaultLeadsToPendingJobCardsTx(ctx, tx, schema, workOrderID)
 	if err != nil {
 		return nil, err

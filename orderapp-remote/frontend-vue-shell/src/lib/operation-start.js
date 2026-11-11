@@ -12,6 +12,12 @@ export function startSuggestedMaterials(preview,input) {
  return materials.map(m=>{const scale=Number(preview.input_qty)>0?Number(input)/Number(preview.input_qty):0,q=Number(m.qty)*scale;return {...m,qty:factor(m.unit)?rounded(Math.round(q*factor(m.unit))/factor(m.unit)):Math.ceil(q-1e-9)}})
 }
 export function startDraft(preview) {return {actual_input_qty:Number(preview.input_qty||0),materials:(preview.materials||[]).map(m=>({...m})),difference_reason:''}}
+export function refreshStartDraft(preview,previous) {
+ const old=new Map((previous.materials||[]).map(m=>[m.key,m]))
+ const next=preview.materials||[]
+ if(old.size!==next.length || next.some(m=>!old.has(m.key)))throw new Error('用料清单已变化，请记录已填数量后重新打开')
+ return {actual_input_qty:previous.actual_input_qty,difference_reason:previous.difference_reason,materials:next.map(m=>({...m,qty:old.get(m.key).qty}))}
+}
 export function startPayload(preview,draft,id) {
  const qty=Number(draft.actual_input_qty)
  if(!Number.isFinite(qty)||qty<=0||(!factor(preview.input_unit)&&!Number.isInteger(qty)))throw new Error('请填写有效的本批实际投入数量')

@@ -74,7 +74,10 @@ test('unstarted work order editor preserves custom batch snapshots when reopenin
   assert.equal(split.custom_batch_size_qty, 18.7)
   assert.equal(split.planned_qty, 37.4)
   assert.equal(state.workOrderSplitInputError(split), '')
-  assert.match(state.workOrderVarianceLabel({ seq: 1, operation_id: 9 }), /不足 7.713kg/)
+  const variance = state.workOrderVarianceLabel({ seq: 1, operation_id: 9 })
+  assert.match(variance, /计划投入 45.113kg/)
+  assert.match(variance, /已安排投入 37.4kg/)
+  assert.match(variance, /少安排 7.713kg/)
   state.addWorkOrderCapacityPreset({ ...cap, id: 8, batch_size_qty: 18.7 })
   assert.equal(split.workstation_capacity_id, 7)
   const payload = buildWorkOrderOperationSplitPayload(state.workOrderSplitRows.value).items[0]
