@@ -42,7 +42,7 @@ test('short WIP opens replenishment with the actual start deficit and prevents u
  state.retry.clear();state.preview.value.predecessor_required=true
  assert.doesNotMatch(await html(),/补齐物料/)
 })
-test('start form locks while replenishment drawer is open and warns that successful replenishment reloads the draft',async()=>{
+test('start form locks while replenishment drawer is open and preserves inputs when replenishment reloads availability',async()=>{
  const events=[];const Component=await loadForm({apiGet:async()=>({}),apiSend:async()=>({})})
  const props=reactive({jobCardId:42,locked:true});let state
  await renderToString(createSSRApp({setup(){state=Component.setup(props,{expose(){},emit:(...args)=>events.push(args)});return()=>h('div')}}))
@@ -50,7 +50,7 @@ test('start form locks while replenishment drawer is open and warns that success
  state.preview.value=preview;Object.assign(state.draft,startDraft(preview))
  const html=await renderToString(createSSRApp({...Component,setup:()=>state},props))
  assert.match(html,/disabled[^>]*>确认开工并扣料/)
- assert.match(html,/补料成功后.*重新读取.*重置/)
+ assert.match(html,/补料成功后.*重新读取库存.*保留/)
  state.openIssue();assert.equal(events.length,0)
 })
 test('zero WIP omitted by the API still shows replenishment and the full reserved-material deficit',async()=>{

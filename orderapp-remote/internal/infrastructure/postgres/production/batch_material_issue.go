@@ -48,7 +48,7 @@ func (r Repository) PreviewBatchMaterialIssue(ctx context.Context, cmd app.Batch
 	return result, err
 }
 
-func (r Repository) batchIssueTasksTx(ctx context.Context, tx pgx.Tx, ids []int64) ([]batchIssueTask, error) {
+func (r Repository) batchIssueTasksTx(ctx context.Context, tx pgx.Tx, ids []int64, ignoredDrafts []int64) ([]batchIssueTask, error) {
 	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT j.id,j.work_order_id,w.work_order_no,j.workstation,j.status,w.status,j.sequence_no,
  (SELECT MIN(sequence_no) FROM %[1]s.job_cards WHERE work_order_id=w.id AND status<>'cancelled'),j.priority,COALESCE(to_char(j.planned_start_at,'YYYY-MM-DD HH24:MI:SS'),'9999'),
  CASE WHEN j.planned_input_qty>0 THEN j.planned_input_qty::float8
@@ -57,9 +57,9 @@ func (r Repository) batchIssueTasksTx(ctx context.Context, tx pgx.Tx, ids []int6
        AND j.operation ILIKE '%%包装%%'
        AND NOT EXISTS(SELECT 1 FROM %[1]s.production_operation_events e WHERE e.job_card_id=j.id AND e.status IN('posting','posted'))
       THEN 1::float8 ELSE 0::float8 END,
- COALESCE((SELECT MIN(id) FROM %[1]s.stock_entries WHERE work_order_id=w.id AND purpose='material_transfer_for_manufacture' AND is_return=false AND status='draft'),0)
+ COALESCE((SELECT MIN(id) FROM %[1]s.stock_entries WHERE work_order_id=w.id AND purpose='material_transfer_for_manufacture' AND is_return=false AND status='draft' AND NOT (id=ANY(COALESCE($2::bigint[],ARRAY[]::bigint[])))),0)
  FROM %[1]s.job_cards j JOIN %[1]s.work_orders w ON w.id=j.work_order_id
- WHERE j.work_order_id IN(SELECT work_order_id FROM %[1]s.job_cards WHERE id=ANY($1)) ORDER BY j.id`, r.schema), ids)
+ WHERE j.work_order_id IN(SELECT work_order_id FROM %[1]s.job_cards WHERE id=ANY($1)) ORDER BY j.id`, r.schema), ids, ignoredDrafts)
 	if err != nil {
 		return nil, err
 	}
@@ -111,8 +111,11 @@ func batchTaskReason(t batchIssueTask) string {
 }
 
 func (r Repository) previewBatchMaterialIssueTx(ctx context.Context, tx pgx.Tx, cmd app.BatchMaterialIssueCommand) (app.BatchMaterialIssuePreview, error) {
+	return r.previewBatchMaterialIssueIgnoringDraftsTx(ctx, tx, cmd, nil)
+}
+func (r Repository) previewBatchMaterialIssueIgnoringDraftsTx(ctx context.Context, tx pgx.Tx, cmd app.BatchMaterialIssueCommand, ignoredDrafts []int64) (app.BatchMaterialIssuePreview, error) {
 	out := app.BatchMaterialIssuePreview{JobCardIDs: cmd.JobCardIDs, Groups: []app.BatchMaterialIssueGroup{}, Blocked: []app.BatchMaterialIssueBlocked{}}
-	tasks, err := r.batchIssueTasksTx(ctx, tx, cmd.JobCardIDs)
+	tasks, err := r.batchIssueTasksTx(ctx, tx, cmd.JobCardIDs, ignoredDrafts)
 	if err != nil {
 		return out, err
 	}

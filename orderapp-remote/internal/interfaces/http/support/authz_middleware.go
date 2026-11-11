@@ -91,7 +91,7 @@ func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 			}
 			if strings.HasPrefix(strings.TrimPrefix(c.Request().URL.Path, "/app"), "/api/production/workstation/material-issue/") {
 				permissions := []string{"production.read", "stock.read"}
-				if strings.HasSuffix(c.Request().URL.Path, "/submit") {
+				if c.Request().Method != http.MethodGet && (strings.HasSuffix(c.Request().URL.Path, "/submit") || strings.HasSuffix(c.Request().URL.Path, "/draft") || strings.HasSuffix(c.Request().URL.Path, "/confirm") || strings.HasSuffix(c.Request().URL.Path, "/cancel")) {
 					permissions = []string{"production.run", "stock.write"}
 				}
 				for _, permission := range permissions {

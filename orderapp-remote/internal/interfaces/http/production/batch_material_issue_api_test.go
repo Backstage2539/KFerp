@@ -8,6 +8,7 @@ import (
 	"net/http"
 	productionapp "orderapp/internal/application/production"
 	postgresproduction "orderapp/internal/infrastructure/postgres/production"
+	postgresstock "orderapp/internal/infrastructure/postgres/stock"
 	"strings"
 	"sync"
 	"testing"
@@ -307,4 +308,204 @@ func TestBOMStartAfterIssuingMoreThanFrozenReservation(t *testing.T) {
 	assertProductionFlowCount(t, f.pool, f.schema, "job_cards", fmt.Sprintf("id=%d AND status='running'", ids[0]), 1)
 	assertProductionFlowCount(t, f.pool, f.schema, "production_started_inputs", fmt.Sprintf("job_card_id=%d AND status='posted'", ids[0]), 1)
 	assertProductionFlowCount(t, f.pool, f.schema, "stock_entries", fmt.Sprintf("job_card_id=%d AND source_type='operation_start' AND status='submitted'", ids[0]), 1)
+}
+
+func TestBatchReplenishmentDraftAndConfirmAreSeparateAndIdempotent(t *testing.T) {
+	f, ids := batchIssueFixture(t, false)
+	p := batchPreview(t, f, ids)
+	cmd := batchCommand(p, "replenishment-test", 15.57)
+	draft := serveMultilevelProductionJSON(t, f.app, http.MethodPost, "/api/production/workstation/material-issue/draft", cmd)
+	if draft.Code != http.StatusOK {
+		t.Fatalf("draft: %d %s", draft.Code, draft.Body.String())
+	}
+	assertProductionFlowCount(t, f.pool, f.schema, "stock_entries", "status='draft' AND return_source='workstation_replenishment'", 1)
+	assertProductionFlowCount(t, f.pool, f.schema, "stock_entries", "status='submitted' AND return_source='workstation_replenishment'", 0)
+	recovered := serveMultilevelProductionJSON(t, f.app, http.MethodGet, fmt.Sprintf("/api/production/workstation/material-issue/draft?job_card_id=%d", ids[0]), nil)
+	var recovery productionapp.BatchReplenishmentRecovery
+	if err := json.Unmarshal(recovered.Body.Bytes(), &recovery); err != nil || recovered.Code != 200 || !recovery.Found || recovery.Command == nil || recovery.Command.RequestID != "replenishment-test" {
+		t.Fatalf("recover: %d %s %v", recovered.Code, recovered.Body.String(), err)
+	}
+	retry := serveMultilevelProductionJSON(t, f.app, http.MethodPost, "/api/production/workstation/material-issue/draft", cmd)
+	if retry.Code != http.StatusOK || retry.Body.String() != draft.Body.String() {
+		t.Fatalf("draft retry: %d %s", retry.Code, retry.Body.String())
+	}
+	confirm := serveMultilevelProductionJSON(t, f.app, http.MethodPost, "/api/production/workstation/material-issue/confirm", map[string]any{"request_id": "replenishment-test"})
+	if confirm.Code != http.StatusOK {
+		t.Fatalf("confirm: %d %s", confirm.Code, confirm.Body.String())
+	}
+	assertProductionFlowCount(t, f.pool, f.schema, "stock_entries", "status='submitted' AND return_source='workstation_replenishment'", 1)
+	recovered = serveMultilevelProductionJSON(t, f.app, http.MethodGet, fmt.Sprintf("/api/production/workstation/material-issue/draft?job_card_id=%d", ids[0]), nil)
+	if err := json.Unmarshal(recovered.Body.Bytes(), &recovery); err != nil || recovered.Code != 200 || recovery.Found {
+		t.Fatalf("confirmed recovery: %d %s %v", recovered.Code, recovered.Body.String(), err)
+	}
+	var confirmedID int64
+	if err := f.pool.QueryRow(context.Background(), fmt.Sprintf(`SELECT id FROM %s.stock_entries WHERE status='submitted' AND return_source='workstation_replenishment'`, f.schema)).Scan(&confirmedID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := postgresstock.NewRepository(f.pool, f.schema).CancelStockDocument(context.Background(), confirmedID, "operator"); err == nil {
+		t.Fatal("individual cancellation bypassed group integrity")
+	}
+	again := serveMultilevelProductionJSON(t, f.app, http.MethodPost, "/api/production/workstation/material-issue/confirm", map[string]any{"request_id": "replenishment-test"})
+	if again.Code != http.StatusOK {
+		t.Fatalf("confirm retry: %d %s", again.Code, again.Body.String())
+	}
+	assertProductionFlowCount(t, f.pool, f.schema, "stock_entries", "status='submitted' AND return_source='workstation_replenishment'", 1)
+}
+
+func TestBatchReplenishmentRejectsBypassAndChangedStock(t *testing.T) {
+	f, ids := batchIssueFixture(t, false)
+	p := batchPreview(t, f, ids)
+	cmd := batchCommand(p, "replenish-stale", 15.57)
+	r := serveMultilevelProductionJSON(t, f.app, http.MethodPost, "/api/production/workstation/material-issue/draft", cmd)
+	if r.Code != 200 {
+		t.Fatalf("draft: %d %s", r.Code, r.Body.String())
+	}
+	var id int64
+	if err := f.pool.QueryRow(context.Background(), fmt.Sprintf(`SELECT id FROM %s.stock_entries WHERE return_source='workstation_replenishment'`, f.schema)).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	stock := postgresstock.NewRepository(f.pool, f.schema)
+	if _, err := stock.SubmitStockDocument(context.Background(), id, "operator"); err == nil {
+		t.Fatal("generic submission bypassed replenishment validation")
+	}
+	mustExecProductionFlowTestSQL(t, context.Background(), f.pool, fmt.Sprintf(`UPDATE %s.material_batch_locations SET qty_g=119000 WHERE material_batch_id=72230`, f.schema))
+	r = serveMultilevelProductionJSON(t, f.app, http.MethodPost, "/api/production/workstation/material-issue/confirm", map[string]any{"request_id": "replenish-stale"})
+	if r.Code == 200 {
+		t.Fatalf("changed stock accepted: %s", r.Body.String())
+	}
+	assertProductionFlowCount(t, f.pool, f.schema, "stock_entries", "status='draft' AND return_source='workstation_replenishment'", 1)
+	assertProductionFlowCount(t, f.pool, f.schema, "stock_entries", "status='submitted' AND return_source='workstation_replenishment'", 0)
+}
+
+func TestBatchReplenishmentConfirmRollsBackAllDocumentsOnFailure(t *testing.T) {
+	f, ids := batchIssueFixture(t, true)
+	p := batchPreview(t, f, ids)
+	cmd := batchCommand(p, "replenish-rollback", 25.57)
+	r := serveMultilevelProductionJSON(t, f.app, http.MethodPost, "/api/production/workstation/material-issue/draft", cmd)
+	if r.Code != 200 {
+		t.Fatalf("draft: %d %s", r.Code, r.Body.String())
+	}
+	mustExecProductionFlowTestSQL(t, context.Background(), f.pool, fmt.Sprintf(`CREATE FUNCTION %[1]s.reject_replenishment_post() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status='submitted' AND NEW.work_order_id=(SELECT work_order_id FROM %[1]s.job_cards WHERE id=%[2]d) THEN RAISE EXCEPTION 'posting failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_replenishment_post BEFORE UPDATE ON %[1]s.stock_entries FOR EACH ROW EXECUTE FUNCTION %[1]s.reject_replenishment_post();`, f.schema, ids[1]))
+	r = serveMultilevelProductionJSON(t, f.app, http.MethodPost, "/api/production/workstation/material-issue/confirm", map[string]any{"request_id": "replenish-rollback"})
+	if r.Code == 200 {
+		t.Fatalf("failed post accepted: %s", r.Body.String())
+	}
+	assertProductionFlowCount(t, f.pool, f.schema, "stock_entries", "status='draft' AND return_source='workstation_replenishment'", 2)
+	assertProductionFlowCount(t, f.pool, f.schema, "stock_entries", "status='submitted' AND return_source='workstation_replenishment'", 0)
+}
+
+func TestBatchReplenishmentConcurrentDraftsDoNotDuplicate(t *testing.T) {
+	f, ids := batchIssueFixture(t, false)
+	p := batchPreview(t, f, ids)
+	cmd := batchCommand(p, "replenish-concurrent", 15.57)
+	codes := make(chan int, 2)
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r := serveMultilevelProductionJSON(t, f.app, http.MethodPost, "/api/production/workstation/material-issue/draft", cmd)
+			codes <- r.Code
+		}()
+	}
+	wg.Wait()
+	close(codes)
+	successes := 0
+	for code := range codes {
+		if code == 200 {
+			successes++
+		}
+	}
+	if successes != 2 {
+		t.Fatalf("both retries should succeed, got %d", successes)
+	}
+	assertProductionFlowCount(t, f.pool, f.schema, "stock_entries", "status='draft' AND return_source='workstation_replenishment'", 1)
+	r := serveMultilevelProductionJSON(t, f.app, http.MethodPost, "/api/production/workstation/material-issue/draft", cmd)
+	if r.Code != 200 {
+		t.Fatalf("retry: %d %s", r.Code, r.Body.String())
+	}
+}
+
+func TestBatchReplenishmentCrossWarehouseFailureIsAtomic(t *testing.T) {
+	f, ids := batchIssueFixture(t, true)
+	ctx := context.Background()
+	seedProductionFlowWIPBatch(t, ctx, f.pool, f.schema, 72431, 30, "REPL-SECOND", "生产生豆", 20000)
+	mustExecProductionFlowTestSQL(t, ctx, f.pool, fmt.Sprintf(`UPDATE %[1]s.material_batch_locations SET warehouse='finished_goods' WHERE material_batch_id=72431; UPDATE %[1]s.work_order_material_reservation_batches SET material_batch_id=72431,batch_code='REPL-SECOND',warehouse='finished_goods' WHERE work_order_id=(SELECT work_order_id FROM %[1]s.job_cards WHERE id=%[2]d)`, f.schema, ids[1]))
+	p := batchPreview(t, f, ids)
+	if len(p.Groups) != 2 {
+		t.Fatalf("expected two sources: %+v", p.Groups)
+	}
+	cmd := productionapp.BatchMaterialIssueCommand{JobCardIDs: ids, RequestID: "replenish-cross-warehouse", PreviewVersion: p.Version}
+	for _, g := range p.Groups {
+		cmd.Groups = append(cmd.Groups, productionapp.BatchMaterialIssueSelection{Key: g.Key, Version: g.Version, Quantity: float64(g.Available) / 1000})
+	}
+	r := serveMultilevelProductionJSON(t, f.app, http.MethodPost, "/api/production/workstation/material-issue/draft", cmd)
+	if r.Code != 200 {
+		t.Fatalf("draft: %d %s", r.Code, r.Body.String())
+	}
+	var draft productionapp.BatchMaterialIssueResult
+	if err := json.Unmarshal(r.Body.Bytes(), &draft); err != nil {
+		t.Fatal(err)
+	}
+	if len(draft.Groups) != 2 || len(draft.Groups[0].Documents) != 1 || len(draft.Groups[1].Documents) != 1 || draft.Groups[0].Documents[0].ID == draft.Groups[1].Documents[0].ID {
+		t.Fatalf("documents not mapped by source: %+v", draft)
+	}
+	mustExecProductionFlowTestSQL(t, ctx, f.pool, fmt.Sprintf(`CREATE FUNCTION %[1]s.reject_cross_replenishment() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status='submitted' AND NEW.work_order_id=(SELECT work_order_id FROM %[1]s.job_cards WHERE id=%[2]d) THEN RAISE EXCEPTION 'failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_cross_replenishment BEFORE UPDATE ON %[1]s.stock_entries FOR EACH ROW EXECUTE FUNCTION %[1]s.reject_cross_replenishment();`, f.schema, ids[1]))
+	r = serveMultilevelProductionJSON(t, f.app, http.MethodPost, "/api/production/workstation/material-issue/confirm", map[string]any{"request_id": "replenish-cross-warehouse"})
+	if r.Code == 200 {
+		t.Fatalf("failure accepted: %s", r.Body.String())
+	}
+	assertProductionFlowCount(t, f.pool, f.schema, "stock_entries", "status='draft' AND return_source='workstation_replenishment'", 2)
+	assertProductionFlowCount(t, f.pool, f.schema, "stock_entries", "status='submitted' AND return_source='workstation_replenishment'", 0)
+}
+
+func TestBatchReplenishmentCancelGroupAtomicAndRetry(t *testing.T) {
+	f, ids := batchIssueFixture(t, true)
+	p := batchPreview(t, f, ids)
+	cmd := batchCommand(p, "replenish-cancel", 25.57)
+	r := serveMultilevelProductionJSON(t, f.app, http.MethodPost, "/api/production/workstation/material-issue/draft", cmd)
+	if r.Code != 200 {
+		t.Fatalf("draft: %d %s", r.Code, r.Body.String())
+	}
+	mustExecProductionFlowTestSQL(t, context.Background(), f.pool, fmt.Sprintf(`CREATE FUNCTION %[1]s.reject_cancel_replenishment() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status='cancelled' AND NEW.work_order_id=(SELECT work_order_id FROM %[1]s.job_cards WHERE id=%[2]d) THEN RAISE EXCEPTION 'cancel failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_cancel_replenishment BEFORE UPDATE ON %[1]s.stock_entries FOR EACH ROW EXECUTE FUNCTION %[1]s.reject_cancel_replenishment();`, f.schema, ids[1]))
+	body := map[string]any{"request_id": "replenish-cancel"}
+	r = serveMultilevelProductionJSON(t, f.app, http.MethodPost, "/api/production/workstation/material-issue/cancel", body)
+	if r.Code == 200 {
+		t.Fatal("cancel should fail")
+	}
+	assertProductionFlowCount(t, f.pool, f.schema, "stock_entries", "status='draft' AND return_source='workstation_replenishment'", 2)
+	mustExecProductionFlowTestSQL(t, context.Background(), f.pool, fmt.Sprintf(`DROP TRIGGER reject_cancel_replenishment ON %s.stock_entries`, f.schema))
+	for i := 0; i < 2; i++ {
+		r = serveMultilevelProductionJSON(t, f.app, http.MethodPost, "/api/production/workstation/material-issue/cancel", body)
+		if r.Code != 200 || !strings.Contains(r.Body.String(), `"cancelled":true`) {
+			t.Fatalf("cancel: %d %s", r.Code, r.Body.String())
+		}
+	}
+	assertProductionFlowCount(t, f.pool, f.schema, "stock_entries", "status='cancelled' AND return_source='workstation_replenishment'", 2)
+	p = batchPreview(t, f, ids)
+	cmd = batchCommand(p, "replenish-new-after-cancel", 25.57)
+	r = serveMultilevelProductionJSON(t, f.app, http.MethodPost, "/api/production/workstation/material-issue/draft", cmd)
+	if r.Code != 200 {
+		t.Fatalf("new draft: %d %s", r.Code, r.Body.String())
+	}
+}
+
+func TestBatchReplenishmentSharedWIPAllocatedOnce(t *testing.T) {
+	f, ids := batchIssueFixture(t, true)
+	ctx := context.Background()
+	seedProductionFlowWIPBatch(t, ctx, f.pool, f.schema, 72435, 30, "SHARED-WIP", "生产生豆", 10000)
+	p := batchPreview(t, f, ids)
+	if len(p.Groups) != 1 {
+		t.Fatalf("preview: %+v", p.Groups)
+	}
+	cmd := batchCommand(p, "shared-wip-excess", 15.571)
+	r := serveMultilevelProductionJSON(t, f.app, http.MethodPost, "/api/production/workstation/material-issue/draft", cmd)
+	if r.Code == 200 {
+		t.Fatalf("over-shared shortage accepted: %s", r.Body.String())
+	}
+	cmd = batchCommand(p, "shared-wip-exact", 15.57)
+	r = serveMultilevelProductionJSON(t, f.app, http.MethodPost, "/api/production/workstation/material-issue/draft", cmd)
+	if r.Code != 200 {
+		t.Fatalf("shared shortage: %d %s", r.Code, r.Body.String())
+	}
 }

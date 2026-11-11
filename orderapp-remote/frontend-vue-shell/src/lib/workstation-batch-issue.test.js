@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { issueSelectionState, toggleIssueSelection, batchIssuePayload, batchIssueQuantity, mergeBatchIssueGroups } from './workstation-batch-issue.js'
+import { issueSelectionState, toggleIssueSelection, batchIssuePayload, batchIssueQuantity, mergeBatchIssueGroups, shortageIssueDefaults, startPreviewShortages, pendingFirstOperationCards } from './workstation-batch-issue.js'
+
+test('a running first operation cannot cause the pending second operation to be treated as raw material demand',()=>{
+ const cards=[{id:1,sequence_no:1,status:'running'},{id:2,sequence_no:2,status:'pending'}]
+ assert.deepEqual(pendingFirstOperationCards(cards),[])
+ assert.deepEqual(pendingFirstOperationCards([...cards,{id:3,sequence_no:1,status:'pending'}]).map(x=>x.id),[3])
+})
+
+test('replenishment shortages derive from WIP actual start demand only',()=>{
+ const p={materials:[{key:'a',warehouse:'wip',qty:8.994,available_qty:63.733},{key:'b',warehouse:'wip',qty:5,available_qty:2},{key:'c',warehouse:'raw_materials',qty:3,available_qty:0}]}
+ assert.deepEqual(startPreviewShortages(p).map(x=>[x.key,x.shortage_qty]),[['b',3]])
+})
 
 test('selection uses one tri-state checkbox and ignores ineligible tasks', () => {
   const tasks = [{ job_card_id: 1, stock_action: 'issue' }, { job_card_id: 2, stock_action: 'issue' }, { job_card_id: 3 }]
@@ -36,4 +47,11 @@ test('submission uses selected groups and actual quantities, preserves request i
   })
   assert.equal(batchIssueQuantity({ unit: 'kg', quantity_basis: 'weight' }, 15570), 15.57)
   assert.equal(batchIssueQuantity({ unit: '个', quantity_basis: 'count' }, 15), 15)
+})
+
+test('opening from a shortage selects only matching material and limits default quantity to its actual deficit', () => {
+ const groups=[{key:'a',item_type:'material',item_id:7,bom_spec_id:0,spec_g:0,owner_customer_id:0,unit:'kg',quantity_basis:'weight',available:9000},{key:'b',item_type:'material',item_id:8,bom_spec_id:0,spec_g:0,owner_customer_id:0,unit:'kg',quantity_basis:'weight',available:12000}]
+ assert.deepEqual(shortageIssueDefaults(groups,[{key:'material:7:0:0',owner_customer_id:0,unit:'kg',shortage_qty:3.25}]),{selected:['a'],quantities:{a:3.25}})
+ assert.deepEqual(shortageIssueDefaults(groups,[{key:'material:7:0:0',owner_customer_id:0,unit:'kg',shortage_qty:11}]),{selected:['a'],quantities:{a:9}})
+ assert.deepEqual(shortageIssueDefaults(groups,[{key:'material:7:0:0',owner_customer_id:0,bom_variant_id:9,unit:'kg',shortage_qty:3}]),{selected:[],quantities:{}})
 })
