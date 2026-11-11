@@ -21,33 +21,32 @@ async function settle(){await new Promise(resolve=>setImmediate(resolve));await 
 async function input(el,value){el.value=String(value);el.dispatchEvent(new Event('input',{bubbles:true}));await nextTick()}
 const preview={enabled:true,job_card_id:1,version:'v1',execution:{receipt_enabled:true},product_name:'验收咖啡',package_spec_label:'227g袋装',output_unit:'袋',input_unit:'g',input_qty:4540,planned_qty:20,warehouse_name:'成品仓',materials:[{reservation_id:7,key:'bean',name:'熟豆',unit:'g',qty:4540,warehouse:'wip',warehouse_name:'在制仓',owner_customer_id:0}],draft:{}}
 const button=(el,label)=>[...el.querySelectorAll('button')].find(b=>b.textContent.trim()===label||b.textContent.trim().includes(label))
-test('execution batches require an explicitly entered output and preserve the batch identity',async()=>{
+test('all batch rows show independent planned defaults and submit together',async()=>{
  const calls=[]
- const p={...structuredClone(preview),execution:{reporting_type:'batch'},material_consumption_policy:'bom_start_v1',input_unit:'kg',output_unit:'kg',input_qty:59.962,started_input_qty:59.962,planned_qty:60.112}
- const batches={version:'v1',can_initialize:false,batches:[{id:11,batch_no:1,planned_input_qty:15,status:'pending'},{id:12,batch_no:2,planned_input_qty:14.962,status:'pending'}]}
- const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:1},{apiGet:async path=>path.endsWith('/execution-batches')?batches:p,apiSend:async(path,{body})=>{calls.push({path,body});return {completion:{message:'完成'}}}})
+ const p={...structuredClone(preview),execution:{reporting_type:'batch'},material_consumption_policy:'bom_start_v1',input_unit:'kg',output_unit:'kg',input_qty:2.5,started_input_qty:2.5,planned_qty:2}
+ const state={version:'v1',batches:[{id:11,batch_no:1,planned_input_qty:1.25,planned_output_qty:1,planned_minutes:18,input_unit:'kg',output_unit:'kg',status:'pending'},{id:12,batch_no:2,planned_input_qty:1.25,planned_output_qty:1,planned_minutes:18,input_unit:'kg',output_unit:'kg',status:'pending'}]}
+ const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:1},{apiGet:async path=>path.endsWith('/execution-batches')?state:p,apiSend:async(path,{body})=>{calls.push({path,body});return {items:[]}}})
  try{
-  assert.match(view.el.textContent,/第 1 批/);assert.match(view.el.textContent,/第 2 批/)
-  const inputs=view.el.querySelectorAll('fieldset input[type=number]')
-  assert.equal(inputs[0].value,'');assert.equal(inputs[1].value,'15')
-  button(view.el,'完成本批').click();await settle();assert.match(view.el.textContent,/填写实际/);assert.equal(calls.length,0)
-  await input(inputs[0],0);button(view.el,'完成本批').click();await settle();assert.match(view.el.textContent,/原因/);assert.equal(calls.length,0)
-  await input(inputs[0],12);await input(inputs[1],14.9);button(view.el,'完成本批').click();await settle()
-  assert.equal(calls[0].body.execution_batch_id,11);assert.equal(calls[0].body.actual_input_qty,14.9);assert.equal(calls[0].body.actual_output_qty,12)
+  const rows=view.el.querySelectorAll('.batch-row');assert.equal(rows.length,2)
+  assert.deepEqual([...rows[0].querySelectorAll('input[type=number]')].map(x=>x.value),['1.25','18','1'])
+  await input(rows[1].querySelectorAll('input[type=number]')[2],0.9)
+  button(view.el,'完成所有批次').click();await settle()
+  assert.ok(calls[0].path.endsWith('/execution-batches/complete-all'));assert.equal(calls[0].body.batches[1].actual_output_qty,0.9)
  }finally{view.close()}
 })
-test('legacy batch initialization uses its version and failed batch submission keeps entered values',async()=>{
+test('a single batch can be completed without losing other drafts and zero output requires a remark',async()=>{
+ const calls=[];let completed=false
+ const p={...structuredClone(preview),execution:{reporting_type:'batch'},material_consumption_policy:'bom_start_v1',input_unit:'kg',output_unit:'kg',input_qty:2.5,started_input_qty:2.5,planned_qty:2}
+ const state=()=>({version:'v1',batches:[{id:11,batch_no:1,planned_input_qty:1.25,planned_output_qty:1,planned_minutes:18,status:completed?'completed':'pending',actual_input_qty:completed?1.25:null,actual_output_qty:completed?1:null},{id:12,batch_no:2,planned_input_qty:1.25,planned_output_qty:1,planned_minutes:18,status:'pending'}]})
+ const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:51},{apiGet:async path=>path.endsWith('/execution-batches')?state():p,apiSend:async(path,{body})=>{calls.push({path,body});completed=true;return {completion:{message:'完成'}}}})
+ try{let rows=view.el.querySelectorAll('.batch-row');await input(rows[1].querySelectorAll('input[type=number]')[2],0.9);await input(rows[0].querySelectorAll('input[type=number]')[2],0);button(rows[0],'批次完成').click();await settle();assert.match(view.el.textContent,/备注/);assert.equal(calls.length,0);await input(rows[0].querySelectorAll('input[type=number]')[2],1);button(rows[0],'批次完成').click();await settle();rows=view.el.querySelectorAll('.batch-row');assert.equal(calls[0].body.execution_batch_id,11);assert.equal(calls[0].body.actual_minutes_explicit,true);assert.equal(rows[1].querySelectorAll('input[type=number]')[2].value,'0.9');assert.match(rows[0].textContent,/已完成/)}finally{view.close()}
+})
+test('legacy initialization and conflict refresh retain batch inputs',async()=>{
  const calls=[];let initialized=false,previewVersion='v1'
- const p={...structuredClone(preview),execution:{reporting_type:'batch'},material_consumption_policy:'bom_start_v1',input_unit:'kg',output_unit:'kg',input_qty:59.962,started_input_qty:59.962,planned_qty:60.112}
- const saved={version:'b2',batches:[{id:11,batch_no:1,planned_input_qty:15,status:'pending'}]}
- const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:1},{apiGet:async path=>path.endsWith('/execution-batches')?(initialized?saved:{version:'b1',can_initialize:true,batches:[]}):{...p,version:previewVersion},apiSend:async(path,{body})=>{calls.push({path,body});if(path.endsWith('/execution-batches')){initialized=true;return saved}throw Object.assign(new Error('库存变化'),{status:409})}})
- try{
-  button(view.el,'启用分批报工').click();await settle();assert.equal(calls[0].body.expected_version,'b1');assert.ok(calls[0].body.request_id)
-  const inputs=view.el.querySelectorAll('fieldset input[type=number]');await input(inputs[0],12);await input(inputs[1],14.5)
-  button(view.el,'完成本批').click();await settle();assert.match(view.el.textContent,/库存变化/);assert.equal(inputs[0].value,'12');assert.equal(inputs[1].value,'14.5')
-  previewVersion='v2';button(view.el,'重新核对').click();await settle();assert.equal(inputs[0].value,'12');assert.equal(inputs[1].value,'14.5')
-  button(view.el,'完成本批').click();await settle();assert.equal(calls.at(-1).body.expected_version,'v2')
- }finally{view.close()}
+ const p={...structuredClone(preview),execution:{reporting_type:'batch'},material_consumption_policy:'bom_start_v1',input_unit:'kg',output_unit:'kg',input_qty:15,started_input_qty:15,planned_qty:12}
+ const saved={version:'b2',batches:[{id:11,batch_no:1,planned_input_qty:15,planned_output_qty:12,planned_minutes:18,status:'pending'}]}
+ const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:52},{apiGet:async path=>path.endsWith('/execution-batches')?(initialized?saved:{version:'b1',can_initialize:true,batches:[]}):{...p,version:previewVersion},apiSend:async(path,{body})=>{calls.push({path,body});if(path.endsWith('/execution-batches')){initialized=true;return saved}throw Object.assign(new Error('库存变化'),{status:409})}})
+ try{button(view.el,'启用分批报工').click();await settle();assert.equal(calls[0].body.expected_version,'b1');let inputs=view.el.querySelectorAll('.batch-row input[type=number]');await input(inputs[0],14.5);await input(inputs[2],11);button(view.el,'批次完成').click();await settle();assert.match(view.el.textContent,/库存变化/);previewVersion='v2';button(view.el,'重新核对').click();await settle();inputs=view.el.querySelectorAll('.batch-row input[type=number]');assert.equal(inputs[0].value,'14.5');assert.equal(inputs[2].value,'11')}finally{view.close()}
 })
 test('completion form only asks for output, validates integer quantities, and retries the identical request after a lost response',async()=>{
  const calls=[];let lost=true
@@ -97,4 +96,30 @@ test('piece completion requests weighed remainder, warehouse and preserves a par
   const checkbox=view.el.querySelector('input[type=checkbox]');checkbox.click();await nextTick();button(view.el,'确认工序完成').click();await settle()
   assert.equal(calls[0].actual_remainder_g,23700);assert.equal(calls[0].finish_operation,false);assert.equal(calls[0].remainder_warehouse,'wip')
  }finally{view.close()}
+})
+
+test('unmounting and reopening retains the input for the same task only',async()=>{
+ const p={...structuredClone(preview),execution:{reporting_type:'batch'},material_consumption_policy:'bom_start_v1',input_unit:'kg',output_unit:'kg',input_qty:1.25,started_input_qty:1.25,planned_qty:1}
+ const state={version:'v1',batches:[{id:11,batch_no:1,planned_input_qty:1.25,planned_output_qty:1,planned_minutes:18,status:'pending'}]}
+ const api={apiGet:async path=>path.endsWith('/execution-batches')?state:p,apiSend:async()=>{throw new Error('unexpected write')}}
+ const first=await mount('../components/OperationCompletionForm.vue',{jobCardId:71},api);await input(first.el.querySelectorAll('.batch-row input[type=number]')[2],0.8);first.close()
+ const reopened=await mount('../components/OperationCompletionForm.vue',{jobCardId:71},api);const other=await mount('../components/OperationCompletionForm.vue',{jobCardId:72},api)
+ try{assert.equal(reopened.el.querySelectorAll('.batch-row input[type=number]')[2].value,'0.8');assert.equal(other.el.querySelectorAll('.batch-row input[type=number]')[2].value,'1')}finally{reopened.close();other.close()}
+})
+
+test('a task not yet started allows viewing but does not allow batch completion',async()=>{
+ const p={...structuredClone(preview),execution:{reporting_type:'batch'},material_consumption_policy:'bom_start_v1',input_unit:'kg',output_unit:'kg'}
+ const state={version:'v1',batches:[{id:11,batch_no:1,planned_input_qty:1.25,planned_output_qty:1,planned_minutes:18,status:'pending'}]}
+ const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:73,canComplete:false},{apiGet:async path=>path.endsWith('/execution-batches')?state:p,apiSend:async()=>{throw new Error('unexpected write')}})
+ try{assert.equal(button(view.el,'批次完成').disabled,true);assert.equal(button(view.el,'完成所有批次').disabled,true)}finally{view.close()}
+})
+
+test('an uncertain batch completion retries the identical request even after reopening',async()=>{
+ const calls=[];let lost=true
+ const p={...structuredClone(preview),execution:{reporting_type:'batch'},material_consumption_policy:'bom_start_v1',input_unit:'kg',output_unit:'kg',input_qty:1.25,started_input_qty:1.25,planned_qty:1}
+ const state={version:'v1',batches:[{id:11,batch_no:1,planned_input_qty:1.25,planned_output_qty:1,planned_minutes:18,status:'pending'}]}
+ const api={apiGet:async path=>path.endsWith('/execution-batches')?state:p,apiSend:async(path,{body})=>{calls.push(structuredClone(body));if(lost){lost=false;throw new Error('response lost')}return {completion:{}}}}
+ const first=await mount('../components/OperationCompletionForm.vue',{jobCardId:74},api);button(first.el,'批次完成').click();await settle();assert.match(first.el.textContent,/重试原次操作/);first.close()
+ const reopened=await mount('../components/OperationCompletionForm.vue',{jobCardId:74},api)
+ try{button(reopened.el,'重试本次完成').click();await settle();assert.deepEqual(calls[0],calls[1])}finally{reopened.close()}
 })

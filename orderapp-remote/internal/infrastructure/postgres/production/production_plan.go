@@ -3104,6 +3104,9 @@ func createPendingJobCardsForWorkOrderTx(ctx context.Context, tx pgx.Tx, schema 
 					return nil, err
 				}
 			}
+			if err := (Repository{schema: schema}).freezeExecutionBatchDefaultsTx(ctx, tx, card.ID); err != nil {
+				return nil, err
+			}
 		}
 	}
 	leads, err := assignDefaultLeadsToPendingJobCardsTx(ctx, tx, schema, workOrderID)

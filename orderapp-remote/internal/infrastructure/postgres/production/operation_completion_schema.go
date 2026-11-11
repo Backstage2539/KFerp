@@ -35,6 +35,9 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_execution_batches (
 ALTER TABLE %[1]s.production_execution_batches ADD COLUMN IF NOT EXISTS input_unit TEXT NOT NULL DEFAULT '';
 ALTER TABLE %[1]s.production_execution_batches ADD COLUMN IF NOT EXISTS init_request_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE %[1]s.production_execution_batches ADD COLUMN IF NOT EXISTS init_expected_version TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.production_execution_batches ADD COLUMN IF NOT EXISTS planned_output_qty NUMERIC(20,8);
+ALTER TABLE %[1]s.production_execution_batches ADD COLUMN IF NOT EXISTS output_unit TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.production_execution_batches ADD COLUMN IF NOT EXISTS planned_minutes INT;
 CREATE TABLE IF NOT EXISTS %[1]s.production_operation_balances (
  id BIGSERIAL PRIMARY KEY, event_id BIGINT NOT NULL UNIQUE REFERENCES %[1]s.production_operation_events(id),
  work_order_id BIGINT NOT NULL, job_card_id BIGINT NOT NULL, sequence_no INT NOT NULL,
