@@ -79,3 +79,27 @@ func TestOperationsWorkbenchHistoricalReadsAndUnpaginatedTodos(t *testing.T) {
 		t.Fatalf("retained counters=%+v", overview.Operations)
 	}
 }
+
+func TestOperationsWorkbenchCountsOnlyBillableUnassignedFees(t *testing.T) {
+	pool, schema := newMiniDirectShipTestDB(t)
+	ctx := context.Background()
+	seedMiniDirectShipStock(t, pool, schema)
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+INSERT INTO %[1]s.customer_fee_items(customer_id,source_type,fee_type,amount,resolution_credit_cents,settlement_batch_id,status) VALUES
+ (501,'order','direct_ship_service',0,0,0,'unsettled'),
+ (501,'manual','storage',10,1000,0,'unsettled'),
+ (501,'manual','storage',20,500,0,'unsettled'),
+ (501,'order','shipping',30,0,0,'unsettled'),
+ (501,'freight_actual','shipping',7,0,0,'unsettled'),
+ (502,'manual','storage',90,0,0,'unsettled')`, schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := NewRepository(pool, schema).fulfillmentOperations(ctx, 501)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.UnsettledFeeCount != 2 || got.UnsettledFeeCents != 2200 {
+		t.Fatalf("unassigned billable fees: count=%d cents=%d, want 2 and 2200", got.UnsettledFeeCount, got.UnsettledFeeCents)
+	}
+}
