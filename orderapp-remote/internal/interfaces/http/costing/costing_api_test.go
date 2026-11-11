@@ -585,6 +585,22 @@ func (fakeRepo) LoadProductInputs(context.Context, domain.Parameters) ([]domain.
 
 type skuBeanListRepo struct{ fakeRepo }
 
+type unavailableBOMSpecBeanListRepo struct{ fakeRepo }
+
+func (unavailableBOMSpecBeanListRepo) LoadProductInputs(context.Context, domain.Parameters) ([]domain.ProductInput, error) {
+	return []domain.ProductInput{{
+		CostUnavailable: true, ProductID: 52, ParentProductID: 52, EffectiveParentProductID: 52,
+		BomID: 891, BomVersionID: 672, BomSpecID: 219, BomVariantID: 3054, DefaultBOMSpecID: 76,
+		SpecIdentityMode: "bom_spec", BomSpecAuthoritative: true, MigrationState: "cutover",
+		Name: "曲奇", ProductName: "曲奇", ProductKind: "roasted", SKUName: "1KG袋装", SpecLabel: "1KG袋装",
+		InventoryUnit: "袋", QuoteUnit: "袋", OrderUnit: "袋", UnitConversionJSON: `{"袋":{"袋":1}}`,
+		ClassificationTemplateID: 8, ClassificationCategoryID: 9, CustomerProductAliasID: 90,
+		CustomerProductDisplayName: "客户曲奇", CustomerItemCode: "COOKIE-1",
+		Warnings:              []string{"工序标准成本待核算，无法计算价格", "工序标准成本待核算，无法计算价格"},
+		ProductPriceSnapshots: []domain.ProductPriceSnapshot{{SourcePriceRecordID: 80, FinalUnitPrice: 99, PriceUnit: "袋"}},
+	}}, nil
+}
+
 func (skuBeanListRepo) LoadProductInputs(context.Context, domain.Parameters) ([]domain.ProductInput, error) {
 	params := domain.DefaultParameters()
 	return []domain.ProductInput{{
@@ -795,6 +811,41 @@ func TestBeanListAPIReturnsConcreteSKUSalesSpecMetadata(t *testing.T) {
 	spec, _ := row["effective_sales_spec"].(map[string]any)
 	if spec["sku_id"] != float64(551) || spec["spec_name"] != "磅" || spec["sales_unit"] != "磅" {
 		t.Fatalf("effective_sales_spec = %#v; body=%s", spec, rec.Body.String())
+	}
+}
+
+func TestBeanListAPIRetainsUnavailableCostBOMSpecMetadata(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: appcosting.NewService(unavailableBOMSpecBeanListRepo{})})
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/costing/bean-list", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Items []domain.ProductResult `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Items) != 1 {
+		t.Fatalf("items=%+v", body.Items)
+	}
+	got := body.Items[0]
+	if !got.CostUnavailable || got.ProductID != 52 || got.ParentProductID != 52 || got.BomSpecID != 219 || got.DefaultBOMSpecID != 76 || got.BomVariantID != 3054 || got.BomID != 891 || got.BomVersionID != 672 {
+		t.Errorf("unavailable cost lost current/default BOM identity: %+v", got)
+	}
+	if got.SpecIdentityMode != "bom_spec" || !got.BomSpecAuthoritative || got.MigrationState != "cutover" || got.SKUName != "1KG袋装" || got.SpecLabel != "1KG袋装" || got.QuoteUnit != "袋" || got.OrderUnit != "袋" {
+		t.Errorf("unavailable cost lost spec labels or units: %+v", got)
+	}
+	if got.ClassificationTemplateID != 8 || got.ClassificationCategoryID != 9 || got.CustomerProductAliasID != 90 || got.CustomerProductDisplayName != "客户曲奇" || got.CustomerItemCode != "COOKIE-1" {
+		t.Errorf("unavailable cost lost catalog/customer scope: %+v", got)
+	}
+	if len(got.Warnings) != 1 || got.Warnings[0] != "工序标准成本待核算，无法计算价格" {
+		t.Errorf("incorrect cost reason: %#v", got.Warnings)
+	}
+	if len(got.ProductPriceSnapshots) != 0 || len(got.CommercialWholesaleTiers) != 0 || len(got.RetailBeanTiers) != 0 || got.RetailKgPrice != 0 {
+		t.Errorf("unavailable cost exposed a usable price: %+v", got)
 	}
 }
 

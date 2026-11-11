@@ -15,6 +15,7 @@ const (
 	WholesaleTierScheme227GTwo  = "bag_227_two"
 
 	MissingPricingMethodWarning = "未设置计价方式"
+	CostUnavailableWarning      = "成本待核算，无法计算价格"
 
 	GradientDisplayUnitLb   = "lb"
 	GradientDisplayUnitKg   = "kg"
@@ -634,52 +635,10 @@ func effectiveSalesSpecFromInput(in ProductInput) *EffectiveSalesSpec {
 	}
 }
 
-func CalculateProduct(params Parameters, in ProductInput) ProductResult {
-	if in.CostUnavailable {
-		return ProductResult{ProductID: in.ProductID, SKUID: in.SKUID, ParentProductID: in.ParentProductID, BomSpecID: in.BomSpecID, BomVariantID: in.BomVariantID, ProductName: in.ProductName, Name: in.Name, ProductKind: in.ProductKind, CostUnavailable: true, Warnings: append(in.Warnings, "库存批次成本待核算，无法计算价格")}
-	}
-	in.YieldRate = 1
-	in.ExpectedLossRate = 0
-	if strings.TrimSpace(in.ProductKind) == "green_bean" {
-		return calculateGreenBeanProduct(params, in)
-	}
-	in, _ = ValidateProductInput(params, in)
-	profileName := costingProfileName(in)
-	roasted := in.GreenBeanCostPerKg
-	small := roasted + params.SmallBatchProductionCostPerKg
-	large := roasted + params.LargeBatchProductionCostPerKg
-	dripRatioKgPerBag := in.DripBagGrams / 1000.0
-	if dripRatioKgPerBag <= 0 {
-		dripRatioKgPerBag = params.DripGreenRatioKgPerBag
-	}
-	dripBase := small*dripRatioKgPerBag + params.DripProcessCostPerBag + params.DripExtraCostPerBag
-	retailTax := small * params.RetailBeanMarginRate * params.RetailTaxRate
-	retailSmall := small
-	if retailGreenCost, ok := excelRetailGreenCostOverride(profileName); ok {
-		retailSmall = retailGreenCost + params.SmallBatchProductionCostPerKg
-		retailTax = retailSmall * params.RetailBeanMarginRate * params.RetailTaxRate
-	}
-	commercialDisplay := commercialBeanListDisplay(profileName)
-	retailDisplay := retailBeanListDisplay(profileName)
-	dripDisplay := BeanListDisplay{}
-	if in.CustomerID > 0 {
-		commercialDisplay = customerCategoryBeanListDisplay(in, commercialDisplay, true)
-		retailDisplay = customerCategoryBeanListDisplay(in, retailDisplay, false)
-	} else {
-		if commercialDisplay.Code == "" {
-			commercialDisplay = customerCategoryBeanListDisplay(in, commercialDisplay, true)
-		}
-		if retailDisplay.Code == "" {
-			retailDisplay = customerCategoryBeanListDisplay(in, retailDisplay, false)
-		}
-	}
-
-	greenDisplay := BeanListDisplay{}
-	// 产品分类为生豆时，即使 product_kind 非 green_bean，也生成 green_bean_list meta
-	if isGreenBeanCategory(in) {
-		greenDisplay = buildCategoryGreenBeanListDisplay(in, commercialDisplay)
-	}
-
+// productResultMetadata keeps the sales catalog independent of cost calculation.
+// Price snapshots, pricing templates and computed amounts are added only by the
+// successful calculation paths below.
+func productResultMetadata(in ProductInput) ProductResult {
 	out := ProductResult{
 		ProductID:                  in.ProductID,
 		SKUID:                      in.SKUID,
@@ -743,14 +702,6 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		IntegerUnit:                in.IntegerUnit,
 		PriceListRuleJSON:          in.PriceListRuleJSON,
 		ProductAttributes:          productAttributesFromSpecialAttrs(in.SpecialAttrsSchemaJSON, in.SpecialAttrsJSON),
-		MarginRateOverride:         in.MarginRateOverride,
-		GradientTemplate:           in.GradientTemplate,
-		DripPriceTemplate:          in.DripPriceTemplate,
-		ProductPriceSnapshots:      append([]ProductPriceSnapshot(nil), in.ProductPriceSnapshots...),
-		CommercialBeanList:         commercialDisplay,
-		DripBeanList:               dripDisplay,
-		RetailBeanList:             retailDisplay,
-		GreenBeanList:              greenDisplay,
 		BeanListQuality:            in.BeanListQuality,
 		Flavor:                     in.Flavor,
 		Origin:                     in.Origin,
@@ -764,16 +715,107 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		Warnings:                   append([]string(nil), in.Warnings...),
 		YieldRate:                  in.YieldRate,
 		ExpectedLossRate:           in.ExpectedLossRate,
-		GreenBeanCostPerKg:         in.GreenBeanCostPerKg,
-		BomCostPerUnit:             in.BomCostPerUnit,
-		OperationCostPerUnit:       in.OperationCostPerUnit,
-		OperationCostPerKg:         in.OperationCostPerKg,
-		RoastedBeanCostPerKg:       roasted,
-		SmallBatchCostPerKg:        small,
-		LargeBatchCostPerKg:        large,
-		DripBaseCostPerBag:         dripBase,
-		RetailTaxPerKg:             retailTax,
 	}
+	if strings.TrimSpace(in.ProductKind) == "green_bean" {
+		displayName := strings.TrimSpace(in.BeanListTemplateName)
+		if displayName == "" {
+			displayName = strings.TrimSpace(in.Name)
+		}
+		code := fmt.Sprintf("G.%d", in.ProductID)
+		if in.ProductID <= 0 {
+			code = "G.0"
+		}
+		out.GreenBeanList = BeanListDisplay{
+			Code:           code,
+			Category:       firstNonEmptyString(in.CategorySecondaryName, in.CategoryPrimaryName, "生豆销售"),
+			DisplayName:    displayName,
+			RecommendedUse: "生豆销售",
+			Flavor:         in.Flavor,
+			Description:    firstNonEmptyString(in.BeanListNote, in.Origin),
+		}
+		return out
+	}
+	profileName := costingProfileName(in)
+	commercialDisplay := commercialBeanListDisplay(profileName)
+	retailDisplay := retailBeanListDisplay(profileName)
+	dripDisplay := BeanListDisplay{}
+	if in.CustomerID > 0 {
+		commercialDisplay = customerCategoryBeanListDisplay(in, commercialDisplay, true)
+		retailDisplay = customerCategoryBeanListDisplay(in, retailDisplay, false)
+	} else {
+		if commercialDisplay.Code == "" {
+			commercialDisplay = customerCategoryBeanListDisplay(in, commercialDisplay, true)
+		}
+		if retailDisplay.Code == "" {
+			retailDisplay = customerCategoryBeanListDisplay(in, retailDisplay, false)
+		}
+	}
+
+	greenDisplay := BeanListDisplay{}
+	// 产品分类为生豆时，即使 product_kind 非 green_bean，也生成 green_bean_list meta
+	if isGreenBeanCategory(in) {
+		greenDisplay = buildCategoryGreenBeanListDisplay(in, commercialDisplay)
+	}
+
+	out.CommercialBeanList = commercialDisplay
+	out.RetailBeanList = retailDisplay
+	out.DripBeanList = dripDisplay
+	out.GreenBeanList = greenDisplay
+	return out
+}
+
+func unavailableProductCostWarnings(warnings []string) []string {
+	out := normalizeWarnings(warnings)
+	for _, warning := range out {
+		if strings.Contains(warning, "成本") && (strings.Contains(warning, "待核算") || strings.Contains(warning, "不可用")) {
+			return out
+		}
+	}
+	return append(out, CostUnavailableWarning)
+}
+
+func CalculateProduct(params Parameters, in ProductInput) ProductResult {
+	if in.CostUnavailable {
+		out := productResultMetadata(in)
+		out.CostUnavailable = true
+		out.Warnings = unavailableProductCostWarnings(in.Warnings)
+		return out
+	}
+	in.YieldRate = 1
+	in.ExpectedLossRate = 0
+	if strings.TrimSpace(in.ProductKind) == "green_bean" {
+		return calculateGreenBeanProduct(params, in)
+	}
+	in, _ = ValidateProductInput(params, in)
+	profileName := costingProfileName(in)
+	roasted := in.GreenBeanCostPerKg
+	small := roasted + params.SmallBatchProductionCostPerKg
+	large := roasted + params.LargeBatchProductionCostPerKg
+	dripRatioKgPerBag := in.DripBagGrams / 1000.0
+	if dripRatioKgPerBag <= 0 {
+		dripRatioKgPerBag = params.DripGreenRatioKgPerBag
+	}
+	dripBase := small*dripRatioKgPerBag + params.DripProcessCostPerBag + params.DripExtraCostPerBag
+	retailTax := small * params.RetailBeanMarginRate * params.RetailTaxRate
+	retailSmall := small
+	if retailGreenCost, ok := excelRetailGreenCostOverride(profileName); ok {
+		retailSmall = retailGreenCost + params.SmallBatchProductionCostPerKg
+		retailTax = retailSmall * params.RetailBeanMarginRate * params.RetailTaxRate
+	}
+	out := productResultMetadata(in)
+	out.MarginRateOverride = in.MarginRateOverride
+	out.GradientTemplate = in.GradientTemplate
+	out.DripPriceTemplate = in.DripPriceTemplate
+	out.ProductPriceSnapshots = append([]ProductPriceSnapshot(nil), in.ProductPriceSnapshots...)
+	out.GreenBeanCostPerKg = in.GreenBeanCostPerKg
+	out.BomCostPerUnit = in.BomCostPerUnit
+	out.OperationCostPerUnit = in.OperationCostPerUnit
+	out.OperationCostPerKg = in.OperationCostPerKg
+	out.RoastedBeanCostPerKg = roasted
+	out.SmallBatchCostPerKg = small
+	out.LargeBatchCostPerKg = large
+	out.DripBaseCostPerBag = dripBase
+	out.RetailTaxPerKg = retailTax
 
 	for i, margin := range in.WholesaleKgMarginRates {
 		base := small
@@ -838,14 +880,6 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 	if strings.TrimSpace(in.ProductSubtypeName) == "" {
 		in.ProductSubtypeName = strings.TrimSpace(in.CategorySecondaryName)
 	}
-	displayName := strings.TrimSpace(in.BeanListTemplateName)
-	if displayName == "" {
-		displayName = strings.TrimSpace(in.Name)
-	}
-	code := fmt.Sprintf("G.%d", in.ProductID)
-	if in.ProductID <= 0 {
-		code = "G.0"
-	}
 	tiers := buildProductPriceSnapshotCommercialTiers(params, in)
 	bomStatus := "direct_sale_price"
 	if len(tiers) == 0 {
@@ -862,95 +896,15 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 			}
 		}
 	}
-	out := ProductResult{
-		ProductID:                  in.ProductID,
-		SKUID:                      in.SKUID,
-		ParentProductID:            in.ParentProductID,
-		EffectiveParentProductID:   in.EffectiveParentProductID,
-		SKUName:                    in.SKUName,
-		SKUCode:                    in.SKUCode,
-		Barcode:                    in.Barcode,
-		SpecKey:                    in.SpecKey,
-		SpecLabel:                  in.SpecLabel,
-		NetContentQty:              in.NetContentQty,
-		NetContentUnit:             in.NetContentUnit,
-		IsDefaultSKU:               in.IsDefaultSKU,
-		DefaultSKUID:               in.DefaultSKUID,
-		BomSpecID:                  in.BomSpecID,
-		BomVariantID:               in.BomVariantID,
-		DefaultBOMSpecID:           in.DefaultBOMSpecID,
-		MigrationState:             in.MigrationState,
-		SpecIdentityMode:           in.SpecIdentityMode,
-		BomSpecAuthoritative:       in.BomSpecAuthoritative,
-		EffectiveSalesSpec:         effectiveSalesSpecFromInput(in),
-		ProductCode:                in.ProductCode,
-		ProductName:                in.ProductName,
-		Name:                       in.Name,
-		CustomerProductAliasID:     in.CustomerProductAliasID,
-		CustomerProductDisplayName: in.CustomerProductDisplayName,
-		CustomerItemCode:           in.CustomerItemCode,
-		BrandName:                  in.BrandName,
-		DisplayCategoryID:          in.DisplayCategoryID,
-		DisplayCategoryName:        in.DisplayCategoryName,
-		ClassificationTemplateID:   in.ClassificationTemplateID,
-		ClassificationTemplateName: in.ClassificationTemplateName,
-		ClassificationCategoryID:   in.ClassificationCategoryID,
-		ClassificationCategoryName: in.ClassificationCategoryName,
-		BomVersionID:               in.BomVersionID,
-		BomID:                      in.BomID,
-		BomVersionNo:               in.BomVersionNo,
-		BomUsageMode:               in.BomUsageMode,
-		ProductKind:                "green_bean",
-		CustomerID:                 in.CustomerID,
-		BaseProductID:              in.BaseProductID,
-		Visibility:                 in.Visibility,
-		CustomType:                 in.CustomType,
-		ProductCategoryID:          in.ProductCategoryID,
-		ProductCategoryPosition:    in.ProductCategoryPosition,
-		ProductTypeCategoryID:      in.ProductTypeCategoryID,
-		ProductSubtypeCategoryID:   in.ProductSubtypeCategoryID,
-		ProductTypeName:            in.ProductTypeName,
-		ProductSubtypeName:         in.ProductSubtypeName,
-		CategoryPrimaryName:        in.CategoryPrimaryName,
-		CategoryPrimaryPosition:    in.CategoryPrimaryPosition,
-		CategorySecondaryName:      in.CategorySecondaryName,
-		CategorySecondaryPosition:  in.CategorySecondaryPosition,
-		OperationTemplateID:        in.OperationTemplateID,
-		InventoryUnit:              in.InventoryUnit,
-		QuoteUnit:                  in.QuoteUnit,
-		OrderUnit:                  in.OrderUnit,
-		UnitConversionJSON:         in.UnitConversionJSON,
-		IntegerUnit:                in.IntegerUnit,
-		PriceListRuleJSON:          in.PriceListRuleJSON,
-		ProductAttributes:          productAttributesFromSpecialAttrs(in.SpecialAttrsSchemaJSON, in.SpecialAttrsJSON),
-		ProductPriceSnapshots:      append([]ProductPriceSnapshot(nil), in.ProductPriceSnapshots...),
-		BeanListQuality:            in.BeanListQuality,
-		GreenBeanList: BeanListDisplay{
-			Code:           code,
-			Category:       firstNonEmptyString(in.CategorySecondaryName, in.CategoryPrimaryName, "生豆销售"),
-			DisplayName:    displayName,
-			RecommendedUse: "生豆销售",
-			Flavor:         in.Flavor,
-			Description:    firstNonEmptyString(in.BeanListNote, in.Origin),
-		},
-		Flavor:               in.Flavor,
-		Origin:               in.Origin,
-		ProcessingStation:    in.ProcessingStation,
-		Variety:              in.Variety,
-		ProcessMethod:        in.ProcessMethod,
-		Grade:                in.Grade,
-		Altitude:             in.Altitude,
-		BeanListNote:         in.BeanListNote,
-		YieldRate:            1,
-		ExpectedLossRate:     0,
-		GreenBeanCostPerKg:   in.GreenBeanCostPerKg,
-		BomCostPerUnit:       in.BomCostPerUnit,
-		OperationCostPerUnit: in.OperationCostPerUnit,
-		OperationCostPerKg:   in.OperationCostPerKg,
-		BomStatus:            bomStatus,
-		Warnings:             append([]string(nil), in.Warnings...),
-		GreenBeanSaleTiers:   tiers,
-	}
+	out := productResultMetadata(in)
+	out.ProductKind = "green_bean"
+	out.ProductPriceSnapshots = append([]ProductPriceSnapshot(nil), in.ProductPriceSnapshots...)
+	out.GreenBeanCostPerKg = in.GreenBeanCostPerKg
+	out.BomCostPerUnit = in.BomCostPerUnit
+	out.OperationCostPerUnit = in.OperationCostPerUnit
+	out.OperationCostPerKg = in.OperationCostPerKg
+	out.BomStatus = bomStatus
+	out.GreenBeanSaleTiers = tiers
 	if shouldWarnMissingPricingMethod(in) {
 		out.Warnings = normalizeWarnings(append(out.Warnings, MissingPricingMethodWarning))
 	}

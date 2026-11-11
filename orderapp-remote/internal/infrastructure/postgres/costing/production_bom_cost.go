@@ -700,7 +700,9 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 			legacyCostExpr = fmt.Sprintf(`COALESCE((SELECT SUM(operation.planned_operation_cost) FROM %s.process_route_operations operation WHERE operation.route_id=variant.process_route_id),0)::float8`, r.schema)
 		}
 		if hasRouteOperations && hasCapacities {
-			legacyUnknownExpr = fmt.Sprintf(`EXISTS(SELECT 1 FROM %[1]s.process_route_operations operation LEFT JOIN %[1]s.manufacturing_workstation_capacities capacity ON capacity.id=COALESCE(NULLIF(NULLIF(to_jsonb(operation)->>'standard_cost_capacity_id','')::bigint,0),NULLIF(NULLIF(to_jsonb(operation)->>'workstation_capacity_id','')::bigint,0),0) WHERE operation.route_id=variant.process_route_id AND (capacity.id IS NULL OR (COALESCE(to_jsonb(capacity)->>'scheduling_mode','batch')='quantity' AND COALESCE(to_jsonb(capacity)->>'cost_method','time')<>'piece')))`, r.schema)
+			// The real table has an operation text column. A same-named alias
+			// makes to_jsonb(operation) read that column instead of the row.
+			legacyUnknownExpr = fmt.Sprintf(`EXISTS(SELECT 1 FROM %[1]s.process_route_operations route_operation LEFT JOIN %[1]s.manufacturing_workstation_capacities capacity ON capacity.id=COALESCE(NULLIF(NULLIF(to_jsonb(route_operation)->>'standard_cost_capacity_id','')::bigint,0),NULLIF(NULLIF(to_jsonb(route_operation)->>'workstation_capacity_id','')::bigint,0),0) WHERE route_operation.route_id=variant.process_route_id AND (capacity.id IS NULL OR (COALESCE(to_jsonb(capacity)->>'scheduling_mode','batch')='quantity' AND COALESCE(to_jsonb(capacity)->>'cost_method','time')<>'piece')))`, r.schema)
 		}
 		routeCostExpr := legacyCostExpr
 		routeUnknownExpr := legacyUnknownExpr

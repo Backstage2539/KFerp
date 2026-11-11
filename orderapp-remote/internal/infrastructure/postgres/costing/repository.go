@@ -3335,6 +3335,7 @@ func applyResolvedProductionBomCosts(inputs []domain.ProductInput, costs map[int
 			if resolvedCost.LegacyOperationCost {
 				input.Warnings = append(input.Warnings, "旧版规格沿用历史工序成本规则")
 			}
+			unavailableWarnings := map[string]bool{}
 			for _, issue := range resolvedCost.UnresolvedIssues {
 				if issue.Code == "material_cost_unavailable" || issue.Code == "operation_cost_unavailable" {
 					input.CostUnavailable = true
@@ -3342,8 +3343,14 @@ func applyResolvedProductionBomCosts(inputs []domain.ProductInput, costs map[int
 					input.OperationCostPerUnit = 0
 					input.OperationCostPerKg = 0
 					input.GreenBeanCostPerKg = 0
-					input.Warnings = append(input.Warnings, "库存批次成本待核算，无法计算价格")
-					break
+					warning := "库存批次成本待核算，无法计算价格"
+					if issue.Code == "operation_cost_unavailable" {
+						warning = "工序标准成本待核算，无法计算价格"
+					}
+					if !unavailableWarnings[warning] {
+						input.Warnings = append(input.Warnings, warning)
+						unavailableWarnings[warning] = true
+					}
 				}
 			}
 			if input.CostUnavailable {
