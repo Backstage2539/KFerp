@@ -4,7 +4,7 @@
 - Scope: 半成品单次确认、产能页直接调入 WIP、同批次实际仓位校验及精简报工核对。
 - DEV: `DEV-PR760-01` 同批 WIP 覆盖；`DEV-PR760-02` 原子调拨及权限；`DEV-PR760-03` 页面；`DEV-PR760-04` 手册与交付。
 - Verifier: 定向 RED/GREEN；隔离 PostgreSQL 和真实 HTTP 选批转仓工单链、多订单共享与并发外部入 WIP 通过；前端 1922 项及构建、桌面和窄屏模拟页面检查通过；详见验收记录。
-- Deployment: 待测试、合并 develop/main 后部署；不操作真实业务计划。
+- Deployment: develop `470dcddd21a515a8d3b624cfad87904ca0ac0fec`；正式运行 `c739b3d82438f18e84ef5e5c8aa2485b0d95d303`，应用运行且重启 0、数据库健康、登录 200、匿名计划 API 401、管理员计划 API 200，页面资源公网与部署源码哈希一致。生产小程序包已构建导出，微信上传与发布待办；不操作真实业务计划。
 
 ### PR-MINIAPP-INVENTORY-SUMMARY-20261111
 
