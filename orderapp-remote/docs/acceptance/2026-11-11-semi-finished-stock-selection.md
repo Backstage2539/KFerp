@@ -12,6 +12,9 @@
 - 旧订单原覆盖为零、外购半成品、独立备货及缺失历史明细等兼容回归通过；修改需求前未处理的选择与调拨会阻止重建。
 - 手册：`orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`。
 - 开发环境 ERP-only `bdc074cb5dcd2b1ad79dd53f75c1273464c71f94`：发布脚本中 Vue 全量、Go 全量、镜像内 Go 全量和构建通过；应用运行、重启次数 0，数据库健康；匿名身份接口 401、管理员身份接口 200、PR-759 和前端资源标记可见，外部登录页 200；沿用原小程序包。前述完整业务链使用独立 PostgreSQL 测试数据与真实接口，页面视觉使用模拟数据；尚未以开发环境业务草稿完成整条浏览器操作。原开发源备份 `/opt/stacks/erp/orderapp.backup.deploy-20261111154241-bdc074cb5dcd`，回滚镜像 `kferp-orderapp-rollback:development-20261111154241-bdc074cb5dcd`。
+- 开发服务器部署源码及开发数据库独立 schema `codex_qa_semi_1794384012057626410` 的真实 HTTP handler 测试 `TestOrderSemiFinishedChoiceThroughTransferToReservation` 通过：测试订单计划选择同批生产仓 3 kg、原料仓 7 kg，调拨过账后提交，工单预留同批 10 kg，其他批次未占用。此测试在隔离 schema 直接准备产能拆分，不经过真实页面或运行中的 ERP 进程；测试 schema 已保留，原有开发及正式业务数据未修改。
+- 第二次在开发数据库独立 schema `codex_qa_semi_capacity_1794384109108089265` 使用测试工位，改由 `/operation-splits/preview` 和 `/operation-splits` 真实 handler 安排产能，再走选批、调拨及工单占用链路，结果通过；独立数据已保留。此验证仍非运行中 ERP 网络进程或真实浏览器端到端。
+- 部署源码在开发数据库三个独立 schema 中补验通过：60.112 kg 需求选择 0/10/15/0 kg 及反复刷新、全覆盖后冻结配方恢复、原零覆盖旧草稿保持不变。schema 分别为 `codex_qa_semi_capacity_1794384163297113126`、`codex_qa_semi_capacity_1794384169903606358`、`codex_qa_semi_capacity_1794384176746451862`；隔离测试数据已保留。
 
 ## 待完成
 
