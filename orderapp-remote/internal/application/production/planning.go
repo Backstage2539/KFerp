@@ -186,6 +186,25 @@ func (s *Service) RefreshProductionPlanSupply(ctx context.Context, id int64, ope
 	return repo.RefreshProductionPlanSupply(ctx, id, operator)
 }
 
+type ProductionPlanSupplySyncResult struct {
+	Plan    ProductionPlanDetail `json:"plan"`
+	Changed bool                 `json:"changed"`
+	Summary string               `json:"summary"`
+}
+
+func (s *Service) SyncProductionPlanSupply(ctx context.Context, id int64, operator, token string, checkOnly bool) (ProductionPlanSupplySyncResult, error) {
+	if id <= 0 || strings.TrimSpace(operator) == "" {
+		return ProductionPlanSupplySyncResult{}, fmt.Errorf("plan and operator required")
+	}
+	repo, ok := s.repo.(interface {
+		SyncProductionPlanSupply(context.Context, int64, string, string, bool) (ProductionPlanSupplySyncResult, error)
+	})
+	if !ok {
+		return ProductionPlanSupplySyncResult{}, fmt.Errorf("supply sync unavailable")
+	}
+	return repo.SyncProductionPlanSupply(ctx, id, operator, token, checkOnly)
+}
+
 func planningUnitWeightGrams(unit string) float64 {
 	switch strings.ToLower(strings.TrimSpace(unit)) {
 	case "g", "克":

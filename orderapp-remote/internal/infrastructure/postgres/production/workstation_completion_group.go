@@ -63,7 +63,8 @@ func (r Repository) operationCompletionGroupContextTx(ctx context.Context, tx pg
 		if row.p.BlockedReason != "" {
 			return out, nil, fmt.Errorf("%s：%s", row.no, row.p.BlockedReason)
 		}
-		if !row.p.Enabled || !row.p.Final || !row.p.Execution.ReceiptEnabled || !isPackagingOperationName(taskOperationForCard(ctx, tx, r.schema, cardID)) {
+		legacy := row.p.Execution.ReportingType == "" || row.p.Execution.ReportingType == "legacy"
+		if !row.p.Enabled || !row.p.Final || !row.p.Execution.ReceiptEnabled || (row.p.Execution.ReportingType != "piece" && !(legacy && isPackagingOperationName(taskOperationForCard(ctx, tx, r.schema, cardID)))) {
 			return out, nil, fmt.Errorf("请选择同一规格的可入库包装工序")
 		}
 		if row.wo.Status == "completed" || row.wo.Status == "cancelled" {
@@ -87,6 +88,7 @@ func (r Repository) operationCompletionGroupContextTx(ctx context.Context, tx pg
 	seenOwnReservations := map[string]bool{}
 	out.GroupKey = fmt.Sprintf("packaging:%x", sha256.Sum256([]byte(groupIdentity)))
 	out.MaterialConsumptionPolicy = sources[0].p.MaterialConsumptionPolicy
+	out.ReportingType = sources[0].p.Execution.ReportingType
 	out.OutputUnit = sources[0].p.OutputUnit
 	out.WarehouseName = sources[0].p.WarehouseName
 	out.MaxOutputQty = 0
@@ -95,7 +97,7 @@ func (r Repository) operationCompletionGroupContextTx(ctx context.Context, tx pg
 			return out, nil, fmt.Errorf("所选工序的商品、规格、物料货主或目标仓不同，不能合并")
 		}
 		versionParts = append(versionParts, []any{src.cardID, src.p.Version, src.p.PlannedQty, src.p.CompletedOutputQty})
-		item := app.OperationCompletionGroupItem{InputQty: src.p.InputQty, InputUnit: src.p.InputUnit, JobCardID: src.cardID, WorkOrderID: src.workID, WorkOrderNo: src.no, ProductName: src.p.ProductName, SpecG: src.p.OutputSpecG, PlannedQty: src.p.TotalPlannedQty, CompletedQty: src.p.CompletedOutputQty, RemainingQty: src.p.PlannedQty, Unit: src.p.OutputUnit, Warehouse: src.p.Warehouse, WarehouseName: src.p.WarehouseName, Version: src.p.Version}
+		item := app.OperationCompletionGroupItem{PackagingUnissuedCandidates: src.p.PackagingUnissuedCandidates, PackagingAvailableG: src.p.PackagingAvailableG, PackagingStandardGPerPiece: src.p.PackagingStandardGPerPiece, InputQty: src.p.InputQty, InputUnit: src.p.InputUnit, JobCardID: src.cardID, WorkOrderID: src.workID, WorkOrderNo: src.no, ProductName: src.p.ProductName, SpecG: src.p.OutputSpecG, PlannedQty: src.p.TotalPlannedQty, CompletedQty: src.p.CompletedOutputQty, RemainingQty: src.p.PlannedQty, Unit: src.p.OutputUnit, Warehouse: src.p.Warehouse, WarehouseName: src.p.WarehouseName, Version: src.p.Version}
 		out.Items = append(out.Items, item)
 		out.PlannedQty += src.p.TotalPlannedQty
 		out.CompletedQty += src.p.CompletedOutputQty
@@ -160,7 +162,7 @@ func completionGroupIdentity(src completionGroupSource) string {
 	if productID <= 0 {
 		productID = src.wo.ProductID
 	}
-	return src.p.MaterialConsumptionPolicy + ":" + fmt.Sprintf("%d:%s:%d:%s:%s:%s:%d:%s:%s:%s", productID, src.p.ProductName, src.p.OutputSpecG, src.p.OutputUnit, src.p.Warehouse, src.p.Execution.ReceiptWarehouse, src.seq, strings.TrimSpace(src.operation), strings.TrimSpace(src.station), strings.Join(materials, ";"))
+	return src.p.MaterialConsumptionPolicy + ":" + src.p.Execution.ReportingType + ":" + fmt.Sprintf("%d:%s:%d:%s:%s:%s:%d:%s:%s:%s", productID, src.p.ProductName, src.p.OutputSpecG, src.p.OutputUnit, src.p.Warehouse, src.p.Execution.ReceiptWarehouse, src.seq, strings.TrimSpace(src.operation), strings.TrimSpace(src.station), strings.Join(materials, ";"))
 }
 
 func taskOperationForCard(ctx context.Context, tx pgx.Tx, schema string, id int64) string {
@@ -195,6 +197,9 @@ func (r Repository) completeOperationGroupOnce(ctx context.Context, cmd app.Oper
 		}
 		lockSources = append(lockSources, src)
 	}
+	if err = lockProductionFinancePeriodTx(ctx, tx, r.schema); err != nil {
+		return out, err
+	}
 	workOrders := map[int64]bool{}
 	for _, src := range lockSources {
 		if workOrders[src.workID] {
@@ -223,6 +228,9 @@ func (r Repository) completeOperationGroupOnce(ctx context.Context, cmd app.Oper
 	if cmd.OutputUnit != preview.OutputUnit {
 		return out, fmt.Errorf("完成数量单位与冻结包装规格不一致")
 	}
+	if preview.ReportingType == "piece" && (cmd.ActualOutputQty > preview.RemainingQty+1e-8 || cmd.FinishGroup && cmd.ActualOutputQty < preview.RemainingQty-1e-8) {
+		return out, fmt.Errorf("包装件数不能超出目标，未完成时请保留待办")
+	}
 	if cmd.ActualOutputQty > preview.MaxOutputQty+1e-8 {
 		return out, fmt.Errorf("当前可用物料最多支持完成%s %s，请先补齐物料或调整本次数量", strconv.FormatFloat(preview.MaxOutputQty, 'f', -1, 64), preview.OutputUnit)
 	}
@@ -242,6 +250,22 @@ func (r Repository) completeOperationGroupOnce(ctx context.Context, cmd app.Oper
 	allocations, err := app.AllocateOperationGroupOutput(remainingByOrder, cmd.ActualOutputQty)
 	if err != nil {
 		return out, err
+	}
+	if preview.ReportingType == "piece" {
+		for card, rows := range cmd.SelectedUnissuedRemainders {
+			if len(rows) == 0 {
+				continue
+			}
+			allowed := false
+			for i, src := range sources {
+				if src.cardID == card && allocations[i] > 0 && allocations[i] >= src.p.PlannedQty-1e-8 {
+					allowed = true
+				}
+			}
+			if !allowed {
+				return out, fmt.Errorf("仅可为本次完成目标的工单选择共享库存")
+			}
+		}
 	}
 	minutesByOrder, err := app.AllocateOperationGroupMinutes(allocations, cmd.ActualMinutes)
 	if err != nil {
@@ -281,16 +305,29 @@ func (r Repository) completeOperationGroupOnce(ctx context.Context, cmd app.Oper
 			}
 		}
 		if preview.MaterialConsumptionPolicy == "bom_start_v1" {
-			value, ok := cmd.ProcessedInputs[src.cardID]
-			if !ok {
-				return out, fmt.Errorf("请逐项确认来源任务的实际处理投入")
+			if preview.ReportingType == "piece" {
+				actualInput = quantity
+			} else {
+				value, ok := cmd.ProcessedInputs[src.cardID]
+				if !ok {
+					return out, fmt.Errorf("请逐项确认来源任务的实际处理投入")
+				}
+				actualInput = value
 			}
-			actualInput = value
 			childMaterials = nil
 		}
 		minutes := minutesByOrder[i]
 		finishFlag := finish
 		child := app.JobCardActionCommand{ID: src.cardID, EmployeeID: cmd.EmployeeID, AssignedEmployeeName: cmd.AssignedEmployeeName, Operator: cmd.Operator, Action: "complete", RequestID: fmt.Sprintf("%s:%d", cmd.RequestID, src.cardID), ExpectedVersion: src.p.Version, InputUnit: src.p.InputUnit, OutputUnit: src.p.OutputUnit, ActualInputQty: actualInput, ActualOutputQty: quantity, ActualMinutes: minutes, DifferenceReason: cmd.DifferenceReason, FinishOperation: &finishFlag, Materials: childMaterials, MetricsJSON: "{}"}
+		if preview.ReportingType == "piece" {
+			remainder, ok := cmd.ActualRemaindersG[src.cardID]
+			if !ok {
+				return out, fmt.Errorf("请逐张工单称重确认余料")
+			}
+			child.ActualRemainderG = &remainder
+			child.RemainderWarehouse = cmd.RemainderWarehouse
+			child.SelectedUnissuedRemainders = cmd.SelectedUnissuedRemainders[src.cardID]
+		}
 		result, e := r.completeOperationLockedTx(ctx, tx, child, src.workID, src.runID)
 		if e != nil {
 			return out, fmt.Errorf("%s 入库失败：%w", src.no, e)

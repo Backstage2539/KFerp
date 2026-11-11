@@ -1,6 +1,7 @@
 import type { RegistrationProfile } from '../api/registration'
+import { markPreviewToken, unmarkPreviewToken } from '../api/client'
 import { defineStore } from 'pinia'
-import type { CustomerBinding, MiniappEntryMode } from '../api/customerPortal'
+import type { CustomerBinding, MiniappEntryMode, MeResponse } from '../api/customerPortal'
 import {
   configuredMiniappEnvironment,
   miniappStorageKey,
@@ -25,6 +26,7 @@ function storedMiniappToken(): string {
 export const useSessionStore = defineStore('session', {
   state: () => ({
     token: storedMiniappToken(),
+    previewEmployeeToken: '',
     autoRestoreBlocked: !!uni.getStorageSync(miniappStorageKey('signed-out', configuredMiniappEnvironment())),
  registration: null as RegistrationProfile|null,
  registrationComplete:false,
@@ -36,25 +38,54 @@ export const useSessionStore = defineStore('session', {
     entryMode: 'services' as MiniappEntryMode,
     bindings: [] as CustomerBinding[],
     capabilities: [] as Capability[],
+    fulfillmentModes: [] as ('stock' | 'on_demand')[],
     accountType: '' as string,
     employeeID: 0,
     employeeName: '',
     roles: [] as string[],
     permissions: [] as string[],
   }),
+  getters: {
+    isCustomerPreview: (state) => !!state.previewEmployeeToken,
+  },
   actions: {
     setToken(token: string) {
+      if (this.previewEmployeeToken) unmarkPreviewToken(this.token)
+      this.previewEmployeeToken = ''
       this.token = token
       this.autoRestoreBlocked = false
       uni.removeStorageSync(miniappStorageKey('signed-out', configuredMiniappEnvironment()))
       uni.setStorageSync(miniappTokenStorageKey(), token)
     },
+    beginCustomerPreview(token: string, context: Omit<MeResponse, 'current_customer_name'> & {current_customer_name?: string}) {
+      if (this.accountType !== 'employee' || !this.roles.includes('admin') || !this.token || !token || context.account_type !== 'preview' || !context.current_customer_id) {
+        throw new Error('无法进入客户只读预览')
+      }
+      this.previewEmployeeToken = this.token
+      this.token = token
+      markPreviewToken(token)
+      this.applyContext(context)
+    },
+    endCustomerPreview() {
+      if (!this.previewEmployeeToken) return
+      const employeeToken = this.previewEmployeeToken
+      unmarkPreviewToken(this.token)
+      this.previewEmployeeToken = ''
+      this.clearSession(true)
+      this.setToken(employeeToken)
+    },
     logout() {
+      if (this.previewEmployeeToken) unmarkPreviewToken(this.token)
+      this.previewEmployeeToken = ''
       this.autoRestoreBlocked = true
       uni.setStorageSync(miniappStorageKey('signed-out', configuredMiniappEnvironment()), true)
       this.clearSession(true)
     },
     clearSession(preserveRegistrationHint = false) {
+      if (this.previewEmployeeToken) {
+        this.endCustomerPreview()
+        return
+      }
       this.token = ''
       this.registration = null
       this.registrationComplete = false
@@ -69,6 +100,7 @@ export const useSessionStore = defineStore('session', {
       this.entryMode = 'services'
       this.bindings = []
       this.capabilities = []
+      this.fulfillmentModes = []
       this.accountType = ''
       this.employeeID = 0
       this.employeeName = ''
@@ -86,6 +118,7 @@ export const useSessionStore = defineStore('session', {
       miniapp_entry_mode?: string
       bindings: CustomerBinding[]
       capabilities: Capability[]
+      fulfillment_modes?: ('stock' | 'on_demand')[]
       account_type?: string
       employee_id?: number
       employee_name?: string
@@ -93,6 +126,8 @@ export const useSessionStore = defineStore('session', {
       permissions?: string[]
     }) {
       if(context.registration_complete!==undefined){this.registrationComplete=context.registration_complete;this.registration=context.registration||null;this.registrationKnown=context.registration_complete;uni.setStorageSync(miniappStorageKey('registered',configuredMiniappEnvironment()),context.registration_complete)}
+      if (context.fulfillment_modes !== undefined) this.fulfillmentModes = context.fulfillment_modes
+      else if (this.currentCustomerID !== context.current_customer_id) this.fulfillmentModes = []
  this.miniUserID = context.mini_user_id
       this.currentCustomerID = context.current_customer_id
       this.currentCustomerName = context.current_customer_name || ''

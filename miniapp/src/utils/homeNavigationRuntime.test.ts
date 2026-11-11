@@ -18,7 +18,7 @@ import { useSessionStore } from '../stores/session'
 const lifecycle = vi.hoisted(() => ({ show: [] as Array<() => unknown> }))
 const api = vi.hoisted(() => ({
   me: vi.fn(), account: vi.fn(), assets: vi.fn(), service: vi.fn(), processing: vi.fn(),
-  staff: vi.fn(), switchCustomer: vi.fn(), employeeShare: vi.fn(),
+  staff: vi.fn(), switchCustomer: vi.fn(), employeeShare: vi.fn(), bills: vi.fn(), previewExit: vi.fn(), employeeLogout: vi.fn(),
 }))
 vi.mock('@dcloudio/uni-app', () => ({
   onShow: (callback: () => unknown) => { lifecycle.show.push(callback) },
@@ -27,10 +27,13 @@ vi.mock('@dcloudio/uni-app', () => ({
 vi.mock('../api/customerPortal', () => ({
   fetchMe: api.me, fetchCustomerAccount: api.account, fetchCustomerAssetInventory: api.assets,
   fetchServicePage: api.service, fetchProcessingRequests: api.processing,
+  fetchCustomerIssuedBills: api.bills,
   switchCurrentCustomer: api.switchCustomer, fetchEmployeeShareSettings: api.employeeShare,
+  logoutEmployee: api.employeeLogout,
   saveEmployeeShareSettings: vi.fn(), saveEmployeeShareScope: vi.fn(),
 }))
 vi.mock('../api/samples', () => ({ fetchStaffNotifications: api.staff }))
+vi.mock('../api/customerPreview', () => ({ exitPreview: api.previewExit }))
 vi.mock('../utils/registrationSession', () => ({ restoreRegistrationSession: vi.fn(async () => {}) }))
 vi.mock('../utils/miniappShare', () => ({
   defaultMiniappShare: vi.fn(), defaultMiniappTimelineShare: vi.fn(), refreshMiniappShareMenu: vi.fn(async () => {}),
@@ -83,7 +86,7 @@ async function settle() { for (let index = 0; index < 30; index++) await Promise
 const allCapabilities = ['product_order', 'direct_ship', 'processing', 'inventory_custody', 'settlement'].map(code => ({ code, enabled: true }))
 function context(extra: Record<string, unknown> = {}) {
   return { mini_user_id: 91, current_customer_id: 901, current_customer_name: '测试客户', account_type: 'customer', theme_key: 'coffee_factory',
-    bindings: [{ customer_id: 901, customer_name: '测试客户', role: 'owner', status: 'approved' }], capabilities: allCapabilities, fulfillment_modes: ['stock', 'on_demand'], ...extra }
+    bindings: [{ customer_id: 901, customer_name: '测试客户', role: 'owner', status: 'approved' }], capabilities: allCapabilities, fulfillment_modes: ['stock', 'on_demand'] as Array<'stock' | 'on_demand'>, ...extra }
 }
 function mount(component: any, value = context(), signedIn = true) {
   const root: Node = { type: 'root', children: [], props: {} }
@@ -109,12 +112,15 @@ beforeEach(() => {
   })
   api.account.mockResolvedValue({ settlements: [], summary: { due_cents: 0 } })
   api.assets.mockResolvedValue({ rows: [] })
-  api.service.mockResolvedValue({ orders: [] })
+  api.service.mockResolvedValue({ orders: [], progress_counts: { accepted: 2, in_production: 3, shipped: 4 } })
+  api.bills.mockResolvedValue({ summary: { unpaid_count: 2, due_amount_cents: 236610 } })
   api.processing.mockResolvedValue({ rows: [] })
   api.staff.mockResolvedValue({ unread_count: 2 })
+  api.previewExit.mockResolvedValue({})
+  api.employeeLogout.mockResolvedValue({})
 })
 
-it.each(['coffee_factory', 'clean_ops', 'premium_partner'])('composed %s customer home keeps capability entries once without overview or price banners', async theme => {
+it.each(['coffee_factory', 'clean_ops', 'premium_partner'])('composed %s customer home shows customer progress and no price banner', async theme => {
   const view = mount(Home, context({ theme_key: theme }))
   try {
     await view.show()
@@ -122,16 +128,23 @@ it.each(['coffee_factory', 'clean_ops', 'premium_partner'])('composed %s custome
     expect(labels(view.root, 'tab-label')).toEqual(['首页', '价格表', '我的订单', '费用', '我的'])
     expect(find(view.root, node => hasClass(node, `theme-${theme.replaceAll('_', '-')}`))).toHaveLength(1)
     for (const duplicate of ['待处理订单', '生产进度', '客户库存', '待对账', '业务摘要加载中', '价格表中心 · 查看咖啡价格表']) expect(text(view.root)).not.toContain(duplicate)
-    expect(find(view.root, node => hasClass(node, 'overview-grid') || hasClass(node, 'bean-entry'))).toHaveLength(0)
+    expect(text(view.root)).toContain('已接单')
+    expect(text(view.root)).toContain('生产中')
+    expect(text(view.root)).toContain('已发货')
+    expect(text(view.root)).toContain('待付款账单')
+    expect(text(view.root)).toContain('2366.10')
+    expect(find(view.root, node => hasClass(node, 'bean-entry'))).toHaveLength(0)
   } finally { view.app.unmount() }
 })
 
-it('customer home refresh requests identity only and never the removed overview APIs', async () => {
+it('customer home obtains full progress and unpaid bill summaries', async () => {
   const view = mount(Home)
   try {
     await view.show()
     expect(api.me).toHaveBeenCalledTimes(1)
-    for (const request of [api.account, api.assets, api.service, api.processing]) expect(request).not.toHaveBeenCalled()
+    expect(api.service).toHaveBeenCalledWith('isolated-session', 'orders', { page: 1, page_size: 1 })
+    expect(api.bills).toHaveBeenCalledWith('isolated-session', { status: 'unpaid', page: 1, limit: 1 })
+    for (const request of [api.account, api.assets, api.processing]) expect(request).not.toHaveBeenCalled()
   } finally { view.app.unmount() }
 })
 
@@ -188,7 +201,7 @@ it.each(['customer', 'employee'])('composed %s profile exposes one logout action
     expect(view.session.token).toBe('')
     expect(view.session.autoRestoreBlocked).toBe(true)
     expect(uni.removeStorageSync).toHaveBeenCalledWith('kferp.mini.production.token')
-    expect(uni.reLaunch).toHaveBeenCalledWith({ url: '/pages/login/login?return_to=%2Fpages%2Fprofile%2Fprofile' + (accountType === 'employee' ? '&mode=password' : '') })
+    expect(uni.reLaunch).toHaveBeenCalledWith({ url: '/pages/login/login?return_to=%2Fpages%2Fprofile%2Fprofile' })
   } finally { view.app.unmount() }
 })
 
@@ -206,5 +219,102 @@ it('composed customer profile preserves the real bound-customer switch without s
     expect(view.session.token).toBe('isolated-session')
     expect(view.session.autoRestoreBlocked).toBe(false)
     expect(uni.reLaunch).toHaveBeenCalledWith({ url: '/pages/home/home' })
+  } finally { view.app.unmount() }
+})
+
+it('discards a late preview response after the employee leaves preview', async () => {
+  const employee = context({ account_type: 'employee', current_customer_id: 0, employee_id: 92, roles: ['admin'], permissions: [] })
+  const view = mount(Home, employee)
+  let complete!: (value: ReturnType<typeof context>) => void
+  const pending = new Promise<ReturnType<typeof context>>(resolve => { complete = resolve })
+  view.session.beginCustomerPreview('preview-token', context({ mini_user_id: 0, bindings: [], account_type: 'preview', current_customer_id: 74 }))
+  api.me.mockReturnValueOnce(pending)
+  try {
+    await view.show()
+    view.session.endCustomerPreview()
+    complete(context({ mini_user_id: 0, bindings: [], account_type: 'preview', current_customer_id: 74 }))
+    await settle()
+    expect(view.session.token).toBe('isolated-session')
+    expect(view.session.currentCustomerID).toBe(0)
+    expect(view.session.accountType).not.toBe('preview')
+  } finally { view.app.unmount() }
+})
+
+it('offers only administrators a customer preview entry', async () => {
+  const admin = context({ account_type: 'employee', current_customer_id: 0, employee_id: 92, roles: ['admin'], permissions: [] })
+  const view = mount(Home, admin)
+  try {
+    await view.show()
+    const item = find(view.root, node => hasClass(node, 'entry') && text(node).includes('客户只读预览'))[0]
+    expect(item).toBeTruthy()
+    await item.props.onTap()
+    expect(uni.navigateTo).toHaveBeenCalledWith({url: '/pages/admin-customer-preview/admin-customer-preview'})
+  } finally { view.app.unmount() }
+})
+
+it('shows a read-only preview with a working return control and no order entry', async () => {
+  const employee = context({ account_type: 'employee', current_customer_id: 0, employee_id: 92, roles: ['admin'], permissions: [] })
+  const preview = context({ mini_user_id: 0, bindings: [], account_type: 'preview', current_customer_id: 74, current_customer_name: '客户甲' })
+  const view = mount(Home, employee)
+  view.session.beginCustomerPreview('preview-token', preview)
+  api.me.mockResolvedValue(preview)
+  try {
+    await view.show()
+    expect(labels(view.root, 'entry')).toEqual(['我的库存'])
+    expect(text(view.root)).toContain('客户只读预览')
+    const back = find(view.root, node => node.type === 'button' && text(node) === '返回员工工作台')[0]
+    expect(back).toBeTruthy()
+    await back.props.onTap()
+    expect(api.previewExit).toHaveBeenCalledWith('preview-token')
+    expect(view.session.token).toBe('isolated-session')
+    expect(uni.reLaunch).toHaveBeenCalledWith({url: '/pages/home/home'})
+  } finally { view.app.unmount() }
+})
+
+it('revokes the employee session on the server before clearing local credentials', async () => {
+  let complete!: () => void
+  api.employeeLogout.mockReturnValue(new Promise<void>(resolve => { complete = resolve }))
+  const view = mount(Profile, context({ account_type: 'employee', current_customer_id: 0, roles: ['admin'], permissions: [] }))
+  try {
+    await view.show()
+    const logout = find(view.root, node => node.type === 'button' && text(node) === '退出登录')[0]
+    const pending = logout.props.onTap()
+    expect(api.employeeLogout).toHaveBeenCalledWith('isolated-session')
+    expect(view.session.token).toBe('isolated-session')
+    complete(); await pending; await settle()
+    expect(view.session.token).toBe('')
+  } finally { view.app.unmount() }
+})
+it('clears a failed employee logout locally and warns that server logout was not confirmed', async () => {
+  api.employeeLogout.mockRejectedValue(new Error('network unavailable'))
+  const view = mount(Profile, context({ account_type: 'employee', current_customer_id: 0, roles: ['admin'], permissions: [] }))
+  try {
+    await view.show()
+    await find(view.root, node => node.type === 'button' && text(node) === '退出登录')[0].props.onTap()
+    expect(view.session.token).toBe('')
+    expect(uni.showToast).toHaveBeenCalledWith(expect.objectContaining({ title: expect.stringContaining('无法确认服务端注销') }))
+  } finally { view.app.unmount() }
+})
+it('does not send an employee logout request for a customer', async () => {
+  const view = mount(Profile, context())
+  try {
+    await view.show()
+    await find(view.root, node => node.type === 'button' && text(node) === '退出登录')[0].props.onTap()
+    expect(api.employeeLogout).not.toHaveBeenCalled()
+    expect(view.session.token).toBe('')
+  } finally { view.app.unmount() }
+})
+
+it('does not clear a newer login when an older employee logout finishes late', async () => {
+  let complete!: () => void
+  api.employeeLogout.mockReturnValue(new Promise<void>(resolve => { complete = resolve }))
+  const view = mount(Profile, context({ account_type: 'employee', current_customer_id: 0, roles: ['admin'], permissions: [] }))
+  try {
+    await view.show()
+    const pending = find(view.root, node => node.type === 'button' && text(node) === '退出登录')[0].props.onTap()
+    view.session.setToken('new-login')
+    complete(); await pending; await settle()
+    expect(view.session.token).toBe('new-login')
+    expect(uni.reLaunch).not.toHaveBeenCalled()
   } finally { view.app.unmount() }
 })

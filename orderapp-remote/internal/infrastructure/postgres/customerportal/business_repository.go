@@ -47,6 +47,10 @@ func (r Repository) LoadServicePage(ctx context.Context, query customerportalapp
 	case customerportalapp.ServiceKeyBeanList:
 		page.BeanLists, page.BeanListVersions, page.HasBeanListVersions, err = r.loadBeanListServiceData(ctx, query.CustomerID, limit)
 	case customerportalapp.ServiceKeyOrders:
+		page.ProgressCounts, err = r.customerOrderProgressCounts(ctx, query.CustomerID)
+		if err != nil {
+			return customerportalapp.ServicePage{}, err
+		}
 		page.Orders, err = r.listCustomerOrders(ctx, query, limit+1, true)
 		page.HasMore = len(page.Orders) > limit
 		if page.HasMore {
@@ -1949,14 +1953,57 @@ func mallProductPublicCatalogSQL(productAlias string) string {
 	return fmt.Sprintf(`(COALESCE(%scustomer_id,0)=0 AND COALESCE(NULLIF(%svisibility,''),'public')='public')`, productAlias, productAlias)
 }
 
+// These expressions are shared by the list and the all-history overview.
+const validProgressOrderSQL = `COALESCE(NULLIF(to_jsonb(o)->>'confirmation_status',''),'accepted') NOT IN ('rejected','cancelled','canceled') AND COALESCE(ops.name,'') NOT IN ('已取消','已作废') AND COALESCE(ss.name,'') NOT IN ('已取消','已作废')`
+const orderKindSQL = `CASE WHEN COALESCE(to_jsonb(o)->>'delivery_mode','')='customer_stock' THEN 'purchase' WHEN COALESCE(to_jsonb(o)->>'portal_service_code','') IN ('direct_ship','processing_ship') OR COALESCE(to_jsonb(o)->>'fulfillment_mode','') IN ('stock','on_demand') THEN 'dropship' ELSE 'purchase' END`
+
+func orderProgressSQL(schema string, hasShipments bool) string {
+	// Definitive ERP shipping states also cover historical orders predating
+	// shipment records. A tracking number alone must never imply shipment.
+	shipped := "TRIM(COALESCE(ss.name,'')) IN ('已发货','部分发货','已签收','已收货')"
+	if hasShipments {
+		shipped = fmt.Sprintf("(%s OR EXISTS (SELECT 1 FROM %s.order_shipment_orders shipment WHERE shipment.order_id=o.id AND shipment.shipped_at IS NOT NULL))", shipped, schema)
+	}
+	return `CASE WHEN ` + shipped + ` THEN 'shipped' WHEN COALESCE(ops.name,'') IN ('生产中','正在生产') AND (` + orderKindSQL + `)='purchase' THEN 'in_production' WHEN COALESCE(NULLIF(to_jsonb(o)->>'confirmation_status',''),'accepted') IN ('accepted','confirmed') AND COALESCE(ops.name,'') IN ('','待处理','待生产','未生产') AND COALESCE(to_jsonb(o)->>'delivery_status','') NOT IN ('received','partially_received') THEN 'accepted' ELSE '' END`
+}
+
+func (r Repository) customerOrderProgressCounts(ctx context.Context, customerID int64) (*customerportalapp.OrderProgressCounts, error) {
+	counts := &customerportalapp.OrderProgressCounts{}
+	progressSQL := orderProgressSQL(r.schema, portalRelationExists(ctx, r.pool, r.schema+".order_shipment_orders"))
+	visibility, err := r.visibleCustomerOrderSQL(ctx, "o")
+	if err != nil {
+		return nil, err
+	}
+	err = r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FILTER (WHERE p='accepted'), COUNT(*) FILTER (WHERE p='in_production'), COUNT(*) FILTER (WHERE p='shipped') FROM (SELECT %s AS p FROM %s.orders o LEFT JOIN %s.order_process_statuses ops ON ops.id=o.process_status_id LEFT JOIN %s.ship_statuses ss ON ss.id=o.ship_status_id WHERE o.customer_id=$1 AND NOT COALESCE(o.is_void,false) AND %s AND %s) q`, progressSQL, r.schema, r.schema, r.schema, validProgressOrderSQL, visibility), customerID).Scan(&counts.Accepted, &counts.InProduction, &counts.Shipped)
+	return counts, err
+}
+
+// The existing app_config store keeps one visibility marker per customer and
+// order. Some legacy databases do not install app_config and stay compatible.
+func (r Repository) visibleCustomerOrderSQL(ctx context.Context, orderAlias string) (string, error) {
+	var exists bool
+	if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, r.schema+".app_config").Scan(&exists); err != nil {
+		return "", err
+	}
+	if !exists {
+		return "TRUE", nil
+	}
+	return fmt.Sprintf(`NOT EXISTS (SELECT 1 FROM %s.app_config hidden WHERE hidden.key='customer_portal.hidden_order.' || %s.customer_id::text || '.' || %s.id::text AND hidden.value='hidden')`, r.schema, orderAlias, orderAlias), nil
+}
+
 func (r Repository) listCustomerOrders(ctx context.Context, query customerportalapp.ServicePageQuery, limit int, includeItems bool) ([]customerportalapp.CustomerOrderSummary, error) {
 	where := []string{"o.customer_id=$1"}
+	visibility, err := r.visibleCustomerOrderSQL(ctx, "o")
+	if err != nil {
+		return nil, err
+	}
+	where = append(where, visibility)
 	args := []any{query.CustomerID}
 	if query.OrderID > 0 {
 		args = append(args, query.OrderID)
 		where = append(where, "o.id=$2")
 	} else {
-		where = append(where, "o.is_void=false")
+		where = append(where, "COALESCE(o.is_void,false)=false")
 	}
 
 	if keyword := strings.TrimSpace(query.Query); keyword != "" {
@@ -1997,6 +2044,15 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 		args = append(args, strings.ToLower(status))
 		where = append(where, fmt.Sprintf("LOWER(COALESCE(ss.name,'')) = $%d", len(args)))
 	}
+	if query.OrderKind == "purchase" || query.OrderKind == "dropship" {
+		args = append(args, query.OrderKind)
+		where = append(where, fmt.Sprintf("(%s)=$%d", orderKindSQL, len(args)))
+	}
+	if query.Progress == "accepted" || query.Progress == "in_production" || query.Progress == "shipped" {
+		args = append(args, query.Progress)
+		where = append(where, fmt.Sprintf("(%s)=$%d", orderProgressSQL(r.schema, portalRelationExists(ctx, r.pool, r.schema+".order_shipment_orders")), len(args)))
+		where = append(where, validProgressOrderSQL)
+	}
 	if query.Offset < 0 {
 		query.Offset = 0
 	}
@@ -2019,7 +2075,7 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 		       COALESCE(to_jsonb(o)->>'delivery_mode','ship'),
 		       COALESCE(to_jsonb(o)->>'delivery_warehouse_code',''),
 		       COALESCE(to_jsonb(o)->>'delivery_status',''),
-		       COALESCE(to_jsonb(o)->>'fulfillment_mode',''),o.is_void
+		       COALESCE(to_jsonb(o)->>'fulfillment_mode',''),COALESCE(o.is_void,false), `+orderKindSQL+`,COALESCE(NULLIF(to_jsonb(o)->>'confirmation_status',''),'accepted')
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id=o.customer_id
 		LEFT JOIN %s.order_process_statuses ops ON ops.id=o.process_status_id
@@ -2037,7 +2093,7 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 	orderIDs := make([]int64, 0)
 	for rows.Next() {
 		var row customerportalapp.CustomerOrderSummary
-		if err := rows.Scan(&row.ID, &row.OrderNo, &row.OrderDate, &row.ReceiverName, &row.ReceiverPhone, &row.ReceiverAddress, &row.ProcessStatus, &row.PayStatus, &row.PaymentMethod, &row.PrepaymentAmount, &row.ShipStatus, &row.ShipTrackingNo, &row.GrandTotal, &row.ShippingAmount, &row.DeliveryMode, &row.DeliveryWarehouseCode, &row.DeliveryStatus, &row.FulfillmentMode, &row.IsVoid); err != nil {
+		if err := rows.Scan(&row.ID, &row.OrderNo, &row.OrderDate, &row.ReceiverName, &row.ReceiverPhone, &row.ReceiverAddress, &row.ProcessStatus, &row.PayStatus, &row.PaymentMethod, &row.PrepaymentAmount, &row.ShipStatus, &row.ShipTrackingNo, &row.GrandTotal, &row.ShippingAmount, &row.DeliveryMode, &row.DeliveryWarehouseCode, &row.DeliveryStatus, &row.FulfillmentMode, &row.IsVoid, &row.OrderKind, &row.ConfirmationStatus); err != nil {
 			return nil, err
 		}
 		deposit, _ := strconv.ParseFloat(row.PrepaymentAmount, 64)
@@ -2048,6 +2104,13 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	logistics, e := r.loadCustomerOrderLogisticsEvents(ctx, orderIDs)
+	if e != nil {
+		return nil, e
+	}
+	for i := range out {
+		out[i].LogisticsEvent = logistics[out[i].ID]
 	}
 	progress, e := progresspg.Load(ctx, r.pool, r.schema, orderIDs)
 	if e != nil {
@@ -2086,13 +2149,17 @@ func (r Repository) CustomerOwnsOrder(ctx context.Context, customerID, orderID i
 		return false, nil
 	}
 	var ok bool
-	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	visibility, err := r.visibleCustomerOrderSQL(ctx, "orders")
+	if err != nil {
+		return false, err
+	}
+	err = r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT EXISTS(
 			SELECT 1
 			FROM %s.orders
-			WHERE id=$1 AND customer_id=$2 AND is_void=false
+			WHERE id=$1 AND customer_id=$2 AND is_void=false AND %s
 		)
-	`, r.schema), orderID, customerID).Scan(&ok)
+	`, r.schema, visibility), orderID, customerID).Scan(&ok)
 	return ok, err
 }
 

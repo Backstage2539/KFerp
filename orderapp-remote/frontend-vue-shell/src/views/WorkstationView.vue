@@ -73,7 +73,7 @@
         </div>
         <div v-if="selectedWorkstation && packagingGroups(section).length" class="packaging-groups">
           <article v-for="group in packagingGroups(section)" :key="group.key" class="packaging-group-card">
-            <div class="packaging-group-head"><div><h4>{{ group.product_name }} · {{ group.spec_g }}g袋装 · {{ quantityText(group.remaining_output_qty) }} {{ group.inventory_unit }} · {{ group.tasks.length }}张工单</h4><p>目标仓：{{ warehouseLabel(group.target_warehouse_name || group.tasks[0]?.target_warehouse) }} · 已完成 {{ quantityText(group.completed_output_qty) }} / {{ quantityText(group.planned_output_qty) }} {{ group.inventory_unit }}</p></div><div class="packaging-group-actions"><button type="button" class="secondary" :disabled="loading || busyKey !== '' || !groupHasShortage(group)" @click="openBatchIssueForTasks(group.tasks)">补齐物料</button><button type="button" class="primary" :disabled="loading || busyKey !== ''" @click="needsConfirmedStart(group.tasks[0])?openGroupStart(group):openGroupCompletion(group)">{{needsConfirmedStart(group.tasks[0])?'合并开工':'完成并入库'}}</button></div></div>
+            <div class="packaging-group-head"><div><h4>{{ group.product_name }} · {{ group.spec_g }}g袋装 · {{ quantityText(group.remaining_output_qty) }} {{ group.inventory_unit }} · {{ group.tasks.length }}张工单</h4><p>目标仓：{{ warehouseLabel(group.target_warehouse_name || group.tasks[0]?.target_warehouse) }} · 已完成 {{ quantityText(group.completed_output_qty) }} / {{ quantityText(group.planned_output_qty) }} {{ group.inventory_unit }}</p></div><div class="packaging-group-actions"><button type="button" class="secondary" :disabled="loading || busyKey !== '' || !groupHasShortage(group)" @click="openPackagingGroupIssue(group)">补齐物料</button><button type="button" class="primary" :disabled="loading || busyKey !== ''" @click="needsConfirmedStart(group.tasks[0])?openGroupStart(group):openGroupCompletion(group)">{{needsConfirmedStart(group.tasks[0])?'合并开工':'完成并入库'}}</button></div></div>
             <div class="group-material-table"><div class="material-row material-head"><span>物料</span><span>需求</span><span>WIP本组可用</span><span>待补</span><span>来源仓可补</span></div><div v-for="material in group.materials" :key="material.identity" class="material-row"><strong>{{ material.material_name }}</strong><span>{{ materialQuantity(material, 'required') }}</span><span>{{ materialQuantity(material, 'wip') }}</span><span :class="{ shortage: materialHasShortage(material) }">{{ materialQuantity(material, 'shortage') }}</span><span>{{ sourceAvailabilityLabel(group, material) }}</span></div></div>
             <details class="group-source-orders"><summary>查看 {{ group.tasks.length }} 张来源工单</summary><div v-for="task in group.tasks" :key="taskKey(task)">{{ task.work_order_no }} · {{ task.customer_name || '客户未指定' }} · {{ quantityText(task.planned_output_inventory_qty) }} {{ task.inventory_unit }} <button type="button" class="text-button" @click="openExecutionHub(task, 'job_card')">查看工单</button> <button v-if="task.material_consumption_policy==='bom_start_v1'&&['running','paused'].includes(task.status)" type="button" class="text-button" @click="adjustment.task=task;adjustment.open=true">用料调整</button></div></details>
             <OperationStartGroupForm v-if="startGroup.open&&startGroup.key===group.key" :key="`group-start-${group.key}`" :task-ids="startGroup.ids" @close="startGroup.open=false" @posted="groupStarted" />
@@ -199,6 +199,7 @@ import {
   materialReadinessState,
   taskTitle,
   taskQuantityLines,
+  isSimplifiedWorkstationTask,
   workstationCanOpenIssue,
   workstationVisibleActions,
   workstationTaskSections,
@@ -229,10 +230,21 @@ const packagingSourceAvailability = ref(new Map())
 let packagingSourceAvailabilityRevision = 0
 function groupedTasks(section) { return workstationPackagingGroups(section.tasks).flatMap(group => group.tasks) }
 function ungroupedTasks(section) { const ids = new Set(groupedTasks(section).map(task => Number(task.job_card_id))); return section.tasks.filter(task => !ids.has(Number(task.job_card_id))) }
-function isSimplifiedTask(task) { return Boolean(task?.automatic_completion) || /烘焙|烘烤|除石|研磨|磨粉|色选|筛选|包装|分装|装盒|装袋/.test(String(task?.operation || task?.operation_name || task?.task_name || '')) }
+function isSimplifiedTask(task) { return isSimplifiedWorkstationTask(task) }
 function issueTasks(section) { return ungroupedTasks(section).filter(task => !isSimplifiedTask(task)) }
 function packagingGroups(section) { return workstationPackagingGroups(section.tasks) }
 function openBatchIssueForTasks(tasks) { if (batchIssue.open) return; batchIssue.recovering = false; batchIssue.startShortages = []; batchIssue.ids = tasks.filter(workstationCanOpenIssue).map(task => Number(task.job_card_id)); batchIssue.open = batchIssue.ids.length > 0 }
+function openPackagingGroupIssue(group) {
+  if (batchIssue.open) return
+  // Simplified tasks have no legacy stock_action; use the same group as the source-stock preview.
+  const ids = [...new Set((group?.tasks || []).map(task => Number(task.job_card_id)).filter(id => Number.isSafeInteger(id) && id > 0))]
+  if (!ids.length) { error.value = '本组没有可补料的有效任务，请刷新工位后重试。'; return }
+  error.value = ''
+  batchIssue.recovering = false
+  batchIssue.startShortages = []
+  batchIssue.ids = ids
+  batchIssue.open = true
+}
 function openStartIssue(task, shortages) { if (batchIssue.open) return; batchIssue.recovering = false; batchIssue.ids = [Number(task.job_card_id)]; batchIssue.startShortages = shortages; batchIssue.open = true }
 async function batchIssuePosted(result) { if (batchIssue.startShortages.length && Number(result?.success_count || 0) > 0) startPanel.revision++; await load() }
 function openBatchIssue(section) { openBatchIssueForTasks(issueTasks(section).filter(task => selectedIssueTasks.value.includes(Number(task.job_card_id)))) }

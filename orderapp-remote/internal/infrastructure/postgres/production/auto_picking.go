@@ -26,19 +26,33 @@ func autoPickingWorkOrderTx(ctx context.Context, tx pgx.Tx, schema string, id in
 	return enabled, err
 }
 func pickingKey(s app.ProductionPlanComponentSource, warehouse string, owner int64) string {
-	return fmt.Sprintf("%s:%d:%d:%d:%s:%d", s.ComponentType, s.ComponentID, s.ComponentBOMSpecID, s.ComponentSpecG, warehouse, owner)
+	return fmt.Sprintf("%s:%d:%d:%d:%d:%s:%d", s.ComponentType, s.ComponentID, s.ComponentBOMSpecID, s.ComponentBOMVariantID, s.ComponentSpecG, warehouse, owner)
 }
 
 // Draft allocation is a projection, never a reservation. The shared budget prevents
 // two rows of the same plan from promising the same stock.
 func calculatePickingSources(sources []app.ProductionPlanComponentSource) {
 	used := map[string][2]int64{}
+	// An unfrozen legacy variant represents all versions. It cannot safely share
+	// that pool with an exact frozen variant in one plan without double counting.
+	frozen := map[string]bool{}
+	for _, s := range sources {
+		if (s.ComponentType == "product" || s.ComponentType == "finished_product") && s.ComponentBOMVariantID > 0 {
+			frozen[fmt.Sprintf("%s:%d:%d:%d", s.ComponentType, s.ComponentID, s.ComponentBOMSpecID, s.ComponentSpecG)] = true
+		}
+	}
 	// Honour valid manual quantities across the entire plan before auto-filling.
 	for i := range sources {
 		s := &sources[i]
 		s.Allocations = []app.ProductionPlanSourceAllocation{}
 		s.ShortageG, s.ShortageUnits = s.RequiredG, s.RequiredUnits
 		s.WIPCoveredG, s.WIPCoveredUnits, s.TransferG, s.TransferUnits = 0, 0, 0, 0
+		legacyKey := fmt.Sprintf("%s:%d:%d:%d", s.ComponentType, s.ComponentID, s.ComponentBOMSpecID, s.ComponentSpecG)
+		if (s.ComponentType == "product" || s.ComponentType == "finished_product") && s.ComponentBOMVariantID == 0 && frozen[legacyKey] && (s.RequiredG > 0 || s.RequiredUnits > 0) {
+			s.Options = nil
+			s.AdjustmentMessage = "历史物料未冻结版本，与同计划冻结版本混用，请先核对生产配置"
+			continue
+		}
 		sort.SliceStable(s.Options, func(i, j int) bool {
 			a, b := s.Options[i], s.Options[j]
 			if (a.Warehouse == "wip") != (b.Warehouse == "wip") {
@@ -289,7 +303,7 @@ func fillPickingBatchSuggestionsTx(ctx context.Context, tx pgx.Tx, schema string
  FROM %[1]s.stock_batches b
  LEFT JOIN LATERAL(SELECT l.warehouse FROM %[1]s.stock_ledger_entries l WHERE l.item_type='finished_product' AND l.item_id=b.item_id AND l.bom_spec_id=b.bom_spec_id AND l.spec_g=b.spec_g AND (l.source_batch_code=b.batch_code OR l.source_batch_id=b.batch_code) ORDER BY l.id DESC LIMIT 1) location ON true
  LEFT JOIN LATERAL(SELECT SUM(GREATEST(0,reserved_g-consumed_g-returned_g)) g,SUM(GREATEST(0,reserved_units-consumed_units-returned_units)) n FROM %[1]s.work_order_material_reservation_batches WHERE stock_batch_id=b.id AND status='reserved') r ON true
- WHERE b.item_type='finished_product' AND b.item_id=$1 AND COALESCE(NULLIF(location.warehouse,''),'finished_goods')=$2 AND COALESCE(b.owner_customer_id,0)=$3 AND b.bom_spec_id=$4 AND b.spec_g=$5 AND COALESCE(b.quality_status,'unchecked') NOT IN('hold','reject') ORDER BY b.created_at,b.id`, schema), s.ComponentID, a.Warehouse, a.OwnerCustomerID, s.ComponentBOMSpecID, s.ComponentSpecG)
+ WHERE b.item_type='finished_product' AND b.item_id=$1 AND COALESCE(NULLIF(location.warehouse,''),'finished_goods')=$2 AND COALESCE(b.owner_customer_id,0)=$3 AND b.bom_spec_id=$4 AND b.spec_g=$5 AND ($6::bigint=0 OR b.bom_variant_id=$6) AND COALESCE(b.quality_status,'unchecked') NOT IN('hold','reject') ORDER BY b.created_at,b.id`, schema), s.ComponentID, a.Warehouse, a.OwnerCustomerID, s.ComponentBOMSpecID, s.ComponentSpecG, s.ComponentBOMVariantID)
 			} else {
 				rows, err = tx.Query(ctx, fmt.Sprintf(`SELECT b.id,b.batch_code,GREATEST(0,l.qty_g-COALESCE(r.g,0))::bigint,GREATEST(0,l.qty_units-COALESCE(r.n,0))::bigint
    FROM %[1]s.material_batch_locations l JOIN %[1]s.material_batches b ON b.id=l.material_batch_id
@@ -385,7 +399,10 @@ func loadFrozenPickingProgressTx(ctx context.Context, tx pgx.Tx, schema string, 
 }
 
 func pickingAdjustmentIdentity(item app.ProductionPlanItem, s app.ProductionPlanComponentSource) string {
-	return fmt.Sprintf("%s:%d:%d:%d:%d:%s:%s:%d:%d:%d", item.OutputType, item.OutputProductID, item.OutputMaterialID, item.BomVersionID, item.CustomerID, item.TargetWarehouse, s.ComponentType, s.ComponentID, s.ComponentBOMSpecID, s.ComponentSpecG)
+	// Source selections belong to a specific draft task. Multiple frozen
+	// demands can share the same product, BOM and owner while selecting different
+	// warehouses; never copy one task's choice onto another task.
+	return fmt.Sprintf("%d:%s:%d:%d:%d:%d", item.ID, s.ComponentType, s.ComponentID, s.ComponentBOMSpecID, s.ComponentBOMVariantID, s.ComponentSpecG)
 }
 func preservedPickingAdjustmentsTx(ctx context.Context, tx pgx.Tx, schema string, planID int64, items []app.ProductionPlanItem) (map[string][]app.ProductionPlanSourceAllocation, error) {
 	sources, err := loadProductionPlanComponentSourcesTx(ctx, tx, schema, planID)

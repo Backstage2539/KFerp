@@ -1,6 +1,8 @@
 package manufacturing
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -47,6 +49,8 @@ type manufacturingWorkstationRequest struct {
 }
 
 type workstationCapacityRequest struct {
+	SchedulingMode         string  `json:"scheduling_mode"`
+	ThroughputPerHour      float64 `json:"throughput_per_hour"`
 	ID                     int64   `json:"id"`
 	WorkstationID          int64   `json:"workstation_id"`
 	Code                   string  `json:"code"`
@@ -207,10 +211,16 @@ func registerAPI(e *echo.Echo, svc *manufacturingapp.Service) {
 	e.POST("/api/manufacturing-workstation-capacities", func(c echo.Context) error {
 		var req workstationCapacityRequest
 		if err := c.Bind(&req); err != nil {
+			var typeErr *json.UnmarshalTypeError
+			if errors.As(err, &typeErr) && typeErr.Field == "standard_minutes" {
+				return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "标准分钟/批必须为大于或等于 0 的整数"})
+			}
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
 		row, err := svc.SaveManufacturingWorkstationCapacity(c.Request().Context(), manufacturingapp.SaveWorkstationCapacityCommand{
 			ID:                 req.ID,
+			SchedulingMode:     req.SchedulingMode,
+			ThroughputPerHour:  req.ThroughputPerHour,
 			WorkstationID:      req.WorkstationID,
 			Code:               req.Code,
 			Name:               req.Name,
@@ -230,6 +240,24 @@ func registerAPI(e *echo.Echo, svc *manufacturingapp.Service) {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, row)
+	})
+
+	e.POST("/api/manufacturing-workstation-capacities/:id/batch-presets", func(c echo.Context) error {
+		id, err := parseIDParam(c, "id")
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid capacity id"})
+		}
+		var req struct {
+			BatchSizeQty float64 `json:"batch_size_qty"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		result, err := svc.CreateBatchPreset(c.Request().Context(), manufacturingapp.CreateBatchPresetCommand{SourceCapacityID: id, BatchSizeQty: req.BatchSizeQty, Actor: support.ActorOf(c)})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
 	})
 
 	e.POST("/api/manufacturing-workstation-capacities/:id/deactivate", func(c echo.Context) error {

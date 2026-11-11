@@ -45,8 +45,8 @@
                   <span>实际分钟<strong>{{ row.actual_minutes || 0 }}</strong></span>
                   <span>投入数量<strong>{{ qty(row.actual_input_qty) }}</strong></span>
                   <span>产出数量<strong>{{ qty(row.actual_output_qty) }}</strong></span>
-                  <span>计划工序成本<strong>{{ money(row.planned_operation_cost) }}</strong></span>
-                  <span>实际工序成本<strong>{{ money(row.actual_operation_cost) }}</strong></span>
+                  <span>计划工序成本<strong>{{ row.planned_cost_unavailable ? '待核算' : money(row.planned_operation_cost) }}</strong></span>
+                  <span>实际工序成本<strong>{{ row.actual_cost_unavailable ? '待核算' : money(row.actual_operation_cost) }}</strong></span>
                   <span>实际损耗<strong>{{ qty(actualLossQty(row)) }} · {{ formatPercent(actualLossRate(row)) }}</strong></span>
                   <span>损耗原因<strong>{{ row.loss_reason || '-' }}</strong></span>
                   <span>异常原因<strong>{{ row.exception_reason || '-' }}</strong></span>

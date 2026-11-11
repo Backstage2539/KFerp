@@ -1513,6 +1513,9 @@ func operationSummaryJSONForWorkOrderTx(ctx context.Context, tx pgx.Tx, schema s
 			'workstation_capacity_id', workstation_capacity_id,
 			'workstation_capacity_name', workstation_capacity_name,
 			'batch_size_qty', batch_size_qty,
+			'custom_batch_size_qty', custom_batch_size_qty,
+			'scheduling_mode', scheduling_mode, 'throughput_per_hour', throughput_per_hour, 'planned_seconds', planned_seconds,
+			'standard_minutes', CASE WHEN planned_batch_count>0 THEN planned_minutes/planned_batch_count ELSE 0 END,
 			'batch_size_unit', batch_size_unit,
 			'planned_batch_count', planned_batch_count,
 			'planned_minutes', planned_minutes,
@@ -1542,6 +1545,9 @@ func operationSummaryJSONForWorkOrderTx(ctx context.Context, tx pgx.Tx, schema s
 }
 
 func recordBatchCostForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, finishedTotalG int64) (float64, error) {
+	if err := lockProductionFinancePeriodTx(ctx, tx, schema); err != nil {
+		return 0, err
+	}
 	var materialCost float64
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(SUM(
@@ -1601,17 +1607,46 @@ func recordBatchCostForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 		unitCost = totalCost / (float64(finishedTotalG) / 1000.0)
 	}
 	_, err = tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_batch_costs(running_item_id,batch_id,product_name,material_cost,operation_cost,total_cost,finished_g,unit_cost_per_kg,created_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,now())
+		INSERT INTO %s.production_batch_costs(running_item_id,batch_id,product_name,material_cost,operation_cost,total_cost,finished_g,unit_cost_per_kg,created_at,cost_updated_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,now(),now())
 		ON CONFLICT (running_item_id) DO UPDATE SET
 			material_cost=excluded.material_cost,
 			operation_cost=excluded.operation_cost,
 			total_cost=excluded.total_cost,
 			finished_g=excluded.finished_g,
 			unit_cost_per_kg=excluded.unit_cost_per_kg,
-			created_at=now()
+			cost_updated_at=now()
 	`, schema), r.ID, r.BatchID, r.Product, materialCost, operationCost, totalCost, finishedTotalG, unitCost)
-	return totalCost, err
+	if err != nil {
+		return 0, err
+	}
+	unavailable, err := legacyRunCostUnavailableTx(ctx, tx, schema, r.ID)
+	if err != nil {
+		return 0, err
+	}
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_batch_costs SET cost_unavailable=$2 WHERE running_item_id=$1`, schema), r.ID, unavailable); err != nil {
+		return 0, err
+	}
+	if unavailable {
+		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.stock_batches SET cost_unavailable=true WHERE source_doc_type='production_run' AND source_doc_id=$1`, schema), r.ID); err != nil {
+			return 0, err
+		}
+	}
+	return totalCost, nil
+}
+
+func legacyRunCostUnavailableTx(ctx context.Context, tx pgx.Tx, schema string, runID int64) (bool, error) {
+	var unavailable bool
+	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(
+ SELECT 1 FROM %[1]s.material_consumption_logs l
+ LEFT JOIN %[1]s.material_batches mb ON mb.id=l.material_batch_id
+ LEFT JOIN %[1]s.stock_batches sb ON l.material_batch_id=0 AND sb.batch_code=l.material_batch_code
+ WHERE l.running_item_id=$1 AND (l.deduct_g>0 OR l.deduct_units>0)
+ AND (COALESCE((to_jsonb(mb)->>'cost_unavailable')::boolean,false) OR COALESCE((to_jsonb(sb)->>'cost_unavailable')::boolean,false))
+ UNION ALL SELECT 1 FROM %[1]s.production_operation_events e JOIN %[1]s.work_orders wo ON wo.id=e.work_order_id
+ WHERE wo.running_item_id=$1 AND e.status='posted' AND COALESCE((e.payload->>'cost_unavailable')::boolean,false)
+ )`, schema), runID).Scan(&unavailable)
+	return unavailable, err
 }
 
 func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.WorkOrderQuery) ([]productionapp.WorkOrderRow, error) {
@@ -1687,6 +1722,9 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		               'workstation_capacity_id', jc.workstation_capacity_id,
 		               'workstation_capacity_name', jc.workstation_capacity_name,
 		               'batch_size_qty', jc.batch_size_qty,
+			               'custom_batch_size_qty', jc.custom_batch_size_qty,
+			'scheduling_mode', jc.scheduling_mode, 'throughput_per_hour', jc.throughput_per_hour, 'planned_seconds', jc.planned_seconds,
+			'standard_minutes', CASE WHEN jc.planned_batch_count>0 THEN jc.planned_minutes/jc.planned_batch_count ELSE 0 END,
 		               'batch_size_unit', jc.batch_size_unit,
 		               'planned_batch_count', jc.planned_batch_count,
 		               'planned_minutes', jc.planned_minutes,
@@ -1797,6 +1835,12 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 	}
 	rows.Close()
 	for index := range out {
+		plannedUnknown, actualUnknown, err := r.workOrderCostUnavailable(ctx, out[index].ID)
+		if err != nil {
+			return nil, err
+		}
+		out[index].PlannedCostUnavailable = plannedUnknown
+		out[index].ActualCostUnavailable = actualUnknown
 		dependencies, err := loadWorkOrderDependencies(ctx, r.pool, r.schema, out[index].ID)
 		if err != nil {
 			return nil, err
@@ -1804,6 +1848,14 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		decorateWorkOrderDependencies(&out[index], dependencies)
 	}
 	return out, nil
+}
+
+func (r Repository) workOrderCostUnavailable(ctx context.Context, id int64) (bool, bool, error) {
+	var planned, actual bool
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT
+ EXISTS(SELECT 1 FROM %[1]s.job_cards jc WHERE jc.work_order_id=$1 AND jc.scheduling_mode='quantity' AND jc.cost_method<>'piece' AND jc.throughput_per_hour<=0),
+ EXISTS(SELECT 1 FROM %[1]s.job_cards jc WHERE jc.work_order_id=$1 AND ((jc.scheduling_mode='quantity' AND jc.cost_method<>'piece' AND jc.throughput_per_hour<=0 AND NOT EXISTS(SELECT 1 FROM %[1]s.production_operation_events prior WHERE prior.job_card_id=jc.id AND prior.kind='complete' AND prior.status='posted')) OR EXISTS(SELECT 1 FROM %[1]s.production_operation_events e WHERE e.job_card_id=jc.id AND e.status='posted' AND COALESCE((e.payload->>'cost_unavailable')::boolean,false))))`, r.schema), id).Scan(&planned, &actual)
+	return planned, actual, err
 }
 
 type workOrderDependencyQuerier interface {
@@ -1956,7 +2008,7 @@ func (r Repository) ListJobCards(ctx context.Context, query productionapp.JobCar
 		       COALESCE(jc.operation_id,0),COALESCE(jc.workstation_id,0),
 		       jc.operation,jc.workstation,
 		       COALESCE(jc.workstation_capacity_id,0),COALESCE(jc.workstation_capacity_name,''),
-		       COALESCE(jc.batch_size_qty,0)::float8,COALESCE(jc.batch_size_unit,''),
+		       COALESCE(jc.batch_size_qty,0)::float8,jc.custom_batch_size_qty::float8,COALESCE(jc.batch_size_unit,''),COALESCE(jc.scheduling_mode,'batch'),COALESCE(jc.throughput_per_hour,0)::float8,jc.planned_seconds::float8,CASE WHEN jc.planned_batch_count>0 THEN jc.planned_minutes/jc.planned_batch_count ELSE 0 END,
 		       COALESCE(jc.planned_batch_count,0),COALESCE(jc.planned_minutes,0),
 		       COALESCE(jc.hourly_rate,0)::float8,COALESCE(NULLIF(jc.cost_method,''),'time'),
 		       COALESCE(jc.piece_rate,0)::float8,COALESCE(jc.planned_operation_cost,0)::float8,
@@ -1979,13 +2031,15 @@ func (r Repository) ListJobCards(ctx context.Context, query productionapp.JobCar
 		       COALESCE(jc.assigned_to,''),
 		       COALESCE(jc.priority,0),
 		       COALESCE(jc.scheduling_note,''),
-		       COALESCE(jc.work_center,'')
+		       COALESCE(jc.work_center,''),
+		       (jc.scheduling_mode='quantity' AND jc.cost_method<>'piece' AND jc.throughput_per_hour<=0),
+		       ((jc.scheduling_mode='quantity' AND jc.cost_method<>'piece' AND jc.throughput_per_hour<=0 AND NOT EXISTS(SELECT 1 FROM %s.production_operation_events prior WHERE prior.job_card_id=jc.id AND prior.kind='complete' AND prior.status='posted')) OR EXISTS(SELECT 1 FROM %s.production_operation_events e WHERE e.job_card_id=jc.id AND e.status='posted' AND COALESCE((e.payload->>'cost_unavailable')::boolean,false)))
 		FROM %s.job_cards jc
 		LEFT JOIN %s.work_orders wo ON wo.id=jc.work_order_id
 		WHERE %s
 		ORDER BY jc.started_at DESC, jc.work_order_id DESC, jc.sequence_no, jc.id
 		LIMIT $%d
-	`, r.schema, r.schema, where, limitArg), args...)
+	`, r.schema, r.schema, r.schema, r.schema, where, limitArg), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1999,12 +2053,12 @@ func (r Repository) ListJobCards(ctx context.Context, query productionapp.JobCar
 			&row.MaterialSnapshot, &row.ProcessSnapshotJSON, &row.ProductionConfigSnapshotJSON, &row.CustomerProductSnapshotJSON,
 			&row.SequenceNo, &row.OperationID, &row.WorkstationID,
 			&row.Operation, &row.Workstation, &row.WorkstationCapacityID, &row.WorkstationCapacityName,
-			&row.BatchSizeQty, &row.BatchSizeUnit, &row.PlannedBatchCount, &row.PlannedMinutes,
+			&row.BatchSizeQty, &row.CustomBatchSizeQty, &row.BatchSizeUnit, &row.SchedulingMode, &row.ThroughputPerHour, &row.PlannedSeconds, &row.StandardMinutes, &row.PlannedBatchCount, &row.PlannedMinutes,
 			&row.HourlyRate, &row.CostMethod, &row.PieceRate, &row.PlannedOperationCost, &row.ActualMinutes, &row.ActualOperationCost,
 			&row.Status, &row.StartedAt, &row.PausedAt, &row.ResumedAt, &row.CompletedAt, &row.Operator,
 			&row.PlannedInputQty, &row.ActualInputQty, &row.ActualOutputQty, &row.ActualLossQty, &row.ActualLossRate,
 			&row.RecordsLoss, &row.LossReason, &row.ExceptionReason, &row.MetricsJSON, &row.ParameterSchemaJSON,
-			&row.PlannedStartAt, &row.PlannedEndAt, &row.ShiftCode, &row.AssignedTo, &row.Priority, &row.SchedulingNote, &row.WorkCenter,
+			&row.PlannedStartAt, &row.PlannedEndAt, &row.ShiftCode, &row.AssignedTo, &row.Priority, &row.SchedulingNote, &row.WorkCenter, &row.PlannedCostUnavailable, &row.ActualCostUnavailable,
 		); err != nil {
 			return nil, err
 		}
@@ -2127,7 +2181,7 @@ func (r Repository) ListBatchCosts(ctx context.Context, query productionapp.Batc
 	limitArg := len(args)
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id,running_item_id,batch_id,product_name,COALESCE(material_cost,0),COALESCE(operation_cost,0),
-		       COALESCE(total_cost,0),finished_g,COALESCE(unit_cost_per_kg,0),to_char(created_at,'YYYY-MM-DD HH24:MI')
+		       COALESCE(total_cost,0),finished_g,COALESCE(unit_cost_per_kg,0),to_char(created_at,'YYYY-MM-DD HH24:MI'),COALESCE(cost_unavailable,false)
 		FROM %s.production_batch_costs
 		WHERE %s
 		ORDER BY created_at DESC, id DESC
@@ -2140,12 +2194,34 @@ func (r Repository) ListBatchCosts(ctx context.Context, query productionapp.Batc
 	out := make([]productionapp.BatchCostRow, 0)
 	for rows.Next() {
 		var row productionapp.BatchCostRow
-		if err := rows.Scan(&row.ID, &row.RunningItemID, &row.BatchID, &row.ProductName, &row.MaterialCost, &row.OperationCost, &row.TotalCost, &row.FinishedG, &row.UnitCostPerKG, &row.CreatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.RunningItemID, &row.BatchID, &row.ProductName, &row.MaterialCost, &row.OperationCost, &row.TotalCost, &row.FinishedG, &row.UnitCostPerKG, &row.CreatedAt, &row.ActualCostUnavailable); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	for i := range out {
+		if out[i].RunningItemID <= 0 {
+			continue
+		}
+		var id int64
+		err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.work_orders WHERE running_item_id=$1 ORDER BY id LIMIT 1`, r.schema), out[i].RunningItemID).Scan(&id)
+		if err == pgx.ErrNoRows {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		_, inheritedUnavailable, err := r.workOrderCostUnavailable(ctx, id)
+		out[i].ActualCostUnavailable = out[i].ActualCostUnavailable || inheritedUnavailable
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 func (r Repository) CancelWorkOrder(ctx context.Context, cmd productionapp.WorkOrderCancelCommand) (productionapp.WorkOrderRow, error) {

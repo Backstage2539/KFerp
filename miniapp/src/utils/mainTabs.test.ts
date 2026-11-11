@@ -93,7 +93,7 @@ describe('miniapp startup route and main tabs', () => {
     expect(index).toContain('useSessionStore')
     expect(index).toContain('<GuestHome />')
     expect(index).not.toContain("uni.reLaunch({ url: '/pages/login/login' })")
-    expect(index).toContain("uni.reLaunch({url:'/pages/home/home'})")
+    expect(index).toContain('phoneVerifiedDestination(')
     expect(index).not.toContain('redirectTo')
   })
 
@@ -101,8 +101,9 @@ describe('miniapp startup route and main tabs', () => {
     const index = readSource('src/pages/index/index.vue')
     const home = readSource('src/pages/home/home.vue')
 
-    expect(index).toContain("uni.reLaunch({url:'/pages/home/home'})")
-    expect(home).toContain('fetchMe(session.token)')
+    expect(index).toContain('phoneVerifiedDestination(')
+    expect(home).toContain('fetchMe(requestToken)')
+    expect(home).toContain('session.token !== requestToken')
     expect(home).toContain('session.applyContext(response)')
     expect(home).toContain('session.clearSession()')
     expect(home).toContain("uni.reLaunch({ url: '/pages/index/index' })")
@@ -136,20 +137,14 @@ describe('miniapp startup route and main tabs', () => {
     }
   })
 
-  it('lets customers open sales order and outbound note PDFs from the order tab', () => {
+  it('keeps customer orders compact and hides internal sales and outbound documents', () => {
     const servicePage = readSource('src/pages/service/service.vue')
-    const api = readSource('src/api/customerPortal.ts')
-
-    expect(api).toContain('sales_order_url?: string')
-    expect(api).toContain('delivery_note_url?: string')
-    expect(servicePage).toContain('销售单')
-    expect(servicePage).toContain('出库单')
-    expect(servicePage).toContain('openOrderDocument')
-    expect(servicePage).toContain('uni.downloadFile')
-    expect(servicePage).toContain('uni.openDocument')
-    expect(servicePage).toContain('Authorization: `Bearer ${session.token}`')
-    expect(servicePage).toContain('isProcessingCustomer')
-    expect(servicePage).toContain('v-if="!isProcessingCustomer"')
+    expect(servicePage).toContain('order_kind')
+    expect(servicePage).toContain('展开详情')
+    expect(servicePage).toContain('收起详情')
+    expect(servicePage).not.toContain('openOrderDocument')
+    expect(servicePage).not.toContain('>销售单</button>')
+    expect(servicePage).not.toContain('>出库单</button>')
   })
 
   it('places my products in profile instead of the home shortcuts', () => {

@@ -786,6 +786,10 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_bom_version_operation_costs (
 	sort_order INT NOT NULL DEFAULT 0,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE %[1]s.production_bom_version_operation_costs ADD COLUMN IF NOT EXISTS variant_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.production_bom_version_operation_costs ADD COLUMN IF NOT EXISTS cost_unavailable BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE %[1]s.production_bom_version_operation_costs ADD COLUMN IF NOT EXISTS scheduling_mode_snapshot TEXT NOT NULL DEFAULT 'batch';
+ALTER TABLE %[1]s.production_bom_version_operation_costs ADD COLUMN IF NOT EXISTS throughput_per_hour_snapshot NUMERIC(14,4) NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.production_bom_version_operation_costs ADD COLUMN IF NOT EXISTS cost_method TEXT NOT NULL DEFAULT 'time';
 ALTER TABLE %[1]s.production_bom_version_operation_costs ADD COLUMN IF NOT EXISTS piece_rate_snapshot NUMERIC(14,4) NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.production_bom_version_operation_costs ADD COLUMN IF NOT EXISTS rate_unit_snapshot TEXT NOT NULL DEFAULT '';

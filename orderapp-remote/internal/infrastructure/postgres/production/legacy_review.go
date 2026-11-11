@@ -161,6 +161,9 @@ func (r Repository) SubmitLegacyReviewOnce(ctx context.Context, c app.LegacyRevi
 			return out, err
 		}
 	}
+	if err = lockProductionFinancePeriodTx(ctx, tx, r.schema); err != nil {
+		return out, err
+	}
 	if err = lockReceiptWorkOrderTx(ctx, tx, r.schema, c.WorkOrderID); err != nil {
 		return out, err
 	}

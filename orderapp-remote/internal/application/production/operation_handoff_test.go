@@ -32,3 +32,17 @@ func TestOperationHandoffPreservesExistingQualityBlock(t *testing.T) {
 		t.Fatalf("handoff must not clear another block: %+v", tasks[0])
 	}
 }
+
+func TestPredecessorOutputUnitUsesActualPostedEvents(t *testing.T) {
+	cards := []JobCardRow{{ID: 1, WorkOrderID: 1, SequenceNo: 1, Status: "completed", ActualOutputQty: 83}, {ID: 2, WorkOrderID: 1, SequenceNo: 2, Status: "pending"}}
+	tasks := []ProductionTask{{JobCardID: 2, WorkOrderID: 1, SequenceNo: 2, InventoryUnit: "袋"}}
+	applyTaskOperationHandoff(tasks, cards)
+	applyTaskPredecessorOutputUnits(tasks, cards, map[int64]PredecessorOutputUnitInfo{1: {Unit: "kg", State: "known"}})
+	if tasks[0].PredecessorOutputUnit != "kg" || tasks[0].PredecessorOutputUnitState != "known" {
+		t.Fatalf("actual kg output lost: %+v", tasks[0])
+	}
+	applyTaskPredecessorOutputUnits(tasks, cards, nil)
+	if tasks[0].PredecessorOutputUnit != "" || tasks[0].PredecessorOutputUnitState != "missing" {
+		t.Fatalf("missing unit must not use bag output: %+v", tasks[0])
+	}
+}

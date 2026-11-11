@@ -17,7 +17,7 @@
             <tr v-for="row in rows" :key="row.id">
               <td>{{ row.batch_code }}</td><td>{{ row.item_type }}</td><td>{{ row.item_name }}</td><td>{{ row.spec_g || '-' }}</td>
               <td>{{ row.source_doc_type }} #{{ row.source_doc_id }}</td><td>{{ quantityLabel(row, 'qty') }}</td><td>{{ quantityLabel(row, 'remaining') }}</td>
-              <td>{{ money(row.unit_cost) }}</td><td><span class="quality-pill" :class="qualityClass(row.quality_status)">{{ qualityLabel(row.quality_status) }}</span></td><td>{{ row.operator }}</td><td>{{ row.created_at }}</td>
+              <td>{{ row.cost_unavailable ? '待核算' : money(row.unit_cost) }}</td><td><span class="quality-pill" :class="qualityClass(row.quality_status)">{{ qualityLabel(row.quality_status) }}</span></td><td>{{ row.operator }}</td><td>{{ row.created_at }}</td>
             </tr>
             <tr v-if="!rows.length"><td colspan="11" class="muted">暂无批次</td></tr>
           </tbody>

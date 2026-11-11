@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	domain "orderapp/internal/domain/costing"
 	"os"
 	"strings"
 	"testing"
@@ -33,10 +34,10 @@ func TestResolvedBomCostsKeepPublishedProductSpecificationsIsolatedPostgres(t *t
 	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE") })
 
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
-		CREATE TABLE %[1]s.products(id BIGINT PRIMARY KEY, name TEXT);
+		CREATE TABLE %[1]s.products(id BIGINT PRIMARY KEY, name TEXT, parent_product_id bigint NOT NULL DEFAULT 0);
 		CREATE TABLE %[1]s.materials(
 			id BIGINT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', unit TEXT NOT NULL DEFAULT 'kg',
-			is_semi_finished BOOLEAN NOT NULL DEFAULT false, purchase_price NUMERIC(12,4) NOT NULL DEFAULT 0
+			is_semi_finished BOOLEAN NOT NULL DEFAULT false, purchase_price NUMERIC(12,4) NOT NULL DEFAULT 0, estimated_unit_price NUMERIC(12,4)
 		);
 		CREATE TABLE %[1]s.material_batches(
 			id BIGINT PRIMARY KEY, unit_cost NUMERIC(12,4) NOT NULL DEFAULT 0,
@@ -86,6 +87,7 @@ func TestResolvedBomCostsKeepPublishedProductSpecificationsIsolatedPostgres(t *t
 			material_loss_rate NUMERIC(12,6) NOT NULL DEFAULT 0, unit_cost_snapshot NUMERIC(12,4) NOT NULL DEFAULT 0
 		);
 
+		INSERT INTO %[1]s.products(id,name,parent_product_id) VALUES (600,'商品600',0),(700,'商品700',0),(601,'销售规格',600);
 		INSERT INTO %[1]s.materials(id,name,unit,is_semi_finished,purchase_price) VALUES
 			(1,'生豆','kg',false,100),(2,'袋子','个',false,0.5),(3,'无价格组件','个',false,0),(30,'熟豆','kg',true,0);
 
@@ -135,8 +137,8 @@ func TestResolvedBomCostsKeepPublishedProductSpecificationsIsolatedPostgres(t *t
 		t.Fatal(err)
 	}
 	bag227 := costs[-702]
-	if !bag227.Resolved {
-		t.Fatalf("227g specification cost unresolved: %+v", bag227)
+	if !bag227.Resolved || !bag227.LegacyOperationCost {
+		t.Fatalf("227g legacy specification cost unresolved or not marked legacy: %+v", bag227)
 	}
 	if diff := math.Abs(bag227.InputCostPerOutputUnit - 23.2); diff > 1e-9 {
 		t.Fatalf("227g specification input cost = %.6f, want 23.2", bag227.InputCostPerOutputUnit)
@@ -168,6 +170,75 @@ func TestResolvedBomCostsKeepPublishedProductSpecificationsIsolatedPostgres(t *t
 	legacy := costs[700]
 	if !legacy.Resolved || math.Abs(legacy.TotalCostPerOutputUnit-1.1) > 1e-9 {
 		t.Fatalf("legacy single-recipe product cost = %+v, want 1.1", legacy)
+	}
+	// Historical rows often stored only the workstation capacity ID. A quantity
+	// capacity must not inherit the old batch cost as a known frozen cost.
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %[1]s.process_route_operations ADD COLUMN workstation_capacity_id bigint NOT NULL DEFAULT 0;
+ CREATE TABLE %[1]s.manufacturing_workstation_capacities(id bigint PRIMARY KEY,scheduling_mode text,cost_method text,throughput_per_hour numeric);
+ INSERT INTO %[1]s.manufacturing_workstation_capacities VALUES(21,'batch','time',0),(22,'quantity','time',0);
+ UPDATE %[1]s.process_route_operations SET workstation_capacity_id=CASE id WHEN 1 THEN 21 ELSE 22 END`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	legacyUnknown, err := NewRepository(pool, schema).loadResolvedProductionBomCosts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacyUnknown[-702].Resolved || !legacyUnknown[-703].Resolved {
+		t.Fatalf("legacy workstation capacity fallback not isolated: %+v %+v", legacyUnknown[-702], legacyUnknown[-703])
+	}
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.manufacturing_workstation_capacities SET scheduling_mode='batch' WHERE id=22`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	// New versions use a frozen cost per variant even when the live route changes.
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %[1]s.production_bom_version_operation_costs ADD COLUMN variant_id bigint NOT NULL DEFAULT 0; ALTER TABLE %[1]s.production_bom_version_operation_costs ADD COLUMN cost_unavailable boolean NOT NULL DEFAULT false;
+ INSERT INTO %[1]s.production_bom_version_operation_costs(version_id,variant_id,operation_unit_cost,cost_method,operation_cost_unit) VALUES (600,1701,0.4,'time','袋'),(600,1702,0.3,'time','袋'),(600,1703,0,'time','袋');
+ UPDATE %[1]s.process_route_operations SET planned_operation_cost=999;`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	frozen, err := NewRepository(pool, schema).loadResolvedProductionBomCosts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if frozen[-702].LegacyOperationCost || math.Abs(frozen[-702].OperationCostPerOutputUnit-0.3) > 1e-9 || math.Abs(frozen[-703].OperationCostPerOutputUnit) > 1e-9 {
+		t.Fatalf("variant cost was not frozen: %+v %+v", frozen[-702], frozen[-703])
+	}
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_bom_version_operation_costs SET cost_unavailable=true WHERE variant_id=1702`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	flags, err := NewRepository(pool, schema).FindUnknownCostProductRefs(ctx, []domain.ProductInput{{ProductID: 600, BomSpecID: 702, BomVariantID: 1702}, {ProductID: 600, BomSpecID: 703, BomVariantID: 1703}, {ProductID: 600}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A caller cannot disguise unknown spec 702 as another product, forge its
+	// parent, or attach a variant from a different spec.
+	for _, forged := range []domain.ProductInput{
+		{ProductID: 700, BomSpecID: 702},
+		{ProductID: 600, ParentProductID: 700, BomSpecID: 702},
+		{ProductID: 600, BomSpecID: 703, BomVariantID: 1702},
+	} {
+		if _, err := NewRepository(pool, schema).FindUnknownCostProductRefs(ctx, []domain.ProductInput{forged}); err == nil {
+			t.Fatalf("forged identity accepted: %+v", forged)
+		}
+	}
+	// A valid catalog SKU retains its authoritative parent and isolated cost.
+	skuFlags, err := NewRepository(pool, schema).FindUnknownCostProductRefs(ctx, []domain.ProductInput{{ProductID: 601, ParentProductID: 600, BomSpecID: 703, BomVariantID: 1703}})
+	if err != nil || skuFlags[0] {
+		t.Fatalf("valid sales SKU rejected or contaminated: %+v %v", skuFlags, err)
+	}
+	// An archived variant of the same specification cannot override the current
+	// specification's unknown state.
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.production_bom_versions(id,bom_id,status) VALUES(601,60,'archived'); INSERT INTO %[1]s.production_bom_version_variants(id,version_id,bom_spec_id,spec_name_snapshot,inventory_unit) VALUES(2702,601,702,'旧规格','袋')`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	archivedFlags, err := NewRepository(pool, schema).FindUnknownCostProductRefs(ctx, []domain.ProductInput{{ProductID: 600, BomSpecID: 702, BomVariantID: 2702}})
+	if err != nil || !archivedFlags[0] {
+		t.Fatalf("archived variant bypassed current cost: %+v %v", archivedFlags, err)
+	}
+	if len(flags) != 3 || !flags[0] || flags[1] || !flags[2] {
+		t.Fatalf("wrong spec-scoped unknown flags %+v", flags)
+	}
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.production_bom_version_operation_costs SET cost_unavailable=false WHERE variant_id=1702; UPDATE %[1]s.process_route_operations SET planned_operation_cost=CASE id WHEN 1 THEN 0.4 ELSE 0.3 END`, schema)); err != nil {
+		t.Fatal(err)
 	}
 	// Zero purchase cost must flow through the semi-finished BOM into all nine
 	// valid specs while the genuinely missing tenth component still fails.

@@ -7,6 +7,7 @@ import (
 )
 
 type RouteExecution struct {
+	ReportingType    string `json:"reporting_type,omitempty"`
 	Version          int    `json:"version"`
 	NodeKey          string `json:"node_key"`
 	ReceiptEnabled   bool   `json:"receipt_enabled"`
@@ -24,6 +25,12 @@ func NormalizeRouteExecution(raw string, last bool, fallbackKey string) (string,
 	}
 	if config.Version != 1 {
 		return "", fmt.Errorf("不支持的工序完成配置版本")
+	}
+	config.ReportingType = strings.TrimSpace(config.ReportingType)
+	switch config.ReportingType {
+	case "", "legacy", "batch", "incoming", "piece":
+	default:
+		return "", fmt.Errorf("工序报工类型无效")
 	}
 	config.NodeKey = strings.TrimSpace(config.NodeKey)
 	if config.NodeKey == "" {

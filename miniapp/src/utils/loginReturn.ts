@@ -18,8 +18,8 @@ export function safeLoginReturn(raw: unknown): string {
   if (/^\/pages\/notification-detail\/notification-detail\?type=(receipt|bill)&id=[1-9][0-9]{0,14}$/.test(path)) return path
   return ''
 }
-export function loginRouteFor(destination: string, mode?: 'password'): string {
+export function loginRouteFor(destination: string): string {
   const safe = safeLoginReturn(destination)
-  const query = [safe ? `return_to=${encodeURIComponent(safe)}` : '', mode ? `mode=${mode}` : ''].filter(Boolean).join('&')
+  const query = safe ? `return_to=${encodeURIComponent(safe)}` : ''
   return `/pages/login/login${query ? `?${query}` : ''}`
 }

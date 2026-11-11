@@ -1,6 +1,10 @@
 import { paymentSummary } from './prepayment'
 
-export type CustomerFeeSummary = { goods_cents: number; shipping_cents: number; service_cents: number; payable_cents: number; paid_cents: number; unpaid_cents: number }
+export type CustomerFeeSummary = { has_billed_fees?: boolean; goods_cents: number; shipping_cents: number; service_cents: number; payable_cents: number; paid_cents: number; unpaid_cents: number }
+export function customerOrderAmountDisplay(order: { order_kind?: string; fee_summary?: CustomerFeeSummary; grand_total?: string; pay_status?: string; prepayment_amount?: string }): string {
+  const amount = customerOrderAmounts(order).payable
+  return order.order_kind === 'dropship' && !order.fee_summary?.has_billed_fees && !Number(amount) ? '费用待出账' : `¥${amount}`
+}
 export function customerOrderAmounts(order: { fee_summary?: CustomerFeeSummary; grand_total?: string; pay_status?: string; prepayment_amount?: string }) {
   const fee = order.fee_summary
   if (fee) {

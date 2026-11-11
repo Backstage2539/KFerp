@@ -8,6 +8,10 @@
       <p>本批计划产出 {{ preview.planned_qty }} {{ preview.output_unit }}。批次按冻结预留和可用批次顺序扣减，确认时重新核对。</p>
       <p v-if="preview.blocked_reason" role="alert" class="error">{{ preview.blocked_reason }}</p>
       <p v-if="preview.predecessor_required">本工序承接前序产出，不再扣本 BOM 原料。</p>
+      <div v-if="preview.incoming_allocations?.length" class="warning" role="status">
+        <p>按前序实际产出核对各工位来料，首次开工后冻结：</p>
+        <p v-for="allocation in preview.incoming_allocations" :key="allocation.job_card_id">{{ allocation.workstation || `任务 ${allocation.job_card_id}` }}：{{ allocation.quantity }} {{ allocation.unit }}</p>
+      </div>
       <p v-if="preview.bom_refresh_pending">确认开工后锁定配方 {{ preview.effective_bom_version_no }}。</p>
       <div v-if="startShortages.length" class="warning">
         <p v-for="m in startShortages" :key="m.key">本批开工缺口：{{ m.name }} {{ m.shortage_qty }} {{ m.unit }}</p>
@@ -18,7 +22,7 @@
         <label>本批实际投入（{{ preview.input_unit }}）<input v-model.number="draft.actual_input_qty" type="number" min="0" step="any" @change="recalculate" /></label>
         <div v-for="(m,index) in draft.materials" :key="m.key" class="material">
           <label>{{ m.name }}（{{ m.unit }}）<input v-model.number="draft.materials[index].qty" type="number" min="0" step="any" /></label>
-          <span>扣料仓：{{ m.warehouse_name || m.warehouse }} · 货主：{{ m.owner_customer_id || '本公司' }} · 可用 {{ m.available_qty }}</span>
+          <span>扣料仓：{{ m.warehouse_name || m.warehouse }} · 货主：{{ m.owner_customer_id || '本公司' }} · 可用 {{ m.available_qty ?? 0 }}</span>
           <p class="batches">可用批次：{{ (m.eligible_batches || []).map(b => `${b.batch_code}（${b.available_qty} ${m.unit}）`).join('、') || '暂无可用批次' }}</p>
         </div>
         <label>用量差异原因<textarea v-model.trim="draft.difference_reason" rows="2" /></label>
@@ -35,7 +39,7 @@ import {startDraft,startPayload,startSuggestedMaterials} from '../lib/operation-
 const props=defineProps({jobCardId:{type:Number,required:true},locked:{type:Boolean,default:false}})
 const emit=defineEmits(['close','posted','issue'])
 const preview=ref(null),draft=reactive({materials:[],actual_input_qty:0,difference_reason:''}),busy=ref(false),error=ref(''),retry=reactive(completionRetry())
-const startShortages=computed(()=>preview.value?.predecessor_required?[]:(draft.materials||[]).filter(m=>m.warehouse==='wip' && Number.isFinite(Number(m.available_qty)) && Number(m.qty)>Number(m.available_qty)+1e-8).map(m=>({...m,shortage_qty:Number((Number(m.qty)-Number(m.available_qty)).toFixed(6))})))
+const startShortages=computed(()=>preview.value?.predecessor_required?[]:(draft.materials||[]).filter(m=>m.warehouse==='wip' && Number.isFinite(Number(m.available_qty ?? 0)) && Number(m.qty)>Number(m.available_qty ?? 0)+1e-8).map(m=>({...m,shortage_qty:Number((Number(m.qty)-Number(m.available_qty ?? 0)).toFixed(6))})))
 function openIssue(){if(!props.locked&&!busy.value&&!retry.uncertain&&startShortages.value.length)emit('issue',startShortages.value)}
 function recalculate(){draft.materials=startSuggestedMaterials(preview.value,draft.actual_input_qty)}
 async function load(){busy.value=true;try{preview.value=await apiGet(`/api/job-cards/${props.jobCardId}/start-preview`);Object.assign(draft,startDraft(preview.value))}catch(e){error.value=e.message}finally{busy.value=false}}

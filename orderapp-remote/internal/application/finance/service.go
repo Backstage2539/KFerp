@@ -2,6 +2,7 @@ package finance
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -105,6 +106,7 @@ type ClosingCheckItem struct {
 }
 
 type SourceDetail struct {
+	CostUnavailable        bool         `json:"cost_unavailable"`
 	Section                string       `json:"section"`
 	SourceType             string       `json:"source_type"`
 	SourceID               int64        `json:"source_id,omitempty"`
@@ -120,10 +122,38 @@ type SourceDetail struct {
 }
 
 type DrilldownSection struct {
-	Section string         `json:"section"`
-	Title   string         `json:"title"`
-	Total   domain.Money   `json:"total"`
-	Rows    []SourceDetail `json:"rows"`
+	CostUnavailable bool           `json:"cost_unavailable"`
+	Section         string         `json:"section"`
+	Title           string         `json:"title"`
+	Total           domain.Money   `json:"total"`
+	Rows            []SourceDetail `json:"rows"`
+}
+
+func (r SourceDetail) MarshalJSON() ([]byte, error) {
+	type plain SourceDetail
+	raw, err := json.Marshal(plain(r))
+	if err != nil || !r.CostUnavailable {
+		return raw, err
+	}
+	var fields map[string]json.RawMessage
+	if err = json.Unmarshal(raw, &fields); err != nil {
+		return nil, err
+	}
+	fields["amount"] = json.RawMessage("null")
+	return json.Marshal(fields)
+}
+func (r DrilldownSection) MarshalJSON() ([]byte, error) {
+	type plain DrilldownSection
+	raw, err := json.Marshal(plain(r))
+	if err != nil || !r.CostUnavailable {
+		return raw, err
+	}
+	var fields map[string]json.RawMessage
+	if err = json.Unmarshal(raw, &fields); err != nil {
+		return nil, err
+	}
+	fields["total"] = json.RawMessage("null")
+	return json.Marshal(fields)
 }
 
 type ReportDrilldown struct {
@@ -307,6 +337,15 @@ func (s *Service) Dashboard(ctx context.Context, month string) (Dashboard, error
 	if err != nil {
 		return Dashboard{}, err
 	}
+	if !report.CostUnavailable && totals.CostUnavailable {
+		filtered := exceptions[:0]
+		for _, item := range exceptions {
+			if item.Code != "production_cost_unavailable" {
+				filtered = append(filtered, item)
+			}
+		}
+		exceptions = filtered
+	}
 	return Dashboard{Settings: settings, Report: report, Exceptions: exceptions}, nil
 }
 
@@ -338,6 +377,9 @@ func (s *Service) CloseMonth(ctx context.Context, cmd CloseMonthCommand) (domain
 	report, err := s.DraftReport(ctx, ReportFilter{Month: cmd.Month})
 	if err != nil {
 		return domain.MonthlyReport{}, err
+	}
+	if report.CostUnavailable {
+		return domain.MonthlyReport{}, fmt.Errorf("生产成本待核算，暂不能结账")
 	}
 	if report.Status != domain.MonthStatusAdjusted {
 		report.Status = domain.MonthStatusClosed
@@ -518,7 +560,33 @@ func (s *Service) ReportDrilldown(ctx context.Context, filter ReportFilter) (Rep
 	if err != nil {
 		return ReportDrilldown{}, err
 	}
-	return drilldownFromDetails(normalized.Month, rows), nil
+	totals, _, err := s.loadTotals(ctx, normalized)
+	if err != nil {
+		return ReportDrilldown{}, err
+	}
+	if totals.CostUnavailable {
+		for i := range rows {
+			if rows[i].SourceType == "production_cost" {
+				rows[i].CostUnavailable = true
+			}
+		}
+	}
+	out := drilldownFromDetails(normalized.Month, rows)
+	if totals.CostUnavailable && normalized.CustomerID > 0 {
+		// Production costs cannot yet be attributed reliably by customer. Do
+		// not turn an absent customer production row into a confirmed zero.
+		found := false
+		for i := range out.Sections {
+			if out.Sections[i].Section == "main_cost" {
+				out.Sections[i].CostUnavailable = true
+				found = true
+			}
+		}
+		if !found {
+			out.Sections = append(out.Sections, DrilldownSection{Section: "main_cost", Title: titleForDrilldownSection("main_cost"), CostUnavailable: true, Rows: []SourceDetail{}})
+		}
+	}
+	return out, nil
 }
 
 func (s *Service) ListTaxLedger(ctx context.Context, month string) ([]TaxLedgerEntry, error) {
@@ -561,6 +629,9 @@ func (s *Service) AccountantHandoff(ctx context.Context, filter ReportFilter) (A
 	report, err := s.DraftReport(ctx, normalized)
 	if err != nil {
 		return AccountantHandoff{}, err
+	}
+	if report.CostUnavailable {
+		return AccountantHandoff{}, fmt.Errorf("生产成本待核算，暂不能生成会计交接")
 	}
 	review, err := s.ClosingReview(ctx, normalized)
 	if err != nil {
@@ -650,6 +721,19 @@ func (s *Service) reportFromTotals(ctx context.Context, settings domain.Settings
 		return domain.MonthlyReport{}, err
 	}
 	report.Status = status
+	if filter.CustomerID == 0 && (status == domain.MonthStatusClosed || status == domain.MonthStatusAdjusted) {
+		if loader, ok := s.repo.(interface {
+			LoadMonthlyReportSnapshot(context.Context, string) (domain.MonthlyReport, bool, error)
+		}); ok {
+			snapshot, found, err := loader.LoadMonthlyReportSnapshot(ctx, totals.Month)
+			if err != nil {
+				return domain.MonthlyReport{}, err
+			}
+			if found {
+				return snapshot, nil
+			}
+		}
+	}
 	return report, nil
 }
 
@@ -744,6 +828,7 @@ func drilldownFromDetails(month string, rows []SourceDetail) ReportDrilldown {
 			}
 		}
 		section := seen[row.Section]
+		section.CostUnavailable = section.CostUnavailable || row.CostUnavailable
 		section.Total += row.Amount
 		section.Rows = append(section.Rows, row)
 	}
@@ -830,6 +915,9 @@ func taxLedgerMessage(rows []TaxLedgerEntry) string {
 }
 
 func costMatchingStatus(report domain.MonthlyReport) string {
+	if report.CostUnavailable {
+		return "warn"
+	}
 	if report.RevenueTaxInclusive > 0 && report.MainBusinessCost <= 0 {
 		return "warn"
 	}
@@ -844,6 +932,9 @@ func costMatchingSeverity(report domain.MonthlyReport) string {
 }
 
 func costMatchingMessage(report domain.MonthlyReport) string {
+	if report.CostUnavailable {
+		return "生产成本待核算，暂无法计算毛利与所得税。"
+	}
 	if costMatchingStatus(report) == "warn" {
 		return "本月有收入但未匹配主营成本，需确认生产成本、进货成本或主营成本费用归集。"
 	}

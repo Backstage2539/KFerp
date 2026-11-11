@@ -340,6 +340,9 @@ export type ProductSummary = {
 }
 
 export type CustomerOrderSummary = {
+  logistics_event?: { tracking_no?: string; event_time?: string; status?: string; description?: string; location?: string }
+  order_kind?: 'purchase' | 'dropship'
+  confirmation_status?: string
   is_void?: boolean
   fee_summary?: import('../utils/customerOrderFees').CustomerFeeSummary
 
@@ -510,6 +513,7 @@ export type SettlementBatch = {
 }
 
 export type ServicePageResponse = {
+ progress_counts?: { accepted: number; in_production: number; shipped: number }
  page?: number
  page_size?: number
  has_more?: boolean
@@ -1140,6 +1144,8 @@ export type CreateFulfillmentOrderPayload = {
 }
 
 export type ServicePageFilters = {
+ order_kind?: string
+ progress?: string
  order_id?: number
  page?: number
  page_size?: number
@@ -1152,7 +1158,7 @@ export type ServicePageFilters = {
   ship_status?: string
 }
 
-export type MiniLoginMode = 'wechat' | 'phone_verify'
+export type MiniLoginMode = 'wechat' | 'phone_verify' | 'phone_identify'
 
 export type MiniLoginFields = {
   code: string
@@ -1186,6 +1192,13 @@ export function loginWithPhoneVerify(code: string, phoneCode: string, nickname?:
   })
 }
 
+export function loginWithPhoneIdentify(code: string, phoneCode: string): Promise<LoginResponse> {
+  return miniRequest<LoginResponse>('/api/mini/login', {
+    method: 'POST',
+    data: buildMiniLoginPayload('phone_identify', { code, phoneCode }),
+  })
+}
+
 export function buildPasswordLoginPath(): string {
   return '/api/mini/login/password'
 }
@@ -1199,6 +1212,10 @@ export function loginWithPassword(login: string, password: string): Promise<Logi
 
 export function fetchMe(token: string): Promise<MeResponse> {
   return miniRequest<MeResponse>('/api/mini/me', { token })
+}
+
+export function logoutEmployee(token: string): Promise<unknown> {
+  return miniRequest('/api/mini/employee/logout', { method: 'POST', token })
 }
 
 export type EmployeeOrderForm = {
@@ -1910,6 +1927,8 @@ export function buildEmployeeOrderDraftPath(): string {
 
 export function buildServicePagePath(key: ServiceKey, filters: ServicePageFilters = {}): string {
   const params = [
+    ['order_kind', filters.order_kind],
+    ['progress', filters.progress],
     ['order_id',filters.order_id],
     ['page',filters.page],
     ['page_size',filters.page_size],
@@ -2418,3 +2437,22 @@ export function previewEmployeeFreight(token:string,payload:Record<string,unknow
 export function resolveEmployeeShippingDestination(token:string,address:string){return miniRequest<{status:string;destination:import('../utils/orderFreight').FreightDestination;candidates:import('../utils/orderFreight').FreightDestination[]}>('/api/mini/employee/shipping-destination/resolve',{token,method:'POST',data:{address}})}
 export function fetchEmployeeFreightRegions(token:string){return miniRequest<{regions:import('../utils/orderFreight').FreightRegion[]}>('/api/mini/shipping-regions',{token})}
 export function fetchEmployeeFreightTemplates(token:string){return miniRequest<{templates:{id:number;name:string;active:boolean;revision:number;packaging_weight_g:number}[]}>('/api/mini/employee/freight-templates',{token})}
+
+export type IssuedBillLine = {
+  id: number; description: string; charge_type: string; source_no?: string; amount_cents: number
+  detail?: { order_no?: string; receiver_address?: string; items?: Array<{ item_name: string; spec: string; qty: string; unit: string; unit_price: string; line_total: string }>; shipments?: Array<{ tracking_no: string; shipped_at: string }> }
+}
+export type CustomerIssuedBill = { batch_id: number; settlement_no: string; issued_at: string; period_from: string; period_to: string; total_amount_cents: number; current_received_cents: number; current_due_amount_cents: number; adjustment_cents: number; lines?: IssuedBillLine[] }
+export type CustomerIssuedBillSummary = { count: number; unpaid_count: number; total_amount_cents: number; received_cents: number; due_amount_cents: number; adjustment_cents: number }
+export type CustomerIssuedBillFilters = { date_from?: string; date_to?: string; status?: string; page?: number; limit?: number }
+export type CustomerIssuedBills = { rows: CustomerIssuedBill[]; total: number; page: number; limit: number; summary: CustomerIssuedBillSummary }
+export function fetchCustomerIssuedBills(token: string, filters: CustomerIssuedBillFilters = {}): Promise<CustomerIssuedBills> {
+  const query = Object.entries(filters).filter(([,value]) => value !== '' && value !== undefined).map(([key,value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`).join('&')
+  return miniRequest<CustomerIssuedBills>(`/api/mini/customer-issued-bills${query ? `?${query}` : ''}`, { token })
+}
+export function fetchCustomerIssuedBill(token: string, id: number): Promise<CustomerIssuedBill> {
+  return miniRequest<CustomerIssuedBill>(`/api/mini/customer-issued-bills/${id}`, { token })
+}
+export function customerIssuedBillDocumentPath(id: number, kind: 'pdf' | 'xlsx'): string {
+  return `/api/mini/customer-issued-bills/${id}.${kind}`
+}

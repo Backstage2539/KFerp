@@ -164,6 +164,15 @@ func (r *Repository) PreviewFulfillmentOrderEdit(ctx context.Context, c app.Fulf
 	p, _, _, _, e := r.previewFulfillmentEditTx(ctx, tx, v, c)
 	return p, e
 }
+
+func (r *Repository) fulfillmentStockSourcesTx(ctx context.Context, tx pgx.Tx, id int64) (json.RawMessage, error) {
+	var raw json.RawMessage
+	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT jsonb_build_object(
+	'physical',(SELECT jsonb_agg(to_jsonb(a) ORDER BY id) FROM %[1]s.customer_direct_ship_request_allocations a WHERE order_id=$1 AND status='reserved'),
+	'pending',(SELECT jsonb_agg(to_jsonb(r) ORDER BY id) FROM %[1]s.customer_stock_supply_reservations r WHERE order_id=$1 AND reserved_qty>converted_qty+released_qty))`, r.schema), id).Scan(&raw)
+	return raw, err
+}
+
 func (r *Repository) UpdateFulfillmentOrder(ctx context.Context, c app.FulfillmentOrderEditCommand) (app.FulfillmentOrderEditResult, error) {
 	tx, v, e := r.beginFulfillmentEdit(ctx, c.OrderID, c.CustomerID)
 	if e != nil {
@@ -176,6 +185,12 @@ func (r *Repository) UpdateFulfillmentOrder(ctx context.Context, c app.Fulfillme
 	}
 	if !c.RecipientOnly && (strings.TrimSpace(c.PreviewToken) == "" || c.PreviewToken != p.PreviewToken) {
 		return app.FulfillmentOrderEditResult{}, salesapp.NewOrderEditConflictError("订单、价格、库存或费用已变化，请重新预览后保存")
+	}
+	var priorSources json.RawMessage
+	if c.ReplacePendingWithStock {
+		if priorSources, e = r.fulfillmentStockSourcesTx(ctx, tx, v.OrderID); e != nil {
+			return app.FulfillmentOrderEditResult{}, e
+		}
 	}
 	if e = orderweight.MarkHistoricalUnknown(ctx, tx, r.schema, v.OrderID); e != nil {
 		return app.FulfillmentOrderEditResult{}, e
@@ -229,8 +244,8 @@ func (r *Repository) UpdateFulfillmentOrder(ctx context.Context, c app.Fulfillme
 	if e = postgressales.InvalidateConfirmedOrderDocumentsTx(ctx, tx, r.schema, v.OrderID); e != nil {
 		return app.FulfillmentOrderEditResult{}, e
 	}
-	before, _ := json.Marshal(map[string]any{"order_date": v.OrderDate, "receiver_name": v.ReceiverName, "receiver_phone": v.ReceiverPhone, "receiver_address": v.ReceiverAddress, "receiver_company": v.ReceiverCompany, "province": v.Province, "city": v.City, "district": v.District, "notes": v.Notes, "items": v.Items, "fees": v.Fees})
-	after, _ := json.Marshal(map[string]any{"order_date": c.OrderDate, "receiver_name": c.ReceiverName, "receiver_phone": c.ReceiverPhone, "receiver_address": c.ReceiverAddress, "receiver_company": company, "province": c.Province, "city": c.City, "district": c.District, "notes": c.Notes, "items": p.Items, "fees": p.Fees})
+	before, _ := json.Marshal(map[string]any{"order_date": v.OrderDate, "receiver_name": v.ReceiverName, "receiver_phone": v.ReceiverPhone, "receiver_address": v.ReceiverAddress, "receiver_company": v.ReceiverCompany, "province": v.Province, "city": v.City, "district": v.District, "notes": v.Notes, "items": v.Items, "fees": v.Fees, "stock_sources": priorSources})
+	after, _ := json.Marshal(map[string]any{"order_date": c.OrderDate, "receiver_name": c.ReceiverName, "receiver_phone": c.ReceiverPhone, "receiver_address": c.ReceiverAddress, "receiver_company": company, "province": c.Province, "city": c.City, "district": c.District, "notes": c.Notes, "items": p.Items, "fees": p.Fees, "replace_pending_with_stock": c.ReplacePendingWithStock, "stock_sources": p.StockSources})
 	if e = postgresinfra.AuditInsertTx(ctx, tx, r.schema, c.Actor, "order", &v.OrderID, "fulfillment_edit", postgresinfra.StrPtr("fulfillment"), postgresinfra.StrPtr(string(before)), postgresinfra.StrPtr(string(after)), postgresinfra.AuditMeta{"customer_id": v.CustomerID, "request_id": v.RequestID, "mode": v.FulfillmentMode, "recipient_changed": v.ReceiverAddress != c.ReceiverAddress || v.ReceiverName != c.ReceiverName || v.ReceiverPhone != c.ReceiverPhone || v.ReceiverCompany != company, "old_fee_token": v.Fees.FeeQuoteToken, "fee_token": p.Fees.FeeQuoteToken, "reason": c.AdjustmentReason}); e != nil {
 		return app.FulfillmentOrderEditResult{}, e
 	}
@@ -256,6 +271,7 @@ func (r *Repository) previewFulfillmentEditTx(ctx context.Context, tx pgx.Tx, v 
 		return fail(salesapp.NewOrderEditConflictError("订单已被其他操作修改，请重新打开订单"))
 	}
 	if c.RecipientOnly {
+		c.ReplacePendingWithStock = false
 		c.OrderDate, c.Notes = v.OrderDate, v.Notes
 		c.Province, c.City, c.District = v.Province, v.City, v.District
 		if c.ReceiverAddress != v.ReceiverAddress {
@@ -356,6 +372,9 @@ func (r *Repository) previewFulfillmentEditTx(ctx context.Context, tx pgx.Tx, v 
 	p.GoodsTotalCents = amounts.GoodsTotalCents
 	var physical []miniPlannedAllocation
 	var pending []miniPlannedProcessingAllocation
+	if c.ReplacePendingWithStock && v.FulfillmentMode != "stock" {
+		return fail(fmt.Errorf("只有库存代发订单可以补足客户现货"))
+	}
 	if v.FulfillmentMode == "stock" {
 		stock, outputs, e := r.fulfillmentEditCandidates(ctx, tx, v, true)
 		if e != nil {
@@ -365,6 +384,21 @@ func (r *Repository) previewFulfillmentEditTx(ctx context.Context, tx pgx.Tx, v 
 		for _, i := range p.Items {
 			items = append(items, app.MiniDirectShipItemCommand{ProductID: i.ProductID, BomSpecID: i.BomSpecID, BomVariantID: i.BomVariantID, SpecG: i.SpecG, Qty: i.Qty, IsProcessingProduct: true})
 		}
+		if c.ReplacePendingWithStock {
+			var warehouse string
+			if e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT source_warehouse FROM %s.orders WHERE id=$1`, r.schema), v.OrderID).Scan(&warehouse); e != nil {
+				return fail(e)
+			}
+			sameWarehouse := stock[:0]
+			for _, candidate := range stock {
+				if candidate.Warehouse == warehouse {
+					sameWarehouse = append(sameWarehouse, candidate)
+				}
+			}
+			stock = sameWarehouse
+			// No pending entitlement may masquerade as shippable inventory.
+			outputs = nil
+		}
 		physical, pending, p.Shortages, e = r.planFulfillmentEdit(ctx, tx, v, items, stock, outputs)
 		if e != nil {
 			return fail(e)
@@ -373,6 +407,11 @@ func (r *Repository) previewFulfillmentEditTx(ctx context.Context, tx pgx.Tx, v 
 			return fail(&miniDirectShipStockError{Shortages: p.Shortages})
 		}
 		p.StockReady = len(pending) == 0
+		if c.ReplacePendingWithStock {
+			for _, a := range physical {
+				p.StockSources = append(p.StockSources, app.FulfillmentStockSource{ProductID: a.ProductID, BomSpecID: a.BomSpecID, BomVariantID: a.BomVariantID, CustomerID: v.CustomerID, BatchCode: a.BatchCode, Warehouse: a.Warehouse, Qty: a.Qty})
+			}
+		}
 	}
 	fc := app.FulfillmentFeeQuoteCommand{OrderID: v.OrderID, CustomerID: v.CustomerID, FulfillmentMode: v.FulfillmentMode, ExpectedFreightToken: v.Fees.Freight.Token, Province: c.Province, City: c.City, District: c.District, ServiceOverrideCents: c.ServiceFeeCents, AdjustmentReason: c.AdjustmentReason, EmployeeAdjustment: true}
 	// Some accepted requests retain an old county-level-city/locality shape,
@@ -398,19 +437,26 @@ func (r *Repository) previewFulfillmentEditTx(ctx context.Context, tx pgx.Tx, v 
 	}
 	// The token binds all editable headers, canonical prices, chosen source lots,
 	// and both frozen fee versions. Save derives it again while locks are held.
+	var sourceRevision json.RawMessage
+	if c.ReplacePendingWithStock {
+		if sourceRevision, e = r.fulfillmentStockSourcesTx(ctx, tx, v.OrderID); e != nil {
+			return fail(e)
+		}
+	}
 	digest, marshalErr := json.Marshal(struct {
-		Command     app.FulfillmentOrderEditCommand
-		Items       []app.FulfillmentOrderEditItem
-		Physical    []miniPlannedAllocation
-		Pending     []miniPlannedProcessingAllocation
-		OldFee, Fee string
+		Command        app.FulfillmentOrderEditCommand
+		Items          []app.FulfillmentOrderEditItem
+		Physical       []miniPlannedAllocation
+		Pending        []miniPlannedProcessingAllocation
+		OldFee, Fee    string
+		SourceRevision json.RawMessage
 	}{func() app.FulfillmentOrderEditCommand {
 		d := c
 		d.PreviewToken = ""
 		d.Actor = ""
 		d.CustomerID = 0
 		return d
-	}(), p.Items, physical, pending, v.Fees.FeeQuoteToken, p.Fees.FeeQuoteToken})
+	}(), p.Items, physical, pending, v.Fees.FeeQuoteToken, p.Fees.FeeQuoteToken, sourceRevision})
 	if marshalErr != nil {
 		return fail(fmt.Errorf("代发预览内容无效"))
 	}

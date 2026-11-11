@@ -58,9 +58,9 @@ func TestDev278MiniappMainTabsSource(t *testing.T) {
 	}
 
 	service := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "pages", "service", "service.vue")))
-	for _, want := range []string{"销售单", "出库单", "openOrderDocument", "uni.downloadFile", "uni.openDocument"} {
-		if !strings.Contains(service, want) {
-			t.Fatalf("service.vue missing %q", want)
+	for _, forbidden := range []string{"openOrderDocument", "sales-order-latest.pdf", "delivery-note-latest.pdf"} {
+		if strings.Contains(service, forbidden) {
+			t.Fatalf("customer service page must not expose order documents: %q", forbidden)
 		}
 	}
 

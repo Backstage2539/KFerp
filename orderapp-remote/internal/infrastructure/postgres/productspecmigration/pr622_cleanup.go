@@ -915,10 +915,7 @@ func (r PR622CleanupRepository) convertPublishedSingleBOMsTx(ctx context.Context
 		if exists, err := relationExistsTx(ctx, tx, r.schema, "production_bom_version_operation_costs"); err != nil {
 			return 0, err
 		} else if exists {
-			if _, err := tx.Exec(ctx, fmt.Sprintf(`
-				INSERT INTO %[1]s.production_bom_version_operation_costs(version_id,operation_id,operation_name,workstation_id,workstation_name,workstation_capacity_id,capacity_name,hourly_rate_snapshot,standard_minutes_snapshot,batch_size_qty_snapshot,batch_size_unit_snapshot,cost_method,piece_rate_snapshot,rate_unit_snapshot,operation_unit_cost,operation_cost_unit,sort_order)
-				SELECT $1,operation_id,operation_name,workstation_id,workstation_name,workstation_capacity_id,capacity_name,hourly_rate_snapshot,standard_minutes_snapshot,batch_size_qty_snapshot,batch_size_unit_snapshot,cost_method,piece_rate_snapshot,rate_unit_snapshot,operation_unit_cost,operation_cost_unit,sort_order FROM %[1]s.production_bom_version_operation_costs WHERE version_id=$2
-			`, r.schema), replacementVersionID, row.versionID); err != nil {
+			if err = copyFrozenOperationCostsTx(ctx, tx, r.schema, replacementVersionID, row.versionID, variantID); err != nil {
 				return 0, err
 			}
 		}

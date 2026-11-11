@@ -10,6 +10,7 @@ import (
 )
 
 type productionBomCostItem struct {
+	CostUnavailable              bool
 	ID                           int64
 	ComponentType                string
 	ComponentMaterialID          int64
@@ -35,23 +36,25 @@ type productionBomCostItem struct {
 }
 
 type productionBomCostNode struct {
-	OutputType           string
-	OutputID             int64
-	ProductID            int64
-	VersionID            int64
-	VariantID            int64
-	BomSpecID            int64
-	MaterialLossRate     float64
-	YieldRate            float64
-	OutputQty            float64
-	OutputUnit           string
-	OperationCostPerUnit float64
-	BomID                int64
-	BomName              string
-	VersionNo            string
-	Status               string
-	OutputName           string
-	Items                []productionBomCostItem
+	LegacyOperationCost      bool
+	OperationCostUnavailable bool
+	OutputType               string
+	OutputID                 int64
+	ProductID                int64
+	VersionID                int64
+	VariantID                int64
+	BomSpecID                int64
+	MaterialLossRate         float64
+	YieldRate                float64
+	OutputQty                float64
+	OutputUnit               string
+	OperationCostPerUnit     float64
+	BomID                    int64
+	BomName                  string
+	VersionNo                string
+	Status                   string
+	OutputName               string
+	Items                    []productionBomCostItem
 }
 
 type productionBomResolvedItemCost struct {
@@ -62,6 +65,7 @@ type productionBomResolvedItemCost struct {
 }
 
 type productionBomResolvedCost struct {
+	LegacyOperationCost               bool
 	OutputType                        string
 	OutputID                          int64
 	ProductID                         int64
@@ -241,25 +245,30 @@ func resolveTypedProductionBomCosts(nodes map[string]productionBomCostNode) map[
 
 		state[key] = 1
 		result := productionBomResolvedCost{
-			OutputType:   node.OutputType,
-			OutputID:     node.OutputID,
-			ProductID:    node.ProductID,
-			BomID:        node.BomID,
-			BomName:      node.BomName,
-			VersionID:    node.VersionID,
-			VersionNo:    node.VersionNo,
-			BomStatus:    node.Status,
-			BomSpecID:    node.BomSpecID,
-			BomVariantID: node.VariantID,
-			OutputName:   node.OutputName,
-			OutputUnit:   normalizeProductionBomCostUnit(node.OutputUnit),
-			ItemCosts:    make(map[int64]productionBomResolvedItemCost, len(node.Items)),
-			CostStatus:   "incomplete",
+			OutputType:          node.OutputType,
+			OutputID:            node.OutputID,
+			ProductID:           node.ProductID,
+			BomID:               node.BomID,
+			BomName:             node.BomName,
+			VersionID:           node.VersionID,
+			VersionNo:           node.VersionNo,
+			BomStatus:           node.Status,
+			BomSpecID:           node.BomSpecID,
+			BomVariantID:        node.VariantID,
+			OutputName:          node.OutputName,
+			OutputUnit:          normalizeProductionBomCostUnit(node.OutputUnit),
+			ItemCosts:           make(map[int64]productionBomResolvedItemCost, len(node.Items)),
+			CostStatus:          "incomplete",
+			LegacyOperationCost: node.LegacyOperationCost,
 		}
 		outputQty, outputQtyOK := normalizedProductionBomOutputQty(node.OutputQty)
 		inputCost := 0.0
 		valid := outputQtyOK && finiteNonNegative(node.OperationCostPerUnit)
 		currentPath := append(append([]appcosting.PricingRuleTrialCostPathNode(nil), path...), nodePath...)
+		if node.OperationCostUnavailable {
+			valid = false
+			result.UnresolvedIssues = append(result.UnresolvedIssues, issueForItem(node, productionBomCostItem{}, "operation_cost_unavailable", "工序参考速度未配置，标准成本待核算", nodePath))
+		}
 		if !outputQtyOK {
 			result.UnresolvedIssues = append(result.UnresolvedIssues, issueForItem(node, productionBomCostItem{}, "invalid_output_qty", "BOM产出数量必须大于 0", nodePath))
 		}
@@ -280,6 +289,11 @@ func resolveTypedProductionBomCosts(nodes map[string]productionBomCostNode) map[
 		}
 		for _, item := range node.Items {
 			componentType := normalizeProductionBomComponentType(item.ComponentType)
+			if componentType == "material" && item.CostUnavailable {
+				valid = false
+				result.UnresolvedIssues = append(result.UnresolvedIssues, issueForItem(node, item, "material_cost_unavailable", "物料库存批次成本待核算", nodePath))
+				continue
+			}
 			if componentType == "material" && item.ComponentMaterialUnavailable {
 				valid = false
 				result.UnresolvedIssues = append(result.UnresolvedIssues, issueForItem(node, item, "material_unavailable", "配方物料不存在或已停用", nodePath))
@@ -596,7 +610,8 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 		       %[6]s AS material_loss_rate,
 		       COALESCE(NULLIF(version.output_qty,0),1)::float8 AS output_qty,
 		       COALESCE(NULLIF(version.output_unit,''),'unit') AS output_unit,
-		       COALESCE(SUM(oc.operation_unit_cost),0)::float8 AS operation_cost_per_unit
+		       COALESCE(SUM(oc.operation_unit_cost),0)::float8 AS operation_cost_per_unit,
+               COALESCE(bool_or(COALESCE((to_jsonb(oc)->>'cost_unavailable')::boolean,false)),false)
 		FROM root_bindings binding
 		JOIN %[1]s.production_boms bom
 		  ON bom.id=binding.bom_id
@@ -609,6 +624,7 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 			AND (version.status='published' OR binding.is_default=false)
 		LEFT JOIN %[1]s.production_bom_version_operation_costs oc
 		  ON oc.version_id=version.id
+         AND COALESCE(NULLIF(to_jsonb(oc)->>'variant_id','')::bigint,0)=0
 		 AND COALESCE(NULLIF(oc.cost_method,''),'time')='time'
 		 AND (NULLIF(oc.operation_cost_unit,'') IS NULL OR lower(oc.operation_cost_unit)=lower(version.output_unit))
 		WHERE COALESCE(NULLIF(bom.status,''),'active')='active'
@@ -623,7 +639,7 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 	versionIDs := make([]int64, 0)
 	for rows.Next() {
 		var node productionBomCostNode
-		if err := rows.Scan(&node.OutputType, &node.OutputID, &node.ProductID, &node.BomID, &node.BomName, &node.VersionID, &node.VersionNo, &node.Status, &node.YieldRate, &node.MaterialLossRate, &node.OutputQty, &node.OutputUnit, &node.OperationCostPerUnit); err != nil {
+		if err := rows.Scan(&node.OutputType, &node.OutputID, &node.ProductID, &node.BomID, &node.BomName, &node.VersionID, &node.VersionNo, &node.Status, &node.YieldRate, &node.MaterialLossRate, &node.OutputQty, &node.OutputUnit, &node.OperationCostPerUnit, &node.OperationCostUnavailable); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -666,14 +682,36 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 	versionHasVariants := map[int64]bool{}
 	versionDefaultSpecKeys := map[int64]string{}
 	if variantAware {
+		hasFrozenVariant, err := r.costingColumnExists(ctx, "production_bom_version_operation_costs", "variant_id")
+		if err != nil {
+			return nil, err
+		}
 		hasRouteOperations, err := r.costingRelationExists(ctx, "process_route_operations")
 		if err != nil {
 			return nil, err
 		}
-		routeCostExpr := "0::float8"
-		if hasRouteOperations {
-			routeCostExpr = fmt.Sprintf(`COALESCE((SELECT SUM(operation.planned_operation_cost) FROM %s.process_route_operations operation WHERE operation.route_id=variant.process_route_id),0)::float8`, r.schema)
+		hasCapacities, err := r.costingRelationExists(ctx, "manufacturing_workstation_capacities")
+		if err != nil {
+			return nil, err
 		}
+		legacyCostExpr := "0::float8"
+		legacyUnknownExpr := "false"
+		if hasRouteOperations {
+			legacyCostExpr = fmt.Sprintf(`COALESCE((SELECT SUM(operation.planned_operation_cost) FROM %s.process_route_operations operation WHERE operation.route_id=variant.process_route_id),0)::float8`, r.schema)
+		}
+		if hasRouteOperations && hasCapacities {
+			legacyUnknownExpr = fmt.Sprintf(`EXISTS(SELECT 1 FROM %[1]s.process_route_operations operation LEFT JOIN %[1]s.manufacturing_workstation_capacities capacity ON capacity.id=COALESCE(NULLIF(NULLIF(to_jsonb(operation)->>'standard_cost_capacity_id','')::bigint,0),NULLIF(NULLIF(to_jsonb(operation)->>'workstation_capacity_id','')::bigint,0),0) WHERE operation.route_id=variant.process_route_id AND (capacity.id IS NULL OR (COALESCE(to_jsonb(capacity)->>'scheduling_mode','batch')='quantity' AND COALESCE(to_jsonb(capacity)->>'cost_method','time')<>'piece')))`, r.schema)
+		}
+		routeCostExpr := legacyCostExpr
+		routeUnknownExpr := legacyUnknownExpr
+		routeLegacyExpr := "true"
+		if hasFrozenVariant {
+			frozenExists := fmt.Sprintf(`EXISTS(SELECT 1 FROM %s.production_bom_version_operation_costs oc WHERE oc.variant_id=variant.id)`, r.schema)
+			routeCostExpr = fmt.Sprintf(`CASE WHEN %s THEN COALESCE((SELECT SUM(oc.operation_unit_cost) FROM %s.production_bom_version_operation_costs oc WHERE oc.variant_id=variant.id AND COALESCE(NULLIF(oc.cost_method,''),'time')='time'),0)::float8 ELSE %s END`, frozenExists, r.schema, legacyCostExpr)
+			routeUnknownExpr = fmt.Sprintf(`CASE WHEN %s THEN EXISTS(SELECT 1 FROM %s.production_bom_version_operation_costs oc WHERE oc.variant_id=variant.id AND COALESCE((to_jsonb(oc)->>'cost_unavailable')::boolean,false)) ELSE %s END`, frozenExists, r.schema, legacyUnknownExpr)
+			routeLegacyExpr = "NOT " + frozenExists
+		}
+
 		variantRows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`
 			SELECT variant.id,
 			       variant.version_id,
@@ -681,11 +719,11 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 			       COALESCE(NULLIF(variant.inventory_unit,''),'unit'),
 			       COALESCE(variant.material_loss_rate,0)::float8,
 			       COALESCE(variant.is_default,false),
-			       %s AS operation_cost_per_unit
+			       %s AS operation_cost_per_unit, %s AS operation_cost_unavailable, %s AS operation_cost_legacy
 			FROM %s.production_bom_version_variants variant
 			WHERE variant.version_id=ANY($1)
 			ORDER BY variant.version_id,variant.sort_order,variant.id
-		`, routeCostExpr, r.schema), versionIDs)
+		`, routeCostExpr, routeUnknownExpr, routeLegacyExpr, r.schema), versionIDs)
 		if err != nil {
 			return nil, err
 		}
@@ -693,8 +731,8 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 			var variantID, versionID, bomSpecID int64
 			var inventoryUnit string
 			var materialLossRate, operationCost float64
-			var isDefaultSpec bool
-			if err := variantRows.Scan(&variantID, &versionID, &bomSpecID, &inventoryUnit, &materialLossRate, &isDefaultSpec, &operationCost); err != nil {
+			var isDefaultSpec, operationUnavailable, legacyOperationCost bool
+			if err := variantRows.Scan(&variantID, &versionID, &bomSpecID, &inventoryUnit, &materialLossRate, &isDefaultSpec, &operationCost, &operationUnavailable, &legacyOperationCost); err != nil {
 				variantRows.Close()
 				return nil, err
 			}
@@ -705,22 +743,24 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 			}
 			key := productionBomCostOutputKey("product_spec", bomSpecID)
 			nodes[key] = productionBomCostNode{
-				OutputType:           "product_spec",
-				OutputID:             bomSpecID,
-				ProductID:            parent.ProductID,
-				VersionID:            versionID,
-				VariantID:            variantID,
-				BomSpecID:            bomSpecID,
-				MaterialLossRate:     materialLossRate,
-				YieldRate:            1,
-				OutputQty:            1,
-				OutputUnit:           inventoryUnit,
-				OperationCostPerUnit: operationCost,
-				BomID:                parent.BomID,
-				BomName:              parent.BomName,
-				VersionNo:            parent.VersionNo,
-				Status:               parent.Status,
-				OutputName:           parent.OutputName,
+				OutputType:               "product_spec",
+				OutputID:                 bomSpecID,
+				ProductID:                parent.ProductID,
+				VersionID:                versionID,
+				VariantID:                variantID,
+				BomSpecID:                bomSpecID,
+				MaterialLossRate:         materialLossRate,
+				YieldRate:                1,
+				OutputQty:                1,
+				OutputUnit:               inventoryUnit,
+				OperationCostPerUnit:     operationCost,
+				OperationCostUnavailable: operationUnavailable,
+				LegacyOperationCost:      legacyOperationCost,
+				BomID:                    parent.BomID,
+				BomName:                  parent.BomName,
+				VersionNo:                parent.VersionNo,
+				Status:                   parent.Status,
+				OutputName:               parent.OutputName,
 			}
 			variantOutputKeys[variantID] = key
 			versionHasVariants[versionID] = true
@@ -754,7 +794,8 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 			         WHEN lower(btrim(COALESCE(NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
 			         THEN l.qty_g::numeric
 			         ELSE l.qty_units::numeric
-			       END),0) AS weighted_unit_cost
+			       END),0) AS weighted_unit_cost,
+                   bool_or(COALESCE((to_jsonb(b)->>'cost_unavailable')::boolean,false)) AS cost_unavailable
 			FROM %[1]s.material_batch_locations l
 			JOIN %[1]s.material_batches b ON b.id=l.material_batch_id
 			JOIN %[1]s.materials m ON m.id=l.material_id
@@ -790,7 +831,8 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 		       COALESCE(mv.weighted_unit_cost,0)::float8 AS weighted_batch_unit_cost,
 		       COALESCE(i.unit_cost_snapshot,0)::float8 AS unit_cost_snapshot
 		       , COALESCE(m.estimated_unit_price,0)::float8 AS estimated_unit_price,
-		       (m.estimated_unit_price IS NOT NULL) AS has_estimated_unit_price
+		       (m.estimated_unit_price IS NOT NULL) AS has_estimated_unit_price,
+                   COALESCE(mv.cost_unavailable,false)
 		FROM %[1]s.production_bom_version_items i
 		LEFT JOIN %[1]s.materials m ON m.id=i.material_id
 		LEFT JOIN %[1]s.products cp ON cp.id=i.component_product_id
@@ -828,6 +870,7 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 			&item.UnitCostSnapshot,
 			&item.EstimatedUnitPrice,
 			&item.HasEstimatedUnitPrice,
+			&item.CostUnavailable,
 		); err != nil {
 			itemRows.Close()
 			return nil, err

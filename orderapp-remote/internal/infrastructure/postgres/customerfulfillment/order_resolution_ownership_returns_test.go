@@ -224,3 +224,39 @@ func ownershipReturnCommand(c domain.Context) domain.Command {
 	cmd.Dispositions = []domain.Disposition{{Kind: "customer_stock", ID: source.EntitlementID, Choice: "ownership_return"}}
 	return cmd
 }
+
+func TestOwnershipReturnPreservesUnknownBatchCost(t *testing.T) {
+	pool, schema := ownershipReturnFixture(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.stock_batches SET cost_unavailable=true WHERE id=78510`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	repo := resolutionpg.NewRepository(pool, schema)
+	current, err := repo.Context(ctx, 78510)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(current.ReturnSources) != 1 {
+		t.Fatal("missing receipt")
+	}
+	source := current.ReturnSources[0]
+	cmd := returnCommand(current.Version)
+	cmd.Scope = "selected"
+	cmd.Lines = []domain.Selection{{ItemID: 78510, Quantity: 2}}
+	cmd.ReturnSettlement = "credit_returned_goods"
+	cmd.ReturnSelections = []domain.ReturnSelection{{SourceKind: "ownership", SourceID: source.ID, BatchID: source.BatchID, Quantity: 2, Ownership: "company", Warehouse: "finished_goods", Quality: "quarantine"}}
+	cmd.Dispositions = []domain.Disposition{{Kind: "customer_stock", ID: source.EntitlementID, Choice: "ownership_return"}}
+	cmd.IdempotencyKey = "ownership-unknown"
+	result, err := repo.Submit(ctx, 78510, cmd, "sales")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = repo.CompleteStep(ctx, 78510, result.ID, returnStepID(t, result, "return_stock"), resolutionpg.StepCommand{Choice: "receive", Note: "已确认实物", Reference: "OWN-RETURN", PostingDate: "2026-11-08", IdempotencyKey: "own-unknown-receive"}, "warehouse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var unknown bool
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT cost_unavailable FROM %s.stock_batches WHERE source_doc_type='order_resolution_return'`, schema)).Scan(&unknown); err != nil || !unknown {
+		t.Fatalf("returned cost unavailable=%v err=%v", unknown, err)
+	}
+}

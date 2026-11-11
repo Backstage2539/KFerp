@@ -337,6 +337,9 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, r.schema+":production_roster:"+week); err != nil {
 			return productionapp.JobCardActionResult{}, err
 		}
+		if err = lockProductionFinancePeriodTx(ctx, tx, r.schema); err != nil {
+			return productionapp.JobCardActionResult{}, err
+		}
 	}
 
 	var workOrderID int64
@@ -934,7 +937,7 @@ func loadJobCardRowTx(ctx context.Context, tx pgx.Tx, schema string, id int64) (
 		       COALESCE(operation_id,0),COALESCE(workstation_id,0),
 		       operation,workstation,
 		       COALESCE(workstation_capacity_id,0),COALESCE(workstation_capacity_name,''),
-		       COALESCE(batch_size_qty,0)::float8,COALESCE(batch_size_unit,''),
+		       COALESCE(batch_size_qty,0)::float8,custom_batch_size_qty::float8,COALESCE(batch_size_unit,''),COALESCE(scheduling_mode,'batch'),COALESCE(throughput_per_hour,0)::float8,planned_seconds::float8,CASE WHEN planned_batch_count>0 THEN planned_minutes/planned_batch_count ELSE 0 END,
 		       COALESCE(planned_batch_count,0),COALESCE(planned_minutes,0),
 		       COALESCE(hourly_rate,0)::float8,COALESCE(NULLIF(cost_method,''),'time'),
 		       COALESCE(piece_rate,0)::float8,COALESCE(planned_operation_cost,0)::float8,
@@ -956,7 +959,7 @@ func loadJobCardRowTx(ctx context.Context, tx pgx.Tx, schema string, id int64) (
 	`, schema), id).Scan(
 		&row.ID, &row.WorkOrderID, &row.SequenceNo, &row.OperationID, &row.WorkstationID,
 		&row.Operation, &row.Workstation, &row.WorkstationCapacityID, &row.WorkstationCapacityName,
-		&row.BatchSizeQty, &row.BatchSizeUnit, &row.PlannedBatchCount, &row.PlannedMinutes,
+		&row.BatchSizeQty, &row.CustomBatchSizeQty, &row.BatchSizeUnit, &row.SchedulingMode, &row.ThroughputPerHour, &row.PlannedSeconds, &row.StandardMinutes, &row.PlannedBatchCount, &row.PlannedMinutes,
 		&row.HourlyRate, &row.CostMethod, &row.PieceRate, &row.PlannedOperationCost, &row.ActualMinutes, &row.ActualOperationCost,
 		&row.Status, &row.StartedAt, &row.PausedAt, &row.ResumedAt, &row.CompletedAt, &row.Operator,
 		&row.PlannedInputQty, &row.ActualInputQty, &row.ActualOutputQty, &row.ActualLossQty, &row.ActualLossRate,

@@ -134,6 +134,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS manufacturing_workstation_capacities_code_uq
 	WHERE code <> '';
 CREATE INDEX IF NOT EXISTS manufacturing_workstation_capacities_workstation_idx
 	ON %[1]s.manufacturing_workstation_capacities(workstation_id, status, sort_order, id);
+ALTER TABLE %[1]s.manufacturing_workstation_capacities ADD COLUMN IF NOT EXISTS scheduling_mode TEXT NOT NULL DEFAULT 'batch';
+ALTER TABLE %[1]s.manufacturing_workstation_capacities ADD COLUMN IF NOT EXISTS throughput_per_hour NUMERIC(14,4) NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.manufacturing_workstation_capacities ADD COLUMN IF NOT EXISTS cost_method TEXT NOT NULL DEFAULT 'time';
 ALTER TABLE %[1]s.manufacturing_workstation_capacities ADD COLUMN IF NOT EXISTS piece_rate NUMERIC(14,4) NOT NULL DEFAULT 0;
 

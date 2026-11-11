@@ -23,11 +23,16 @@ func TestDev488ProductionPlanSplitQtyAutoBatchContracts(t *testing.T) {
 		},
 		filepath.Join("frontend-vue-shell", "src", "components", "ProductionPlanCapacityWorkspace.vue"): {
 			"承担产量",
+			"CapacityBatchEditor",
+			`@update="$emit('split-change', split, $event)"`,
+		},
+		filepath.Join("frontend-vue-shell", "src", "components", "CapacityBatchEditor.vue"): {
 			"批次",
 			"planned_batch_count",
+			"withCapacityBatchCount",
 		},
 		filepath.Join("internal", "application", "production", "service.go"): {
-			"planned_qty required",
+			"planned_qty or positive planned_batch_count required",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "production", "production_plan.go"): {
 			"math.Ceil(split.PlannedQty/split.BatchSizeQty - 1e-9)",
@@ -58,7 +63,8 @@ func TestDev488ProductionPlanSplitQtyAutoBatchContracts(t *testing.T) {
 	}
 
 	viewSource := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "components", "ProductionPlanCapacityWorkspace.vue")))
-	if !strings.Contains(viewSource, `@input="changeBatchCount(split, $event)"`) || strings.Contains(viewSource, `@input="changeQuantity(split, $event)"`) {
-		t.Fatal("PR-719 requires editable batches and read-only planned quantity")
+	batchEditorSource := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "components", "CapacityBatchEditor.vue")))
+	if !strings.Contains(batchEditorSource, `@input="changeBatch($event.target.value)"`) || !strings.Contains(batchEditorSource, `min="1" step="1"`) || !strings.Contains(viewSource, `<strong>{{ metrics(split).planned_qty }}</strong>`) || strings.Contains(viewSource, `@input="changeQuantity(split, $event)"`) {
+		t.Fatal("batch arrangements require editable whole batch counts in the shared editor and read-only calculated quantity")
 	}
 }

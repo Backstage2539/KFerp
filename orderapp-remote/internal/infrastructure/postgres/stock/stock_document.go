@@ -31,6 +31,15 @@ func (r Repository) CreateStockDocumentDraft(ctx context.Context, cmd stockapp.S
 	return detail, nil
 }
 
+// CreatePlanStockDocumentDraftTx uses the existing draft and audit path inside
+// the production-plan transaction. The caller must validate all plan identities.
+func (r Repository) CreatePlanStockDocumentDraftTx(ctx context.Context, tx pgx.Tx, cmd stockapp.StockDocumentCommand) (stockapp.StockDocumentDetail, error) {
+	if cmd.SourceType != planMaterialTransferSource || cmd.SourceID <= 0 || cmd.Purpose != stockapp.PurposeMaterialTransfer {
+		return stockapp.StockDocumentDetail{}, fmt.Errorf("invalid production plan transfer")
+	}
+	return r.createStockDocumentDraftTx(ctx, tx, cmd)
+}
+
 func (r Repository) UpdateStockDocumentDraft(ctx context.Context, id int64, cmd stockapp.StockDocumentCommand) (stockapp.StockDocumentDetail, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -46,6 +55,13 @@ func (r Repository) UpdateStockDocumentDraft(ctx context.Context, id int64, cmd 
 	}
 	if status != "draft" {
 		return stockapp.StockDocumentDetail{}, fmt.Errorf("only draft stock document can be edited")
+	}
+	var sourceType string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT source_type FROM %s.stock_entries WHERE id=$1`, r.schema), id).Scan(&sourceType); err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
+	if sourceType == planMaterialTransferSource {
+		return stockapp.StockDocumentDetail{}, fmt.Errorf("生产计划调拨单请回到生产计划重新核对，不能直接修改")
 	}
 	if strings.TrimSpace(cmd.SourceType) == "order_resolution_return" || strings.TrimSpace(cmd.SourceType) == "order_resolution_ownership_return_out" || strings.TrimSpace(cmd.SourceType) == "order_resolution_company_scrap" {
 		return stockapp.StockDocumentDetail{}, fmt.Errorf("订单库存处置须从订单处理单完成仓库确认")
@@ -161,6 +177,9 @@ func (r Repository) CancelStockDocument(ctx context.Context, id int64, actor str
 		return stockapp.StockDocumentDetail{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := r.lockPlanMaterialTransferOwnerTx(ctx, tx, id); err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
 	status, err := r.lockStockDocumentStatusTx(ctx, tx, id)
 	if err != nil {
 		return stockapp.StockDocumentDetail{}, err
@@ -174,6 +193,29 @@ func (r Repository) CancelStockDocument(ctx context.Context, id int64, actor str
 			return stockapp.StockDocumentDetail{}, err
 		}
 		return detail, nil
+	}
+	if status == "draft" {
+		draft, err := r.loadStockDocumentDetailTx(ctx, tx, id)
+		if err != nil {
+			return stockapp.StockDocumentDetail{}, err
+		}
+		if draft.SourceType != planMaterialTransferSource {
+			return stockapp.StockDocumentDetail{}, fmt.Errorf("only submitted stock document can be cancelled")
+		}
+		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.stock_entries SET status='cancelled',cancelled_at=now(),updated_at=now() WHERE id=$1`, r.schema), id); err != nil {
+			return stockapp.StockDocumentDetail{}, err
+		}
+		if err = postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "stock_entry", &id, "cancel_draft", postgresinfra.StrPtr("status"), postgresinfra.StrPtr("draft"), postgresinfra.StrPtr("cancelled"), postgresinfra.AuditMeta{"production_plan_id": draft.SourceID}); err != nil {
+			return stockapp.StockDocumentDetail{}, err
+		}
+		draft, err = r.loadStockDocumentDetailTx(ctx, tx, id)
+		if err != nil {
+			return stockapp.StockDocumentDetail{}, err
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return stockapp.StockDocumentDetail{}, err
+		}
+		return draft, nil
 	}
 	if status != "submitted" {
 		return stockapp.StockDocumentDetail{}, fmt.Errorf("only submitted stock document can be cancelled")
@@ -343,6 +385,20 @@ func (r Repository) ListStockDocuments(ctx context.Context, query stockapp.Stock
 	}
 	if err := rows.Err(); err != nil {
 		return stockapp.StockDocumentResult{}, err
+	}
+	rows.Close()
+	ids := make([]int64, 0, len(out))
+	for _, row := range out {
+		if row.ID > 0 {
+			ids = append(ids, row.ID)
+		}
+	}
+	flags, err := stockDocumentUnknownCostItems(ctx, r.pool, r.schema, ids)
+	if err != nil {
+		return stockapp.StockDocumentResult{}, err
+	}
+	for i := range out {
+		out[i].CostUnavailable = flags[out[i].ID]
 	}
 	hasNext := len(out) > query.Limit
 	if hasNext {
@@ -736,6 +792,9 @@ func (r Repository) resolveOrdinaryFinishedStockDocumentDetailTx(ctx context.Con
 }
 
 func (r Repository) submitStockDocumentTx(ctx context.Context, tx pgx.Tx, id int64, actor string) (stockapp.StockDocumentDetail, error) {
+	if err := r.lockPlanMaterialTransferOwnerTx(ctx, tx, id); err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
 	status, err := r.lockStockDocumentStatusTx(ctx, tx, id)
 	if err != nil {
 		return stockapp.StockDocumentDetail{}, err
@@ -748,6 +807,9 @@ func (r Repository) submitStockDocumentTx(ctx context.Context, tx pgx.Tx, id int
 	}
 	detail, err := r.loadStockDocumentDetailTx(ctx, tx, id)
 	if err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
+	if err := r.validatePlanMaterialTransferDocumentTx(ctx, tx, detail); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
 	if detail.Purpose == stockapp.PurposeMaterialTransfer {
@@ -764,6 +826,9 @@ func (r Repository) submitStockDocumentTx(ctx context.Context, tx pgx.Tx, id int
 		return stockapp.StockDocumentDetail{}, err
 	}
 	if err := lockStockDocumentPostingTx(ctx, tx, r.schema, detail); err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
+	if err := r.validatePlanMaterialTransferWIPTx(ctx, tx, detail); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
 	if err := r.validateOrdinaryMaterialReceiptDetailTx(ctx, tx, detail); err != nil {
@@ -934,6 +999,59 @@ func (r Repository) lockStockDocumentStatusTx(ctx context.Context, tx pgx.Tx, id
 	return status, nil
 }
 
+type stockUnknownCostQueryer interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+func stockDocumentUnknownCostByItem(ctx context.Context, q stockUnknownCostQueryer, schema string, ids []int64) (map[int64]bool, error) {
+	flags := map[int64]bool{}
+	if len(ids) == 0 {
+		return flags, nil
+	}
+	rows, err := q.Query(ctx, fmt.Sprintf(`SELECT i.id,(
+ EXISTS(SELECT 1 FROM %[1]s.material_batches b WHERE b.batch_code=i.batch_code AND COALESCE((to_jsonb(b)->>'cost_unavailable')::boolean,false)) OR
+ EXISTS(SELECT 1 FROM %[1]s.stock_batches b WHERE b.batch_code=i.batch_code AND COALESCE((to_jsonb(b)->>'cost_unavailable')::boolean,false)) OR
+ EXISTS(SELECT 1 FROM %[1]s.stock_entry_batch_allocations a LEFT JOIN %[1]s.material_batches mb ON mb.id=a.material_batch_id LEFT JOIN %[1]s.stock_batches sb ON sb.id=a.stock_batch_id WHERE a.stock_entry_item_id=i.id AND (COALESCE((to_jsonb(mb)->>'cost_unavailable')::boolean,false) OR COALESCE((to_jsonb(sb)->>'cost_unavailable')::boolean,false))) OR
+ EXISTS(SELECT 1 FROM %[1]s.stock_entry_finished_batch_moves m JOIN %[1]s.stock_batches sb ON sb.batch_code IN (m.source_batch_code,m.target_batch_code) WHERE m.stock_entry_item_id=i.id AND COALESCE((to_jsonb(sb)->>'cost_unavailable')::boolean,false))
+ ) FROM %[1]s.stock_entry_items i WHERE i.stock_entry_id=ANY($1::bigint[])`, schema), ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var flag bool
+		if err = rows.Scan(&id, &flag); err != nil {
+			return nil, err
+		}
+		flags[id] = flag
+	}
+	return flags, rows.Err()
+}
+func stockDocumentUnknownCostItems(ctx context.Context, q stockUnknownCostQueryer, schema string, ids []int64) (map[int64]bool, error) {
+	flags := map[int64]bool{}
+	if len(ids) == 0 {
+		return flags, nil
+	}
+	itemFlags, err := stockDocumentUnknownCostByItem(ctx, q, schema, ids)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := q.Query(ctx, fmt.Sprintf(`SELECT id,stock_entry_id FROM %s.stock_entry_items WHERE stock_entry_id=ANY($1::bigint[])`, schema), ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, docID int64
+		if err = rows.Scan(&id, &docID); err != nil {
+			return nil, err
+		}
+		flags[docID] = flags[docID] || itemFlags[id]
+	}
+	return flags, rows.Err()
+}
+
 func (r Repository) loadStockDocumentDetailTx(ctx context.Context, tx pgx.Tx, id int64) (stockapp.StockDocumentDetail, error) {
 	var out stockapp.StockDocumentDetail
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -976,6 +1094,18 @@ func (r Repository) loadStockDocumentDetailTx(ctx context.Context, tx pgx.Tx, id
 		return stockapp.StockDocumentDetail{}, err
 	}
 	rows.Close()
+	unknownItems, err := stockDocumentUnknownCostItems(ctx, tx, r.schema, []int64{id})
+	if err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
+	out.CostUnavailable = unknownItems[id]
+	itemFlags, err := stockDocumentUnknownCostByItem(ctx, tx, r.schema, []int64{id})
+	if err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
+	for i := range out.Items {
+		out.Items[i].CostUnavailable = itemFlags[out.Items[i].ID]
+	}
 	automatic, err := automaticPickingWorkOrderTx(ctx, tx, r.schema, out.WorkOrderID)
 	if err != nil {
 		return stockapp.StockDocumentDetail{}, err
@@ -2405,6 +2535,15 @@ func (r Repository) postFinishedItemTx(ctx context.Context, tx pgx.Tx, detail st
 		`, r.schema), batchCode, itemTypeFinishedProduct, item.ProductID, productName, ownerCustomerID, item.SpecG, item.BomSpecID, item.BomVariantID, item.ID, detail.EntryNo, totalG, units, item.UnitCost, actor); err != nil {
 			return err
 		}
+		unknownCost, err := r.workOrderCostUnavailableTx(ctx, tx, detail.WorkOrderID)
+		if err != nil {
+			return err
+		}
+		if unknownCost {
+			if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.stock_batches SET cost_unavailable=true WHERE batch_code=$1`, r.schema), batchCode); err != nil {
+				return err
+			}
+		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.stock_entry_items SET item_name=$2,batch_code=$3,total_cost=$4 WHERE id=$1`, r.schema),
 			item.ID, productName, batchCode, stockItemTotalCost(totalG, units, item.UnitCost)); err != nil {
 			return err
@@ -2626,6 +2765,9 @@ func (r Repository) moveCanonicalFinishedBatchesTx(
 			RETURNING id
 		`, r.schema), move.TargetBatchCode, item.ProductID, productName, item.BomSpecID, move.BomVariantID,
 			moveID, move.SourceBatchCode, move.QtyUnits, move.UnitCost, move.QualityStatus, actor, targetOwnerCustomerID).Scan(&move.TargetBatchID); err != nil {
+			return "", err
+		}
+		if err := r.copyStockBatchCostAvailabilityTx(ctx, tx, move.SourceBatchID, move.TargetBatchID); err != nil {
 			return "", err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -2901,6 +3043,9 @@ func (r Repository) moveLegacyFinishedBatchesTx(
 			RETURNING id
 		`, r.schema), move.TargetBatchCode, item.ProductID, productName, ownerCustomerID, move.BomVariantID, item.SpecG,
 			moveID, move.SourceBatchCode, move.QtyG, move.QtyUnits, move.UnitCost, move.QualityStatus, actor).Scan(&move.TargetBatchID); err != nil {
+			return "", err
+		}
+		if err := r.copyStockBatchCostAvailabilityTx(ctx, tx, move.SourceBatchID, move.TargetBatchID); err != nil {
 			return "", err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`

@@ -13,6 +13,7 @@ func TestDirectShipBatchNonemptyEvidenceExists(t *testing.T) {
 	repoTest := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "customerportal", "repository_test.go")))
 	miniAPITest := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "customerportal", "mini_api_test.go")))
 	miniappService := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "pages", "service", "service.vue")))
+	miniappPanel := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "components", "CustomerDirectShipPanel.vue")))
 	miniappTest := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "utils", "mall.test.ts")))
 	acceptance := string(readOrderAppFileForTest(t, filepath.Join("..", "docs", "acceptance", "2026-05-13-three-template-business-audit.md")))
 
@@ -53,10 +54,16 @@ func TestDirectShipBatchNonemptyEvidenceExists(t *testing.T) {
 	}
 	for _, want := range []string{
 		"CustomerDirectShipPanel",
-		"show-create",
+		"serviceKey === 'directShip'",
+		":entry-mode=\"directShipEntryMode\"",
 	} {
 		if !strings.Contains(miniappService, want) {
 			t.Fatalf("miniapp service page missing replacement direct ship marker %q", want)
+		}
+	}
+	for _, want := range []string{"showCreate: true", `v-if="showCreate"`, "createDirectShipRequest"} {
+		if !strings.Contains(miniappPanel, want) {
+			t.Fatalf("miniapp direct ship panel missing active creation marker %q", want)
 		}
 	}
 	if !strings.Contains(miniappTest, "replaces the mini-program batch form with the single-write direct shipment panel") {

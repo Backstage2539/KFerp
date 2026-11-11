@@ -88,6 +88,7 @@
           </div>
           <button class="secondary compact" type="button" @click="closeWorkOrderSplitDrawer">关闭</button>
         </div>
+        <OperationReportingRecheck kind="work_order" :id="Number(workOrderSplitRow.id || workOrderSplitRow.work_order_id)" @updated="closeWorkOrderSplitDrawer(); load()" />
         <div v-if="workOrderSplitError" class="error">{{ workOrderSplitError }}</div>
         <div v-for="operation in workOrderSplitOperations" :key="`${operation.seq || operation.sequence_no || operation.operation}-${operation.operation_id || 0}`" class="split-operation-block">
           <div class="split-operation-head">
@@ -96,31 +97,35 @@
             <button class="secondary compact" type="button" @click="autoSplitWorkOrderOperation(operation)" :disabled="!applicableOperationCapacities(operation, activeWorkstationCapacities).length">自动拆分</button>
             <button class="secondary compact" type="button" @click="addWorkOrderOperationSplit(operation)">添加拆分</button>
           </div>
+          <p class="split-variance">{{ workOrderVarianceLabel(operation) }}。不足或超排仅作提示，不阻止保存。</p>
           <div class="split-row" v-for="(split, splitIndex) in workOrderSplitRowsForOperation(operation)" :key="split.local_key || split.id || `${operation.seq}-${splitIndex}`">
             <label>
               <span>工位产能</span>
               <select v-model.number="split.workstation_capacity_id" @change="applyWorkOrderSplitCapacity(split)">
                 <option value="0">选择工位产能，例如 布勒 18kg / 智烘 4kg</option>
-                <option v-for="capacity in activeWorkstationCapacities" :key="capacity.id" :value="capacity.id">{{ capacityOptionLabel(capacity) }}</option>
+                <option v-for="capacity in applicableOperationCapacities(operation, activeWorkstationCapacities)" :key="capacity.id" :value="capacity.id">{{ capacityOptionLabel(capacity) }}</option>
               </select>
             </label>
-            <label>
+            <label v-if="split.scheduling_mode === 'quantity'">
               <span>承担产量{{ splitQuantityUnit(split) }}</span>
               <input v-model.number="split.planned_qty" type="number" min="0" :step="splitQuantityStep(split)" />
             </label>
-            <div class="split-metric">
-              <span>自动批次数</span>
-              <strong>{{ plannedCapacitySplitMetrics(split).planned_batch_count || 0 }}</strong>
+            <div v-else class="split-metric">
+              <span>承担产量{{ splitQuantityUnit(split) }}</span>
+              <strong>{{ plannedCapacitySplitMetrics(split).planned_qty || 0 }}</strong>
+              <small v-if="isLegacyPartialCapacitySplit(split)">历史尾批 · 修改后按整批计算</small>
             </div>
             <div class="split-metric">
               <span>计划分钟</span>
-              <strong>{{ plannedCapacitySplitMetrics(split).planned_minutes || 0 }}</strong>
+              <strong>{{ plannedCapacitySplitMetrics(split).planned_minutes ?? '未配置参考速度' }}</strong>
             </div>
             <div class="split-metric">
               <span>计划工序成本</span>
-              <strong>{{ plannedCapacitySplitMetrics(split).planned_operation_cost || 0 }}</strong>
+              <strong>{{ plannedCapacitySplitMetrics(split).planned_operation_cost ?? '未配置参考速度' }}</strong>
             </div>
             <button class="secondary compact danger-text" type="button" @click="removeWorkOrderOperationSplit(split)">删除</button>
+            <CapacityBatchEditor v-if="split.scheduling_mode !== 'quantity' && split.workstation_capacity_id" :split="split" :rows="workOrderSplitRowsForOperation(operation)" :item="workOrderSplitRow" :capacities="workstationCapacities" :disabled="workOrderSplitSaving" :can-save-preset="canSaveCapacityPreset" @update="Object.assign(split, $event)" @preset-saved="addWorkOrderCapacityPreset" />
+            <p v-if="workOrderSplitInputError(split)" class="split-validation" role="alert">{{ workOrderSplitInputError(split) }}</p>
             <div v-if="splitBatchCards(split).length" class="split-batch-cards" aria-label="自动批次卡片">
               <div
                 v-for="batch in splitBatchCards(split)"
@@ -207,13 +212,23 @@ import { computed, onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDrawer.vue'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
+import OperationReportingRecheck from '../components/OperationReportingRecheck.vue'
+import CapacityBatchEditor from '../components/CapacityBatchEditor.vue'
+import { fetchCurrentActor } from '../api/auth'
+import { actorHasFullViewAccess } from '../lib/menu-permissions'
+import { weightUnit } from '../lib/operation-completion.js'
 import { formatPercent } from '../lib/manufacturing-loss'
 import { workOrderStatusLabel } from '../lib/manufacturing-execution'
 import { clearRecordedOutputReceiptAttempt, readRecordedOutputReceiptAttempt, recordedOutputReceiptPayload, saveRecordedOutputReceiptAttempt } from '../lib/recorded-output-receipt.js'
 import { loadProductionPlanWorkOrders } from '../lib/production-plan-work-orders'
 import {
   applicableOperationCapacities,
+  applyCapacityBatchSnapshot,
+  capacityOperationVariance,
+  capacitySplitAvailabilityError,
+  isLegacyPartialCapacitySplit,
   buildOperationCapacityAutoSplits,
+  operationCapacityAutoSplitError,
   maxAssignableQtyForCapacitySplit,
   plannedCapacitySplitMetrics,
   productionPlanItemOutputTargetG,
@@ -254,6 +269,8 @@ function returnToSource() {
   if (source?.key) window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: source.key, params: source.params || {} } }))
 }
 const workstationCapacities = ref([])
+const actor = ref(null)
+const canSaveCapacityPreset = computed(() => actorHasFullViewAccess(actor.value) || (actor.value?.permissions || []).includes('bom.write'))
 const status = ref('active')
 const query = ref('')
 const loading = ref(false)
@@ -716,6 +733,7 @@ function splitQuantityUnit(split) {
 function splitQuantityStep(split) {
   const unit = String(split?.batch_size_unit || '').trim().toLowerCase()
   if (unit === 'g' || unit === '克') return '1'
+  if (!weightUnit(unit)) return '1'
   return '0.001'
 }
 
@@ -771,8 +789,13 @@ function normalizeWorkOrderSplit(row = {}) {
     workstation_capacity_id: Number(row.workstation_capacity_id || 0),
     workstation_capacity_name: row.workstation_capacity_name || '',
     batch_size_qty: Number(row.batch_size_qty || 0),
+    custom_batch_size_qty: row.custom_batch_size_qty ?? null,
+    batch_input: !!row.batch_input || row.custom_batch_size_qty != null || (!Number(row.planned_qty || row.planned_input_qty || 0) && Number(row.planned_batch_count || 0) > 0),
+    batch_count_source: row.batch_count_source || 'manual',
     batch_size_unit: row.batch_size_unit || '',
     standard_minutes: Number(row.standard_minutes || 0),
+    scheduling_mode: row.scheduling_mode || 'batch',
+    throughput_per_hour: Number(row.throughput_per_hour || 0),
     hourly_rate: Number(row.hourly_rate || 0),
     cost_method: normalizeCapacityCostMethod(row),
     piece_rate: Number(row.piece_rate || 0),
@@ -780,7 +803,7 @@ function normalizeWorkOrderSplit(row = {}) {
     spec_g: Number(row.spec_g || workOrderSplitRow.value?.spec_g || 0),
     sales_spec_count: Number(row.sales_spec_count || workOrderSplitRow.value?.sales_spec_count || 0),
     item_target_g: Number(row.item_target_g || productionPlanItemOutputTargetG(workOrderSplitRow.value || {})),
-    planned_qty: Number(row.planned_qty || qtyFromGForSplitUnit(Number(row.planned_input_qty || row.planned_qty_g || 0), row.batch_size_unit)),
+    planned_qty: row.scheduling_mode === 'quantity' ? Number(row.planned_qty ?? row.planned_input_qty ?? 0) : Number(row.planned_qty || qtyFromGForSplitUnit(Number(row.planned_input_qty || row.planned_qty_g || 0), row.batch_size_unit)),
     planned_qty_g: Number(row.planned_qty_g || row.planned_input_qty || 0),
     planned_minutes: Number(row.planned_minutes || 0),
     planned_operation_cost: Number(row.planned_operation_cost || 0),
@@ -796,6 +819,7 @@ function addWorkOrderOperationSplit(operation) {
     operation: identity.name,
     spec_g: Number(workOrderSplitRow.value?.spec_g || 0),
     planned_qty: 0,
+    batch_count_source: 'auto',
   }))
 }
 
@@ -806,15 +830,7 @@ function removeWorkOrderOperationSplit(split) {
 function applyWorkOrderSplitCapacity(split) {
   const capacity = workstationCapacities.value.find((row) => Number(row.id || 0) === Number(split.workstation_capacity_id || 0))
   if (!capacity) return
-  split.workstation_id = Number(capacity.workstation_id || 0)
-  split.workstation = capacity.workstation || ''
-  split.workstation_capacity_name = capacity.name || ''
-  split.batch_size_qty = Number(capacity.batch_size_qty || 0)
-  split.batch_size_unit = capacity.batch_size_unit || ''
-  split.standard_minutes = Number(capacity.standard_minutes || 0)
-  split.hourly_rate = Number(capacity.hourly_rate || 0)
-  split.cost_method = normalizeCapacityCostMethod(capacity)
-  split.piece_rate = Number(capacity.piece_rate || 0)
+  Object.assign(split, applyCapacityBatchSnapshot({ ...split, custom_batch_size_qty: null }, capacity))
   split.spec_g = Number(split.spec_g || workOrderSplitRow.value?.spec_g || 0)
   split.sales_spec_count = Number(split.sales_spec_count || workOrderSplitRow.value?.sales_spec_count || 0)
   split.item_target_g = Number(split.item_target_g || productionPlanItemOutputTargetG(workOrderSplitRow.value || {}))
@@ -823,9 +839,25 @@ function applyWorkOrderSplitCapacity(split) {
   }
 }
 
+function addWorkOrderCapacityPreset(capacity) {
+  if (capacity?.id) workstationCapacities.value = [...workstationCapacities.value.filter(row => Number(row.id) !== Number(capacity.id)), capacity]
+}
+
+function workOrderSplitInputError(split) {
+  return capacitySplitAvailabilityError(split, workOrderSplitRow.value || {}, { ...split, seq: split.operation_seq }, workstationCapacities.value) || (plannedCapacitySplitMetrics(split).planned_qty > 0 ? '' : '承担数量必须大于 0')
+}
+
+function workOrderVarianceLabel(operation) {
+  const result = capacityOperationVariance(workOrderSplitRows.value, workOrderSplitRow.value || {}, operation)
+  if (!result) return '尚未安排工位'
+  const diff = result.diff_qty > 0 ? `超排 ${splitQtyText(result.diff_qty, result.unit)}` : result.diff_qty < 0 ? `不足 ${splitQtyText(-result.diff_qty, result.unit)}` : '刚好满足目标'
+  return `目标 ${splitQtyText(result.required_qty, result.unit)} · 已安排 ${splitQtyText(result.arranged_qty, result.unit)} · ${diff}`
+}
+
 function autoSplitWorkOrderOperation(operation) {
   if (!workOrderSplitRow.value) return
-  const autoRows = buildOperationCapacityAutoSplits({
+  workOrderSplitError.value = ''
+  const target = {
     id: Number(workOrderSplitRow.value.production_plan_item_id || 0),
     planned_g: Number(workOrderSplitRow.value.planned_g || 0),
     planned_output_g: Number(workOrderSplitRow.value.planned_output_g || 0),
@@ -834,7 +866,12 @@ function autoSplitWorkOrderOperation(operation) {
     inventory_qty_per_sales_unit: Number(workOrderSplitRow.value.inventory_qty_per_sales_unit || 0),
     inventory_unit: String(workOrderSplitRow.value.inventory_unit || ''),
     planned_inventory_qty: Number(workOrderSplitRow.value.planned_inventory_qty || 0),
-  }, operation, activeWorkstationCapacities.value).map(normalizeWorkOrderSplit)
+  }
+  const autoRows = buildOperationCapacityAutoSplits(target, operation, activeWorkstationCapacities.value, { wholeBatches: true }).map(normalizeWorkOrderSplit)
+  if (!autoRows.length) {
+    workOrderSplitError.value = operationCapacityAutoSplitError(target, operation, activeWorkstationCapacities.value) || '无法按当前产能单位和任务数量自动拆分，已保留原拆分。'
+    return
+  }
   workOrderSplitRows.value = [
     ...workOrderSplitRows.value.filter((split) => !splitMatchesOperation(split, operation)),
     ...autoRows,
@@ -854,7 +891,7 @@ function withAutoWorkOrderSplits(rows) {
       inventory_qty_per_sales_unit: Number(workOrderSplitRow.value?.inventory_qty_per_sales_unit || 0),
       inventory_unit: String(workOrderSplitRow.value?.inventory_unit || ''),
       planned_inventory_qty: Number(workOrderSplitRow.value?.planned_inventory_qty || 0),
-    }, operation, activeWorkstationCapacities.value).map(normalizeWorkOrderSplit)
+    }, operation, activeWorkstationCapacities.value, { wholeBatches: true }).map(normalizeWorkOrderSplit)
     if (autoRows.length) nextRows = [...nextRows, ...autoRows]
   }
   return nextRows
@@ -900,6 +937,8 @@ async function saveWorkOrderOperationSplits() {
   workOrderSplitSaving.value = true
   workOrderSplitError.value = ''
   try {
+    const invalid = workOrderSplitRows.value.map(workOrderSplitInputError).find(Boolean)
+    if (invalid) throw new Error(invalid)
     const payload = buildWorkOrderOperationSplitPayload(workOrderSplitRows.value)
     await apiSend(endpoint, { body: payload })
     await load()
@@ -913,6 +952,7 @@ async function saveWorkOrderOperationSplits() {
 
 
 onMounted(() => {
+  fetchCurrentActor().then(value => { actor.value = value }).catch(() => {})
   load()
   if (Number(props.viewParams?.work_order_id || 0) > 0) {
     openExecutionHub({ id: Number(props.viewParams.work_order_id) }, props.viewParams?.focus || 'summary')
@@ -922,6 +962,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.split-variance{margin:0;font-size:12px;line-height:1.6;color:#677772}.split-validation{grid-column:1/-1;margin:0;color:#a54022;font-size:12px}.split-row{grid-template-columns:minmax(190px,1.3fr) repeat(3,minmax(90px,.5fr)) auto!important}.split-metric small{display:block;color:#92580b;font-size:11px;margin-top:4px}@media(max-width:760px){.split-row{grid-template-columns:1fr!important}.work-order-split-drawer{box-sizing:border-box;width:100vw}}
 .receipt-success{padding:12px;color:#21824b;background:#edf7f0;border-radius:8px}
 .page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}h3{margin:0;font-size:16px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,input,button{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.danger-text{color:#b91c1c}.link-button{border:0;background:transparent;color:#1d4ed8;padding:0;min-height:0;text-decoration:underline}.work-order-link{font-weight:700}.row-actions{display:flex;gap:6px;flex-wrap:wrap}.table-wrap{overflow:auto}table{width:100%;min-width:1260px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.advice strong{display:block}.summary{max-width:220px;line-height:1.45}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.status.info{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.status.warning{border-color:#fed7aa;background:#fff7ed;color:#c2410c}.status.success{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.status.danger{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.status.neutral{border-color:#d1d5db;background:#f9fafb;color:#374151}.muted{color:#666;text-align:center}.text-left{text-align:left}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.drawer-backdrop{position:fixed;inset:0;background:rgba(17,24,39,.28);z-index:40;display:flex;justify-content:flex-end}.work-order-split-drawer{width:min(900px,92vw);height:100%;overflow:auto;background:#fff;padding:18px;box-shadow:-12px 0 28px rgba(15,23,42,.18);display:grid;align-content:start;gap:14px}.drawer-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;border-bottom:1px solid #e5e7eb;padding-bottom:12px}.drawer-head p{margin:6px 0 0;color:#666}.split-operation-block{border-top:1px solid #e5e7eb;padding-top:14px;display:grid;gap:10px}.split-operation-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.split-operation-head span{color:#666}.split-row{display:grid;grid-template-columns:minmax(220px,1.2fr) minmax(130px,.6fr) repeat(3,minmax(92px,.4fr)) auto;gap:10px;align-items:end;border:1px solid #eef2f7;border-radius:8px;padding:10px}.split-metric{border:1px solid #e5e7eb;border-radius:6px;padding:7px 9px;background:#fbfbfb}.split-metric span{display:block;font-size:12px;color:#666}.split-metric strong{font-size:14px}.split-batch-cards{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}.split-batch-card{border:1px solid #dbeafe;border-radius:6px;background:#eff6ff;padding:8px;display:grid;gap:3px}.split-batch-card small,.split-batch-card span{color:#374151}.split-batch-card.underfilled{border-color:#fed7aa;background:#fff7ed}.split-batch-card em{color:#c2410c;font-style:normal;font-size:12px}.section-hint{padding:8px 0}.drawer-actions{display:flex;gap:10px;justify-content:flex-end;border-top:1px solid #e5e7eb;padding-top:12px}
 

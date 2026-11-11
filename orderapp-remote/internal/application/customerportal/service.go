@@ -122,6 +122,7 @@ type CreateLoginSessionCommand struct {
 
 type CreatePhoneVerifiedLoginSessionCommand struct {
 	Registration   bool
+	Identify       bool
 	CredentialHash string
 	OpenID         string
 	UnionID        string
@@ -720,6 +721,7 @@ type CreateMallOrderCommand struct {
 }
 
 type CustomerOrderFeeSummary struct {
+	HasBilledFees bool  `json:"has_billed_fees"`
 	GoodsCents    int64 `json:"goods_cents"`
 	ShippingCents int64 `json:"shipping_cents"`
 	ServiceCents  int64 `json:"service_cents"`
@@ -728,34 +730,45 @@ type CustomerOrderFeeSummary struct {
 	UnpaidCents   int64 `json:"unpaid_cents"`
 }
 
+type CustomerOrderLogisticsEvent struct {
+	TrackingNo  string `json:"tracking_no"`
+	EventTime   string `json:"event_time"`
+	Status      string `json:"status"`
+	Description string `json:"description"`
+	Location    string `json:"location"`
+}
+
 type CustomerOrderSummary struct {
-	IsVoid                bool                       `json:"is_void"`
-	FeeSummary            *CustomerOrderFeeSummary   `json:"fee_summary,omitempty"`
-	FulfillmentProgress   *progressdomain.Progress   `json:"fulfillment_progress,omitempty"`
-	Freight               *freightdomain.OrderView   `json:"freight,omitempty"`
-	DeliveryMode          string                     `json:"delivery_mode"`
-	DeliveryWarehouseCode string                     `json:"delivery_warehouse_code"`
-	DeliveryStatus        string                     `json:"delivery_status"`
-	FulfillmentMode       string                     `json:"fulfillment_mode"`
-	PrepaymentAmount      string                     `json:"prepayment_amount"`
-	PaidAmount            string                     `json:"paid_amount"`
-	UnpaidAmount          string                     `json:"unpaid_amount"`
-	ID                    int64                      `json:"id"`
-	OrderNo               string                     `json:"order_no"`
-	OrderDate             string                     `json:"order_date"`
-	ReceiverName          string                     `json:"receiver_name"`
-	ReceiverPhone         string                     `json:"receiver_phone"`
-	ReceiverAddress       string                     `json:"receiver_address"`
-	ProcessStatus         string                     `json:"process_status"`
-	PayStatus             string                     `json:"pay_status"`
-	PaymentMethod         string                     `json:"payment_method"`
-	ShipStatus            string                     `json:"ship_status"`
-	ShipTrackingNo        string                     `json:"ship_tracking_no"`
-	GrandTotal            string                     `json:"grand_total"`
-	ShippingAmount        string                     `json:"shipping_amount"`
-	SalesOrderURL         string                     `json:"sales_order_url,omitempty"`
-	DeliveryNoteURL       string                     `json:"delivery_note_url,omitempty"`
-	Items                 []CustomerOrderItemSummary `json:"items,omitempty"`
+	LogisticsEvent        *CustomerOrderLogisticsEvent `json:"logistics_event,omitempty"`
+	OrderKind             string                       `json:"order_kind"`
+	ConfirmationStatus    string                       `json:"confirmation_status"`
+	IsVoid                bool                         `json:"is_void"`
+	FeeSummary            *CustomerOrderFeeSummary     `json:"fee_summary,omitempty"`
+	FulfillmentProgress   *progressdomain.Progress     `json:"fulfillment_progress,omitempty"`
+	Freight               *freightdomain.OrderView     `json:"freight,omitempty"`
+	DeliveryMode          string                       `json:"delivery_mode"`
+	DeliveryWarehouseCode string                       `json:"delivery_warehouse_code"`
+	DeliveryStatus        string                       `json:"delivery_status"`
+	FulfillmentMode       string                       `json:"fulfillment_mode"`
+	PrepaymentAmount      string                       `json:"prepayment_amount"`
+	PaidAmount            string                       `json:"paid_amount"`
+	UnpaidAmount          string                       `json:"unpaid_amount"`
+	ID                    int64                        `json:"id"`
+	OrderNo               string                       `json:"order_no"`
+	OrderDate             string                       `json:"order_date"`
+	ReceiverName          string                       `json:"receiver_name"`
+	ReceiverPhone         string                       `json:"receiver_phone"`
+	ReceiverAddress       string                       `json:"receiver_address"`
+	ProcessStatus         string                       `json:"process_status"`
+	PayStatus             string                       `json:"pay_status"`
+	PaymentMethod         string                       `json:"payment_method"`
+	ShipStatus            string                       `json:"ship_status"`
+	ShipTrackingNo        string                       `json:"ship_tracking_no"`
+	GrandTotal            string                       `json:"grand_total"`
+	ShippingAmount        string                       `json:"shipping_amount"`
+	SalesOrderURL         string                       `json:"sales_order_url,omitempty"`
+	DeliveryNoteURL       string                       `json:"delivery_note_url,omitempty"`
+	Items                 []CustomerOrderItemSummary   `json:"items,omitempty"`
 }
 
 type CustomerOrderItemSummary struct {
@@ -956,7 +969,14 @@ type SettlementBatch struct {
 	CreatedAt    string `json:"created_at"`
 }
 
+type OrderProgressCounts struct {
+	Accepted     int `json:"accepted"`
+	InProduction int `json:"in_production"`
+	Shipped      int `json:"shipped"`
+}
+
 type ServicePage struct {
+	ProgressCounts        *OrderProgressCounts             `json:"progress_counts,omitempty"`
 	Page                  int                              `json:"page"`
 	PageSize              int                              `json:"page_size"`
 	HasMore               bool                             `json:"has_more"`
@@ -984,6 +1004,8 @@ type ServicePage struct {
 }
 
 type ServicePageQuery struct {
+	OrderKind             string
+	Progress              string
 	OrderID               int64
 	Offset                int
 	SelectedPriceTableIDs []int64
@@ -999,6 +1021,8 @@ type ServicePageQuery struct {
 }
 
 type ServicePageFilter struct {
+	OrderKind             string
+	Progress              string
 	OrderID               int64
 	Page                  int
 	PageSize              int
@@ -1289,6 +1313,7 @@ type Repository interface {
 type Service struct {
 	repo     Repository
 	identity IdentityProvider
+	previews previewSessions
 }
 
 type processingRequestPreviewRepository interface {
@@ -1347,7 +1372,7 @@ func (s *Service) Login(ctx context.Context, cmd LoginCommand) (LoginResult, err
 			Phone:    strings.TrimSpace(cmd.Phone),
 			Nickname: strings.TrimSpace(cmd.Nickname),
 		})
-	case "phone_verify", "register":
+	case "phone_verify", "register", "phone_identify":
 		if mode == "register" && !ValidRegistrationNickname(cmd.Nickname) {
 			return LoginResult{}, fmt.Errorf("请填写 1 至 32 字的昵称")
 		}
@@ -1364,15 +1389,12 @@ func (s *Service) Login(ctx context.Context, cmd LoginCommand) (LoginResult, err
 		if err != nil {
 			return LoginResult{}, err
 		}
-		phone := strings.TrimSpace(phoneNumber.PhoneNumber)
-		if phone == "" {
-			phone = strings.TrimSpace(phoneNumber.PurePhoneNumber)
-		}
+		phone := normalizeVerifiedMiniPhone(phoneNumber)
 		if phone == "" {
 			return LoginResult{}, fmt.Errorf("phone required")
 		}
 		result, err = s.repo.CreatePhoneVerifiedLoginSession(ctx, CreatePhoneVerifiedLoginSessionCommand{
-			Registration: mode == "register", CredentialHash: PhoneCredentialHash(phoneCode),
+			Registration: mode == "register" || mode == "phone_identify", Identify: mode == "phone_identify", CredentialHash: PhoneCredentialHash(phoneCode),
 			OpenID:   identity.OpenID,
 			UnionID:  strings.TrimSpace(identity.UnionID),
 			Phone:    phone,
@@ -1385,6 +1407,41 @@ func (s *Service) Login(ctx context.Context, cmd LoginCommand) (LoginResult, err
 		return LoginResult{}, err
 	}
 	return normalizeLoginResult(result), nil
+}
+
+var explicitInternationalPhone = regexp.MustCompile(`^\+[1-9][0-9]{1,14}$`)
+
+// Non-mainland numbers must retain a verified country prefix: a bare national
+// number from another country must never match a mainland customer account.
+func normalizeVerifiedMiniPhone(number MiniPhoneNumber) string {
+	full := strings.TrimSpace(number.PhoneNumber)
+	pure := strings.TrimSpace(number.PurePhoneNumber)
+	country := strings.TrimPrefix(strings.TrimSpace(number.CountryCode), "+")
+	if country == "86" {
+		if pure != "" {
+			return pure
+		}
+		return strings.TrimPrefix(full, "+86")
+	}
+	if country != "" {
+		if pure != "" {
+			return "+" + country + pure
+		}
+		if strings.HasPrefix(full, "+"+country) {
+			return full
+		}
+		return ""
+	}
+	// An absent country code is ambiguous unless the full number itself has
+	// an explicit international prefix. Never treat an unqualified number as
+	// a local account identifier merely because its digits happen to match.
+	if !explicitInternationalPhone.MatchString(full) {
+		return ""
+	}
+	if strings.HasPrefix(full, "+86") && len(full) > len("+86") {
+		return strings.TrimPrefix(full, "+86")
+	}
+	return full
 }
 
 func (s *Service) LoginWithPassword(ctx context.Context, cmd PasswordLoginCommand) (LoginResult, error) {
@@ -1417,9 +1474,18 @@ func (s *Service) Me(ctx context.Context, token string) (CurrentContext, error) 
 	if s.repo == nil {
 		return CurrentContext{}, fmt.Errorf("repository required")
 	}
+	if IsAdminPreviewToken(token) {
+		return s.previewContext(ctx, token)
+	}
+	if s.employeeSessionRevoked(token) {
+		return CurrentContext{}, ErrMiniSessionNotFound
+	}
 	current, err := s.repo.CurrentContextByToken(ctx, token)
 	if err != nil {
 		return CurrentContext{}, err
+	}
+	if s.employeeSessionRevoked(token) {
+		return CurrentContext{}, ErrMiniSessionNotFound
 	}
 	if current.CurrentCustomerID > 0 && current.AccountType != "employee" {
 		if modes, ok := s.repo.(interface {
@@ -1620,6 +1686,7 @@ func (s *Service) GetServicePage(ctx context.Context, token, key string, filter 
 		offset = (pageNo - 1) * limit
 	}
 	page, err := s.repo.LoadServicePage(ctx, ServicePageQuery{
+		OrderKind: filter.OrderKind, Progress: filter.Progress,
 		OrderID:               filter.OrderID,
 		Offset:                offset,
 		SelectedPriceTableIDs: filter.SelectedPriceTableIDs,
@@ -3506,7 +3573,7 @@ func NormalizeMallTemplateKey(value string) string {
 
 func normalizeServicePageFilter(filter ServicePageFilter) ServicePageFilter {
 	out := ServicePageFilter{
-		Page: filter.Page, PageSize: filter.PageSize, OrderID: max(0, filter.OrderID),
+		Page: filter.Page, PageSize: filter.PageSize, OrderID: max(0, filter.OrderID), OrderKind: strings.TrimSpace(filter.OrderKind), Progress: strings.TrimSpace(filter.Progress),
 		Query:         strings.Join(strings.Fields(strings.TrimSpace(filter.Query)), " "),
 		DateFrom:      normalizeDateString(filter.DateFrom),
 		DateTo:        normalizeDateString(filter.DateTo),

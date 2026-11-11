@@ -62,7 +62,7 @@ func (r Repository) ConfirmNotificationBinding(ctx context.Context, token, appID
 	if e != nil || openid == "" || boundCustomer != customer || boundEmployee != employee {
 		return errors.New("绑定请求已过期或账号已变化，请重新扫码")
 	}
-	tag, e := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.wechat_bindings(app_id,openid,mini_user_id,customer_id,employee_id,active,subscribed,notifications_enabled,bound_at,notification_consent_at) VALUES($1,$2,$3,$4,$5,true,true,true,now(),now()) ON CONFLICT(app_id,openid) DO UPDATE SET customer_id=excluded.customer_id,employee_id=excluded.employee_id,active=true,subscribed=true,notifications_enabled=true,bound_at=now(),notification_consent_at=now() WHERE %[1]s.wechat_bindings.mini_user_id=excluded.mini_user_id`, r.schema), appID, openid, mini, customer, employee)
+	tag, e := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.wechat_bindings(app_id,openid,mini_user_id,customer_id,employee_id,active,subscribed,notifications_enabled,bound_at,notification_consent_at) VALUES($1,$2,$3,$4,$5,true,true,true,now(),now()) ON CONFLICT(app_id,openid) DO UPDATE SET mini_user_id=excluded.mini_user_id,customer_id=excluded.customer_id,employee_id=excluded.employee_id,active=true,subscribed=true,notifications_enabled=true,bound_at=now(),notification_consent_at=now() WHERE NOT %[1]s.wechat_bindings.active OR %[1]s.wechat_bindings.mini_user_id=excluded.mini_user_id`, r.schema), appID, openid, mini, customer, employee)
 	if e != nil {
 		return e
 	}

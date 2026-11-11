@@ -26,7 +26,7 @@ func (r Repository) OfficialAccountContext(ctx context.Context, userID, customer
 		}
 		return app.CurrentContext{}, err
 	}
-	if strings.HasPrefix(openID, "erp-internal-employee:") {
+	if strings.HasPrefix(openID, "erp-internal-employee:") || strings.HasPrefix(openID, wechatEmployeePrefix) {
 		return app.CurrentContext{}, app.ErrCustomerBindingNotFound
 	}
 	v, err := r.validateProjectedMiniBindingsTx(ctx, tx, userID, openID, boundAt)

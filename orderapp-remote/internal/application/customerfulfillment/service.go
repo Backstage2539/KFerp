@@ -108,14 +108,15 @@ type BillingSource struct {
 type BillingCharge struct {
 	ID string `json:"id"`
 	BillingSource
-	SourceNo           string `json:"source_no,omitempty"`
-	Description        string `json:"description,omitempty"`
-	OccurredAt         string `json:"occurred_at"`
-	ReceivableCents    int64  `json:"receivable_cents"`
-	ReceivedCents      int64  `json:"received_cents"`
-	DueCents           int64  `json:"due_cents"`
-	ConfirmationStatus string `json:"confirmation_status"`
-	SettlementStatus   string `json:"settlement_status"`
+	Detail             *BillingLineDetail `json:"detail,omitempty"`
+	SourceNo           string             `json:"source_no,omitempty"`
+	Description        string             `json:"description,omitempty"`
+	OccurredAt         string             `json:"occurred_at"`
+	ReceivableCents    int64              `json:"receivable_cents"`
+	ReceivedCents      int64              `json:"received_cents"`
+	DueCents           int64              `json:"due_cents"`
+	ConfirmationStatus string             `json:"confirmation_status"`
+	SettlementStatus   string             `json:"settlement_status"`
 }
 
 type BillingTotals struct {
@@ -153,11 +154,36 @@ type BillingPage struct {
 	Limit int             `json:"limit"`
 }
 
+type IssuedBillSummary struct {
+	Count            int   `json:"count"`
+	UnpaidCount      int   `json:"unpaid_count"`
+	TotalAmountCents int64 `json:"total_amount_cents"`
+	ReceivedCents    int64 `json:"received_cents"`
+	DueAmountCents   int64 `json:"due_amount_cents"`
+	AdjustmentCents  int64 `json:"adjustment_cents"`
+}
+
+func SummarizeIssuedBills(rows []BillingBill) IssuedBillSummary {
+	var result IssuedBillSummary
+	for _, bill := range rows {
+		result.Count++
+		if bill.DueAmountCents > 0 {
+			result.UnpaidCount++
+		}
+		result.TotalAmountCents += bill.TotalAmountCents
+		result.ReceivedCents += bill.ReceivedCents
+		result.DueAmountCents += bill.DueAmountCents
+		result.AdjustmentCents += bill.AdjustmentCents
+	}
+	return result
+}
+
 type BillingBillsPage struct {
-	Rows  []BillingBill `json:"rows"`
-	Total int           `json:"total"`
-	Page  int           `json:"page"`
-	Limit int           `json:"limit"`
+	Summary IssuedBillSummary `json:"summary"`
+	Rows    []BillingBill     `json:"rows"`
+	Total   int               `json:"total"`
+	Page    int               `json:"page"`
+	Limit   int               `json:"limit"`
 }
 
 type BillingPDFPlacement struct {

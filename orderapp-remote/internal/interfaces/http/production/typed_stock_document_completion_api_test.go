@@ -448,6 +448,12 @@ func TestTypedProductStockDocumentFinishUnlocksDownstreamThroughCompleteFlow(t *
 		FROM %s.production_plan_items WHERE production_plan_id=%d;
 	`, schema, schema, planID))
 	selectPlanningTestSources(t, app, planID)
+	blockedPlan := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
+	if blockedPlan.Code != http.StatusBadRequest {
+		t.Fatalf("plan must await fixture transfer into WIP: %d %s", blockedPlan.Code, blockedPlan.Body.String())
+	}
+	moveFixtureTypedFinishedToWIP(t, pool, schema)
+	selectPlanningTestSources(t, app, planID)
 	submitPlan := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
 	if submitPlan.Code != http.StatusOK {
 		t.Fatalf("submit typed product stock-operations plan status=%d body=%s", submitPlan.Code, submitPlan.Body.String())

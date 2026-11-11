@@ -59,6 +59,7 @@ type EffectiveSalesSpec struct {
 }
 
 type ProductInput struct {
+	CostUnavailable            bool                      `json:"cost_unavailable,omitempty"`
 	ProductID                  int64                     `json:"product_id"`
 	SKUID                      int64                     `json:"sku_id,omitempty"`
 	ParentProductID            int64                     `json:"parent_product_id,omitempty"`
@@ -345,6 +346,7 @@ type ProductAttribute struct {
 }
 
 type ProductResult struct {
+	CostUnavailable                bool                      `json:"cost_unavailable,omitempty"`
 	ProductID                      int64                     `json:"product_id"`
 	SKUID                          int64                     `json:"sku_id,omitempty"`
 	ParentProductID                int64                     `json:"parent_product_id,omitempty"`
@@ -633,6 +635,9 @@ func effectiveSalesSpecFromInput(in ProductInput) *EffectiveSalesSpec {
 }
 
 func CalculateProduct(params Parameters, in ProductInput) ProductResult {
+	if in.CostUnavailable {
+		return ProductResult{ProductID: in.ProductID, SKUID: in.SKUID, ParentProductID: in.ParentProductID, BomSpecID: in.BomSpecID, BomVariantID: in.BomVariantID, ProductName: in.ProductName, Name: in.Name, ProductKind: in.ProductKind, CostUnavailable: true, Warnings: append(in.Warnings, "库存批次成本待核算，无法计算价格")}
+	}
 	in.YieldRate = 1
 	in.ExpectedLossRate = 0
 	if strings.TrimSpace(in.ProductKind) == "green_bean" {

@@ -159,13 +159,24 @@ func (r Repository) MonthlySourceTotals(ctx context.Context, filter appfinance.R
 		out.RevenueTaxInclusive += fee.Amount
 	}
 	var productionCost, mainCostExpense, periodExpense, inputVAT, nonDeductibleVAT domain.Money
-	_ = r.query().QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(SUM(total_cost),0)::float8
+	var unknownCosts int
+	if err := r.query().QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(total_cost) FILTER (WHERE $2::bigint=0),0)::float8,COUNT(*) FILTER (WHERE COALESCE((to_jsonb(production_batch_costs)->>'cost_unavailable')::boolean,false))::int
 		FROM %s.production_batch_costs
 		WHERE created_at >= $1::date
 		  AND created_at < ($1::date + INTERVAL '1 month')
-		  AND $2::bigint=0
-	`, r.schema), start, customerID).Scan(&productionCost)
+	`, r.schema), start, customerID).Scan(&productionCost, &unknownCosts); err != nil {
+		return out, nil, err
+	}
+	// Completion events are posted immediately, while the work-order batch cost
+	// row is only created or updated when an operation ends. A partially
+	// completed job can therefore already have unknown-cost output in stock.
+	partialUnknown, err := r.partialUnknownProductionCosts(ctx, start)
+	if err != nil {
+		return out, nil, err
+	}
+	unknownCosts += partialUnknown
+	out.CostUnavailable = unknownCosts > 0
 	if err := r.query().QueryRow(ctx, fmt.Sprintf(`
 		SELECT
 			COALESCE(SUM(amount) FILTER (WHERE allocation='main_cost'),0)::float8,
@@ -183,6 +194,23 @@ func (r Repository) MonthlySourceTotals(ctx context.Context, filter appfinance.R
 	out.InputVAT = inputVAT
 	out.NonDeductibleInputVAT = nonDeductibleVAT
 	exceptions := make([]appfinance.Exception, 0)
+	if unknownCosts > 0 {
+		exceptions = append(exceptions, appfinance.Exception{Code: "production_cost_unavailable", Message: "生产成本待核算，毛利、净利和所得税估算暂不可用", Count: unknownCosts})
+	}
+	if customerID == 0 {
+		var lateCosts int
+		if err := r.query().QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*)::int FROM %[1]s.production_batch_costs p JOIN %[1]s.finance_monthly_reports f ON f.month=to_char(p.created_at,'YYYY-MM') WHERE f.month=$1 AND f.status IN ('closed','adjusted') AND f.closed_at IS NOT NULL AND NULLIF(to_jsonb(p)->>'cost_updated_at','')::timestamptz > f.closed_at`, r.schema), filter.Month).Scan(&lateCosts); err != nil {
+			return out, nil, err
+		}
+		lateEvents, lateErr := r.latePartialProductionCosts(ctx, start)
+		if lateErr != nil {
+			return out, nil, lateErr
+		}
+		lateCosts += lateEvents
+		if lateCosts > 0 {
+			exceptions = append(exceptions, appfinance.Exception{Code: "production_cost_after_close", Message: "结账后生产成本有变动，请通过财务调整处理", Count: lateCosts})
+		}
+	}
 	var uncategorized int
 	_ = r.query().QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.finance_expenses WHERE month=$1 AND category='' AND ($2::bigint=0 OR customer_id=$2::bigint)`, r.schema), filter.Month, customerID).Scan(&uncategorized)
 	if uncategorized > 0 {
@@ -568,6 +596,27 @@ func (r Repository) MonthlyReportStatus(ctx context.Context, month string) (stri
 		return domain.MonthStatusDraft, nil
 	}
 	return status, err
+}
+
+func (r Repository) LoadMonthlyReportSnapshot(ctx context.Context, month string) (domain.MonthlyReport, bool, error) {
+	var raw []byte
+	var status string
+	err := r.query().QueryRow(ctx, fmt.Sprintf(`SELECT snapshot_json,status FROM %s.finance_monthly_reports WHERE month=$1`, r.schema), month).Scan(&raw, &status)
+	if err == pgx.ErrNoRows {
+		return domain.MonthlyReport{}, false, nil
+	}
+	if err != nil {
+		return domain.MonthlyReport{}, false, err
+	}
+	var report domain.MonthlyReport
+	if err = json.Unmarshal(raw, &report); err != nil {
+		return domain.MonthlyReport{}, false, err
+	}
+	if report.Month != month {
+		return domain.MonthlyReport{}, false, nil
+	}
+	report.Status = status
+	return report, true, nil
 }
 
 func (r Repository) CreateAdjustment(ctx context.Context, cmd appfinance.CreateAdjustmentCommand) (appfinance.AdjustmentRecord, error) {

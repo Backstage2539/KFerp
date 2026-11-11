@@ -213,6 +213,9 @@ func (r Repository) postPickingProductTransferTx(ctx context.Context, tx pgx.Tx,
 		if err = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.stock_batches(batch_code,item_type,item_id,item_name,owner_customer_id,bom_spec_id,bom_variant_id,spec_g,source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,remaining_g,remaining_units,unit_cost,quality_status,operator) VALUES($1,'finished_product',$2,$3,$4,$5,$6,$7,'stock_entry_transfer',$8,$9,$10,$11,$10,$11,$12,$13,$14) RETURNING id`, r.schema), targetCode, item.ProductID, item.ItemName, item.OwnerCustomerID, item.BomSpecID, item.BomVariantID, item.SpecG, moveID, sourceCode, totalG, units, cost, quality, actor).Scan(&targetID); err != nil {
 			return err
 		}
+		if err = r.copyStockBatchCostAvailabilityTx(ctx, tx, sourceID, targetID); err != nil {
+			return err
+		}
 		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.stock_entry_finished_batch_moves SET target_batch_id=$2,target_batch_code=$3 WHERE id=$1`, r.schema), moveID, targetID, targetCode); err != nil {
 			return err
 		}

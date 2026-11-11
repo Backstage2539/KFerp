@@ -24,7 +24,11 @@
       />
     </div>
 
-    <div v-else-if="productionPlanSplitDrawer" class="production-plan-workspace-shell production-plan-capacity-shell">
+    <div v-else-if="productionPlanSplitDrawer && productionPlanCapacityActive" class="production-plan-workspace-shell production-plan-capacity-shell">
+      <div v-if="productionPlanSplitDrawerDraft" :class="['supply-status', { 'supply-error': productionSupplyError }]" role="status">{{ productionSupplyStatus }} <button v-if="productionSupplyError" type="button" @click="syncProductionPlanSupply">重试</button></div>
+      <template v-if="!productionPlanSplitDirty && !productionPlanSplitDrawerLoading">
+        <div v-for="item in productionPlanSplitDrawer.items || []" :key="item.id"><strong>{{ item.output_name || item.product_name }}</strong><OperationReportingRecheck kind="plan_item" :id="Number(item.id)" @updated="closeProductionPlanSplitDrawer(true); reloadProductionPlanDetail()" /></div>
+      </template>
       <ProductionPlanCapacityWorkspace
         :detail="productionPlanSplitDrawer"
         :rows="productionPlanSplitRows"
@@ -36,21 +40,28 @@
         :error="productionPlanSplitDrawerError"
         :preview-error="productionPlanSplitPreviewError"
         :dirty="productionPlanSplitDirty"
-        @back="closeProductionPlanSplitDrawer"
+        :needs-supply-recheck="productionPlanSplitNeedsSupplyRecheck"
+        :submission-ready="!!productionPlanDetail?.readiness?.can_submit"
+        @back="returnToMaterialPreparation"
         @refresh="loadProductionPlanSplitPreview"
         @save="saveProductionPlanSplitDrawer(false)"
         @confirm="confirmProductionPlanSplitWorkspace"
+        @submit="submitFromCapacityWorkspace"
         @auto="autoSplitProductionPlanDrawerOperation"
         @add="addProductionPlanDrawerSplit"
         @remove="removeProductionPlanDrawerSplit"
         @capacity-change="changeProductionPlanDrawerSplitCapacity"
         @batch-change="changeProductionPlanDrawerSplitBatchCount"
+        @quantity-change="changeProductionPlanDrawerSplitQuantity"
         @take-all="takeAllProductionPlanDrawerBatches"
         @workstations-updated="refreshSplitWorkstations"
+        @split-change="(split, next) => Object.assign(split, next)"
+        @preset-saved="addSavedCapacityPreset"
       />
     </div>
 
     <div v-else-if="productionPlanDetail" class="production-plan-workspace-shell">
+      <div v-if="productionPlanSelectable(productionPlanDetail)" :class="['supply-status', { 'supply-error': productionSupplyError }]" role="status">{{ productionSupplyStatus }} <button v-if="productionSupplyError" type="button" @click="syncProductionPlanSupply">重试</button></div>
       <ProductionPlanDetailWorkspace
         :detail="productionPlanDetail"
         :warehouses="warehouses"
@@ -63,7 +74,10 @@
         @back="closeProductionPlanDetail"
         @save="saveProductionPlanDetailDraft"
         @submit="submitProductionPlanDetail"
-        @edit-splits="openProductionPlanSplitDrawer(productionPlanDetail, 'detail')"
+        @next-capacity="advanceToProductionCapacity"
+        @material-stock="source => openPlanTransferDrawer('stock', source)"
+        @material-transfer="source => openPlanTransferDrawer('single', source)"
+        @bulk-material-transfer="openPlanTransferDrawer('bulk')"
         @refresh="refreshProductionPlanDetailSupply"
         @cancel="cancelProductionPlanDraft(productionPlanDetail, 'detail')"
         @replan="beginProductionReplan"
@@ -72,6 +86,7 @@
         @adjust-source="(source, allocations) => adjustPreparationSource(source, allocations, 'detail')"
         @warehouse-change="changeProductionPlanDetailWarehouse"
       />
+      <ProductionPlanTransferDrawer v-if="productionPlanTransferDrawer" :detail="productionPlanDetail" :source="productionPlanTransferDrawer.source" :mode="productionPlanTransferDrawer.mode" :warehouses="warehouses" @close="productionPlanTransferDrawer = null" @updated="syncProductionPlanSupply" @adjust="savePlanTransferAdjustment" />
     </div>
 
     <section class="panel plan-page-head">
@@ -334,42 +349,6 @@
     </section>
 
     <!-- Creation ends here; every saved plan uses the detail workspace above. -->
-
-    <section v-if="stockSufficientRows.length" class="panel">
-      <div class="section-title">库存充足（只提示）</div>
-      <div class="muted section-hint">以下订单已有成品库存覆盖，不进入生产计划；录单时确认使用批次后会进入库存待发货。</div>
-      <div class="table-wrap drag-scroll-wrap" aria-label="库存充足商品横向滚动表格">
-        <table>
-          <thead>
-            <tr>
-              <th>商品</th>
-              <th>订单号</th>
-              <th>规格(g)</th>
-              <th>需求(件)</th>
-              <th>需求(g)</th>
-              <th>库存(件)</th>
-              <th>库存散装(g)</th>
-              <th>库存合计(g)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in stockSufficientRows" :key="rowKey(row)">
-              <td>{{ row.product }}</td>
-              <td class="muted">{{ row.order_nos }}</td>
-              <td>{{ row.spec_g }}</td>
-              <td>{{ row.need_units }}</td>
-              <td>{{ row.need_g }}</td>
-              <td>{{ row.inv_units }}</td>
-              <td>{{ row.inv_loose_g }}</td>
-              <td>{{ row.inv_g }}</td>
-            </tr>
-            <tr v-if="!stockSufficientRows.length">
-              <td colspan="8" class="muted">暂无库存充足商品</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
 
     <section v-if="planRecordsOpen" class="panel" id="plan-records" data-plan-records>
       <div class="panel-head">
@@ -720,7 +699,9 @@
 import { IconClipboardList, IconChevronRight, IconAlertCircle, IconCheck } from '@tabler/icons-vue'
 import ProductionSupplyAllocations from '../components/ProductionSupplyAllocations.vue'
 import ProductionPlanDetailWorkspace from '../components/ProductionPlanDetailWorkspace.vue'
+import ProductionPlanTransferDrawer from '../components/ProductionPlanTransferDrawer.vue'
 import ProductionPlanCapacityWorkspace from '../components/ProductionPlanCapacityWorkspace.vue'
+import OperationReportingRecheck from '../components/OperationReportingRecheck.vue'
 import ProductionReplanWorkspace from '../components/ProductionReplanWorkspace.vue'
 import { computed, nextTick, onActivated, onDeactivated, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect } from 'vue'
 import { apiGet, apiSend } from '../api/client'
@@ -857,7 +838,7 @@ async function createStockPlanning() {
   replaceSelected({}); planRows.value = []; manufacturingPlan.value = currentPlan.value
   const created = currentPlan.value
   await openProductionPlanDetail(created); await loadProductionPlans(); stockPlanningOpen.value = false; invalidateStockPreview()
- } catch(err) { stockPlanningError.value = err.message || '创建备货草稿失败' } finally { saving.value = false }
+ } catch(err) { stockPlanningError.value = err.message || '创建备货草稿失败' } finally { saving.value = false; if (productionPlanDetail.value && !productionPlanDetailError.value) void syncProductionPlanSupply() }
 }
 const warehouses = ref([])
 const targetWarehouseSavingItemID = ref(0)
@@ -876,6 +857,9 @@ const replan = reactive({ open: false, planID: 0, itemIDs: [], revision: 0, prev
 const planRecordsOpen = ref(false)
 const lastViewedProductionPlanID = ref(0)
 const productionPlanSplitDrawer = ref(null)
+const productionPlanCapacityActive = ref(false)
+const productionPlanMaterialChangedSinceSplit = ref(false)
+const productionPlanTransferDrawer = ref(null)
 const productionPlanSplitReturnTarget = ref('')
 const productionPlanSplitDrawerLoading = ref(false)
 const productionPlanSplitDrawerSaving = ref(false)
@@ -885,6 +869,11 @@ const productionPlanSplitSavedFingerprint = ref('')
 const productionPlanSplitPreview = ref(null)
 const productionPlanSplitPreviewLoading = ref(false)
 const productionPlanSplitPreviewError = ref('')
+const productionSupplyStatus = ref('等待核对库存与在产供应')
+const productionSupplyError = ref(false)
+const productionSupplySyncing = ref(false)
+let productionSupplyTimer = 0
+let submitSupplyReconciliationPending = false
 const postSubmitActions = ref([])
 const insufficientHeaderCheckbox = ref(null)
 const productionPlanHeaderCheckbox = ref(null)
@@ -898,6 +887,8 @@ function toggleDemandGroup(rows, checked) {
   schedulePlanPreview()
 }
 const selectedProductionPlans = reactive({})
+// Versions are retained only after the operator has opened and reconciled a draft.
+const reviewedProductionPlanTokens = reactive({})
 let previewTimer = 0
 let previewRequestSeq = 0
 let demandRequestSeq = 0
@@ -937,16 +928,6 @@ const productionPlanFilters = reactive({
   limit: 50,
 })
 
-function rowKey(row) {
-  return [
-	productionDemandSelectionKey(row),
-    row.demand_status || 'unplanned',
-    row.production_plan_id || 0,
-    row.work_order_id || 0,
-    row.order_nos || '',
-  ].join('|')
-}
-
 function productionDemandSelectionKey(row) {
 	const scoped = String(row?.selection_id || row?.selection_key || '').trim()
 	if (scoped) return scoped
@@ -962,7 +943,6 @@ const computedPlanRows = computed(() => planRows.value || [])
 const productionPlanDetailManufacturingRows = computed(() => manufacturingPlanRows(productionPlanDetail.value || {}))
 const hasSelectedRows = computed(() => selectedKeys().length > 0)
 const stockInsufficientRows = computed(() => rows.value.filter((row) => String(row.blocking_reason || '').trim() || productionDemandGapQuantity(row) > 0 || String(row.demand_status || 'unplanned') !== 'unplanned'))
-const stockSufficientRows = computed(() => rows.value.filter((row) => !String(row.blocking_reason || '').trim() && productionDemandGapQuantity(row) <= 0 && String(row.demand_status || 'unplanned') === 'unplanned'))
 const filteredStockInsufficientRows = computed(() => {
   const keyword = demandKeyword.value.trim().toLocaleLowerCase('zh-CN')
   const sourceRows = demandSourceFilter.value
@@ -995,6 +975,7 @@ const hasSelectedProductionPlans = computed(() => productionPlanSelection.value.
 const currentPlanDraft = computed(() => productionPlanSelectable(currentPlan.value))
 const productionPlanSplitDrawerDraft = computed(() => productionPlanSelectable(productionPlanSplitDrawer.value))
 const productionPlanSplitDirty = computed(() => productionPlanSplitFingerprint(productionPlanSplitRows.value) !== productionPlanSplitSavedFingerprint.value)
+const productionPlanSplitNeedsSupplyRecheck = computed(() => productionPlanMaterialChangedSinceSplit.value || (productionPlanSplitDrawer.value?.operation_splits || []).some(row => String(row.note || '').includes('[[SUPPLY_RECHECK_REQUIRED]]')))
 const productionPlanDetailDirty = computed(() => {
   if (!productionPlanSelectable(productionPlanDetail.value) || !productionPlanDetailSavedFingerprint.value) return false
   return JSON.stringify(buildProductionPlanDraftPayload(productionPlanDetail.value)) !== productionPlanDetailSavedFingerprint.value
@@ -1396,9 +1377,26 @@ async function saveProductionPlanItemTargetWarehouse(item) {
 async function adjustPreparationSource(source, allocations, target) {
   source.allocation_mode = allocations === null ? 'auto' : 'manual'
   source.manual_allocations = allocations || []
-  if (target === 'detail') { await saveProductionPlanDetailDraft(); return }
+  if (target === 'detail') {
+    if (!productionPlanDetailDirty.value) return true
+    return !!(await saveProductionPlanDetailDraft())
+  }
   await saveProductionPlanComponentSource(currentPlan.value, source, 'current')
   if (currentPlan.value?.id) currentPlan.value = await apiGet(`/api/production-plans/${currentPlan.value.id}`)
+}
+
+async function savePlanTransferAdjustment(source, allocations, done) {
+  try {
+    const saved = await adjustPreparationSource(source, allocations, 'detail')
+    if (saved && productionPlanTransferDrawer.value?.source && Number(productionPlanTransferDrawer.value.source.id) === Number(source.id)) {
+      const refreshed = (productionPlanDetail.value?.component_sources || []).find(row => Number(row.id) === Number(source.id))
+      if (!refreshed) { done?.('物料来源已变化，请重新核对后再操作'); return }
+      productionPlanTransferDrawer.value = { ...productionPlanTransferDrawer.value, source: refreshed }
+    }
+    done?.(saved ? undefined : (productionPlanDetailError.value || '来源保存失败，请重试'))
+  } catch (err) {
+    done?.(err.message || '来源保存失败，请重试')
+  }
 }
 
 function componentSourceKey(source = {}) {
@@ -1691,6 +1689,7 @@ function productionPlanSplitFingerprint(rows = []) {
     planned_qty: Number(row.planned_qty || 0),
     batch_input: !!row.batch_input, planned_batch_count: row.planned_batch_count,
     batch_size_qty: row.batch_size_qty, batch_size_unit: row.batch_size_unit,
+    custom_batch_size_qty: row.custom_batch_size_qty,
     workstation: row.workstation, workstation_capacity_name: row.workstation_capacity_name,
     hourly_rate: row.hourly_rate, standard_minutes: row.standard_minutes, cost_method: row.cost_method, piece_rate: row.piece_rate,
   })))
@@ -1734,13 +1733,17 @@ function normalizeOperationSplit(row = {}) {
     workstation: row.workstation || '',
     workstation_capacity_id: Number(row.workstation_capacity_id || 0),
     workstation_capacity_name: row.workstation_capacity_name || '',
+    scheduling_mode: row.scheduling_mode || 'batch',
+    throughput_per_hour: Number(row.throughput_per_hour || 0),
     batch_size_qty: Number(row.batch_size_qty || 0),
+    custom_batch_size_qty: row.custom_batch_size_qty ?? null,
     batch_size_unit: row.batch_size_unit || '',
     standard_minutes: Number(row.standard_minutes || 0),
     hourly_rate: Number(row.hourly_rate || 0),
     cost_method: normalizeCapacityCostMethod(row),
     piece_rate: Number(row.piece_rate || 0),
-    batch_input: !!row.batch_input || (!Number(row.planned_qty || 0) && Number(row.planned_batch_count || 0) > 0),
+    batch_input: !!row.batch_input || row.custom_batch_size_qty != null || (!Number(row.planned_qty || 0) && Number(row.planned_batch_count || 0) > 0),
+    batch_count_source: row.batch_count_source || 'manual',
     planned_batch_count: row.planned_batch_count ?? 0,
     spec_g: Number(row.spec_g || row.item_spec_g || planItem?.spec_g || 0),
     sales_spec_count: Number(row.sales_spec_count || row.item_sales_spec_count || planItem?.sales_spec_count || 0),
@@ -1777,6 +1780,7 @@ function applyProductionPlanDrawerSplitCapacity(split) {
 
 function changeProductionPlanDrawerSplitCapacity(split, capacityID) {
   split.workstation_capacity_id = Number(capacityID || 0)
+  split.custom_batch_size_qty = null
   const capacity = workstationCapacities.value.find(row => Number(row.id) === split.workstation_capacity_id)
   if (capacity) Object.assign(split, applyCapacityBatchSnapshot(split, capacity))
   else Object.assign(split, { workstation_id: 0, workstation: '', planned_qty: 0, planned_qty_g: 0 })
@@ -1784,6 +1788,12 @@ function changeProductionPlanDrawerSplitCapacity(split, capacityID) {
 
 function changeProductionPlanDrawerSplitBatchCount(split, count) {
   Object.assign(split, withCapacityBatchCount(split, count, workstationCapacities.value.find(row => Number(row.id) === Number(split.workstation_capacity_id))))
+}
+
+function changeProductionPlanDrawerSplitQuantity(split, value) {
+  split.planned_qty = Number(value || 0)
+  split.batch_input = false
+  split.planned_batch_count = 0
 }
 
 function takeAllProductionPlanDrawerBatches(split, item) {
@@ -1797,6 +1807,12 @@ function refreshSplitWorkstations(data) {
     const capacity = workstationCapacities.value.find(row => Number(row.id) === Number(split.workstation_capacity_id))
     return capacity ? applyCapacityBatchSnapshot(split, capacity, true) : split
   })
+}
+
+function addSavedCapacityPreset(capacity) {
+  if (!capacity?.id) return
+  const source = workstationCapacities.value.find(row => Number(row.workstation_id) === Number(capacity.workstation_id))
+  workstationCapacities.value = [...workstationCapacities.value.filter(row => Number(row.id) !== Number(capacity.id)), { ...capacity, workstation_status: capacity.workstation_status || source?.workstation_status || 'active' }]
 }
 
 function splitRowError(split) {
@@ -1949,6 +1965,8 @@ async function openProductionPlanDetail(plan, { history = 'push' } = {}) {
   if (!productionPlanDetailEndpoint(plan)) return
   if (productionPlanDetail.value && Number(plan.id) !== Number(productionPlanDetail.value.id) && !confirmPlanningLeave()) return
   stopCreationPreview()
+  delete reviewedProductionPlanTokens[String(plan.id)]
+  submitSupplyReconciliationPending = false
   const requestID = ++detailRequestSeq
   productionPlanDetail.value = { ...plan, items: [], material_summary: [], related_work_orders: [], job_card_count: 0 }
   currentPlan.value = null
@@ -1973,6 +1991,7 @@ async function openProductionPlanDetail(plan, { history = 'push' } = {}) {
   } finally {
     if (requestID === detailRequestSeq) productionPlanDetailLoading.value = false
   }
+  if (requestID === detailRequestSeq && !productionPlanDetailError.value) await syncProductionPlanSupply()
 }
 
 async function reloadProductionPlanDetail() {
@@ -1985,6 +2004,7 @@ async function closeProductionPlanDetail(force = false, records = true) {
   lastViewedProductionPlanID.value = Number(productionPlanDetail.value?.id || 0)
   detailRequestSeq += 1
   productionPlanDetail.value = null
+  if (productionPlanSplitDrawer.value) closeProductionPlanSplitDrawer(true)
   productionPlanDetailError.value = ''
   productionPlanDetailSavedFingerprint.value = ''
   currentPlan.value = null
@@ -2004,14 +2024,16 @@ function changeProductionPlanDetailWarehouse(itemID, warehouse) {
   if (item) item.target_warehouse = String(warehouse || '').trim()
 }
 
-async function saveProductionPlanDetailDraft() {
+async function saveProductionPlanDetailDraft(ackSupplyRecheck = false, skipAutomaticSync = false) {
   if (productionPlanDetailSaving.value || saving.value) return null
   const endpoint = productionPlanDraftEndpoint(productionPlanDetail.value)
-  if (!endpoint || !productionPlanSelectable(productionPlanDetail.value) || !productionPlanDetailDirty.value) return null
+  if (!endpoint || !productionPlanSelectable(productionPlanDetail.value) || (!productionPlanDetailDirty.value && !ackSupplyRecheck)) return null
   productionPlanDetailSaving.value = true
   productionPlanDetailError.value = ''
   try {
-    const saved = normalizeProductionPlanDetailForSplitEditor(await apiSend(endpoint, { method: 'PATCH', body: buildProductionPlanDraftPayload(productionPlanDetail.value) }))
+    const payload = buildProductionPlanDraftPayload(productionPlanDetail.value)
+    if (ackSupplyRecheck) payload.ack_supply_recheck = true
+    const saved = normalizeProductionPlanDetailForSplitEditor(await apiSend(endpoint, { method: 'PATCH', body: payload }))
     productionPlanDetail.value = saved
     productionPlanDetailSavedFingerprint.value = JSON.stringify(buildProductionPlanDraftPayload(saved))
     if (Number(currentPlan.value?.id || 0) === Number(saved.id || 0)) {
@@ -2027,6 +2049,7 @@ async function saveProductionPlanDetailDraft() {
     return null
   } finally {
     productionPlanDetailSaving.value = false
+    if (!productionPlanDetailError.value && !skipAutomaticSync) void syncProductionPlanSupply()
   }
 }
 
@@ -2037,8 +2060,9 @@ async function submitProductionPlanDetail() {
   if (!endpoint || !productionPlanSelectable(plan) || productionPlanDetailDirty.value || !plan?.readiness?.can_submit) return
   productionPlanDetailSaving.value = true
   productionPlanDetailError.value = ''
+  let needsSupplySync = false
   try {
-    const result = await apiSend(endpoint, { body: {} })
+    const result = await apiSend(endpoint, { body: { draft_token: plan.draft_token || '' } })
     const submitted = normalizeProductionPlanDetailForSplitEditor(result.plan || plan)
     productionPlanDetail.value = submitted
     productionPlanDetailSavedFingerprint.value = JSON.stringify(buildProductionPlanDraftPayload(submitted))
@@ -2047,15 +2071,18 @@ async function submitProductionPlanDetail() {
     notice.value = `${submitted.plan_no || '生产计划'} 已提交，生成 ${result.work_orders?.length || 0} 张工单。`
     await Promise.all([loadProductionPlans(), refreshProductionDemandAfterDraftCancel(true)])
   } catch (err) {
-    productionPlanDetailError.value = err.message || '提交生成工单失败'
+    productionPlanDetailError.value = err.status === 409 ? '库存、在产或草稿已变化，正在重新核对，请检查生产安排后再次提交。' : err.message || '提交生成工单失败'
+    needsSupplySync = err.status === 409
+    submitSupplyReconciliationPending = needsSupplySync
   } finally {
     productionPlanDetailSaving.value = false
+    if (needsSupplySync) void syncProductionPlanSupply()
   }
 }
 
 async function refreshProductionPlanDetailSupply() {
   if (!productionPlanSelectable(productionPlanDetail.value)) return
-  if (!window.confirm('刷新供应会按当前库存和在途重新生成上游任务与工序拆分，确认继续吗？')) return
+  if (!window.confirm('刷新供应会按当前库存和在途更新上游任务，保留仍适用的工位安排。确认继续吗？')) return
   await refreshPlanSupply(productionPlanDetail.value, 'detail')
 }
 
@@ -2080,14 +2107,56 @@ async function openCurrentPlanSplitDrawer() {
   window.alert('请先选择需求、核对缺口并创建草稿，再在草稿详情设置工位和批次。')
 }
 
+async function openPlanTransferDrawer(mode, source = null) {
+  if (mode !== 'stock' && productionPlanDetailDirty.value) {
+    if (!await saveProductionPlanDetailDraft(false, true)) return
+    if (source) {
+      source = (productionPlanDetail.value?.component_sources || []).find(row => Number(row.id) === Number(source.id))
+      if (!source) { notice.value = '物料来源已变化，请重新核对后生成调拨单。'; return }
+    }
+  }
+  productionPlanTransferDrawer.value = { mode, source }
+}
+
+async function advanceToProductionCapacity() {
+  if (!productionPlanDetail.value || productionPlanDetailSaving.value) return
+  if (productionPlanDetailDirty.value && !await saveProductionPlanDetailDraft(false, true)) return
+  await syncProductionPlanSupply()
+  if (productionSupplyError.value || productionSupplySyncing.value) { notice.value = '供应正在核对或更新失败，请稍后重试。'; return }
+  const plan = productionPlanDetail.value
+  const issues = (plan?.readiness?.issues || []).filter(issue => issue.category !== 'operation')
+  if (issues.length || (plan?.items || []).some(item => !String(item.target_warehouse || '').trim())) {
+    notice.value = '请先处理物料供应和完工仓库，再进入产能安排。'
+    return
+  }
+  if (productionPlanSplitDrawer.value && Number(productionPlanSplitDrawer.value.id) === Number(plan.id)) {
+    if (productionPlanSplitDrawer.value.draft_token !== plan.draft_token) productionPlanMaterialChangedSinceSplit.value = true
+    productionPlanSplitDrawer.value = { ...plan, operation_splits: productionPlanSplitDrawer.value.operation_splits }
+    productionPlanCapacityActive.value = true
+    scheduleProductionPlanSplitPreview()
+    return
+  }
+  await openProductionPlanSplitDrawer(plan, 'detail')
+}
+
+function returnToMaterialPreparation() { productionPlanCapacityActive.value = false }
+
+async function submitFromCapacityWorkspace() {
+  await submitProductionPlanDetail()
+  if (!productionPlanSelectable(productionPlanDetail.value)) closeProductionPlanSplitDrawer(true)
+}
+
 async function openProductionPlanSplitDrawer(plan, returnTarget = '') {
   if (!productionPlanDetailEndpoint(plan) || !productionPlanSelectable(plan)) return
   if (returnTarget !== 'detail') {
     await openProductionPlanDetail(plan)
     if (productionPlanDetailError.value) return
-    return openProductionPlanSplitDrawer(productionPlanDetail.value, 'detail')
+    return advanceToProductionCapacity()
   }
+  await syncProductionPlanSupply()
+  plan = productionPlanDetail.value || plan
   productionPlanSplitReturnTarget.value = returnTarget
+  productionPlanCapacityActive.value = true
   productionPlanSplitDrawer.value = normalizeProductionPlanDetailForSplitEditor({
     ...plan,
     items: [],
@@ -2125,6 +2194,8 @@ async function openProductionPlanSplitDrawer(plan, returnTarget = '') {
 
 function closeProductionPlanSplitDrawer(force = false) {
   if (!force && productionPlanSplitDirty.value && !window.confirm('当前产能拆分还有未保存修改，确认返回吗？')) return
+  productionPlanCapacityActive.value = false
+  productionPlanMaterialChangedSinceSplit.value = false
   productionPlanSplitDrawer.value = null
   productionPlanSplitRows.value = []
   productionPlanSplitSavedFingerprint.value = ''
@@ -2150,6 +2221,7 @@ function addProductionPlanDrawerSplit(item, operation) {
     operation: identity.name,
     spec_g: Number(item?.spec_g || 0),
     planned_qty: 0,
+    batch_count_source: 'auto',
   }))
 }
 
@@ -2170,9 +2242,10 @@ async function saveProductionPlanSplitDrawer(closeAfterSave = false) {
     const payload = buildProductionPlanOperationSplitPayload(productionPlanSplitRows.value)
     if (productionPlanSplitReturnTarget.value === 'detail' && Number(productionPlanDetail.value?.id || 0) === Number(productionPlanSplitDrawer.value?.id || 0)) {
       productionPlanDetail.value = { ...productionPlanDetail.value, operation_splits: payload.items.map(normalizeOperationSplit) }
-      const saved = await saveProductionPlanDetailDraft()
+      const saved = await saveProductionPlanDetailDraft(true)
       if (!saved) throw new Error(productionPlanDetailError.value || '保存生产计划草稿失败')
       productionPlanSplitDrawer.value = saved
+      productionPlanMaterialChangedSinceSplit.value = false
       const savedRows = (saved.operation_splits || []).map(normalizeOperationSplit)
       productionPlanSplitRows.value = savedRows
       productionPlanSplitSavedFingerprint.value = productionPlanSplitFingerprint(savedRows)
@@ -2190,6 +2263,7 @@ async function saveProductionPlanSplitDrawer(closeAfterSave = false) {
       operationSplits.value = savedRows
     }
     productionPlanSplitDrawer.value = { ...productionPlanSplitDrawer.value, operation_splits: savedRows }
+    productionPlanMaterialChangedSinceSplit.value = false
     notice.value = `${productionPlanSplitDrawer.value?.plan_no || '生产计划'} 的产能拆分已保存。`
     await loadProductionPlans()
     if (closeAfterSave) closeProductionPlanSplitDrawer(true)
@@ -2199,11 +2273,12 @@ async function saveProductionPlanSplitDrawer(closeAfterSave = false) {
     return false
   } finally {
     productionPlanSplitDrawerSaving.value = false
+    if (!productionPlanSplitDrawerError.value) void syncProductionPlanSupply()
   }
 }
 
 async function confirmProductionPlanSplitWorkspace() {
-  if (productionPlanSplitDirty.value) {
+  if (productionPlanSplitDirty.value || productionPlanSplitNeedsSupplyRecheck.value) {
     await saveProductionPlanSplitDrawer(true)
     return
   }
@@ -2263,11 +2338,13 @@ async function refreshPlanSupply(plan, target) {
   if (hasUnsavedPlanningChanges() && !window.confirm('刷新供应将重新读取草稿，未保存的修改会丢失。确认继续吗？')) return
   saving.value = true
   try {
-    const updated = normalizeProductionPlanDetailForSplitEditor(await apiSend(`/api/production-plans/${plan.id}/refresh-supply`, { body: {} }))
+    const response = await apiSend(`/api/production-plans/${plan.id}/refresh-supply`, { body: { draft_token: plan.draft_token || '', check_only: false } })
+    const updated = normalizeProductionPlanDetailForSplitEditor(response.plan || response)
     if (target === 'detail') {
       productionPlanDetail.value = updated
       productionPlanDetailSavedFingerprint.value = JSON.stringify(buildProductionPlanDraftPayload(updated))
       productionPlanDetailError.value = ''
+      if (updated.draft_token) reviewedProductionPlanTokens[String(updated.id)] = updated.draft_token
     }
     previewError.value = ''
     notice.value = '供应已重新计算，请核对来源仓及工位和批次后提交。'
@@ -2276,6 +2353,85 @@ async function refreshPlanSupply(plan, target) {
     if (target === 'detail') productionPlanDetailError.value = message
     else error.value = message
   } finally { saving.value = false }
+}
+
+// Merge only server-owned observations while the user is editing. Task and
+// source identities must match so a changed graph cannot inherit old inputs.
+function mergeReadonlySupplyObservations(target, fresh) {
+  if (!target || !fresh || Number(target.id || 0) !== Number(fresh.id || 0)) return
+  if (Array.isArray(fresh.material_transfer_documents)) {
+    target.material_transfer_documents = fresh.material_transfer_documents.map(row => ({ ...row }))
+  }
+  const identity = source => [
+    source.id, source.production_plan_item_id, source.component_type, source.component_id,
+    source.component_bom_spec_id, source.component_bom_variant_id, source.component_spec_g,
+    source.unit, source.required_g, source.required_units, source.demand_g, source.demand_units,
+    source.upstream_g, source.upstream_units,
+  ].map(value => value == null ? '' : String(value)).join('\u001f')
+  const latest = new Map((fresh.component_sources || []).map(source => [identity(source), source]))
+  for (const source of target.component_sources || []) {
+    const observed = latest.get(identity(source))
+    if (!observed) continue
+    for (const key of ['wip_covered_g', 'wip_covered_units']) {
+      if (Object.hasOwn(observed, key)) source[key] = observed[key]
+    }
+  }
+}
+
+// Reconciliation is a guarded business write. Never replace in-progress input,
+// and keep GET detail requests read-only.
+async function syncProductionPlanSupply() {
+  const plan = productionPlanDetail.value || productionPlanSplitDrawer.value
+  if (!planningViewActive || document.visibilityState === 'hidden' || !productionPlanSelectable(plan) || productionSupplySyncing.value || saving.value || productionPlanDetailSaving.value || productionPlanSplitDrawerSaving.value || productionPlanDetailLoading.value || productionPlanSplitDrawerLoading.value) return
+  const planID = Number(plan.id)
+  const dirty = !!hasUnsavedPlanningChanges()
+  productionSupplySyncing.value = true
+  productionSupplyError.value = false
+  productionSupplyStatus.value = '正在核对库存与在产供应…'
+  try {
+    const result = await apiSend(`/api/production-plans/${planID}/refresh-supply`, { body: { check_only: dirty, draft_token: plan.draft_token || '' } })
+    const current = productionPlanDetail.value || productionPlanSplitDrawer.value
+    if (Number(current?.id) !== planID) return
+    if (current.draft_token !== plan.draft_token) return
+    if (dirty || hasUnsavedPlanningChanges() || saving.value || productionPlanDetailSaving.value || productionPlanSplitDrawerSaving.value) {
+      mergeReadonlySupplyObservations(productionPlanDetail.value, result.plan)
+      mergeReadonlySupplyObservations(productionPlanSplitDrawer.value, result.plan)
+      productionSupplyStatus.value = result.changed ? (dirty ? '库存或在产已变化，保存后自动更新工序；当前输入已保留。' : '供应已更新，当前输入已保留；若保存提示版本冲突，请重新加载后核对。') : '供应已核对，当前输入已保留。'
+      return
+    }
+    const updated = normalizeProductionPlanDetailForSplitEditor(result.plan || result)
+    productionPlanDetail.value = updated
+    productionPlanDetailSavedFingerprint.value = JSON.stringify(buildProductionPlanDraftPayload(updated))
+    if (updated.draft_token) reviewedProductionPlanTokens[String(planID)] = updated.draft_token
+    if (submitSupplyReconciliationPending) {
+      productionPlanDetailError.value = ''
+      submitSupplyReconciliationPending = false
+    }
+    if (Number(currentPlan.value?.id || 0) === planID) {
+      currentPlan.value = updated
+      manufacturingPlan.value = updated
+      operationSplits.value = updated.operation_splits || []
+    }
+    if (productionPlanSplitDrawer.value && Number(productionPlanSplitDrawer.value.id) === planID) {
+      productionPlanSplitDrawer.value = updated
+      const savedRows = (updated.operation_splits || []).map(normalizeOperationSplit)
+      productionPlanSplitRows.value = savedRows
+      productionPlanSplitSavedFingerprint.value = productionPlanSplitFingerprint(savedRows)
+      scheduleProductionPlanSplitPreview()
+    }
+    productionSupplyStatus.value = result.changed ? (result.summary || '供应已变化，生产安排已更新，请核对受影响工序。') : `已按最新库存与在产供应核对 · ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
+  } catch (err) {
+    delete reviewedProductionPlanTokens[String(planID)]
+    productionSupplyError.value = true
+    productionSupplyStatus.value = err.status === 409 ? '草稿已被其他操作更新，当前输入已保留，请重新加载并核对。' : `供应更新失败：${err.message || '请重试'}`
+    if (submitSupplyReconciliationPending) productionPlanDetailError.value = productionSupplyStatus.value
+  } finally {
+    productionSupplySyncing.value = false
+  }
+}
+
+function handleProductionSupplyVisibility() {
+  if (document.visibilityState !== 'hidden') void syncProductionPlanSupply()
 }
 
 async function createProductionPlan() {
@@ -2312,16 +2468,23 @@ async function createProductionPlan() {
     previewError.value = err.message || '创建生产计划失败，请重试；同一次请求不会重复创建。'
   } finally {
     saving.value = false
+    if (productionPlanDetail.value && !productionPlanDetailError.value) void syncProductionPlanSupply()
   }
 }
 
 async function submitCurrentProductionPlan() {
   const payload = buildCurrentProductionPlanSubmitPayload(currentPlan.value)
   if (!payload.ids.length) return
+  const currentSplits = (operationSplits.value || []).map(normalizeOperationSplit)
+  const savedSplits = (currentPlan.value?.operation_splits || []).map(normalizeOperationSplit)
+  if (productionPlanSplitFingerprint(currentSplits) !== productionPlanSplitFingerprint(savedSplits)) {
+    previewError.value = '工位安排尚未保存，请进入计划详情保存并核对后提交。'
+    return
+  }
   saving.value = true
   previewError.value = ''
   try {
-    await saveCurrentPlanOperationSplits()
+    payload.draft_tokens = reviewedProductionPlanSubmitTokens(payload.ids)
     const result = await apiSend(productionPlanBatchSubmitEndpoint(), { body: payload })
     const firstSuccess = Array.isArray(result.success) ? result.success[0] : null
     if (firstSuccess?.plan) currentPlan.value = firstSuccess.plan
@@ -2344,6 +2507,7 @@ async function submitSelectedProductionPlans() {
   saving.value = true
   error.value = ''
   try {
+    payload.draft_tokens = reviewedProductionPlanSubmitTokens(payload.ids)
     const result = await apiSend(productionPlanBatchSubmitEndpoint(), { body: payload })
     const firstSuccess = Array.isArray(result.success) ? result.success[0] : null
     if (firstSuccess?.plan) await openProductionPlanDetail(firstSuccess.plan)
@@ -2358,6 +2522,16 @@ async function submitSelectedProductionPlans() {
   } finally {
     saving.value = false
   }
+}
+
+function reviewedProductionPlanSubmitTokens(ids) {
+  const tokens = {}
+  for (const id of ids) {
+    const token = reviewedProductionPlanTokens[String(id)]
+    if (!token) throw new Error(`生产计划 ${id} 尚未核对，请先进入计划详情核对后再提交。`)
+    tokens[String(id)] = token
+  }
+  return tokens
 }
 
 async function cancelProductionPlanDraft(plan, source = 'list') {
@@ -2463,8 +2637,11 @@ onMounted(async () => {
   window.addEventListener('beforeunload', handlePlanningBeforeUnload)
   window.addEventListener('popstate', handlePlanningPopState)
   window.addEventListener('kferp:before-navigate', handlePlanningNavigation)
+  document.addEventListener('visibilitychange', handleProductionSupplyVisibility)
+  window.addEventListener('focus', handleProductionSupplyVisibility)
+  productionSupplyTimer = setInterval(() => syncProductionPlanSupply(), 15000)
 })
-onActivated(() => { planningViewActive = true })
+onActivated(() => { planningViewActive = true; void syncProductionPlanSupply() })
 onDeactivated(() => { planningViewActive = false })
 
 watch(() => [props.viewParams?.customer_id, props.customerContextId], async () => {
@@ -2501,6 +2678,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', handlePlanningBeforeUnload)
   window.removeEventListener('popstate', handlePlanningPopState)
   window.removeEventListener('kferp:before-navigate', handlePlanningNavigation)
+  window.removeEventListener('focus', handleProductionSupplyVisibility)
+  document.removeEventListener('visibilitychange', handleProductionSupplyVisibility)
+  if (productionSupplyTimer) clearInterval(productionSupplyTimer)
   detailRequestSeq += 1
   stopCreationPreview()
   if (previewTimer) clearTimeout(previewTimer)
@@ -2513,6 +2693,9 @@ onBeforeUnmount(() => {
 .page.detail-open { padding: 0; background: #f7f9f7; }
 .page.detail-open > :not(.production-plan-workspace-shell) { display: none !important; }
 .production-plan-workspace-shell { min-width: 0; }
+.supply-status { padding: 10px 28px; color: #205b43; background: #eef8f1; font-size: 13px; overflow-wrap: anywhere; }
+.supply-status.supply-error { color: #9a3428; background: #fff2ef; }
+.supply-status button { margin-left: 10px; cursor: pointer; }
 .page:not(.detail-open) { display:flex; flex-direction:column; min-height:calc(100dvh - 56px); }
 .page.embedded:not(.detail-open) { min-height:calc(100dvh - 196px); }
 .page:not(.detail-open) > * { flex-shrink:0; }
@@ -2542,7 +2725,6 @@ onBeforeUnmount(() => {
 .compact-head { margin-bottom: 8px; }
 .empty-state { border: 1px dashed #d1d5db; border-radius: 8px; padding: 14px; display: grid; gap: 6px; background: #fafafa; }
 .collapsed-panel-summary { border: 1px dashed #d1d5db; border-radius: 8px; padding: 10px; color: #666; background: #fafafa; font-size: 13px; }
-.demand-status-cell { min-width: 220px; }
 .demand-blocking-reason { margin: 6px 0 0; max-width: 320px; white-space: normal; overflow-wrap: anywhere; color: #9a3412; font-size: 13px; line-height: 1.5; }
 .panel-head-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .collapse-button { white-space: nowrap; }
@@ -2639,7 +2821,6 @@ input.bulk-checkbox:disabled { cursor: not-allowed; opacity: 0.45; }
 .drag-scroll-wrap { cursor: grab; overscroll-behavior: auto; scrollbar-gutter: stable; -webkit-overflow-scrolling: touch; }
 .drag-scroll-wrap.is-dragging-scroll { cursor: grabbing; user-select: none; }
 table { width: 100%; border-collapse: collapse; min-width: 980px; }
-.demand-table { min-width: 860px; }
 .materials-table { min-width: 760px; }
 .plan-preview-table { min-width: 1040px; }
 .component-source-table { min-width: 920px; }
@@ -2722,13 +2903,15 @@ td small { display: block; color: #666; line-height: 1.6; }
 .advanced-filters summary { color:#2563a5; font-size:13px; }
 .advanced-filters .filters { margin-top:12px; }
 .demand-panel .demand-search { width:220px; padding:7px 10px; font-size:13px; border-color:var(--plan-border); }
-.demand-table { min-width:780px; width:100%; table-layout:fixed; font-size:13px; }
+.demand-table { min-width:1100px; width:100%; table-layout:fixed; font-size:13px; }
 .demand-table th:nth-child(1) { width:44px; }
 .demand-table th:nth-child(2) { width:135px; }
 .demand-table th:nth-child(3) { width:155px; }
 .demand-table th:nth-child(4) { width:75px; }
 .demand-table th:nth-child(5),.demand-table th:nth-child(6),.demand-table th:nth-child(7) { width:78px; }
-.demand-table td:nth-child(4),.demand-table td:nth-child(5),.demand-table td:nth-child(6),.demand-table td:nth-child(7) { white-space:nowrap; }
+.demand-table th:nth-child(8) { width:90px; }
+.demand-table th:nth-child(9) { width:240px; }
+.demand-table td:nth-child(4),.demand-table td:nth-child(5),.demand-table td:nth-child(6),.demand-table td:nth-child(7),.demand-table td:nth-child(8) { white-space:nowrap; }
 .demand-table th { white-space:nowrap; }
 .demand-orders { overflow-wrap:anywhere; }
 .demand-product-row { background:#f4f6f8; }

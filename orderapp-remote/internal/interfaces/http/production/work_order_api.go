@@ -16,21 +16,25 @@ import (
 )
 
 type jobCardActualsRequest struct {
-	RequestID        string                               `json:"request_id"`
-	ExpectedVersion  string                               `json:"expected_version"`
-	InputUnit        string                               `json:"input_unit"`
-	OutputUnit       string                               `json:"output_unit"`
-	DifferenceReason string                               `json:"difference_reason"`
-	FinishOperation  *bool                                `json:"finish_operation"`
-	Materials        []productionapp.OperationMaterialUse `json:"materials"`
-	PlannedInputQty  float64                              `json:"planned_input_qty"`
-	ActualInputQty   float64                              `json:"actual_input_qty"`
-	ActualOutputQty  float64                              `json:"actual_output_qty"`
-	ActualLossQty    float64                              `json:"actual_loss_qty"`
-	ActualMinutes    int                                  `json:"actual_minutes"`
-	LossReason       string                               `json:"loss_reason"`
-	ExceptionReason  string                               `json:"exception_reason"`
-	MetricsJSON      json.RawMessage                      `json:"metrics_json"`
+	SelectedUnissuedRemainders []productionapp.PackagingUnissuedRemainder `json:"selected_unissued_remainders"`
+	ActualRemainderG           *float64                                   `json:"actual_remainder_g"`
+	RemainderWarehouse         string                                     `json:"remainder_warehouse"`
+	WasteQty                   *float64                                   `json:"waste_qty"`
+	RequestID                  string                                     `json:"request_id"`
+	ExpectedVersion            string                                     `json:"expected_version"`
+	InputUnit                  string                                     `json:"input_unit"`
+	OutputUnit                 string                                     `json:"output_unit"`
+	DifferenceReason           string                                     `json:"difference_reason"`
+	FinishOperation            *bool                                      `json:"finish_operation"`
+	Materials                  []productionapp.OperationMaterialUse       `json:"materials"`
+	PlannedInputQty            float64                                    `json:"planned_input_qty"`
+	ActualInputQty             float64                                    `json:"actual_input_qty"`
+	ActualOutputQty            float64                                    `json:"actual_output_qty"`
+	ActualLossQty              float64                                    `json:"actual_loss_qty"`
+	ActualMinutes              int                                        `json:"actual_minutes"`
+	LossReason                 string                                     `json:"loss_reason"`
+	ExceptionReason            string                                     `json:"exception_reason"`
+	MetricsJSON                json.RawMessage                            `json:"metrics_json"`
 }
 
 type workOrderCompleteRequest struct {
@@ -447,7 +451,11 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid metrics_json"})
 		}
 		cmd := productionapp.JobCardActionCommand{
-			RequestID: req.RequestID, ExpectedVersion: req.ExpectedVersion, InputUnit: req.InputUnit, OutputUnit: req.OutputUnit, DifferenceReason: req.DifferenceReason, FinishOperation: req.FinishOperation, Materials: req.Materials,
+			SelectedUnissuedRemainders: req.SelectedUnissuedRemainders,
+			ActualRemainderG:           req.ActualRemainderG,
+			RemainderWarehouse:         strings.TrimSpace(req.RemainderWarehouse),
+			WasteQty:                   req.WasteQty,
+			RequestID:                  req.RequestID, ExpectedVersion: req.ExpectedVersion, InputUnit: req.InputUnit, OutputUnit: req.OutputUnit, DifferenceReason: req.DifferenceReason, FinishOperation: req.FinishOperation, Materials: req.Materials,
 			ID:              id,
 			EmployeeID:      support.CurrentEmployeeID(c),
 			Operator:        support.ActorOf(c),

@@ -337,6 +337,12 @@ func TestProductionPlanAPITypedProductComponentRecursesWithPartialFinishedStock(
 	`, schema, schema, planID))
 
 	selectPlanningTestSources(t, app, planID)
+	blockedPlan := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
+	if blockedPlan.Code != http.StatusBadRequest {
+		t.Fatalf("plan must await fixture transfer into WIP: %d %s", blockedPlan.Code, blockedPlan.Body.String())
+	}
+	moveFixtureTypedFinishedToWIP(t, pool, schema)
+	selectPlanningTestSources(t, app, planID)
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
 	if submit.Code != http.StatusOK {
 		t.Fatalf("submit typed product-component plan status=%d body=%s", submit.Code, submit.Body.String())
@@ -914,6 +920,7 @@ func TestMaterialOutputCompletionHonorsFrozenPlanTargetWarehouse(t *testing.T) {
 	seedProductionFlowWIPBatch(t, ctx, pool, schema, 8010, 10, "MB-ROASTED-TARGET-MATERIAL", "在制熟豆", 10_000)
 	seedProductionFlowWIPBatch(t, ctx, pool, schema, 8030, 30, "MB-GREEN-TARGET-MATERIAL", "生产生豆", 20_000)
 	seedProductionFlowWIPUnitBatch(t, ctx, pool, schema, 8020, 20, "MB-BAG-TARGET-MATERIAL", "227g包装袋", 100)
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %s.material_batches SET cost_unavailable=true WHERE batch_code='MB-GREEN-TARGET-MATERIAL'`, schema))
 	app := newProductionFlowTestEcho(pool, schema)
 	create := serveMultilevelProductionJSON(t, app, http.MethodPost, "/api/production-plans", map[string]any{
 		"from": "2026-08-01", "to": "2026-08-31",
@@ -982,6 +989,8 @@ func TestMaterialOutputCompletionHonorsFrozenPlanTargetWarehouse(t *testing.T) {
 		t.Fatalf("complete into frozen material target status=%d body=%s", complete.Code, complete.Body.String())
 	}
 	assertProductionFlowCount(t, pool, schema, "material_batch_locations", "material_id=10 AND warehouse='finished_shop' AND qty_g=12700", 1)
+	assertProductionFlowCount(t, pool, schema, "material_batches", "material_id=10 AND supplier='production' AND cost_unavailable=true", 1)
+	assertProductionFlowCount(t, pool, schema, "stock_batches", "item_type='material' AND item_id=10 AND source_doc_type='production_run' AND cost_unavailable=true", 1)
 }
 
 func TestMaterialOutputShortAndOverProductionKeepDownstreamCoverageExact(t *testing.T) {

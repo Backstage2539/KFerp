@@ -67,6 +67,18 @@ func (r Repository) CloseMonthAtomic(ctx context.Context, cmd app.CloseMonthComm
 	if err != nil {
 		return report, err
 	}
+	if report.CostUnavailable {
+		return domain.MonthlyReport{}, fmt.Errorf("生产成本待核算，暂不能结账")
+	}
+	if report.Status == domain.MonthStatusClosed || report.Status == domain.MonthStatusAdjusted {
+		snapshot, found, err := bound.LoadMonthlyReportSnapshot(ctx, cmd.Month)
+		if err != nil {
+			return domain.MonthlyReport{}, err
+		}
+		if found {
+			return snapshot, nil
+		}
+	}
 	if report.Status != domain.MonthStatusAdjusted {
 		report.Status = domain.MonthStatusClosed
 	}
@@ -85,6 +97,13 @@ func (r Repository) CloseMonthAtomic(ctx context.Context, cmd app.CloseMonthComm
 func (r Repository) RebuildClosedMonthTx(ctx context.Context, tx pgx.Tx, month, actor string) error {
 	bound := r
 	bound.tx = tx
+	totals, _, err := bound.MonthlySourceTotals(ctx, app.ReportFilter{Month: month})
+	if err != nil {
+		return err
+	}
+	if totals.CostUnavailable {
+		return fmt.Errorf("生产成本待核算，暂不能重算已结月份")
+	}
 	report, err := app.NewService(bound).DraftReport(ctx, app.ReportFilter{Month: month})
 	if err != nil {
 		return err

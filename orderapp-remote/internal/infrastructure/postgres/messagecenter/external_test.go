@@ -1086,3 +1086,33 @@ func TestVirtualTestCannotEnableAndRealDetailMustBeAuthorized(t *testing.T) {
 		t.Fatalf("unauthorized detail test: %+v %v", ds, err)
 	}
 }
+
+func TestNotificationExplicitRebindAfterDeactivation(t *testing.T) {
+	p, s := notificationDB(t)
+	ctx := context.Background()
+	repo := NewRepository(p, s)
+	if _, err := p.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.mini_users VALUES(1),(2); INSERT INTO %[1]s.wechat_bindings(app_id,openid,mini_user_id,customer_id,employee_id,active,subscribed,notifications_enabled) VALUES('app','openid',1,0,10,true,true,true)`, s)); err != nil {
+		t.Fatal(err)
+	}
+	token, err := repo.StartNotificationBinding(ctx, 2, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.RecordNotificationScan(ctx, token, "app", "openid"); err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.ConfirmNotificationBinding(ctx, token, "app", 2, 0, 10); err == nil {
+		t.Fatal("active binding must not be taken over")
+	}
+	if _, err = p.Exec(ctx, fmt.Sprintf(`UPDATE %s.wechat_bindings SET active=false WHERE app_id='app' AND openid='openid'`, s)); err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.ConfirmNotificationBinding(ctx, token, "app", 2, 0, 10); err != nil {
+		t.Fatalf("verified owner should be able to explicitly rebind: %v", err)
+	}
+	var mini int64
+	var active, enabled bool
+	if err = p.QueryRow(ctx, fmt.Sprintf(`SELECT mini_user_id,active,notifications_enabled FROM %s.wechat_bindings WHERE app_id='app' AND openid='openid'`, s)).Scan(&mini, &active, &enabled); err != nil || mini != 2 || !active || !enabled {
+		t.Fatalf("rebind failed: mini=%d active=%v enabled=%v err=%v", mini, active, enabled, err)
+	}
+}

@@ -538,6 +538,27 @@ func (r Repository) validateFactoryMaterialActualCostTx(ctx context.Context, tx 
 	if missing {
 		return fmt.Errorf("工单 %d 缺少实际工厂物料耗用数据，无法按实际成本计费", workOrderID)
 	}
+	var unavailable bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(
+      SELECT 1 FROM %[1]s.customer_processing_material_reservations r
+      LEFT JOIN %[1]s.material_batches mb ON mb.id=r.material_batch_id
+      LEFT JOIN %[1]s.stock_batches sb ON sb.id=r.finished_stock_batch_id
+      WHERE r.work_order_id=$1 AND r.source_owner_type='factory' AND r.source_customer_id=0
+        AND (r.consumed_g>0 OR r.consumed_units>0)
+        AND (COALESCE((to_jsonb(mb)->>'cost_unavailable')::boolean,false) OR COALESCE((to_jsonb(sb)->>'cost_unavailable')::boolean,false)
+          OR EXISTS (SELECT 1 FROM %[1]s.work_orders wo JOIN %[1]s.material_consumption_logs l ON l.running_item_id=wo.running_item_id
+            LEFT JOIN %[1]s.material_batches lmb ON lmb.id=l.material_batch_id
+            LEFT JOIN %[1]s.stock_batches lsb ON l.material_batch_id=0 AND lsb.batch_code=l.material_batch_code AND lsb.item_type='finished_product'
+            WHERE wo.id=r.work_order_id AND (l.deduct_g>0 OR l.deduct_units>0)
+              AND ((COALESCE(r.component_type,'material')<>'finished_product' AND COALESCE(r.material_batch_id,0)=0 AND l.material_id=r.material_id)
+                OR (r.component_type='finished_product' AND COALESCE(r.finished_stock_batch_id,0)=0 AND lsb.item_id=COALESCE(NULLIF(r.component_product_id,0),r.material_id)))
+              AND (COALESCE((to_jsonb(lmb)->>'cost_unavailable')::boolean,false) OR COALESCE((to_jsonb(lsb)->>'cost_unavailable')::boolean,false))))
+    )`, r.schema), workOrderID).Scan(&unavailable); err != nil {
+		return err
+	}
+	if unavailable {
+		return fmt.Errorf("工单 %d 的工厂物料成本待核算，暂无法按实际成本计费", workOrderID)
+	}
 	return nil
 }
 

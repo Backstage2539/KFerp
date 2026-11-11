@@ -1064,8 +1064,12 @@ VALUES(191,41,91,'227g袋','袋',true,10),(192,41,92,'454g袋','袋',false,20);
 		}
 	}
 	service := stockapp.NewService(repo)
+	sourceBatch := mustTestTransferBatch(t, pool, schema, 7, 91, 0, "finished_goods")
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.stock_batches SET cost_unavailable=true WHERE batch_code=$1`, schema), sourceBatch); err != nil {
+		t.Fatal(err)
+	}
 	serviceTransfer, err := service.TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
-		BatchCode: mustTestTransferBatch(t, pool, schema, 7, 91, 0, "finished_goods"), ProductID: 7, BomSpecID: 91, BomVariantID: 191, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
+		BatchCode: sourceBatch, ProductID: 7, BomSpecID: 91, BomVariantID: 191, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
 		QtyUnits: 4, Operator: "qa", IdempotencyKey: "bom-spec-unified-transfer-91",
 	})
 	if err != nil {
@@ -1073,6 +1077,10 @@ VALUES(191,41,91,'227g袋','袋',true,10),(192,41,92,'454g袋','袋',false,20);
 	}
 	if serviceTransfer.EntryID <= 0 || serviceTransfer.BomSpecID != 91 || serviceTransfer.BomVariantID != 191 || serviceTransfer.SpecG != 0 {
 		t.Fatalf("unified transfer identity = %+v", serviceTransfer)
+	}
+	var unavailable bool
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT b.cost_unavailable FROM %[1]s.stock_entry_finished_batch_moves m JOIN %[1]s.stock_batches b ON b.id=m.target_batch_id WHERE m.stock_entry_id=$1`, schema), serviceTransfer.EntryID).Scan(&unavailable); err != nil || !unavailable {
+		t.Fatalf("canonical target cost unavailable=%v err=%v", unavailable, err)
 	}
 	var unifiedSource91, unifiedSource92, unifiedTarget91, entrySpecID, entryVariantID, entryQtyG, entryQtyUnits, entryAuditCount int64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`

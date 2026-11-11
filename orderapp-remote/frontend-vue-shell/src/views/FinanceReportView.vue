@@ -8,13 +8,14 @@
       <div class="toolbar">
         <input v-model="month" type="month" @change="load" />
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
-        <a :href="exportUrls.pdf" target="_blank" rel="noreferrer">PDF</a>
-        <a :href="exportUrls.excel" target="_blank" rel="noreferrer">Excel</a>
-        <a v-if="!isWorkspaceCustomerLocked" :href="accountantHandoffUrl" target="_blank" rel="noreferrer" data-export-kind="accountant-handoff.xlsx">会计交接</a>
+        <a v-if="!report.cost_unavailable" :href="exportUrls.pdf" target="_blank" rel="noreferrer">PDF</a>
+        <a v-if="!report.cost_unavailable" :href="exportUrls.excel" target="_blank" rel="noreferrer">Excel</a>
+        <a v-if="!isWorkspaceCustomerLocked && !report.cost_unavailable" :href="accountantHandoffUrl" target="_blank" rel="noreferrer" data-export-kind="accountant-handoff.xlsx">会计交接</a>
       </div>
     </section>
 
     <div v-if="error" class="error">{{ error }}</div>
+    <p v-if="report.cost_unavailable" class="error" role="alert">生产成本待核算，毛利、净利及所得税估算暂不可用。</p>
 
     <section class="metrics">
       <div v-for="card in cards" :key="card.label" class="metric">
@@ -33,15 +34,15 @@
         </div>
         <div>
           <span>毛利</span>
-          <strong>{{ money(report.adjusted_gross_profit ?? report.gross_profit) }}</strong>
+          <strong>{{ report.cost_unavailable ? '待核算' : money(report.adjusted_gross_profit ?? report.gross_profit) }}</strong>
         </div>
         <div>
           <span>净利</span>
-          <strong>{{ money(report.adjusted_net_profit ?? report.operating_net_profit) }}</strong>
+          <strong>{{ report.cost_unavailable ? '待核算' : money(report.adjusted_net_profit ?? report.operating_net_profit) }}</strong>
         </div>
         <div>
           <span>税费</span>
-          <strong>{{ money(report.adjusted_tax_total ?? report.tax?.total_tax) }}</strong>
+          <strong>{{ report.cost_unavailable ? '待核算' : money(report.adjusted_tax_total ?? report.tax?.total_tax) }}</strong>
         </div>
       </div>
     </section>
@@ -53,12 +54,12 @@
           <tbody>
             <tr><th>含税收入</th><td>{{ money(report.revenue_tax_inclusive) }}</td></tr>
             <tr><th>不含税收入</th><td>{{ money(report.tax_exclusive_revenue) }}</td></tr>
-            <tr><th>主营成本</th><td>{{ money(report.main_business_cost) }}</td></tr>
-            <tr><th>毛利</th><td>{{ money(report.gross_profit) }}</td></tr>
-            <tr><th>毛利率</th><td>{{ percent(report.gross_margin) }}</td></tr>
+            <tr><th>主营成本</th><td>{{ report.cost_unavailable ? '待核算' : money(report.main_business_cost) }}</td></tr>
+            <tr><th>毛利</th><td>{{ report.cost_unavailable ? '待核算' : money(report.gross_profit) }}</td></tr>
+            <tr><th>毛利率</th><td>{{ report.cost_unavailable ? '待核算' : percent(report.gross_margin) }}</td></tr>
             <tr><th>期间费用</th><td>{{ money(report.period_expenses) }}</td></tr>
-            <tr><th>经营净利</th><td>{{ money(report.operating_net_profit) }}</td></tr>
-            <tr><th>调整后净利</th><td>{{ money(report.adjusted_net_profit) }}</td></tr>
+            <tr><th>经营净利</th><td>{{ report.cost_unavailable ? '待核算' : money(report.operating_net_profit) }}</td></tr>
+            <tr><th>调整后净利</th><td>{{ report.cost_unavailable ? '待核算' : money(report.adjusted_net_profit) }}</td></tr>
           </tbody>
         </table>
       </div>
@@ -68,7 +69,7 @@
           <tbody>
             <tr v-for="row in taxRows" :key="row[0]">
               <th>{{ row[0] }}</th>
-              <td>{{ money(row[1]) }}</td>
+              <td>{{ report.cost_unavailable && row[1] == null ? '待核算' : money(row[1]) }}</td>
             </tr>
           </tbody>
         </table>
@@ -82,7 +83,7 @@
       <div v-for="section in drilldown.sections" :key="section.section" class="drill-section">
         <div class="drill-head">
           <strong>{{ section.title || section.section }}</strong>
-          <span>{{ money(section.total) }}</span>
+          <span>{{ section.cost_unavailable ? '待核算' : money(section.total) }}</span>
         </div>
         <table>
           <thead>
@@ -109,7 +110,7 @@
                 </a>
                 <span v-else>-</span>
               </td>
-              <td>{{ money(row.amount) }}</td>
+              <td>{{ row.cost_unavailable ? '待核算' : money(row.amount) }}</td>
             </tr>
           </tbody>
         </table>

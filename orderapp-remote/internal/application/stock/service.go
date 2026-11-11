@@ -61,25 +61,26 @@ type BatchQuery struct {
 }
 
 type BatchRow struct {
-	ID             int64   `json:"id"`
-	BatchCode      string  `json:"batch_code"`
-	ItemType       string  `json:"item_type"`
-	ItemID         int64   `json:"item_id"`
-	ItemName       string  `json:"item_name"`
-	SpecG          int64   `json:"spec_g"`
-	BomSpecID      int64   `json:"bom_spec_id,omitempty"`
-	BomVariantID   int64   `json:"bom_variant_id,omitempty"`
-	SourceDocType  string  `json:"source_doc_type"`
-	SourceDocID    int64   `json:"source_doc_id"`
-	SourceBatchID  string  `json:"source_batch_id"`
-	QtyG           int64   `json:"qty_g"`
-	QtyUnits       int64   `json:"qty_units"`
-	RemainingG     int64   `json:"remaining_g"`
-	RemainingUnits int64   `json:"remaining_units"`
-	UnitCost       float64 `json:"unit_cost"`
-	QualityStatus  string  `json:"quality_status"`
-	Operator       string  `json:"operator"`
-	CreatedAt      string  `json:"created_at"`
+	CostUnavailable bool    `json:"cost_unavailable"`
+	ID              int64   `json:"id"`
+	BatchCode       string  `json:"batch_code"`
+	ItemType        string  `json:"item_type"`
+	ItemID          int64   `json:"item_id"`
+	ItemName        string  `json:"item_name"`
+	SpecG           int64   `json:"spec_g"`
+	BomSpecID       int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID    int64   `json:"bom_variant_id,omitempty"`
+	SourceDocType   string  `json:"source_doc_type"`
+	SourceDocID     int64   `json:"source_doc_id"`
+	SourceBatchID   string  `json:"source_batch_id"`
+	QtyG            int64   `json:"qty_g"`
+	QtyUnits        int64   `json:"qty_units"`
+	RemainingG      int64   `json:"remaining_g"`
+	RemainingUnits  int64   `json:"remaining_units"`
+	UnitCost        float64 `json:"unit_cost"`
+	QualityStatus   string  `json:"quality_status"`
+	Operator        string  `json:"operator"`
+	CreatedAt       string  `json:"created_at"`
 }
 
 type BatchResult struct {
@@ -101,6 +102,7 @@ type MaterialBatchQuery struct {
 }
 
 type MaterialBatchRow struct {
+	CostUnavailable           bool    `json:"cost_unavailable"`
 	ID                        int64   `json:"id"`
 	BatchCode                 string  `json:"batch_code"`
 	MaterialID                int64   `json:"material_id"`
@@ -287,29 +289,30 @@ type WarehouseInventoryQuery struct {
 }
 
 type WarehouseInventoryRow struct {
-	Warehouse     string  `json:"warehouse"`
-	WarehouseName string  `json:"warehouse_name"`
-	WarehouseKind string  `json:"warehouse_kind"`
-	GroupID       int64   `json:"group_id"`
-	GroupName     string  `json:"group_name"`
-	GroupItemID   int64   `json:"group_item_id"`
-	GroupItemName string  `json:"group_item_name"`
-	GroupSource   string  `json:"group_source"`
-	ItemType      string  `json:"item_type"`
-	ItemID        int64   `json:"item_id"`
-	ItemName      string  `json:"item_name"`
-	SpecG         int64   `json:"spec_g"`
-	BomSpecID     int64   `json:"bom_spec_id,omitempty"`
-	BomVariantID  int64   `json:"bom_variant_id,omitempty"`
-	BomSpecName   string  `json:"bom_spec_name,omitempty"`
-	InventoryUnit string  `json:"inventory_unit,omitempty"`
-	BatchID       int64   `json:"batch_id"`
-	BatchCode     string  `json:"batch_code"`
-	QtyG          int64   `json:"qty_g"`
-	QtyUnits      int64   `json:"qty_units"`
-	UnitCost      float64 `json:"unit_cost"`
-	QualityStatus string  `json:"quality_status"`
-	UpdatedAt     string  `json:"updated_at"`
+	CostUnavailable bool    `json:"cost_unavailable"`
+	Warehouse       string  `json:"warehouse"`
+	WarehouseName   string  `json:"warehouse_name"`
+	WarehouseKind   string  `json:"warehouse_kind"`
+	GroupID         int64   `json:"group_id"`
+	GroupName       string  `json:"group_name"`
+	GroupItemID     int64   `json:"group_item_id"`
+	GroupItemName   string  `json:"group_item_name"`
+	GroupSource     string  `json:"group_source"`
+	ItemType        string  `json:"item_type"`
+	ItemID          int64   `json:"item_id"`
+	ItemName        string  `json:"item_name"`
+	SpecG           int64   `json:"spec_g"`
+	BomSpecID       int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID    int64   `json:"bom_variant_id,omitempty"`
+	BomSpecName     string  `json:"bom_spec_name,omitempty"`
+	InventoryUnit   string  `json:"inventory_unit,omitempty"`
+	BatchID         int64   `json:"batch_id"`
+	BatchCode       string  `json:"batch_code"`
+	QtyG            int64   `json:"qty_g"`
+	QtyUnits        int64   `json:"qty_units"`
+	UnitCost        float64 `json:"unit_cost"`
+	QualityStatus   string  `json:"quality_status"`
+	UpdatedAt       string  `json:"updated_at"`
 }
 
 type WarehouseInventoryResult struct {
@@ -340,10 +343,14 @@ type TransferOptionRow struct {
 	SpecName          string `json:"spec_name"`
 	InventoryUnit     string `json:"inventory_unit"`
 	OwnerCustomerID   int64  `json:"owner_customer_id"`
+	OwnerName         string `json:"owner_name,omitempty"`
+	QualityStatus     string `json:"quality_status"`
 	BatchID           int64  `json:"batch_id"`
 	BatchCode         string `json:"batch_code"`
 	QtyG              int64  `json:"qty_g"`
 	QtyUnits          int64  `json:"qty_units"`
+	ReservedG         *int64 `json:"reserved_g"`
+	ReservedUnits     *int64 `json:"reserved_units"`
 	AvailableG        int64  `json:"available_g"`
 	AvailableUnits    int64  `json:"available_units"`
 	UnavailableReason string `json:"unavailable_reason,omitempty"`
@@ -648,6 +655,7 @@ type StockDocumentFinishedBatchMove struct {
 }
 
 type StockDocumentItemRow struct {
+	CostUnavailable           bool                             `json:"cost_unavailable"`
 	FrozenPicking             bool                             `json:"frozen_picking,omitempty"`
 	ID                        int64                            `json:"id"`
 	StockEntryID              int64                            `json:"stock_entry_id"`
@@ -677,28 +685,29 @@ type StockDocumentItemRow struct {
 }
 
 type StockDocumentRow struct {
-	ID            int64   `json:"id"`
-	EntryNo       string  `json:"entry_no"`
-	EntryType     string  `json:"entry_type"`
-	Purpose       string  `json:"purpose"`
-	IsReturn      bool    `json:"is_return"`
-	Status        string  `json:"status"`
-	WorkOrderID   int64   `json:"work_order_id"`
-	WorkOrderNo   string  `json:"work_order_no"`
-	JobCardID     int64   `json:"job_card_id"`
-	RunningItemID int64   `json:"running_item_id"`
-	SourceType    string  `json:"source_type"`
-	SourceID      int64   `json:"source_id"`
-	ReturnSource  string  `json:"return_source"`
-	ItemCount     int64   `json:"item_count"`
-	TotalQtyG     int64   `json:"total_qty_g"`
-	TotalQtyUnits int64   `json:"total_qty_units"`
-	TotalCost     float64 `json:"total_cost"`
-	Operator      string  `json:"operator"`
-	Note          string  `json:"note"`
-	Legacy        bool    `json:"legacy"`
-	CreatedAt     string  `json:"created_at"`
-	UpdatedAt     string  `json:"updated_at"`
+	CostUnavailable bool    `json:"cost_unavailable"`
+	ID              int64   `json:"id"`
+	EntryNo         string  `json:"entry_no"`
+	EntryType       string  `json:"entry_type"`
+	Purpose         string  `json:"purpose"`
+	IsReturn        bool    `json:"is_return"`
+	Status          string  `json:"status"`
+	WorkOrderID     int64   `json:"work_order_id"`
+	WorkOrderNo     string  `json:"work_order_no"`
+	JobCardID       int64   `json:"job_card_id"`
+	RunningItemID   int64   `json:"running_item_id"`
+	SourceType      string  `json:"source_type"`
+	SourceID        int64   `json:"source_id"`
+	ReturnSource    string  `json:"return_source"`
+	ItemCount       int64   `json:"item_count"`
+	TotalQtyG       int64   `json:"total_qty_g"`
+	TotalQtyUnits   int64   `json:"total_qty_units"`
+	TotalCost       float64 `json:"total_cost"`
+	Operator        string  `json:"operator"`
+	Note            string  `json:"note"`
+	Legacy          bool    `json:"legacy"`
+	CreatedAt       string  `json:"created_at"`
+	UpdatedAt       string  `json:"updated_at"`
 }
 
 type StockDocumentDetail struct {
@@ -926,6 +935,9 @@ func normalizeStockDocumentCommand(cmd StockDocumentCommand) (StockDocumentComma
 	}
 	cmd.EntryType = entryTypeForPurpose(cmd.Purpose, cmd.IsReturn)
 	cmd.SourceType = strings.TrimSpace(cmd.SourceType)
+	if cmd.SourceType == "production_plan_material_transfer" {
+		return StockDocumentCommand{}, fmt.Errorf("生产计划调拨单须从生产计划生成")
+	}
 	if cmd.SourceType == "order_resolution_return" || cmd.SourceType == "order_resolution_ownership_return_out" || cmd.SourceType == "order_resolution_company_scrap" {
 		return StockDocumentCommand{}, fmt.Errorf("订单库存处置须从订单处理单完成仓库确认")
 	}

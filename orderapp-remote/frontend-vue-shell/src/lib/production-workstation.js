@@ -87,10 +87,17 @@ export function workstationTaskRequiresSchedule(task = {}, assignment = null) {
 // have already been accounted for by packaging_group_key.
 export function workstationPackagingGroups(tasks = []) {
   const groups = new Map()
+  const cardCounts = new Map()
+  for (const task of tasks || []) {
+    const order=Number(task?.work_order_id || 0)
+    if (!order || !isPackagingTask(task) || ['completed','cancelled'].includes(String(task?.status || '').toLowerCase()) || ['completed','cancelled'].includes(String(task?.work_order_status || '').toLowerCase())) continue
+    cardCounts.set(order,(cardCounts.get(order)||0)+1)
+  }
   for (const task of tasks || []) {
     let key = String(task?.packaging_group_key || '').trim()
     if(key && task.material_consumption_policy==='bom_start_v1') key+=`:bom_start_v1:${['pending','ready','released'].includes(task.status)?'pending':'running'}`
-    if (!key || !/包装|分装|装盒|装袋/.test(String(task?.operation || ''))) continue
+    if (!key || !isPackagingTask(task)) continue
+    if (Number(task.work_order_id || 0)>0 && cardCounts.get(Number(task.work_order_id))>1) continue
     if (['completed', 'cancelled'].includes(String(task?.status || '').toLowerCase())) continue
     if (['completed', 'cancelled'].includes(String(task.work_order_status || '').toLowerCase())) continue
     if (!groups.has(key)) groups.set(key, [])
@@ -125,6 +132,17 @@ export function workstationPackagingGroups(tasks = []) {
       materials: Array.from(materialMap.values()),
     }
   }).sort((a, b) => compareProductionTasks(a.tasks[0], b.tasks[0]))
+}
+
+export function isPackagingTask(task = {}) {
+  const mode=String(task.reporting_type || '').trim()
+  return mode === 'piece' || ((!mode || mode === 'legacy') && /包装|分装|装盒|装袋/.test(String(task.operation || '')))
+}
+
+export function isSimplifiedWorkstationTask(task = {}) {
+  const mode=String(task.reporting_type || '').trim()
+  if (mode && mode !== 'legacy') return ['batch','incoming','piece'].includes(mode)
+  return Boolean(task.automatic_completion) || /烘焙|烘烤|除石|研磨|磨粉|色选|筛选|包装|分装|装盒|装袋/.test(String(task.operation || task.operation_name || task.task_name || ''))
 }
 
 export function workstationPackagingMaterialIdentity(material = {}) {
@@ -191,19 +209,20 @@ function quantityText(value) {
 export function taskQuantityLines(task = {}) {
   if (task.has_predecessor) {
     if (!task.predecessor_completed) return ['前序工序未完成，完成后交接']
-    return [`前序实际产出 ${quantityText(task.predecessor_output_qty)} ${task.inventory_unit || ''}`.trim(), '本工序按实际交接量处理']
+    const state=String(task.predecessor_output_unit_state || 'missing')
+    const actual = state === 'known' && task.predecessor_output_unit ? `前序实际产出 ${quantityText(task.predecessor_output_qty)} ${task.predecessor_output_unit}` : state === 'mixed' ? '前序产出单位不一致，请核对' : '前序实际产出单位待核对'
+    return [actual, '本工序按实际交接量处理']
   }
   const lines = []
-  const operation = String(task.operation || '')
   const unit = String(task.inventory_unit || '').trim()
   const inputQuantity = Number(task.planned_input_inventory_qty || 0)
   const totalInput = Number(task.operation_total_input_qty || 0)
   const outputTotal = Number(task.planned_output_inventory_qty || 0)
   const batchOutput = totalInput > 0 ? outputTotal * Number(task.planned_input_qty || 0) / totalInput : 0
-  const packaging = /包装|分装|装盒|装袋/.test(operation)
+  const packaging = isPackagingTask(task)
   if (Number(task.spec_g || 0) > 0) lines.push(`规格 ${quantityText(task.spec_g)}g`)
-  if (packaging && batchOutput > 0 && unit) {
-    lines.push(`本批生产 ${quantityText(batchOutput)} ${unit}`)
+  if (packaging && (batchOutput > 0 || outputTotal > 0) && unit) {
+    lines.push(`本批生产 ${quantityText(batchOutput || outputTotal)} ${unit}`)
     return lines
   }
   if (inputQuantity > 0 && unit) lines.push(`本批投料 ${quantityText(inputQuantity)} ${unit}`)

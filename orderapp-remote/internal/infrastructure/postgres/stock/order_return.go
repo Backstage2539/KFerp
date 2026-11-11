@@ -72,6 +72,9 @@ func (r Repository) PostOrderReturnTx(ctx context.Context, tx pgx.Tx, id int64, 
 	if err != nil {
 		return 0, err
 	}
+	if err = r.copyStockBatchCostAvailabilityTx(ctx, tx, sourceBatch, targetID); err != nil {
+		return 0, err
+	}
 	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.order_resolution_stock_returns SET target_batch_id=$2,target_batch_code=$3 WHERE id=$1 AND status='posting'`, r.schema), id, targetID, targetCode); err != nil {
 		return 0, err
 	}

@@ -124,7 +124,8 @@ export function financeMetricCards(report = {}) {
     },
   ].map((card) => ({
     ...card,
-    display: money(card.value),
+    sub: report.cost_unavailable && card.tone === 'profit' ? '' : card.sub,
+    display: report.cost_unavailable && card.tone !== 'revenue' ? '待核算' : money(card.value),
   }))
 }
 

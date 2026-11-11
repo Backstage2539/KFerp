@@ -28,7 +28,7 @@
           <div><span>结账状态</span><strong>{{ financeStatusLabel(report.status) }}</strong></div>
           <div><span>锁账模式</span><strong>{{ closingModeLabel(settings.closing_mode) }}</strong></div>
           <div><span>含税收入</span><strong>{{ money(report.revenue_tax_inclusive) }}</strong></div>
-          <div><span>主营成本</span><strong>{{ money(report.main_business_cost) }}</strong></div>
+          <div><span>主营成本</span><strong>{{ report.cost_unavailable ? '待核算' : money(report.main_business_cost) }}</strong></div>
           <div><span>期间费用</span><strong>{{ money(report.period_expenses) }}</strong></div>
         </div>
       </div>

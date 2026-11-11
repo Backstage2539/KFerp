@@ -548,12 +548,12 @@ test('production plan issue focus targets the source or task and expands collaps
 test('production plan detail uses a full workspace with fixed header and footer', () => {
   const source = fs.readFileSync(new URL('../components/ProductionPlanDetailWorkspace.vue', import.meta.url), 'utf8')
   assert.match(source, /生产计划详情工作区/)
-  assert.match(source, /本次生产安排/)
-  assert.match(source, /本组备料/)
+  assert.match(source, /物料准备/)
+  assert.doesNotMatch(source, />本组备料</)
   assert.doesNotMatch(source, /id="material-sources"/)
-  assert.match(source, /提交前核对/)
+  assert.match(source, /物料核对/)
   assert.match(source, /保存草稿/)
-  assert.match(source, /提交生成工单/)
+  assert.match(source, /下一步：产能安排/)
   assert.match(source, /quantity\(material\.qty, material\.unit\)/)
   assert.match(source, /position:\s*sticky/)
 })
@@ -994,7 +994,7 @@ test('production plan capacity workspace renders live task coverage', () => {
     '拆分核对',
     '计划数量',
     '已安排',
-    '还需安排',
+    '不足数量',
     'productionPlanSplitPreview',
     'scheduleProductionPlanSplitPreview',
     'productionPlanCapacityReadiness',
@@ -1209,21 +1209,21 @@ test('capacity workspace groups by frozen operation names and preserves each sou
   assert.equal(groups[1].tasks[0].status, 'short')
 })
 
-test('capacity readiness permits short drafts but requires coverage and over-allocation acknowledgement to confirm', () => {
+test('capacity readiness permits short and over allocation without acknowledgement', () => {
   const short = productionPlanCapacityReadiness({ operation_coverage: [
     { production_plan_item_id: 1, operation: '手工装袋', status: 'short' },
     { production_plan_item_id: 2, operation: '手工装袋', status: 'matched' },
   ] })
   assert.equal(short.can_save_draft, true)
-  assert.equal(short.can_confirm, false)
+  assert.equal(short.can_confirm, true)
   assert.equal(short.short_count, 1)
 
   const over = productionPlanCapacityReadiness({ operation_coverage: [
     { production_plan_item_id: 1, operation: '滚筒烘焙', status: 'over' },
     { production_plan_item_id: 2, operation: '手工装袋', status: 'matched' },
   ] })
-  assert.equal(over.can_confirm, false)
-  assert.equal(over.requires_over_acknowledgement, true)
+  assert.equal(over.can_confirm, true)
+  assert.equal(over.requires_over_acknowledgement, false)
   assert.equal(productionPlanCapacityReadiness({ operation_coverage: over.rows }, true).can_confirm, true)
 })
 
@@ -1534,4 +1534,22 @@ test('production plan detail drawer retains the typed manufacturing dependency g
   assert.match(source, /上游依赖/)
   assert.match(source, /manufacturing_plan/)
   assert.doesNotMatch(source, /两段式/)
+})
+
+test('quantity scheduling keeps the exact amount and estimates proportional time', () => {
+  const metrics = plannedCapacitySplitMetrics({ scheduling_mode: 'quantity', planned_qty: 23, batch_size_qty: 10, batch_size_unit: 'kg', standard_minutes: 10, throughput_per_hour: 600, hourly_rate: 120 })
+  assert.equal(metrics.planned_qty, 23)
+  assert.equal(metrics.planned_batch_count, 0)
+  assert.equal(metrics.planned_seconds, 138)
+  assert.equal(metrics.planned_operation_cost, 4.6)
+})
+
+test('quantity scheduling without speed has no estimated time or time cost', () => {
+  const metrics = plannedCapacitySplitMetrics({ scheduling_mode: 'quantity', planned_qty: 23, batch_size_unit: 'kg', hourly_rate: 120 })
+  assert.equal(metrics.planned_seconds, null)
+  assert.equal(metrics.planned_operation_cost, null)
+})
+test('quantity scheduling preserves sub-second estimates without batch rounding',()=>{
+ const m=plannedCapacitySplitMetrics({scheduling_mode:'quantity',throughput_per_hour:1000,batch_size_unit:'kg',planned_qty:0.001,hourly_rate:100})
+ assert.equal(m.planned_seconds,0.0036)
 })

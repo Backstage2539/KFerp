@@ -30,10 +30,22 @@ func (r *Repository) ListUnbilledCharges(ctx context.Context, query app.BillingQ
 	if err != nil {
 		return app.BillingPage{}, err
 	}
-	return pageBillingCharges(rows, query.Page, query.Limit), nil
+	page := pageBillingCharges(rows, query.Page, query.Limit)
+	for i := range page.Rows {
+		row := &page.Rows[i]
+		line := app.SettlementLineSummary{ChargeType: row.ChargeType, SourceType: row.SourceType, SourceID: row.SourceID, AmountCents: row.DueCents}
+		detail, detailErr := r.billingLineDetail(ctx, r.pool, query.CustomerID, line, "原单当前信息")
+		if detailErr != nil {
+			return app.BillingPage{}, detailErr
+		}
+		if detail != nil && detail.OrderID > 0 {
+			row.Detail = detail
+		}
+	}
+	return page, nil
 }
 
-func (r *Repository) loadUnbilledCharges(ctx context.Context, q billingRows, query app.BillingQuery) ([]app.BillingCharge, error) {
+func (r *Repository) loadUnbilledCharges(ctx context.Context, q billingReader, query app.BillingQuery) ([]app.BillingCharge, error) {
 	from, to := query.DateFrom, query.DateTo
 	if from == "" {
 		from = "1900-01-01"
@@ -56,13 +68,20 @@ func (r *Repository) loadUnbilledCharges(ctx context.Context, q billingRows, que
 		}
 		out = append(out, app.BillingCharge{ID: billingSourceID(line.ChargeType, line.SourceType, line.SourceID), BillingSource: app.BillingSource{ChargeType: line.ChargeType, SourceType: line.SourceType, SourceID: line.SourceID}, SourceNo: line.SourceNo, Description: line.Description, OccurredAt: line.OccurredAt, ReceivableCents: line.ReceivableCents, ReceivedCents: line.ReceivedCents, DueCents: line.DueCents, ConfirmationStatus: line.ConfirmationStatus, SettlementStatus: "unsettled"})
 	}
+	freightJoin, sourceNo := "", "COALESCE(o.order_no,'')"
+	if relationExists(ctx, q, r.schema+".freight_actual_entries") && relationExists(ctx, q, r.schema+".freight_actual_shipments") {
+		freightJoin = fmt.Sprintf(`LEFT JOIN %[1]s.freight_actual_entries fe ON f.source_type='freight_actual' AND fe.id=f.source_id
+		LEFT JOIN %[1]s.freight_actual_shipments fs ON fs.id=fe.shipment_id AND fs.customer_id=f.customer_id`, r.schema)
+		sourceNo = "CASE WHEN f.fee_type='shipping' AND f.source_type='freight_actual' THEN COALESCE(fs.tracking_no,'') ELSE COALESCE(o.order_no,'') END"
+	}
 	fees, err := q.Query(ctx, fmt.Sprintf(`
 		SELECT f.id,coalesce(f.source_type,''),coalesce(f.source_id,0),f.fee_type,coalesce(f.note,''),
 		       (round(f.amount*100)::bigint-COALESCE((to_jsonb(f)->>'resolution_credit_cents')::bigint,0)),to_char(f.occurred_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD'),
-		       COALESCE(o.order_no,''),CASE WHEN f.fee_type='shipping' AND f.source_type<>'freight_actual' THEN 'pending_billing' ELSE 'confirmed' END,
+		       %s,CASE WHEN f.fee_type='shipping' AND f.source_type<>'freight_actual' THEN 'pending_billing' ELSE 'confirmed' END,
 		       CASE WHEN b.status='draft' THEN 'draft' ELSE 'unsettled' END
 		FROM %s.customer_fee_items f
 		LEFT JOIN %s.orders o ON f.source_type='order' AND o.id=f.source_id AND o.customer_id=f.customer_id
+		%s
 		LEFT JOIN %s.customer_settlement_batches b ON b.id=f.settlement_batch_id AND b.customer_id=f.customer_id
 		WHERE f.customer_id=$1 AND f.fee_type<>'order_goods'
 		  AND (f.status='unsettled' OR (f.status='settled' AND b.status='draft' AND COALESCE(b.processing_billing_run_id,0)=0))
@@ -70,7 +89,7 @@ func (r *Repository) loadUnbilledCharges(ctx context.Context, q billingRows, que
 		  AND ($4='' OR f.fee_type=$4)
 		  AND NOT (f.fee_type='shipping' AND f.source_type<>'freight_actual')
 		ORDER BY f.occurred_at DESC,f.id DESC
-	`, r.schema, r.schema, r.schema), query.CustomerID, from, to, query.FeeType)
+	`, sourceNo, r.schema, r.schema, freightJoin, r.schema), query.CustomerID, from, to, query.FeeType)
 	if err != nil {
 		return nil, err
 	}
@@ -86,6 +105,9 @@ func (r *Repository) loadUnbilledCharges(ctx context.Context, q billingRows, que
 		}
 		row.ID = billingSourceID(row.ChargeType, "customer_fee_item", feeID)
 		row.SourceType, row.SourceID = "customer_fee_item", feeID
+		if row.ChargeType == "shipping" {
+			row.Description = "运费"
+		}
 		row.ReceivableCents, row.DueCents = row.DueCents, row.DueCents
 		out = append(out, row)
 	}
@@ -188,7 +210,7 @@ func (r *Repository) BillingSummary(ctx context.Context, customerID int64) (app.
 }
 
 func (r *Repository) ListIssuedBills(ctx context.Context, query app.BillingQuery) (app.BillingBillsPage, error) {
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT id FROM %s.customer_settlement_batches WHERE customer_id=$1 AND status IN('confirmed','paid','settled') AND COALESCE(processing_billing_run_id,0)=0 ORDER BY COALESCE(confirmed_at,created_at) DESC,id DESC`, r.schema), query.CustomerID)
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT id FROM %s.customer_settlement_batches WHERE customer_id=$1 AND status IN('confirmed','paid','settled') AND COALESCE(processing_billing_run_id,0)=0 AND ($2='' OR (COALESCE(confirmed_at,created_at) AT TIME ZONE 'Asia/Shanghai')::date >= NULLIF($2,'')::date) AND ($3='' OR (COALESCE(confirmed_at,created_at) AT TIME ZONE 'Asia/Shanghai')::date <= NULLIF($3,'')::date) ORDER BY COALESCE(confirmed_at,created_at) DESC,id DESC`, r.schema), query.CustomerID, query.DateFrom, query.DateTo)
 	if err != nil {
 		return app.BillingBillsPage{}, err
 	}
@@ -232,7 +254,7 @@ func (r *Repository) ListIssuedBills(ctx context.Context, query app.BillingQuery
 	if end > len(out) {
 		end = len(out)
 	}
-	return app.BillingBillsPage{Rows: out[start:end], Total: len(out), Page: page, Limit: limit}, nil
+	return app.BillingBillsPage{Rows: out[start:end], Total: len(out), Page: page, Limit: limit, Summary: app.SummarizeIssuedBills(out)}, nil
 }
 
 func (r *Repository) GetIssuedBill(ctx context.Context, customerID, batchID int64) (app.BillingBill, error) {
@@ -242,7 +264,7 @@ func (r *Repository) GetIssuedBill(ctx context.Context, customerID, batchID int6
 func (r *Repository) getIssuedBill(ctx context.Context, query billingReader, customerID, batchID int64, receipts map[int64]int64) (app.BillingBill, error) {
 	var out app.BillingBill
 	var total int64
-	err := query.QueryRow(ctx, fmt.Sprintf(`SELECT b.settlement_no,COALESCE(to_char(b.period_from,'YYYY-MM-DD'),''),COALESCE(to_char(b.period_to,'YYYY-MM-DD'),''),b.status,round(b.total_amount*100)::bigint,COALESCE(to_char(b.confirmed_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI'),''),COALESCE(c.name,'') FROM %s.customer_settlement_batches b LEFT JOIN %s.customers c ON c.id=b.customer_id WHERE b.id=$1 AND b.customer_id=$2 AND b.status IN('confirmed','paid','settled') AND COALESCE(b.processing_billing_run_id,0)=0`, r.schema, r.schema), batchID, customerID).Scan(&out.SettlementNo, &out.PeriodFrom, &out.PeriodTo, &out.Status, &total, &out.IssuedAt, &out.CustomerName)
+	err := query.QueryRow(ctx, fmt.Sprintf(`SELECT b.settlement_no,COALESCE(to_char(b.period_from,'YYYY-MM-DD'),''),COALESCE(to_char(b.period_to,'YYYY-MM-DD'),''),b.status,round(b.total_amount*100)::bigint,COALESCE(to_char(COALESCE(b.confirmed_at,b.created_at) AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI'),''),COALESCE(c.name,'') FROM %s.customer_settlement_batches b LEFT JOIN %s.customers c ON c.id=b.customer_id WHERE b.id=$1 AND b.customer_id=$2 AND b.status IN('confirmed','paid','settled') AND COALESCE(b.processing_billing_run_id,0)=0`, r.schema, r.schema), batchID, customerID).Scan(&out.SettlementNo, &out.PeriodFrom, &out.PeriodTo, &out.Status, &total, &out.IssuedAt, &out.CustomerName)
 	if err != nil {
 		return out, err
 	}
@@ -252,6 +274,24 @@ func (r *Repository) getIssuedBill(ctx context.Context, query billingReader, cus
 	}
 	if err = r.hydrateBillingLineDetails(ctx, query, customerID, lines); err != nil {
 		return out, err
+	}
+	for i := range lines {
+		line := &lines[i]
+		if line.ChargeType != "shipping" {
+			continue
+		}
+		line.Description = "运费"
+		// A freight charge refers to one shipment; use its original snapshot.
+		if line.Detail != nil && len(line.Detail.Shipments) == 1 && line.Detail.Shipments[0].TrackingNo != "" {
+			line.SourceNo = line.Detail.Shipments[0].TrackingNo
+		} else if line.SourceType == "customer_fee_item" && relationExists(ctx, query, r.schema+".freight_actual_entries") && relationExists(ctx, query, r.schema+".freight_actual_shipments") {
+			var tracking string
+			err := query.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(s.tracking_no,'') FROM %[1]s.customer_fee_items f JOIN %[1]s.freight_actual_entries e ON f.source_type='freight_actual' AND e.id=f.source_id JOIN %[1]s.freight_actual_shipments s ON s.id=e.shipment_id AND s.customer_id=f.customer_id WHERE f.id=$1 AND f.customer_id=$2`, r.schema), line.SourceID, customerID).Scan(&tracking)
+			if err != nil && err != pgx.ErrNoRows {
+				return out, err
+			}
+			line.SourceNo = tracking
+		}
 	}
 	sort.SliceStable(lines, func(i, j int) bool {
 		left, right := int64(0), int64(0)
@@ -498,6 +538,9 @@ func (r *Repository) PreviewBilling(ctx context.Context, cmd app.BillingPreviewC
 	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT name FROM %s.customers WHERE id=$1`, r.schema), cmd.CustomerID).Scan(&preview.CustomerName); err != nil {
 		return app.BillingPreview{}, err
 	}
+	if err := r.fillBillingPreviewDetails(ctx, r.pool, cmd.CustomerID, preview.Lines); err != nil {
+		return app.BillingPreview{}, err
+	}
 	preview.FeeItems = len(preview.Lines)
 	preview.PreviewVersion = billingPreviewVersion(preview)
 	return preview, nil
@@ -505,11 +548,33 @@ func (r *Repository) PreviewBilling(ctx context.Context, cmd app.BillingPreviewC
 
 func billingPreviewVersion(p app.BillingPreview) string {
 	h := sha256.New()
+	// Previous previews did not include customer-visible address/weight and
+	// must be reviewed again after this contract changes.
+	fmt.Fprintln(h, "billing-preview-detail-v1")
 	fmt.Fprintf(h, "%d|%s|%s|%d\n", p.CustomerID, p.PeriodFrom, p.PeriodTo, p.TotalAmountCents)
 	for _, l := range p.Lines {
 		fmt.Fprintf(h, "%s|%s|%d|%s|%s|%s|%d|%d|%d\n", l.ChargeType, l.SourceType, l.SourceID, l.OccurredAt, l.SourceNo, l.Description, l.ReceivableCents, l.ReceivedCents, l.DueCents)
+		detail := billingPreviewDetailVersion(l.Detail)
+		fmt.Fprintf(h, "%d:%s\n", len(detail), detail)
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+func billingPreviewDetailVersion(detail *app.BillingLineDetail) string {
+	if detail == nil || detail.OrderID <= 0 {
+		return ""
+	}
+	type shipmentVersion struct{ TrackingNo, Weight string }
+	v := struct {
+		OrderID   int64
+		Address   string
+		Shipments []shipmentVersion
+	}{OrderID: detail.OrderID, Address: detail.ReceiverAddress}
+	for _, s := range detail.Shipments {
+		v.Shipments = append(v.Shipments, shipmentVersion{TrackingNo: s.TrackingNo, Weight: s.SettlementWeightKG})
+	}
+	raw, _ := json.Marshal(v)
+	return string(raw)
 }
 
 func (r *Repository) IssueBilling(ctx context.Context, cmd app.IssueBillingCommand) (app.BillingBill, error) {
@@ -585,6 +650,9 @@ func (r *Repository) IssueBilling(ctx context.Context, cmd app.IssueBillingComma
 		detail, detailErr := r.billingLineDetail(ctx, tx, cmd.CustomerID, line, "出账快照")
 		if detailErr != nil {
 			return app.BillingBill{}, detailErr
+		}
+		if billingPreviewDetailVersion(line.Detail) != billingPreviewDetailVersion(detail) {
+			return app.BillingBill{}, fmt.Errorf("billing preview changed; review again")
 		}
 		snapshot, detailErr := json.Marshal(detail)
 		if detailErr != nil {
@@ -671,9 +739,25 @@ func (r *Repository) previewBillingTx(ctx context.Context, tx pgx.Tx, cmd app.Bi
 	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT name FROM %s.customers WHERE id=$1`, r.schema), cmd.CustomerID).Scan(&p.CustomerName); err != nil {
 		return p, err
 	}
+	if err = r.fillBillingPreviewDetails(ctx, tx, cmd.CustomerID, p.Lines); err != nil {
+		return p, err
+	}
 	p.FeeItems = len(p.Lines)
 	p.PreviewVersion = billingPreviewVersion(p)
 	return p, nil
+}
+
+func (r *Repository) fillBillingPreviewDetails(ctx context.Context, q billingReader, customerID int64, lines []app.SettlementLineSummary) error {
+	for i := range lines {
+		detail, err := r.billingLineDetail(ctx, q, customerID, lines[i], "原单当前信息")
+		if err != nil {
+			return err
+		}
+		if detail != nil && detail.OrderID > 0 {
+			lines[i].Detail = detail
+		}
+	}
+	return nil
 }
 
 func (r *Repository) findIdempotentBill(ctx context.Context, customerID int64, key string) (app.BillingBill, error) {

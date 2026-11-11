@@ -21,15 +21,21 @@ func (r Repository) ProductionTraceAnalytics(ctx context.Context, query producti
 		return productionapp.ProductionTraceAnalyticsResult{}, err
 	}
 	var totalVariance float64
+	totalVarianceUnavailable := false
 	for _, row := range costVariance {
+		if row.PlannedCostUnavailable || row.ActualCostUnavailable {
+			totalVarianceUnavailable = true
+			continue
+		}
 		totalVariance += row.Variance
 	}
 	return productionapp.ProductionTraceAnalyticsResult{
-		TraceLinks:        traceLinks,
-		CostVariance:      costVariance,
-		AbnormalLosses:    abnormalLosses,
-		TotalVariance:     totalVariance,
-		AbnormalLossCount: len(abnormalLosses),
+		TotalVarianceUnavailable: totalVarianceUnavailable,
+		TraceLinks:               traceLinks,
+		CostVariance:             costVariance,
+		AbnormalLosses:           abnormalLosses,
+		TotalVariance:            totalVariance,
+		AbnormalLossCount:        len(abnormalLosses),
 	}, nil
 }
 
@@ -92,13 +98,15 @@ func (r Repository) productionCostVariance(ctx context.Context, query production
 		           END)::float8
 		           FROM %s.job_cards jc
 		           WHERE jc.work_order_id=wo.id
-		       ),0)::float8 AS actual_operation_cost
+		       ),0)::float8 AS actual_operation_cost,
+		       EXISTS(SELECT 1 FROM %s.job_cards jc WHERE jc.work_order_id=wo.id AND jc.scheduling_mode='quantity' AND jc.cost_method<>'piece' AND jc.throughput_per_hour<=0),
+		       EXISTS(SELECT 1 FROM %s.job_cards jc WHERE jc.work_order_id=wo.id AND jc.scheduling_mode='quantity' AND jc.cost_method<>'piece' AND ((jc.throughput_per_hour<=0 AND NOT EXISTS(SELECT 1 FROM %s.production_operation_events prior WHERE prior.job_card_id=jc.id AND prior.kind='complete' AND prior.status='posted')) OR EXISTS(SELECT 1 FROM %s.production_operation_events e WHERE e.job_card_id=jc.id AND e.kind='complete' AND e.status='posted' AND COALESCE((e.payload->>'cost_unavailable')::boolean,false))))
 		FROM %s.work_orders wo
 		LEFT JOIN %s.production_batch_costs pbc ON pbc.running_item_id=wo.running_item_id OR (pbc.batch_id <> '' AND pbc.batch_id=wo.batch_id)
 		WHERE %s
 		ORDER BY wo.completed_at DESC NULLS LAST, wo.created_at DESC, wo.id DESC
 		LIMIT $%d
-	`, r.schema, r.schema, r.schema, r.schema, where, limitArg), args...)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, where, limitArg), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +114,7 @@ func (r Repository) productionCostVariance(ctx context.Context, query production
 	out := make([]productionapp.ProductionCostVarianceRow, 0)
 	for rows.Next() {
 		var row productionapp.ProductionCostVarianceRow
-		if err := rows.Scan(&row.WorkOrderID, &row.WorkOrderNo, &row.BatchID, &row.ProductName, &row.PlannedCost, &row.ActualCost, &row.PlannedOperationCost, &row.ActualOperationCost); err != nil {
+		if err := rows.Scan(&row.WorkOrderID, &row.WorkOrderNo, &row.BatchID, &row.ProductName, &row.PlannedCost, &row.ActualCost, &row.PlannedOperationCost, &row.ActualOperationCost, &row.PlannedCostUnavailable, &row.ActualCostUnavailable); err != nil {
 			return nil, err
 		}
 		row.Variance = row.ActualCost - row.PlannedCost

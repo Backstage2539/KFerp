@@ -8,12 +8,13 @@
       <div class="toolbar">
         <input v-model="month" type="month" @change="load" />
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
-        <button v-if="!isWorkspaceCustomerLocked" type="button" @click="closeMonth" :disabled="saving || report.status === 'closed' || report.status === 'adjusted'">结账</button>
+        <button v-if="!isWorkspaceCustomerLocked" type="button" @click="closeMonth" :disabled="saving || report.cost_unavailable || report.status === 'closed' || report.status === 'adjusted'">结账</button>
       </div>
     </section>
 
     <div v-if="error" class="error">{{ error }}</div>
     <div v-if="ok" class="ok">{{ ok }}</div>
+    <p v-if="report.cost_unavailable" class="error" role="alert">生产成本待核算，本月暂不能结账。</p>
 
     <section class="metrics">
       <div v-for="card in cards" :key="card.label" class="metric">
@@ -28,10 +29,10 @@
         <div class="rows">
           <div><span>含税收入</span><strong>{{ money(report.revenue_tax_inclusive) }}</strong></div>
           <div><span>不含税收入</span><strong>{{ money(report.tax_exclusive_revenue) }}</strong></div>
-          <div><span>主营成本</span><strong>{{ money(report.main_business_cost) }}</strong></div>
+          <div><span>主营成本</span><strong>{{ report.cost_unavailable ? '待核算' : money(report.main_business_cost) }}</strong></div>
           <div><span>期间费用</span><strong>{{ money(report.period_expenses) }}</strong></div>
           <div><span>附加税</span><strong>{{ money(report.tax?.surtax) }}</strong></div>
-          <div><span>企业所得税</span><strong>{{ money(report.tax?.cit_payable) }}</strong></div>
+          <div><span>企业所得税</span><strong>{{ report.cost_unavailable ? '待核算' : money(report.tax?.cit_payable) }}</strong></div>
         </div>
       </div>
 

@@ -1331,3 +1331,10 @@ func TestCalculateProductGeneratesDefaultBeanListDisplayForUncategorizedProducts
 		t.Fatalf("drip bag should not appear in retail bean list: %+v", drip.RetailBeanList)
 	}
 }
+
+func TestUnavailableCostDoesNotCalculatePrices(t *testing.T) {
+	got := CalculateProduct(Parameters{}, ProductInput{ProductID: 1, Name: "待核算商品", CostUnavailable: true})
+	if !got.CostUnavailable || len(got.CommercialWholesaleTiers) > 0 || len(got.DripWholesaleTiers) > 0 || len(got.RetailBeanTiers) > 0 || len(got.Warnings) == 0 {
+		t.Fatalf("unavailable cost produced prices: %+v", got)
+	}
+}

@@ -18,7 +18,7 @@
     </section>
 
     <section class="panel summary-grid">
-      <div><span>成本差异</span><strong>{{ money(traceAnalytics.total_variance) }}</strong></div>
+      <div><span>成本差异</span><strong>{{ traceAnalytics.total_variance_unavailable ? '待核算' : money(traceAnalytics.total_variance) }}</strong></div>
       <div><span>异常损耗</span><strong>{{ traceAnalytics.abnormal_loss_count || 0 }}</strong></div>
       <div><span>追溯链路</span><strong>{{ traceLinks.length }}</strong></div>
     </section>
@@ -28,7 +28,7 @@
       <table>
         <thead><tr><th>时间</th><th>生产批次</th><th>商品</th><th>物料成本</th><th>工序成本</th><th>总成本</th><th>成品(g)</th><th>元/kg</th></tr></thead>
         <tbody>
-          <tr v-for="row in rows" :key="row.id"><td>{{ row.created_at }}</td><td>{{ row.batch_id }}</td><td>{{ row.product_name }}</td><td>{{ money(row.material_cost) }}</td><td>{{ money(row.operation_cost) }}</td><td>{{ money(row.total_cost) }}</td><td>{{ row.finished_g }}</td><td>{{ money(row.unit_cost_per_kg) }}</td></tr>
+          <tr v-for="row in rows" :key="row.id"><td>{{ row.created_at }}</td><td>{{ row.batch_id }}</td><td>{{ row.product_name }}</td><td>{{ row.actual_cost_unavailable ? '待核算' : money(row.material_cost) }}</td><td>{{ row.actual_cost_unavailable ? '待核算' : money(row.operation_cost) }}</td><td>{{ row.actual_cost_unavailable ? '待核算' : money(row.total_cost) }}</td><td>{{ row.finished_g }}</td><td>{{ row.actual_cost_unavailable ? '待核算' : money(row.unit_cost_per_kg) }}</td></tr>
           <tr v-if="!rows.length"><td colspan="8" class="muted">暂无成本记录</td></tr>
         </tbody>
       </table>
@@ -39,7 +39,7 @@
       <table>
         <thead><tr><th>工单</th><th>商品</th><th>生产批次</th><th>计划成本</th><th>实际成本</th><th>计划工序成本</th><th>实际工序成本</th><th>差异</th><th>差异率</th></tr></thead>
         <tbody>
-          <tr v-for="row in costVarianceRows" :key="`${row.work_order_id}-${row.batch_id}`"><td>{{ row.work_order_no || row.work_order_id }}</td><td>{{ row.product_name || '-' }}</td><td>{{ row.batch_id || '-' }}</td><td>{{ money(row.planned_cost) }}</td><td>{{ money(row.actual_cost) }}</td><td>{{ money(row.planned_operation_cost) }}</td><td>{{ money(row.actual_operation_cost) }}</td><td>{{ money(row.variance) }}</td><td>{{ percent(row.variance_rate) }}</td></tr>
+          <tr v-for="row in costVarianceRows" :key="`${row.work_order_id}-${row.batch_id}`"><td>{{ row.work_order_no || row.work_order_id }}</td><td>{{ row.product_name || '-' }}</td><td>{{ row.batch_id || '-' }}</td><td>{{ row.planned_cost_unavailable ? '待核算' : money(row.planned_cost) }}</td><td>{{ row.actual_cost_unavailable ? '待核算' : money(row.actual_cost) }}</td><td>{{ row.planned_cost_unavailable ? '待核算' : money(row.planned_operation_cost) }}</td><td>{{ row.actual_cost_unavailable ? '待核算' : money(row.actual_operation_cost) }}</td><td>{{ row.planned_cost_unavailable || row.actual_cost_unavailable ? '待核算' : money(row.variance) }}</td><td>{{ row.planned_cost_unavailable || row.actual_cost_unavailable ? '待核算' : percent(row.variance_rate) }}</td></tr>
           <tr v-if="!costVarianceRows.length"><td colspan="9" class="muted">暂无成本差异</td></tr>
         </tbody>
       </table>

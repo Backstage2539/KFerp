@@ -1,198 +1,85 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
-import {
-  buildCustomerAccountDocumentPath,
-  fetchCustomerAccount,
-  type CustomerAccountData,
-  type CustomerAccountFeeLine,
-  type CustomerAccountFilters,
-  type CustomerOrderFeeGroup,
-} from '../api/customerPortal'
+import { fetchCustomerIssuedBill, fetchCustomerIssuedBills, customerIssuedBillDocumentPath, type CustomerIssuedBill, type CustomerIssuedBills } from '../api/customerPortal'
 import { openMiniappFileOutput } from '../utils/fileOutput'
-import { customerFeeRange, validCustomerFeeDates, type CustomerFeePeriod } from '../utils/customerBillDate'
-import { customerDestinationURL } from '../utils/customerNavigation'
 
-const props = defineProps<{ token: string }>()
-type PickerChangeEvent = { detail?: { value?: string | number } }
-type ChargeType = 'payable' | 'product' | 'processing' | 'direct_ship_service' | 'shipping'
-
-const emptyAccount = (): CustomerAccountData => ({
-  customer_name: '', date_from: '', date_to: '', as_of: '', rows: [], fees: [], settlements: [], order_fee_groups: [],
-  summary: {
-    count: 0, goods_cents: 0, shipping_cents: 0, discount_cents: 0, total_cents: 0,
-    paid_cents: 0, due_cents: 0, processing_cents: 0, direct_ship_service_cents: 0,
-    fee_shipping_cents: 0, adjustment_cents: 0, refund_cents: 0, additional_fee_cents: 0, payable_cents: 0,
-  },
-  fee_summary: {
-    goods_cents: 0, processing_cents: 0, direct_ship_service_cents: 0, shipping_cents: 0,
-    other_cents: 0, payable_cents: 0, paid_cents: 0, due_cents: 0, refund_cents: 0,
-  },
-  total: 0, page: 1, limit: 20, total_pages: 0,
+const props = defineProps<{ token: string; initialStatus?: string }>()
+type Period = 'all' | 'month' | 'week' | 'custom'
+const now = new Date()
+function dateText(date: Date): string { return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}` }
+const today = dateText(now)
+const period = ref<Period>('all')
+const anchor = ref(today)
+const from = ref(today), to = ref(today)
+const status = ref(props.initialStatus === 'unpaid' ? 'unpaid' : '')
+const page = ref(1), loading = ref(false), error = ref(''), expanded = ref<number | null>(null)
+const details = ref<Record<number, CustomerIssuedBill>>({})
+const data = ref<CustomerIssuedBills>({ rows: [], total: 0, page: 1, limit: 20, summary: { count: 0, unpaid_count: 0, total_amount_cents: 0, received_cents: 0, due_amount_cents: 0, adjustment_cents: 0 } })
+let generation = 0
+const range = computed(() => {
+ if (period.value === 'all') return { date_from: '', date_to: '' }
+ if (period.value === 'custom') return { date_from: from.value, date_to: to.value }
+ const [year, month, day] = anchor.value.split('-').map(Number)
+ if (period.value === 'month') return { date_from: dateText(new Date(year, month-1, 1)), date_to: dateText(new Date(year, month, 0)) }
+ const date = new Date(year,month-1,day), offset = (date.getDay()+6)%7
+ const start = new Date(year,month-1,day-offset), end = new Date(year,month-1,day-offset+6)
+ return { date_from: dateText(start), date_to: dateText(end) }
 })
-
-const loading = ref(false)
-const downloading = ref(false)
-const errorMessage = ref('')
-const data = ref<CustomerAccountData>(emptyAccount())
-const period = ref<CustomerFeePeriod>('current')
-const initialRange = customerFeeRange('current')
-const customFrom = ref(initialRange.date_from || '')
-const customTo = ref(initialRange.date_to || '')
-const page = ref(1)
-const activeCategory = ref<ChargeType>('payable')
-let loadVersion = 0
-
-const filters = computed<CustomerAccountFilters>(() => ({
-  view: 'order_fees', ...(period.value === 'custom' ? { date_from: customFrom.value, date_to: customTo.value } : customerFeeRange(period.value)), page: page.value, limit: 20,
-  charge_type: activeCategory.value === 'payable' ? '' : activeCategory.value,
-}))
-const summary = computed(() => data.value.fee_summary || {
-  goods_cents: data.value.summary.goods_cents,
-  processing_cents: data.value.summary.processing_cents,
-  direct_ship_service_cents: data.value.summary.direct_ship_service_cents,
-  shipping_cents: data.value.summary.shipping_cents + data.value.summary.fee_shipping_cents,
-  other_cents: 0,
-  payable_cents: data.value.summary.payable_cents,
-  paid_cents: data.value.summary.paid_cents,
-  due_cents: data.value.summary.due_cents,
-  refund_cents: data.value.summary.refund_cents,
-})
-const categories = computed<Array<{ key: ChargeType; label: string; amount: () => number }>>(() => [
-  { key: 'payable', label: period.value === 'unpaid' ? '未付合计' : '应付', amount: () => summary.value.payable_cents },
-  { key: 'product', label: '商品货款', amount: () => summary.value.goods_cents },
-  { key: 'processing', label: '加工费', amount: () => summary.value.processing_cents },
-  { key: 'direct_ship_service', label: '代发服务费', amount: () => summary.value.direct_ship_service_cents },
-  { key: 'shipping', label: '运费', amount: () => summary.value.shipping_cents },
-])
-const feeTypeLabels: Record<string, string> = {
-  product: '商品货款', order_goods: '商品货款', processing: '加工费', roasting: '加工费', labor: '加工费',
-  material: '加工费', packaging: '加工费', direct_ship_service: '代发服务费', shipping: '运费',
-  storage: '仓储费', adjustment: '调整',
-}
-const paymentStatusLabels: Record<string, string> = { unpaid: '未付', partial: '部分已付', paid: '已付', reversed: '已退款/冲销', unknown: '以 ERP 为准' }
-
-function money(cents?: number): string { return (Number(cents || 0) / 100).toFixed(2) }
-function feeName(fee: CustomerAccountFeeLine): string { return fee.fee_name || feeTypeLabels[fee.fee_type] || fee.fee_type || '费用' }
-function groupTitle(group: CustomerOrderFeeGroup): string { return group.unlinked ? '未关联订单费用' : group.order.order_no || '订单费用' }
-function openOrder(orderNo: string) {
-  if (!orderNo) return
-  uni.navigateTo({ url: customerDestinationURL('orders', { q: orderNo }) })
-}
-
+const pages = computed(() => Math.ceil(data.value.total / (data.value.limit || 20)))
+function money(cents?: number) { return (Number(cents || 0)/100).toFixed(2) }
 async function load() {
-  const version = ++loadVersion
-  if (period.value === 'custom' && !validCustomerFeeDates(customFrom.value, customTo.value)) {
-    loading.value = false; data.value = emptyAccount(); errorMessage.value = '请选择有效的起止日期，开始日期不能晚于结束日期'; return
-  }
-  loading.value = true
-  errorMessage.value = ''
-  try { const result = await fetchCustomerAccount(props.token, filters.value); if (version === loadVersion) data.value = result }
-  catch (error) { if (version === loadVersion) { data.value = emptyAccount(); errorMessage.value = error instanceof Error ? error.message : '费用明细加载失败' } }
-  finally { if (version === loadVersion) loading.value = false }
+ const version = ++generation
+ if (range.value.date_from && range.value.date_to && range.value.date_from > range.value.date_to) { error.value = '开始日期不能晚于结束日期'; return }
+ loading.value = true; error.value = ''
+ try { const result = await fetchCustomerIssuedBills(props.token, { ...range.value, status: status.value, page: page.value, limit: 20 }); if (version === generation) { data.value = result; expanded.value = null; details.value = {} } }
+ catch (e) { if (version === generation) { data.value.rows = []; error.value = e instanceof Error ? e.message : '账单加载失败' } }
+ finally { if (version === generation) loading.value = false }
 }
-
-async function setPeriod(next: CustomerFeePeriod) { period.value = next; page.value = 1; data.value = emptyAccount(); await load() }
-async function setCustomDate(field: 'from' | 'to', event: PickerChangeEvent) { const value = String(event.detail?.value || ''); if (field === 'from') customFrom.value = value; else customTo.value = value; page.value = 1; data.value = emptyAccount(); await load() }
-async function selectCategory(next: ChargeType) { if (activeCategory.value === next) return; activeCategory.value = next; page.value = 1; data.value = emptyAccount(); await load() }
-
-async function download(kind: 'pdf' | 'xlsx') {
-  if (downloading.value) return
-  if (period.value === 'custom' && !validCustomerFeeDates(customFrom.value, customTo.value)) { errorMessage.value = '请选择有效的起止日期，开始日期不能晚于结束日期'; return }
-  downloading.value = true
-  errorMessage.value = ''
-  try {
-    await openMiniappFileOutput({ path: buildCustomerAccountDocumentPath(kind, filters.value), token: props.token, kind, loadingTitle: '生成费用明细' })
-  } catch (error) { errorMessage.value = error instanceof Error ? error.message : '费用明细下载失败' }
-  finally { downloading.value = false }
+function setPeriod(value: string) { period.value=value as Period; page.value=1; void load() }
+function setStatus(value: string) { status.value=value; page.value=1; void load() }
+function setDate(field: 'anchor' | 'from' | 'to', event: {detail?: {value?: string}}) { let value=String(event.detail?.value || ''); if(field==='anchor' && /^\d{4}-\d{2}$/.test(value)) value += '-01'; if(!/^\d{4}-\d{2}-\d{2}$/.test(value)) return; if(field==='anchor') anchor.value=value; else if(field==='from') from.value=value; else to.value=value; page.value=1; void load() }
+async function toggle(bill: CustomerIssuedBill) {
+ if (expanded.value === bill.batch_id) { expanded.value = null; return }
+ expanded.value = bill.batch_id
+ if (details.value[bill.batch_id]) return
+ try { const detail=await fetchCustomerIssuedBill(props.token,bill.batch_id); details.value = {...details.value,[bill.batch_id]:detail} }
+ catch(e) { error.value=e instanceof Error ? e.message : '账单详情加载失败'; expanded.value=null }
 }
-
-async function changePage(next: number) {
-  if (next < 1 || next > data.value.total_pages || next === page.value) return
-  page.value = next
-  await load()
+async function download(bill: CustomerIssuedBill, kind: 'pdf' | 'xlsx') {
+ try { await openMiniappFileOutput({path:customerIssuedBillDocumentPath(bill.batch_id,kind),token:props.token,kind,loadingTitle:'生成账单'}) }
+ catch(e) { error.value=e instanceof Error ? e.message : '账单下载失败' }
 }
-
+function changePage(next: number) { if(next>=1 && next<=pages.value) {page.value=next; void load()} }
 onMounted(() => { void load() })
-onBeforeUnmount(() => { loadVersion++ })
+onBeforeUnmount(() => { generation++ })
 </script>
 
 <template>
-  <view class="workspace">
-    <view class="panel">
-      <view class="head">
-        <view class="heading"><text class="title">费用中心</text><text class="hint">{{ data.customer_name || '当前客户' }} · 数据截至 {{ data.as_of || '加载中' }}</text></view>
-        <button class="secondary compact" :disabled="loading" @tap="load">刷新</button>
-      </view>
-      <view class="period-row period-presets">
-        <button class="chip" :class="{ active: period === 'current' }" @tap="setPeriod('current')">本月</button>
-        <button class="chip" :class="{ active: period === 'previous' }" @tap="setPeriod('previous')">上月</button>
-        <button class="chip" :class="{ active: period === 'custom' }" @tap="setPeriod('custom')">自定义</button>
-        <button class="chip" :class="{ active: period === 'unpaid' }" @tap="setPeriod('unpaid')">所有未付</button>
-      </view>
-      <view v-if="period === 'custom'" class="period-row"><picker mode="date" :value="customFrom" @change="setCustomDate('from', $event)"><view class="date-field">{{ customFrom || '开始日期' }}</view></picker><text>至</text><picker mode="date" :value="customTo" @change="setCustomDate('to', $event)"><view class="date-field">{{ customTo || '结束日期' }}</view></picker></view>
-      <text class="hint">{{ period === 'unpaid' ? `所有未付，截至 ${data.as_of || '加载中'}` : `账期 ${data.date_from || '-'} 至 ${data.date_to || '-'}。商品货款按订单日期，运费及服务费按费用入账日期。` }}</text>
-      <view class="summary-grid">
-        <button v-for="category in categories" :key="category.key" class="summary category-card" :class="{ selected: activeCategory === category.key, payable: category.key === 'payable' }" @tap="selectCategory(category.key)">
-          <text>{{ category.label }}</text><strong>¥{{ money(category.amount()) }}</strong>
-        </button>
-      </view>
-      <view v-if="period !== 'unpaid'" class="balance-summary"><view class="summary"><text>已付</text><strong>¥{{ money(summary.paid_cents) }}</strong></view><view class="summary"><text>未付</text><strong>¥{{ money(summary.due_cents) }}</strong></view><view class="summary"><text>退款/冲销</text><strong>¥{{ money(summary.refund_cents) }}</strong></view>
-      </view>
-      <view class="actions">
-        <button class="secondary" :disabled="downloading" @tap="download('pdf')">{{ downloading ? '正在生成…' : '下载 PDF' }}</button>
-        <button class="secondary" :disabled="downloading" @tap="download('xlsx')">{{ downloading ? '正在生成…' : '下载 Excel' }}</button>
-      </view>
-    </view>
-
-    <view class="panel">
-      <view class="head"><text class="title">费用明细</text><text class="hint">{{ period === 'unpaid' ? '按订单展示未付余额' : activeCategory === 'payable' ? '按订单展示本账期全部费用' : `${categories.find(item => item.key === activeCategory)?.label || '费用'}明细` }}</text></view>
-      <view v-for="group in data.order_fee_groups || []" :key="group.unlinked ? 'unlinked' : group.order.id" class="order-group">
-        <view class="order-heading">
-          <text class="name" :class="{ tappable: !group.unlinked }" @tap="openOrder(group.order.order_no)">{{ groupTitle(group) }}</text>
-          <text class="amount">{{ period === 'unpaid' ? '未付' : '应付' }} ¥{{ money(group.payable_cents) }}</text>
-        </view>
-        <text v-if="!group.unlinked" class="hint" @tap="openOrder(group.order.order_no)">{{ group.order.order_date || '跨期费用' }} · {{ group.order.receiver_name || '' }}</text>
-        <view v-if="period !== 'unpaid'" class="balance"><text>已付 ¥{{ money(group.paid_cents) }}</text><text>未付 ¥{{ money(group.due_cents) }}</text></view>
-
-        <view v-if="group.fee_lines.some(line => line.category === 'product')" class="goods-details">
-          <text class="subhead">商品货款 · {{ period === 'unpaid' ? '未付' : '折后' }} ¥{{ money(group.fee_lines.filter(line => line.category === 'product').reduce((sum, line) => sum + line.amount_cents, 0)) }}</text>
-          <text v-for="line in group.fee_lines.filter(item => item.category === 'product' && period === 'unpaid' && item.received_cents)" :key="`paid-${line.source_id}`" class="hint">原应付 ¥{{ money(line.receivable_cents) }} · 已付 ¥{{ money(line.received_cents) }}</text>
-          <text v-if="period === 'unpaid'" class="hint">以下为原订单商品明细</text>
-          <view v-for="(item, itemIndex) in group.order.items || []" :key="`${item.item_name}-${itemIndex}`" class="item-row">
-            <text>{{ item.item_name }} {{ item.spec }} · {{ item.qty }}{{ item.unit }}</text>
-            <text class="hint">单价 ¥{{ item.unit_price }} · 折后金额 ¥{{ item.line_total }}</text>
-          </view>
-          <text v-if="group.order.discount_cents" class="hint">订单优惠 ¥{{ money(group.order.discount_cents) }}</text>
-          <text v-if="!(group.order.items || []).length" class="hint">商品明细未记录</text>
-          <view v-for="shipment in group.shipments || []" :key="`goods-${shipment.tracking_no}`" class="shipment-details">
-            <text>发货时间：{{ shipment.shipped_at || '未记录' }}<text v-if="shipment.source">（{{ shipment.source }}）</text></text>
-            <text>运单号：{{ shipment.tracking_no || '未记录' }} · 寄件重量：{{ shipment.settlement_weight_kg ? `${shipment.settlement_weight_kg} kg` : '未记录' }}</text>
-          </view>
-        </view>
-
-        <view v-for="(line, lineIndex) in group.fee_lines.filter(item => item.category !== 'product')" :key="`${line.id || line.source_type}-${line.source_id}-${lineIndex}`" class="fee-line">
-          <view class="line-head"><text>{{ feeName(line) }}</text><text class="amount">¥{{ money(line.amount_cents) }}</text></view>
-          <text v-if="period === 'unpaid' && line.received_cents" class="hint">原应付 ¥{{ money(line.receivable_cents) }} · 已付 ¥{{ money(line.received_cents) }}</text>
-          <text class="hint">{{ line.occurred_at || '未记录' }} · {{ line.source_type || '来源' }} {{ line.source_id || '' }}</text>
-          <view v-if="line.category === 'shipping' || line.category === 'direct_ship_service'" v-for="shipment in (group.shipments || []).filter(item => !line.tracking_no || item.tracking_no === line.tracking_no)" :key="`${shipment.tracking_no}-${lineIndex}`" class="shipment-details">
-            <text>订单号：{{ shipment.order_no || group.order.order_no || '未关联' }}</text>
-            <text>发货时间：{{ shipment.shipped_at || '未记录' }}<text v-if="shipment.source">（{{ shipment.source }}）</text></text>
-            <text>运单号：{{ shipment.tracking_no || '未记录' }}</text>
-            <text>寄件重量：{{ shipment.settlement_weight_kg ? `${shipment.settlement_weight_kg} kg` : '未记录' }}</text>
-          </view>
-          <text v-if="(line.category === 'shipping' || line.category === 'direct_ship_service') && !(group.shipments || []).length" class="hint">发货时间、运单号和寄件重量：未记录</text>
-        </view>
-      </view>
-      <view v-if="data.total_pages > 1" class="pagination">
-        <button class="secondary compact" :disabled="page <= 1 || loading" @tap="changePage(page - 1)">上一页</button><text>第 {{ page }} / {{ data.total_pages }} 页 · {{ data.total }} 笔订单</text><button class="secondary compact" :disabled="page >= data.total_pages || loading" @tap="changePage(page + 1)">下一页</button>
-      </view>
-      <view v-if="!loading && !errorMessage && !(data.order_fee_groups || []).length" class="empty"><text>{{ period === 'unpaid' ? '暂无未付费用' : '当前账期暂无费用' }}</text><text class="hint">可切换范围查看其他费用。</text></view>
-      <text v-if="loading" class="hint loading">费用明细加载中...</text>
-      <text v-if="errorMessage" class="error">{{ errorMessage }}</text>
-    </view>
+ <view class="workspace">
+  <view class="panel">
+   <view class="head"><text class="title">费用中心</text><button class="small" @tap="load">刷新</button></view>
+   <view class="chips"><button v-for="item in [{key:'all',label:'所有'},{key:'month',label:'按月'},{key:'week',label:'按周'},{key:'custom',label:'起止日期'}]" :key="item.key" :class="{active:period===item.key}" @tap="setPeriod(item.key)">{{item.label}}</button></view>
+   <view v-if="period==='month' || period==='week'" class="dates"><picker mode="date" :fields="period==='month' ? 'month' : 'day'" :value="anchor" @change="setDate('anchor',$event)"><view class="date">{{period==='month' ? anchor.slice(0,7) : anchor}}</view></picker><text>{{range.date_from}} 至 {{range.date_to}}</text></view>
+   <view v-if="period==='custom'" class="dates"><picker mode="date" :value="from" @change="setDate('from',$event)"><view class="date">{{from}}</view></picker><text>至</text><picker mode="date" :value="to" @change="setDate('to',$event)"><view class="date">{{to}}</view></picker></view>
+   <text class="hint">按出账日期筛选；账单金额和付款状态以 ERP 为准。</text>
+   <view class="chips"><button :class="{active:status===''}" @tap="setStatus('')">全部</button><button :class="{active:status==='unpaid'}" @tap="setStatus('unpaid')">未付</button><button :class="{active:status==='paid'}" @tap="setStatus('paid')">已付</button></view>
+   <view class="summary"><view><text>出账金额</text><strong>¥{{money(data.summary.total_amount_cents)}}</strong></view><view><text>账后已付</text><strong>¥{{money(data.summary.received_cents)}}</strong></view><view><text>当前未付</text><strong>¥{{money(data.summary.due_amount_cents)}}</strong></view><view><text>调整</text><strong>¥{{money(data.summary.adjustment_cents)}}</strong></view></view>
   </view>
+  <view class="panel"><text class="title">已出账账单（{{data.total}}）</text>
+   <view v-for="bill in data.rows" :key="bill.batch_id" class="bill">
+    <view class="head" @tap="toggle(bill)"><text class="name">{{bill.settlement_no}}</text><text class="amount">¥{{money(bill.total_amount_cents)}}</text></view>
+    <text class="hint" @tap="toggle(bill)">出账 {{bill.issued_at || '未记录'}} · {{bill.current_due_amount_cents > 0 ? '未付 ¥'+money(bill.current_due_amount_cents) : '已付'}} · {{expanded===bill.batch_id ? '收起' : '展开'}}</text>
+    <view v-if="expanded===bill.batch_id" class="detail">
+     <text>账期 {{bill.period_from}} 至 {{bill.period_to}}</text><text>账后已付 ¥{{money(bill.current_received_cents)}} · 当前未付 ¥{{money(bill.current_due_amount_cents)}} · 调整 ¥{{money(bill.adjustment_cents)}}</text>
+     <view v-for="(line,index) in details[bill.batch_id]?.lines || []" :key="line.id || index" class="line"><text>{{line.description || line.charge_type}} · ¥{{money(line.amount_cents)}}</text><text v-if="line.detail?.order_no">订单：{{line.detail.order_no}}</text><text v-if="line.detail?.receiver_address">收件地址：{{line.detail.receiver_address}}</text><text v-for="(item,i) in line.detail?.items || []" :key="i">{{item.item_name}} {{item.spec}} · {{item.qty}}{{item.unit}} · 单价 ¥{{item.unit_price}} · 金额 ¥{{item.line_total}}</text><text v-for="(shipment,i) in line.detail?.shipments || []" :key="i">运单：{{shipment.tracking_no || '未记录'}} · 发货：{{shipment.shipped_at || '未记录'}}</text></view>
+     <view class="actions"><button @tap="download(bill,'pdf')">下载 PDF</button><button @tap="download(bill,'xlsx')">下载 Excel</button></view>
+    </view>
+   </view>
+   <view v-if="pages>1" class="actions"><button :disabled="page<=1 || loading" @tap="changePage(page-1)">上一页</button><text>第 {{page}} / {{pages}} 页</text><button :disabled="page>=pages || loading" @tap="changePage(page+1)">下一页</button></view>
+   <text v-if="loading" class="hint">加载中…</text><text v-else-if="!error && !data.rows.length" class="hint">当前范围暂无账单</text><text v-if="error" class="error">{{error}}</text>
+  </view>
+ </view>
 </template>
-
 <style scoped>
-.workspace,.panel,.heading,.order-group,.goods-details,.item-row,.fee-line,.shipment-details,.empty{display:flex;flex-direction:column;gap:12rpx}.panel{padding:24rpx;margin-bottom:20rpx;border:1rpx solid #e6e0d8;border-radius:12rpx;background:#fff}.head,.period-row,.actions,.pagination,.order-heading,.balance,.line-head{display:flex;align-items:center;justify-content:space-between;gap:12rpx}.period-row{flex-wrap:wrap}.period-presets{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10rpx}.period-presets .chip{width:100%;min-width:0;min-height:88rpx;line-height:1.2;padding:8rpx 2rpx;font-size:24rpx;white-space:nowrap}.balance-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12rpx}.balance-summary .summary{min-height:0;padding:12rpx;font-size:23rpx}.balance-summary .summary strong{font-size:25rpx}.summary.payable{grid-column:1/-1;flex-direction:row;align-items:center;justify-content:space-between}.heading{flex:1;gap:4rpx}.title{font-size:30rpx;font-weight:900}.name{font-size:27rpx;font-weight:800}.amount{font-weight:900;color:#5d3b17}.hint{color:#707070;font-size:23rpx;line-height:1.5}.summary-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12rpx}.summary{display:flex;flex-direction:column;align-items:flex-start;gap:8rpx;min-height:100rpx;padding:16rpx;border:1rpx solid #eee;border-radius:10rpx;background:#fafafa;color:#222;text-align:left}.summary strong{font-size:30rpx}.category-card{margin:0;min-height:96rpx;line-height:1.3;font-size:26rpx;box-sizing:border-box}.category-card.selected{background:#2b2118;color:#fff;border-color:#2b2118}.chip,.primary,.secondary{min-height:68rpx;margin:0;padding:0 18rpx;border-radius:8rpx;font-size:23rpx}.chip,.secondary{background:#fff;border:1rpx solid #ddd}.chip.active,.primary{background:#2b2118;color:#fff}.date-field{min-height:68rpx;padding:0 18rpx;border:1rpx solid #ddd;border-radius:8rpx;line-height:68rpx}.actions button{flex:1}.order-group{padding:18rpx;border:1rpx solid #eee;border-radius:10rpx}.tappable{color:#28624a;text-decoration:underline}.balance{justify-content:flex-start;color:#555;font-size:23rpx}.subhead{font-weight:800}.item-row,.fee-line{padding:12rpx 0;border-top:1rpx dashed #ddd}.shipment-details{margin-top:8rpx;padding:12rpx;background:#faf8f5;border-radius:8rpx;color:#555;font-size:23rpx}.pagination{justify-content:center}.compact{min-height:58rpx}.empty{align-items:center;padding:28rpx;color:#777}.loading{display:block;padding:12rpx}.error{display:block;padding:18rpx;color:#b42318}
+.workspace,.panel,.bill,.detail,.line{display:flex;flex-direction:column;gap:14rpx}.panel{padding:24rpx;margin-bottom:20rpx;border:1rpx solid #e6e0d8;border-radius:12rpx;background:white}.head,.dates,.actions{display:flex;align-items:center;justify-content:space-between;gap:12rpx}.title{font-size:30rpx;font-weight:900}.name,.amount{font-size:27rpx;font-weight:800}.amount{color:#5d3b17}.hint{font-size:23rpx;color:#707070;line-height:1.5}.chips{display:flex;gap:8rpx;flex-wrap:wrap}.chips button,.actions button,.small{margin:0;padding:8rpx 14rpx;font-size:23rpx;background:#fff;border:1rpx solid #ddd}.chips .active{background:#2b2118;color:white}.date{padding:12rpx;border:1rpx solid #ddd}.summary{display:grid;grid-template-columns:repeat(2,1fr);gap:12rpx}.summary view{display:flex;flex-direction:column;gap:8rpx;padding:16rpx;background:#fafafa}.summary strong{font-size:28rpx}.bill{padding:18rpx;border:1rpx solid #eee;border-radius:10rpx}.detail,.line{font-size:24rpx}.line{padding:12rpx 0;border-top:1rpx dashed #ddd}.actions button{flex:1}.error{color:#b42318;font-size:24rpx}
 </style>

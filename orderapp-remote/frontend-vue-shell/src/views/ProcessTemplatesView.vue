@@ -118,6 +118,7 @@
             </div>
             <p class="standard-capacity-summary">{{ standardCostCapacitySummary(op) }}</p>
             <div class="form-grid">
+              <label><span>报工类型</span><select v-model="op.execution.reporting_type"><option value="legacy">沿用原规则</option><option value="batch">批次加工（投入与产出）</option><option value="incoming">来料加工（记录废料）</option><option value="piece">按件加工（完成件数）</option></select></label>
               <label class="checkbox"><input v-model="op.execution.receipt_enabled" type="checkbox" :disabled="Number(op.seq) === Math.max(...form.operations.map(row=>Number(row.seq)||0))" /><span>完成后入库</span></label>
               <label v-if="op.execution.receipt_enabled"><span>完成后入库位置</span><select v-model="op.execution.receipt_warehouse"><option value="">{{ Number(op.seq) === Math.max(...form.operations.map(row=>Number(row.seq)||0)) ? '沿用工单目标仓' : '请选择仓库' }}</option><option v-for="w in warehouses" :key="w.code" :value="w.code">{{ w.name }}</option></select></label>
               <label><span>本工序新增物料默认来源仓</span><select v-model="op.execution.source_warehouse"><option v-for="w in warehouses" :key="w.code" :value="w.code">{{ w.name }}</option></select></label>

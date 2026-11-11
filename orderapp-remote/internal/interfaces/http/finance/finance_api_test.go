@@ -479,6 +479,7 @@ func newFinanceTestEcho() (*echo.Echo, *fakeFinanceService) {
 }
 
 type fakeFinanceService struct {
+	costUnavailable         bool
 	mode                    string
 	lastListFilter          appfinance.ExpenseFilter
 	lastDraftReportFilter   appfinance.ReportFilter
@@ -560,7 +561,20 @@ func (s *fakeFinanceService) ListExpenses(_ context.Context, filter appfinance.E
 
 func (s *fakeFinanceService) DraftReport(_ context.Context, filter appfinance.ReportFilter) (domain.MonthlyReport, error) {
 	s.lastDraftReportFilter = filter
-	return domain.BuildMonthlyReport(domain.DefaultSettings(), domain.MonthlySourceTotals{Month: "2026-05", RevenueTaxInclusive: 103000}), nil
+	return domain.BuildMonthlyReport(domain.DefaultSettings(), domain.MonthlySourceTotals{Month: "2026-05", RevenueTaxInclusive: 103000, CostUnavailable: s.costUnavailable}), nil
+}
+
+func TestUnknownCostReportExportsAreBlocked(t *testing.T) {
+	e, svc := newFinanceTestEcho()
+	svc.costUnavailable = true
+	for _, kind := range []string{"pdf", "excel"} {
+		req := httptest.NewRequest(http.MethodGet, "/api/finance/reports/2026-05/"+kind, nil)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "成本待核算") {
+			t.Fatalf("%s: %d %s", kind, rec.Code, rec.Body.String())
+		}
+	}
 }
 
 func (s *fakeFinanceService) CloseMonth(context.Context, appfinance.CloseMonthCommand) (domain.MonthlyReport, error) {

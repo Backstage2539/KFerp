@@ -48,6 +48,9 @@ func (r Repository) completeOperationOnce(ctx context.Context, cmd app.JobCardAc
 			return out, err
 		}
 	}
+	if err = lockProductionFinancePeriodTx(ctx, tx, r.schema); err != nil {
+		return out, err
+	}
 	if err = lockReceiptWorkOrderTx(ctx, tx, r.schema, workID); err != nil {
 		return out, err
 	}
@@ -80,14 +83,20 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 	if wo.Status == "completed" || wo.Status == "cancelled" {
 		return out, fmt.Errorf("工单已结束")
 	}
-	var status, station, costMethod string
+	var status, station, costMethod, schedulingMode, capacityUnit string
 	var stationID int64
 	var seq, plannedMinutes int
-	var rate, pieceRate, plannedCost float64
-	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT status,workstation,workstation_id,sequence_no,cost_method,hourly_rate::float8,piece_rate::float8,planned_minutes,planned_operation_cost::float8 FROM %s.job_cards WHERE id=$1 FOR UPDATE`, r.schema), cmd.ID).Scan(&status, &station, &stationID, &seq, &costMethod, &rate, &pieceRate, &plannedMinutes, &plannedCost); err != nil {
+	var rate, pieceRate, plannedCost, throughput float64
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT status,workstation,workstation_id,sequence_no,cost_method,hourly_rate::float8,piece_rate::float8,planned_minutes,planned_operation_cost::float8,scheduling_mode,throughput_per_hour::float8,batch_size_unit FROM %s.job_cards WHERE id=$1 FOR UPDATE`, r.schema), cmd.ID).Scan(&status, &station, &stationID, &seq, &costMethod, &rate, &pieceRate, &plannedMinutes, &plannedCost, &schedulingMode, &throughput, &capacityUnit); err != nil {
 		return out, err
 	}
 	startPolicy := p.MaterialConsumptionPolicy == "bom_start_v1"
+	if p.Execution.ReportingType == "piece" && !startPolicy {
+		return out, fmt.Errorf("按件完工要求确认开工用料，请重新核对未开工工单")
+	}
+	if p.Execution.ReportingType == "incoming" && !startPolicy {
+		return out, fmt.Errorf("来料加工要求按批确认投入，请先重新核对未开工工单")
+	}
 	if startPolicy && status != "running" && status != "paused" {
 		return out, fmt.Errorf("请先确认用料并开工；若未显示开工，请刷新页面")
 	}
@@ -117,6 +126,18 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 	if cmd.InputUnit != p.InputUnit || cmd.OutputUnit != p.OutputUnit {
 		return out, fmt.Errorf("完成数量单位与冻结工序不一致")
 	}
+	if p.Execution.ReportingType == "incoming" {
+		if cmd.WasteQty == nil {
+			return out, fmt.Errorf("请填写本次废料重量")
+		}
+		if cmd.ActualInputQty <= 0 {
+			return out, fmt.Errorf("请确认本次处理投入")
+		}
+		cmd.ActualOutputQty, err = app.IncomingOutputQuantity(cmd.ActualInputQty, cmd.InputUnit, *cmd.WasteQty, cmd.OutputUnit, cmd.DifferenceReason)
+		if err != nil {
+			return out, err
+		}
+	}
 	if p.LegacyExecution {
 		if err = r.freezeLegacyExecutionConfigTx(ctx, tx, wo, seq, p, cmd.Operator); err != nil {
 			return out, err
@@ -140,7 +161,11 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 	if err = app.ValidateOperationQuantity(cmd.ActualInputQty, cmd.InputUnit); err != nil {
 		return out, err
 	}
-	plan, err := app.PlanOperationCompletion(app.OperationCompletionInput{PlannedQty: p.PlannedQty, ActualQty: cmd.ActualOutputQty, Unit: p.OutputUnit, TargetWarehouse: p.Warehouse, CurrentWarehouse: p.Warehouse, DifferenceReason: cmd.DifferenceReason, Final: p.Final, ReceiptEnabled: p.Execution.ReceiptEnabled, FinishOperation: cmd.FinishOperation})
+	plannedQty := p.PlannedQty
+	if p.Execution.ReportingType == "incoming" {
+		plannedQty = cmd.ActualOutputQty
+	}
+	plan, err := app.PlanOperationCompletion(app.OperationCompletionInput{PlannedQty: plannedQty, ActualQty: cmd.ActualOutputQty, Unit: p.OutputUnit, TargetWarehouse: p.Warehouse, CurrentWarehouse: p.Warehouse, DifferenceReason: cmd.DifferenceReason, Final: p.Final, ReceiptEnabled: p.Execution.ReceiptEnabled, FinishOperation: cmd.FinishOperation})
 	if err != nil {
 		return out, err
 	}
@@ -206,26 +231,45 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 		// suggesting the already-consumed portion again.
 		cmd.Materials = materials
 	}
-	var timerMinutes int
+	var timerSeconds int
 	var timed bool
-	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT started_at IS NOT NULL,CEIL((COALESCE((metrics_json->>'timer_elapsed_seconds')::numeric,0)+CASE WHEN status='running' THEN GREATEST(0,EXTRACT(EPOCH FROM now()-COALESCE(resumed_at,started_at,now()))) ELSE 0 END)/60)::int FROM %s.job_cards WHERE id=$1`, r.schema), cmd.ID).Scan(&timed, &timerMinutes); err != nil {
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT started_at IS NOT NULL,ROUND(COALESCE((metrics_json->>'timer_elapsed_seconds')::numeric,0)+CASE WHEN status='running' THEN GREATEST(0,EXTRACT(EPOCH FROM now()-COALESCE(resumed_at,started_at,now()))) ELSE 0 END)::int FROM %s.job_cards WHERE id=$1`, r.schema), cmd.ID).Scan(&timed, &timerSeconds); err != nil {
 		return out, err
 	}
-	var priorEventMinutes int
-	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(COALESCE(NULLIF(payload->>'actual_minutes','')::int,NULLIF(payload->>'ActualMinutes','')::int,0)),0) FROM %s.production_operation_events WHERE job_card_id=$1 AND kind='complete' AND status='posted'`, r.schema), cmd.ID).Scan(&priorEventMinutes); err != nil {
+	var priorEventSeconds, priorTimerBaseline, unmarkedEvents int
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(COALESCE(NULLIF(payload->>'actual_seconds','')::int,COALESCE(NULLIF(payload->>'actual_minutes','')::int,NULLIF(payload->>'ActualMinutes','')::int,0)*60)),0),COUNT(*) FILTER(WHERE NOT payload ? 'timer_baseline_seconds')::int,COALESCE((SELECT (last.payload->>'timer_baseline_seconds')::int FROM %s.production_operation_events last WHERE last.job_card_id=$1 AND last.kind='complete' AND last.status='posted' AND last.payload ? 'timer_baseline_seconds' ORDER BY last.id DESC LIMIT 1),0) FROM %s.production_operation_events WHERE job_card_id=$1 AND kind='complete' AND status='posted'`, r.schema, r.schema), cmd.ID).Scan(&priorEventSeconds, &unmarkedEvents, &priorTimerBaseline); err != nil {
 		return out, err
 	}
+	modernTimer := (p.Execution.ReportingType == "batch" || p.Execution.ReportingType == "incoming" || p.Execution.ReportingType == "piece") && unmarkedEvents == 0
 	actualMinutes := cmd.ActualMinutes
+	actualSeconds := actualMinutes * 60
 	if actualMinutes == 0 && timed {
-		actualMinutes = timerMinutes - priorEventMinutes
-		if actualMinutes < 0 {
-			actualMinutes = 0
+		if modernTimer {
+			actualSeconds = timerSeconds - priorTimerBaseline
+		} else {
+			actualSeconds = timerSeconds - priorEventSeconds
+		}
+		if actualSeconds < 0 {
+			actualSeconds = 0
+		}
+		actualMinutes = int(math.Ceil(float64(actualSeconds) / 60))
+		if schedulingMode != "quantity" {
+			actualSeconds = actualMinutes * 60
 		}
 	}
-	estimated := actualMinutes == 0 && !timed && costMethod != "piece"
-	opCost := float64(actualMinutes) * rate / 60
+	estimated := actualSeconds == 0 && !timed && costMethod != "piece"
+	costUnavailable := false
+	opCost := float64(actualSeconds) * rate / 3600
 	if costMethod == "piece" {
 		opCost = cmd.ActualOutputQty * pieceRate
+	} else if estimated && schedulingMode == "quantity" {
+		qty, unit := cmd.ActualInputQty, cmd.InputUnit
+		if p.Execution.ReportingType == "piece" {
+			qty, unit = cmd.ActualOutputQty, cmd.OutputUnit
+		}
+		var available bool
+		opCost, available = quantityProcessingCost(qty, unit, capacityUnit, throughput, rate)
+		costUnavailable = !available
 	} else if estimated {
 		totalPlanned := p.TotalPlannedQty
 		if totalPlanned <= 0 {
@@ -243,8 +287,20 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 		}
 	}
 	cmd.ActualMinutes = actualMinutes
-	payload, _ := json.Marshal(cmd)
-	receipt := app.OperationCompletionReceipt{OutputWeightG: app.OperationOutputWeight(cmd.ActualOutputQty, cmd.OutputUnit, wo.SpecG, wo.PlannedOutputG, operationPlannedTotal(wo)), OutputQty: cmd.ActualOutputQty, OutputUnit: cmd.OutputUnit, Warehouse: plan.Warehouse, WarehouseName: p.WarehouseName, StockEntryIDs: []int64{}, Handoffs: handoffs, EstimatedCost: estimated}
+	payloadValue := map[string]any{}
+	encodedCommand, _ := json.Marshal(cmd)
+	_ = json.Unmarshal(encodedCommand, &payloadValue)
+	payloadValue["actual_seconds"] = actualSeconds
+	if modernTimer {
+		baseline := priorTimerBaseline
+		if timed && timerSeconds > baseline {
+			baseline = timerSeconds
+		}
+		payloadValue["timer_baseline_seconds"] = baseline
+	}
+	payloadValue["cost_unavailable"] = costUnavailable
+	payload, _ := json.Marshal(payloadValue)
+	receipt := app.OperationCompletionReceipt{OutputWeightG: app.OperationOutputWeight(cmd.ActualOutputQty, cmd.OutputUnit, wo.SpecG, wo.PlannedOutputG, operationPlannedTotal(wo)), OutputQty: cmd.ActualOutputQty, OutputUnit: cmd.OutputUnit, Warehouse: plan.Warehouse, WarehouseName: p.WarehouseName, StockEntryIDs: []int64{}, Handoffs: handoffs, EstimatedCost: estimated, CostUnavailable: costUnavailable}
 	err = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_operation_events(work_order_id,job_card_id,request_id,expected_version,operator,input_qty,input_unit,output_qty,output_unit,planned_qty,difference_reason,warehouse,receipt_enabled,final_output,operation_cost,estimated_cost,payload)
  VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb) RETURNING id`, r.schema), wo.ID, cmd.ID, cmd.RequestID, cmd.ExpectedVersion, cmd.Operator, cmd.ActualInputQty, cmd.InputUnit, cmd.ActualOutputQty, cmd.OutputUnit, p.PlannedQty, cmd.DifferenceReason, plan.Warehouse, p.Execution.ReceiptEnabled, p.Final, opCost, estimated, string(payload)).Scan(&receipt.EventID)
 	if err != nil {
@@ -280,7 +336,11 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 	}
 	carriedCost := 0.0
 	if startPolicy && !p.PredecessorRequired {
-		carriedCost, err = r.allocateStartedInputTx(ctx, tx, cmd.ID, receipt.EventID, cmd.ActualInputQty)
+		if p.Execution.ReportingType == "piece" {
+			carriedCost, err = r.completePackagingFinalInputTx(ctx, tx, p, wo, cmd, receipt.EventID)
+		} else {
+			carriedCost, err = r.allocateStartedInputTx(ctx, tx, cmd.ID, receipt.EventID, cmd.ActualInputQty)
+		}
 		if err != nil {
 			return out, err
 		}
@@ -306,6 +366,23 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 			}
 		}
 		carriedCost += a.Cost
+	}
+	// Carry an unknown cost through actual handoffs and consumed batches rather
+	// than treating the numeric placeholder as a complete valuation.
+	var sourceCostUnavailable bool
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(
+ SELECT 1 FROM %[1]s.production_operation_movements m JOIN %[1]s.production_operation_balances b ON b.id=m.source_balance_id JOIN %[1]s.production_operation_events e ON e.id=b.event_id WHERE m.event_id=$1 AND COALESCE((e.payload->>'cost_unavailable')::boolean,false)
+ UNION ALL
+ SELECT 1 FROM %[1]s.production_started_input_component_allocations a JOIN %[1]s.production_started_input_components c ON c.id=a.component_id LEFT JOIN %[1]s.material_batches mb ON mb.id=c.material_batch_id LEFT JOIN %[1]s.stock_batches sb ON sb.id=c.stock_batch_id WHERE a.event_id=$1 AND (COALESCE(mb.cost_unavailable,false) OR COALESCE(sb.cost_unavailable,false))
+ UNION ALL
+ SELECT 1 FROM %[1]s.stock_entry_batch_allocations a JOIN %[1]s.stock_entry_items i ON i.id=a.stock_entry_item_id LEFT JOIN %[1]s.material_batches mb ON mb.id=a.material_batch_id LEFT JOIN %[1]s.stock_batches sb ON sb.id=a.stock_batch_id WHERE i.stock_entry_id=ANY($2::bigint[]) AND (COALESCE(mb.cost_unavailable,false) OR COALESCE(sb.cost_unavailable,false))
+ )`, r.schema), receipt.EventID, receipt.StockEntryIDs).Scan(&sourceCostUnavailable); err != nil {
+		return out, err
+	}
+	costUnavailable = costUnavailable || sourceCostUnavailable
+	receipt.CostUnavailable = costUnavailable
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_operation_events SET payload=jsonb_set(payload,'{cost_unavailable}',to_jsonb($2::boolean),true) WHERE id=$1`, r.schema), receipt.EventID, costUnavailable); err != nil {
+		return out, err
 	}
 	var ownerID int64
 	for _, m := range materials {
@@ -351,7 +428,9 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 	metrics["completion_event_id"] = receipt.EventID
 	metricsRaw, _ := json.Marshal(metrics)
 	loss := 0.0
-	if cmd.InputUnit == cmd.OutputUnit {
+	if p.Execution.ReportingType == "incoming" && cmd.WasteQty != nil {
+		loss = *cmd.WasteQty
+	} else if cmd.InputUnit == cmd.OutputUnit {
 		loss = math.Max(0, cmd.ActualInputQty-cmd.ActualOutputQty)
 	}
 	nextStatus := status
@@ -365,7 +444,16 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT actual_input_qty::float8,actual_output_qty::float8,actual_loss_qty::float8,actual_minutes,actual_operation_cost::float8 FROM %s.job_cards WHERE id=$1`, r.schema), cmd.ID).Scan(&priorInput, &priorOutput, &priorLoss, &priorMinutes, &priorCost); err != nil {
 		return out, err
 	}
-	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET assigned_employee_id=CASE WHEN status IN ('pending','ready') THEN $11 ELSE assigned_employee_id END,assigned_to=CASE WHEN status IN ('pending','ready') THEN $12 ELSE assigned_to END,assigned_employee_name=CASE WHEN status IN ('pending','ready') THEN $12 ELSE assigned_employee_name END,status=$10,completed_at=CASE WHEN $10='completed' THEN now() ELSE NULL END,operator=$2,actual_input_qty=$3,actual_output_qty=$4,actual_loss_qty=$5,actual_minutes=$6,actual_operation_cost=$7,exception_reason=$8,metrics_json=metrics_json||$9::jsonb,completion_draft='{}'::jsonb WHERE id=$1`, r.schema), cmd.ID, cmd.Operator, priorInput+cmd.ActualInputQty, priorOutput+cmd.ActualOutputQty, priorLoss+loss, priorMinutes+actualMinutes, priorCost+opCost, cmd.DifferenceReason, string(metricsRaw), nextStatus, cmd.EmployeeID, firstNonEmpty(cmd.AssignedEmployeeName, cmd.Operator)); err != nil {
+	cardMinutes := priorMinutes + actualMinutes
+	cardCost := priorCost + opCost
+	if schedulingMode == "quantity" {
+		cardMinutes = int(math.Ceil(float64(priorEventSeconds+actualSeconds) / 60))
+		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(operation_cost),0)::float8 FROM %s.production_operation_events WHERE job_card_id=$1 AND kind='complete' AND status='posted'`, r.schema), cmd.ID).Scan(&cardCost); err != nil {
+			return out, err
+		}
+		cardCost += opCost
+	}
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET assigned_employee_id=CASE WHEN status IN ('pending','ready') THEN $11 ELSE assigned_employee_id END,assigned_to=CASE WHEN status IN ('pending','ready') THEN $12 ELSE assigned_to END,assigned_employee_name=CASE WHEN status IN ('pending','ready') THEN $12 ELSE assigned_employee_name END,status=$10,completed_at=CASE WHEN $10='completed' THEN now() ELSE NULL END,operator=$2,actual_input_qty=$3,actual_output_qty=$4,actual_loss_qty=$5,actual_loss_rate=CASE WHEN $13::boolean THEN CASE WHEN $3::numeric>0 THEN $5::numeric/$3::numeric ELSE 0 END ELSE actual_loss_rate END,loss_reason=CASE WHEN $13::boolean AND $8<>'' THEN $8 ELSE loss_reason END,actual_minutes=$6,actual_operation_cost=$7,exception_reason=$8,metrics_json=metrics_json||$9::jsonb,completion_draft='{}'::jsonb WHERE id=$1`, r.schema), cmd.ID, cmd.Operator, priorInput+cmd.ActualInputQty, priorOutput+cmd.ActualOutputQty, priorLoss+loss, cardMinutes, cardCost, cmd.DifferenceReason, string(metricsRaw), nextStatus, cmd.EmployeeID, firstNonEmpty(cmd.AssignedEmployeeName, cmd.Operator), p.Execution.ReportingType == "incoming"); err != nil {
 		return out, err
 	}
 	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_operation_events SET material_cost=$2 WHERE id=$1`, r.schema), receipt.EventID, materialCost); err != nil {
@@ -413,7 +501,7 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 			return out, e
 		}
 	}
-	if err = infra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "job_card", &cmd.ID, "complete", infra.StrPtr("status"), infra.StrPtr(status), infra.StrPtr("completed"), infra.AuditMeta{"event_id": receipt.EventID, "request_id": cmd.RequestID, "actual_input_qty": cmd.ActualInputQty, "input_unit": cmd.InputUnit, "actual_output_qty": cmd.ActualOutputQty, "output_unit": cmd.OutputUnit, "difference_reason": cmd.DifferenceReason, "materials": materials, "handoffs": handoffs, "stock_entry_ids": receipt.StockEntryIDs, "warehouse": plan.Warehouse, "cost_estimated": estimated}); err != nil {
+	if err = infra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "job_card", &cmd.ID, "complete", infra.StrPtr("status"), infra.StrPtr(status), infra.StrPtr("completed"), infra.AuditMeta{"event_id": receipt.EventID, "request_id": cmd.RequestID, "actual_input_qty": cmd.ActualInputQty, "input_unit": cmd.InputUnit, "actual_output_qty": cmd.ActualOutputQty, "output_unit": cmd.OutputUnit, "difference_reason": cmd.DifferenceReason, "materials": materials, "handoffs": handoffs, "stock_entry_ids": receipt.StockEntryIDs, "warehouse": plan.Warehouse, "cost_estimated": estimated, "cost_unavailable": costUnavailable, "actual_seconds": actualSeconds}); err != nil {
 		return out, err
 	}
 	out.JobCard, err = loadJobCardRowTx(ctx, tx, r.schema, cmd.ID)
@@ -818,6 +906,9 @@ func resolveOperationMaterialUses(expected, submitted []app.OperationMaterialUse
 }
 
 func (r Repository) finishOperationWorkOrderTx(ctx context.Context, tx pgx.Tx, wo app.WorkOrderRow, actor string) error {
+	if err := lockProductionFinancePeriodTx(ctx, tx, r.schema); err != nil {
+		return err
+	}
 	summary, err := operationSummaryJSONForWorkOrderTx(ctx, tx, r.schema, wo.ID)
 	if err != nil {
 		return err
@@ -845,9 +936,13 @@ func (r Repository) finishOperationWorkOrderTx(ctx context.Context, tx pgx.Tx, w
 	if finishedG > 0 {
 		unitCost = (materialCost + operationCost) * 1000 / float64(finishedG)
 	}
-	if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.production_batch_costs(running_item_id,batch_id,product_name,material_cost,operation_cost,total_cost,finished_g,unit_cost_per_kg) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(running_item_id) DO UPDATE SET material_cost=EXCLUDED.material_cost,operation_cost=EXCLUDED.operation_cost,total_cost=EXCLUDED.total_cost,finished_g=EXCLUDED.finished_g,unit_cost_per_kg=EXCLUDED.unit_cost_per_kg`, r.schema), wo.RunningItemID, wo.BatchID, wo.ProductName, materialCost, operationCost, materialCost+operationCost, finishedG, unitCost); err != nil {
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.production_batch_costs(running_item_id,batch_id,product_name,material_cost,operation_cost,total_cost,finished_g,unit_cost_per_kg,cost_updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()) ON CONFLICT(running_item_id) DO UPDATE SET material_cost=EXCLUDED.material_cost,operation_cost=EXCLUDED.operation_cost,total_cost=EXCLUDED.total_cost,finished_g=EXCLUDED.finished_g,unit_cost_per_kg=EXCLUDED.unit_cost_per_kg,cost_updated_at=now()`, r.schema), wo.RunningItemID, wo.BatchID, wo.ProductName, materialCost, operationCost, materialCost+operationCost, finishedG, unitCost); err != nil {
 		return err
 	}
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.production_batch_costs SET cost_unavailable=EXISTS(SELECT 1 FROM %[1]s.production_operation_events e WHERE e.work_order_id=$2 AND e.kind='complete' AND e.status IN ('posting','posted') AND COALESCE((e.payload->>'cost_unavailable')::boolean,false)) WHERE running_item_id=$1`, r.schema), wo.RunningItemID, wo.ID); err != nil {
+		return err
+	}
+
 	if remaining == 0 {
 		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.produce_running_items SET status='done',finished_at=COALESCE(finished_at,now()),finished_by=CASE WHEN COALESCE(finished_by,'')='' THEN $2 ELSE finished_by END WHERE id=$1`, r.schema), wo.RunningItemID, actor); err != nil {
 			return err
@@ -884,4 +979,18 @@ func (r Repository) finishOperationWorkOrderTx(ctx context.Context, tx pgx.Tx, w
 		}
 	}
 	return nil
+}
+
+// quantityProcessingCost uses the frozen reference throughput in its native unit.
+func quantityProcessingCost(qty float64, unit, capacityUnit string, throughput, hourlyRate float64) (float64, bool) {
+	if throughput <= 0 {
+		return 0, false
+	}
+	sourceFactor, targetFactor := app.OperationUnitFactor(unit), app.OperationUnitFactor(capacityUnit)
+	if sourceFactor > 0 && targetFactor > 0 {
+		qty = qty * sourceFactor / targetFactor
+	} else if sourceFactor > 0 || targetFactor > 0 {
+		return 0, false
+	}
+	return math.Round(qty/throughput*hourlyRate*1000000) / 1000000, true
 }

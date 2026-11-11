@@ -50,7 +50,7 @@ func RenderCustomerBill(bill app.BillingBill) ([]byte, error) {
 		}
 	}
 	headerRow := 6 + len(chargeTypes)
-	if err := f.SetSheetRow("费用明细", fmt.Sprintf("A%d", headerRow), &[]any{"费用类型", "发生日期", "来源单号", "费用名称", "应收", "出账金额", "出账前已收", "当前已收", "当前未收", "订单及发货明细"}); err != nil {
+	if err := f.SetSheetRow("费用明细", fmt.Sprintf("A%d", headerRow), &[]any{"费用类型", "发生日期", "单号", "费用名称", "应收", "出账金额", "出账前已收", "当前已收", "当前未收", "订单及发货明细"}); err != nil {
 		return nil, err
 	}
 	for i, line := range bill.Lines {
@@ -76,7 +76,7 @@ func RenderCustomerBill(bill app.BillingBill) ([]byte, error) {
 	if _, err := f.NewSheet("订单明细"); err != nil {
 		return nil, err
 	}
-	if err := f.SetSheetRow("订单明细", "A1", &[]any{"订单号", "费用类型", "本次出账金额", "信息来源", "商品", "规格", "数量", "单位", "单价", "商品金额", "订单优惠", "发货时间", "运单号", "寄件重量（kg）"}); err != nil {
+	if err := f.SetSheetRow("订单明细", "A1", &[]any{"订单号", "费用类型", "本次出账金额", "信息来源", "商品", "规格", "数量", "单位", "单价", "商品金额", "订单优惠", "发货时间", "运单号", "寄件重量（kg）", "订单收货地址", "地址来源"}); err != nil {
 		return nil, err
 	}
 	rowNum := 2
@@ -106,6 +106,18 @@ func RenderCustomerBill(bill app.BillingBill) ([]byte, error) {
 			rows[0][10] = money(d.DiscountCents)
 		}
 		for _, row := range rows {
+			for len(row) < 14 {
+				row = append(row, "")
+			}
+			address, addressSource := "", ""
+			if d.OrderID > 0 || d.OrderNo != "" {
+				address = strings.TrimSpace(d.ReceiverAddress)
+				if address == "" {
+					address = "未记录"
+				}
+				addressSource = strings.TrimSpace(d.ReceiverAddressSource)
+			}
+			row = append(row, address, addressSource)
 			if err := f.SetSheetRow("订单明细", fmt.Sprintf("A%d", rowNum), &row); err != nil {
 				return nil, err
 			}
@@ -113,6 +125,12 @@ func RenderCustomerBill(bill app.BillingBill) ([]byte, error) {
 		}
 	}
 	if err := f.SetColWidth("订单明细", "A", "N", 20); err != nil {
+		return nil, err
+	}
+	if err := f.SetColWidth("订单明细", "O", "O", 55); err != nil {
+		return nil, err
+	}
+	if err := f.SetColWidth("订单明细", "P", "P", 24); err != nil {
 		return nil, err
 	}
 	if err := f.SetColWidth("费用明细", "A", "I", 20); err != nil {

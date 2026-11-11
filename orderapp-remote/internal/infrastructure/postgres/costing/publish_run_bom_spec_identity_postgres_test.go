@@ -36,6 +36,12 @@ func TestPublishRunPersistsCutoverProductPriceByBOMSpecPostgres(t *testing.T) {
 			retail_price_100g NUMERIC NOT NULL DEFAULT 0,retail_price_200g NUMERIC NOT NULL DEFAULT 0,
 			retail_price_227g NUMERIC NOT NULL DEFAULT 0,retail_price_250g NUMERIC NOT NULL DEFAULT 0
 		);
+		CREATE TABLE %[1]s.production_boms(id BIGINT PRIMARY KEY,output_product_id BIGINT);
+		CREATE TABLE %[1]s.production_bom_specs(id BIGINT PRIMARY KEY,bom_id BIGINT);
+		CREATE TABLE %[1]s.production_bom_version_variants(id BIGINT PRIMARY KEY,bom_spec_id BIGINT);
+		INSERT INTO %[1]s.production_boms VALUES(70,1);
+		INSERT INTO %[1]s.production_bom_specs VALUES(701,70);
+		INSERT INTO %[1]s.production_bom_version_variants VALUES(702,701);
 		CREATE TABLE %[1]s.product_price_tiers(
 			id BIGSERIAL PRIMARY KEY,product_id BIGINT NOT NULL,bom_spec_id BIGINT NOT NULL DEFAULT 0,bom_variant_id BIGINT NOT NULL DEFAULT 0,
 			spec_g BIGINT NOT NULL DEFAULT 454,min_qty_units NUMERIC NOT NULL DEFAULT 0,max_qty_units NUMERIC,

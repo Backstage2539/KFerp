@@ -137,6 +137,9 @@ func registerFinanceAPI(e *echo.Echo, svc Service, customerAccounts CustomerAcco
 		if err != nil {
 			return jsonError(c, http.StatusBadRequest, err)
 		}
+		if report.CostUnavailable {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "生产成本待核算，暂不能导出财务报告"})
+		}
 		b, err := financepdf.RenderFinanceMonthlyReport(report)
 		if err != nil {
 			return jsonError(c, http.StatusInternalServerError, err)
@@ -154,6 +157,9 @@ func registerFinanceAPI(e *echo.Echo, svc Service, customerAccounts CustomerAcco
 		report, err := svc.DraftReport(c.Request().Context(), filter)
 		if err != nil {
 			return jsonError(c, http.StatusBadRequest, err)
+		}
+		if report.CostUnavailable {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "生产成本待核算，暂不能导出财务报告"})
 		}
 		b, err := financeexcel.RenderFinanceMonthlyReport(report)
 		if err != nil {

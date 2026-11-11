@@ -35,7 +35,7 @@ func TestResolvedBomCostsExposeDefaultSpecificationAsProductFallbackPostgres(t *
 		CREATE TABLE %[1]s.products(id BIGINT PRIMARY KEY, name TEXT);
 		CREATE TABLE %[1]s.materials(
 			id BIGINT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', unit TEXT NOT NULL DEFAULT 'kg',
-			is_semi_finished BOOLEAN NOT NULL DEFAULT false, purchase_price NUMERIC(12,4) NOT NULL DEFAULT 0
+			is_semi_finished BOOLEAN NOT NULL DEFAULT false, purchase_price NUMERIC(12,4) NOT NULL DEFAULT 0, estimated_unit_price NUMERIC(12,4)
 		);
 		CREATE TABLE %[1]s.material_batches(
 			id BIGINT PRIMARY KEY, unit_cost NUMERIC(12,4) NOT NULL DEFAULT 0,

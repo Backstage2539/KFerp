@@ -17,6 +17,7 @@ func TestCapacityBatchEndpointsKeepProductionAndMasterDataPermissions(t *testing
 		{http.MethodPatch, "/api/production-plans/11/draft", "production.run"},
 		{http.MethodPost, "/api/manufacturing-workstations", "bom.write"},
 		{http.MethodPost, "/api/manufacturing-workstation-capacities", "bom.write"},
+		{http.MethodPost, "/api/manufacturing-workstation-capacities/9/batch-presets", "bom.write"},
 	} {
 		for _, allowed := range []bool{false, true} {
 			permissions := []string{"orders.read"}

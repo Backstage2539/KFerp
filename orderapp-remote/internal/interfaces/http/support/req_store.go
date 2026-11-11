@@ -192,9 +192,18 @@ func seedReqRow(ctx context.Context, pool *pgxpool.Pool, schema string, row reqS
 	if row.status == "" {
 		row.status = "todo"
 	}
+	// Preserve updates and Van's acceptance when this requirement is seeded again.
+	if strings.Contains(row.code, "MINIAPP-FULFILLMENT-") || strings.Contains(row.code, "MINIAPP-HIDE-ORDER-") {
+		if row.table == "req_review" {
+			_, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.req_review(code,pr_code,title,status,assignee,evidence) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(code) DO NOTHING`, schema), row.code, row.prCode, row.title, row.status, row.assignee, row.evidence)
+			return err
+		}
+		_, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.%s(code,title,status,assignee,evidence) VALUES($1,$2,$3,$4,$5) ON CONFLICT(code) DO NOTHING`, schema, row.table), row.code, row.title, row.status, row.assignee, row.evidence)
+		return err
+	}
 	// Delivery and Van's review happen after startup. Preserve their actual
 	// progress when subsequent restarts re-run the built-in requirement seeds.
-	if row.code == "PR-750-ORDER-WECHAT-NOTIFICATIONS" || strings.HasPrefix(row.code, "DEV-PR750-") || row.code == "PR-748-BOM-START-CONSUMPTION" || strings.HasPrefix(row.code, "DEV-PR748-") || row.code == "PR-DIRECTSHIP-REGION-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-REGION-") || row.code == "PR-DIRECTSHIP-HISTORICAL-STOCK-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-HISTORICAL-STOCK-") || row.code == "PR-ORDER-DATE-SAVE-20261104" || strings.HasPrefix(row.code, "DEV-ORDER-DATE-SAVE-") {
+	if row.code == "PR-751-SHIPPING-RETURN-CANDIDATES" || strings.HasPrefix(row.code, "DEV-PR751-") || row.code == "PR-750-ORDER-WECHAT-NOTIFICATIONS" || strings.HasPrefix(row.code, "DEV-PR750-") || row.code == "PR-748-BOM-START-CONSUMPTION" || strings.HasPrefix(row.code, "DEV-PR748-") || row.code == "PR-DIRECTSHIP-REGION-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-REGION-") || row.code == "PR-DIRECTSHIP-HISTORICAL-STOCK-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-HISTORICAL-STOCK-") || row.code == "PR-ORDER-DATE-SAVE-20261104" || strings.HasPrefix(row.code, "DEV-ORDER-DATE-SAVE-") {
 		_, err := pool.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.%s(code,title,status,assignee,evidence)
 			VALUES($1,$2,$3,$4,$5) ON CONFLICT(code) DO NOTHING
@@ -261,6 +270,61 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-758-UPSTREAM-WAIT", title: "物料准备区区分等待前道生产与现货调拨", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-11-production-upstream-wait.md；用户验收待完成"},
+		{table: "req_dev", code: "DEV-PR758-UPSTREAM-01", title: "前道待生产提示及调拨入口", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR758-UPSTREAM-02", title: "前道与现货混合供应校验及验收", status: "review", assignee: "Codex"},
+		{table: "req_product", code: "PR-758-PRODUCTION-MATERIAL-PREPARATION", title: "生产计划物料准备、产能安排与仓库调拨", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-10-production-material-preparation.md；用户验收待完成"},
+		{table: "req_dev", code: "DEV-PR758-01", title: "物料准备及产能安排两步流程", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR758-02", title: "计划调拨单、库存身份与并发保护", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR758-03", title: "库存抽屉、调拨预览与验收", status: "review", assignee: "Codex"},
+		{table: "req_product", code: "PR-757-PRODUCTION-CAPACITY-FLEXIBLE", title: "产能差额提示、自定义批量与预定义保存", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-10-production-capacity-flexible.md"},
+		{table: "req_dev", code: "DEV-PR757-01", title: "产能差额与自定义批量快照", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR757-02", title: "预定义批量创建、权限及审计", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR757-03", title: "产能页面、手册、验证与开发交付", status: "review", assignee: "Codex"},
+		{table: "req_product", code: "PR-MINIAPP-PHONE-IDENTITY-20261110", title: "微信手机号识别员工、客户与访客并支持管理员只读查看客户", status: "doing", assignee: "Van", evidence: "ACTIVE_REQUIREMENTS.md；微信真机验收待完成"},
+		{table: "req_dev", code: "DEV-MINIAPP-PHONE-IDENTITY", title: "手机号验证、身份识别与会话撤销", status: "doing", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-MINIAPP-PHONE-ROUTING", title: "手机号优先及员工、客户、访客入口", status: "doing", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-MINIAPP-ADMIN-CUSTOMER-READ", title: "管理员选择客户并只读查看", status: "doing", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-MINIAPP-PHONE-VERIFY", title: "权限回归、操作手册和验收", status: "doing", assignee: "Codex"},
+		{table: "req_product", code: "PR-756-PRODUCTION-LIVE-SUPPLY", title: "生产计划草稿按实时供应更新工序", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-10-production-live-supply.md；用户验收待完成"},
+		{table: "req_dev", code: "DEV-PR756-01", title: "冻结配方展开与供应差异同步", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR756-02", title: "计划提交并发保护与供应复核", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR756-03", title: "草稿自动更新页面、手册与验收", status: "review", assignee: "Codex"},
+		{table: "req_product", code: "PR-MINIAPP-HIDE-ORDER-20261110", title: "指定客户订单在小程序可恢复隐藏并保留业务历史", status: "doing", assignee: "Van", evidence: "ACTIVE_REQUIREMENTS.md；实现与测试中，用户验收待完成"},
+		{table: "req_dev", code: "DEV-MINIAPP-HIDE-ORDER-SCOPE", title: "按客户与订单精确控制小程序可见性", status: "doing", assignee: "Codex", evidence: "隔离、筛选、分页和首页汇总验证待执行"},
+		{table: "req_dev", code: "DEV-MINIAPP-HIDE-ORDER-AUDIT", title: "管理员可恢复隐藏及操作日志", status: "doing", assignee: "Codex", evidence: "授权、审计和幂等验证待执行"},
+		{table: "req_dev", code: "DEV-MINIAPP-HIDE-ORDER-REVIEW", title: "业务历史保护、手册与验收", status: "doing", assignee: "Codex", evidence: "ERP 订单、账务及库存不变验证待执行"},
+		{table: "req_product", code: "PR-755-FULFILLMENT-ORDER-RESERVATION-LABEL", title: "履约成品库存显示待发订单占用", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-10-fulfillment-order-reservation-label.md；用户验收待完成"},
+		{table: "req_dev", code: "DEV-PR755-01", title: "成品占用列名称和类型切换验证", status: "review", assignee: "Codex", evidence: "fulfillment-inventory-orders-dom.test.js；客户履约操作手册"},
+		{table: "req_product", code: "PR-754-OPERATION-REPORTING-MODES", title: "三类工序分别排产报工及结算余料", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-09-operation-reporting-modes.md；用户验收待完成"},
+		{table: "req_dev", code: "DEV-PR754-01", title: "工序排产方式和参考处理速度", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR754-02", title: "来料工序废料报工及多工位校准", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR754-03", title: "按件包装余料结算与批次库存", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR754-04", title: "验证、操作手册和开发交付", status: "review", assignee: "Codex"},
+		{table: "req_product", code: "PR-MINIAPP-FULFILLMENT-20261109", title: "履约客户小程序首页、价格表、订单与账单优化", status: "doing", assignee: "Van", evidence: "客户要求及验收口径；开发中"},
+		{table: "req_dev", code: "DEV-MINIAPP-FULFILLMENT-HOME", title: "首页订单进度与全时间待付款账单", status: "doing", assignee: "Codex", evidence: "开发中"},
+		{table: "req_dev", code: "DEV-MINIAPP-FULFILLMENT-ORDERS", title: "订货与代发筛选及订单精简", status: "doing", assignee: "Codex", evidence: "开发中"},
+		{table: "req_dev", code: "DEV-MINIAPP-FULFILLMENT-PRICE", title: "客户绑定价格表直接展示", status: "doing", assignee: "Codex", evidence: "开发中"},
+		{table: "req_dev", code: "DEV-MINIAPP-FULFILLMENT-BILLS", title: "已出账账单日期筛选、明细和下载", status: "doing", assignee: "Codex", evidence: "开发中"},
+		{table: "req_unit", code: "UT-MINIAPP-FULFILLMENT-20261109", title: "订单进度、价表、账单范围与金额单测", status: "todo", assignee: "Codex", evidence: "待执行"},
+		{table: "req_api", code: "API-MINIAPP-FULFILLMENT-20261109", title: "客户隔离、筛选和账单余额接口测试", status: "todo", assignee: "Codex", evidence: "待执行"},
+		{table: "req_review", code: "REV-MINIAPP-FULFILLMENT-20261109", prCode: "PR-MINIAPP-FULFILLMENT-20261109", title: "喜沁咖啡小程序生产数据与操作验收", status: "todo", assignee: "Van", evidence: "待 DevTools 点验及用户验收"},
+		{table: "req_product", code: "PR-PRODUCTION-FOUR-FIXES-20261109", title: "包装补料、生产需求显示及工位产能校验修复", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-09-production-four-fixes.md；待用户验收"},
+		{table: "req_dev", code: "DEV-PRODUCTION-FOUR-FIXES-01", title: "包装组合卡直接打开本组补料抽屉", status: "review", assignee: "Codex", evidence: "工位 Vue 行为与领料 API 回归"},
+		{table: "req_dev", code: "DEV-PRODUCTION-FOUR-FIXES-02", title: "待计划异常布局及移除库存充足展示区", status: "review", assignee: "Codex", evidence: "生产需求 Vue 测试和布局验证"},
+		{table: "req_dev", code: "DEV-PRODUCTION-FOUR-FIXES-03", title: "工位产能非负整数分钟前后端校验", status: "review", assignee: "Codex", evidence: "工位产能 Vue 和 HTTP 测试"},
+		{table: "req_product", code: "PR-753-FULFILLMENT-SHIPPING-ADDRESS", title: "履约运费清单展示订单收货地址及寄件重量", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-09-fulfillment-shipping-address.md；业务验收待完成"},
+		{table: "req_dev", code: "DEV-PR753-01", title: "隔离客户的地址读取、出账快照和历史回显", status: "review", assignee: "Codex", evidence: "账单地址隔离及历史快照回归"},
+		{table: "req_dev", code: "DEV-PR753-02", title: "费用页面和账单导出显示地址与结算重量", status: "review", assignee: "Codex", evidence: "Vue、Excel、PDF和PNG验证"},
+		{table: "req_dev", code: "DEV-PR753-03", title: "测试、手册及环境交付", status: "review", assignee: "Codex", evidence: "API、并发及手册验证"},
+		{table: "req_product", code: "PR-752-FULFILLMENT-FREIGHT-DETAILS", title: "履约费用出账清单运费名称、单号和寄件重量准确展示", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-09-fulfillment-freight-details.md；业务验收待完成"},
+		{table: "req_dev", code: "DEV-PR752-01", title: "费用清单与已出账单据运费名称及单号", status: "review", assignee: "Codex", evidence: "billing_freight_display_test.go；账单页面及导出"},
+		{table: "req_dev", code: "DEV-PR752-02", title: "寄件表结算重量识别及历史数据补充", status: "review", assignee: "Codex", evidence: "shipping_return_test.go；billing_historical_weight_test.go"},
+		{table: "req_dev", code: "DEV-PR752-03", title: "测试、手册与交付验收", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-11-09-fulfillment-freight-details.md"},
+		{table: "req_product", code: "PR-751-SHIPPING-RETURN-CANDIDATES", title: "寄件回填实时匹配与客户现货补足", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-08-shipping-return-candidates.md；真实运单归属待确认"},
+		{table: "req_dev", code: "DEV-PR751-01", title: "候选与发货条件分开并防止误配旧订单", status: "review", assignee: "Codex", evidence: "shipping_return_candidate_inventory_test.go"},
+		{table: "req_dev", code: "DEV-PR751-02", title: "显式现货补足及历史身份事务校验", status: "review", assignee: "Codex", evidence: "shipping_return_candidate_inventory_test.go；隔离 API 和日志回滚"},
+		{table: "req_dev", code: "DEV-PR751-03", title: "Vue 来源预览、手册与交付验证", status: "review", assignee: "Codex", evidence: "OP_MANUAL_SHIPPING_RETURN.md；fulfillment-full-edit-dom.test.js"},
 		{table: "req_product", code: "PR-750-ORDER-WECHAT-NOTIFICATIONS", title: "订单状态通知服务号订阅者与公司生产微信群", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-11-08-order-wechat-notifications.md；真实微信逐项送达验收待完成"},
 		{table: "req_dev", code: "DEV-PR750-01", title: "六类状态事务消息、权限、重试和回执", status: "doing", assignee: "Codex", evidence: "order_notifications_integration_test.go；隔离数据库与模拟微信接口已验证"},
 		{table: "req_dev", code: "DEV-PR750-02", title: "服务号关注授权、小程序订单跳转与通知设置", status: "doing", assignee: "Codex", evidence: "OP_MANUAL_NOTIFICATIONS.md；服务号业务模板及真机跳转待验证"},

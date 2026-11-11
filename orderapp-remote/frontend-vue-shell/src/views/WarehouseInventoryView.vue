@@ -146,7 +146,7 @@
                     <td>{{ row.batch_code || '-' }}</td>
                     <td><span class="quality-pill" :class="qualityClass(row.quality_status)">{{ qualityLabel(row.quality_status) }}</span></td>
                     <td>{{ inventoryQtyLabel(row) }}</td>
-                    <td>{{ money(row.unit_cost) }}</td>
+                    <td>{{ row.cost_unavailable ? '待核算' : money(row.unit_cost) }}</td>
                     <td>{{ row.updated_at || '-' }}</td>
                     <td><button class="link" type="button" :disabled="inventoryCategoryMoveActive" @click="openTraceDrawer(row.batch_code || '')">追溯</button></td>
                   </tr>
@@ -193,7 +193,7 @@
                   <td>{{ row.batch_code || '-' }}</td>
                   <td><span class="quality-pill" :class="qualityClass(row.quality_status)">{{ qualityLabel(row.quality_status) }}</span></td>
                   <td>{{ inventoryQtyLabel(row) }}</td>
-                  <td>{{ money(row.unit_cost) }}</td>
+                  <td>{{ row.cost_unavailable ? '待核算' : money(row.unit_cost) }}</td>
                   <td>{{ row.updated_at || '-' }}</td>
                   <td v-if="!isCustomerInventoryContext"><button class="link" type="button" @click="openTraceDrawer(row.batch_code || '')">追溯</button></td>
                 </tr>

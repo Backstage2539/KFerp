@@ -498,28 +498,33 @@ type ProductionPlanItem struct {
 }
 
 type ProductionPlanOperationSplit struct {
-	ID                      int64   `json:"id"`
-	ProductionPlanID        int64   `json:"production_plan_id"`
-	ProductionPlanItemID    int64   `json:"production_plan_item_id"`
-	OperationSeq            int     `json:"operation_seq"`
-	OperationID             int64   `json:"operation_id"`
-	Operation               string  `json:"operation"`
-	WorkstationID           int64   `json:"workstation_id"`
-	Workstation             string  `json:"workstation"`
-	WorkstationCapacityID   int64   `json:"workstation_capacity_id"`
-	WorkstationCapacityName string  `json:"workstation_capacity_name"`
-	BatchSizeQty            float64 `json:"batch_size_qty"`
-	BatchSizeUnit           string  `json:"batch_size_unit"`
-	StandardMinutes         int     `json:"standard_minutes"`
-	HourlyRate              float64 `json:"hourly_rate"`
-	CostMethod              string  `json:"cost_method"`
-	PieceRate               float64 `json:"piece_rate"`
-	PlannedBatchCount       int     `json:"planned_batch_count"`
-	PlannedQty              float64 `json:"planned_qty"`
-	PlannedQtyG             int64   `json:"planned_qty_g"`
-	PlannedMinutes          int     `json:"planned_minutes"`
-	PlannedOperationCost    float64 `json:"planned_operation_cost"`
-	Note                    string  `json:"note"`
+	SchedulingMode          string   `json:"scheduling_mode"`
+	ThroughputPerHour       float64  `json:"throughput_per_hour"`
+	PlannedSeconds          *float64 `json:"planned_seconds"`
+	CostEstimateAvailable   bool     `json:"cost_estimate_available"`
+	ID                      int64    `json:"id"`
+	ProductionPlanID        int64    `json:"production_plan_id"`
+	ProductionPlanItemID    int64    `json:"production_plan_item_id"`
+	OperationSeq            int      `json:"operation_seq"`
+	OperationID             int64    `json:"operation_id"`
+	Operation               string   `json:"operation"`
+	WorkstationID           int64    `json:"workstation_id"`
+	Workstation             string   `json:"workstation"`
+	WorkstationCapacityID   int64    `json:"workstation_capacity_id"`
+	WorkstationCapacityName string   `json:"workstation_capacity_name"`
+	BatchSizeQty            float64  `json:"batch_size_qty"`
+	CustomBatchSizeQty      *float64 `json:"custom_batch_size_qty,omitempty"`
+	BatchSizeUnit           string   `json:"batch_size_unit"`
+	StandardMinutes         int      `json:"standard_minutes"`
+	HourlyRate              float64  `json:"hourly_rate"`
+	CostMethod              string   `json:"cost_method"`
+	PieceRate               float64  `json:"piece_rate"`
+	PlannedBatchCount       int      `json:"planned_batch_count"`
+	PlannedQty              float64  `json:"planned_qty"`
+	PlannedQtyG             int64    `json:"planned_qty_g"`
+	PlannedMinutes          int      `json:"planned_minutes"`
+	PlannedOperationCost    float64  `json:"planned_operation_cost"`
+	Note                    string   `json:"note"`
 }
 
 type SaveProductionPlanOperationSplitsCommand struct {
@@ -584,32 +589,33 @@ type WorkOrderOperationSplitsResult struct {
 }
 
 type ProductionPlanDetail struct {
-	PickingVersion      int                              `json:"picking_version"`
-	SupplyPlan          json.RawMessage                  `json:"multilevel_plan,omitempty"`
-	SupplyAllocations   []ProductionSupplyAllocation     `json:"supply_allocations"`
-	ID                  int64                            `json:"id"`
-	Revision            int64                            `json:"revision"`
-	PlanNo              string                           `json:"plan_no"`
-	SourceType          string                           `json:"source_type"`
-	Status              string                           `json:"status"`
-	CreatedBy           string                           `json:"created_by"`
-	CreatedAt           string                           `json:"created_at"`
-	SubmittedBy         string                           `json:"submitted_by"`
-	SubmittedAt         string                           `json:"submitted_at"`
-	CompletedAt         string                           `json:"completed_at"`
-	CancelledAt         string                           `json:"cancelled_at"`
-	Items               []ProductionPlanItem             `json:"items"`
-	OperationSplits     []ProductionPlanOperationSplit   `json:"operation_splits"`
-	MaterialSummary     []MaterialNeed                   `json:"material_summary"`
-	SupplyGaps          []ProductionPlanSupplyGap        `json:"supply_gaps"`
-	ComponentSources    []ProductionPlanComponentSource  `json:"component_sources"`
-	ManufacturingPlan   ProductionManufacturingPlan      `json:"manufacturing_plan"`
-	RelatedWorkOrders   []ProductionPlanRelatedWorkOrder `json:"related_work_orders"`
-	JobCardCount        int64                            `json:"job_card_count"`
-	DraftToken          string                           `json:"draft_token,omitempty"`
-	Readiness           ProductionPlanReadiness          `json:"readiness"`
-	ReplannedFromPlanID int64                            `json:"replanned_from_plan_id,omitempty"`
-	ReplanNote          string                           `json:"replan_note,omitempty"`
+	PickingVersion            int                              `json:"picking_version"`
+	SupplyPlan                json.RawMessage                  `json:"multilevel_plan,omitempty"`
+	SupplyAllocations         []ProductionSupplyAllocation     `json:"supply_allocations"`
+	ID                        int64                            `json:"id"`
+	Revision                  int64                            `json:"revision"`
+	PlanNo                    string                           `json:"plan_no"`
+	SourceType                string                           `json:"source_type"`
+	Status                    string                           `json:"status"`
+	CreatedBy                 string                           `json:"created_by"`
+	CreatedAt                 string                           `json:"created_at"`
+	SubmittedBy               string                           `json:"submitted_by"`
+	SubmittedAt               string                           `json:"submitted_at"`
+	CompletedAt               string                           `json:"completed_at"`
+	CancelledAt               string                           `json:"cancelled_at"`
+	Items                     []ProductionPlanItem             `json:"items"`
+	OperationSplits           []ProductionPlanOperationSplit   `json:"operation_splits"`
+	MaterialSummary           []MaterialNeed                   `json:"material_summary"`
+	SupplyGaps                []ProductionPlanSupplyGap        `json:"supply_gaps"`
+	ComponentSources          []ProductionPlanComponentSource  `json:"component_sources"`
+	MaterialTransferDocuments []PlanMaterialTransferPending    `json:"material_transfer_documents"`
+	ManufacturingPlan         ProductionManufacturingPlan      `json:"manufacturing_plan"`
+	RelatedWorkOrders         []ProductionPlanRelatedWorkOrder `json:"related_work_orders"`
+	JobCardCount              int64                            `json:"job_card_count"`
+	DraftToken                string                           `json:"draft_token,omitempty"`
+	Readiness                 ProductionPlanReadiness          `json:"readiness"`
+	ReplannedFromPlanID       int64                            `json:"replanned_from_plan_id,omitempty"`
+	ReplanNote                string                           `json:"replan_note,omitempty"`
 }
 
 type ProductionPlanReadiness struct {
@@ -637,6 +643,7 @@ type ProductionPlanDraftItem struct {
 type SaveProductionPlanDraftCommand struct {
 	ID               int64
 	DraftToken       string
+	AckSupplyRecheck bool
 	Items            []ProductionPlanDraftItem
 	ComponentSources []ProductionPlanComponentSource
 	OperationSplits  []ProductionPlanOperationSplit
@@ -802,8 +809,9 @@ type ProductionPlanRelatedWorkOrder struct {
 }
 
 type SubmitProductionPlanCommand struct {
-	ID       int64
-	Operator string
+	ID         int64
+	Operator   string
+	DraftToken string
 }
 
 type CancelProductionPlanCommand struct {
@@ -813,8 +821,9 @@ type CancelProductionPlanCommand struct {
 }
 
 type SubmitProductionPlansCommand struct {
-	IDs      []int64 `json:"ids"`
-	Operator string  `json:"operator"`
+	IDs         []int64          `json:"ids"`
+	DraftTokens map[int64]string `json:"draft_tokens"`
+	Operator    string           `json:"operator"`
 }
 
 type ProductionPlanSubmitResult struct {
@@ -960,6 +969,8 @@ type WorkOrderDependencyRow struct {
 }
 
 type WorkOrderRow struct {
+	PlannedCostUnavailable    bool                     `json:"planned_cost_unavailable"`
+	ActualCostUnavailable     bool                     `json:"actual_cost_unavailable"`
 	ID                        int64                    `json:"id"`
 	WorkOrderNo               string                   `json:"work_order_no"`
 	RunningItemID             int64                    `json:"running_item_id"`
@@ -1040,66 +1051,73 @@ type JobCardQuery struct {
 }
 
 type JobCardRow struct {
+	SchedulingMode          string             `json:"scheduling_mode"`
+	ThroughputPerHour       float64            `json:"throughput_per_hour"`
+	PlannedSeconds          *float64           `json:"planned_seconds"`
+	StandardMinutes         int                `json:"standard_minutes"`
+	PlannedCostUnavailable  bool               `json:"planned_cost_unavailable"`
+	ActualCostUnavailable   bool               `json:"actual_cost_unavailable"`
 	AssignedEmployeeID      int64              `json:"assigned_employee_id"`
 	CollaboratorEmployeeIDs []int64            `json:"collaborator_employee_ids"`
 	Collaborators           []ScheduleEmployee `json:"collaborators"`
 	ScheduleVersion         int64              `json:"schedule_version"`
 
-	ID                           int64   `json:"id"`
-	WorkOrderID                  int64   `json:"work_order_id"`
-	WorkOrderNo                  string  `json:"work_order_no"`
-	ProductID                    int64   `json:"product_id"`
-	ProductName                  string  `json:"product_name"`
-	SpecG                        int64   `json:"spec_g"`
-	OrderNos                     string  `json:"order_nos"`
-	PlannedG                     int64   `json:"planned_g"`
-	PlannedOutputG               int64   `json:"planned_output_g"`
-	BomVersionID                 int64   `json:"bom_version_id"`
-	MaterialSnapshot             string  `json:"material_snapshot"`
-	ProcessSnapshotJSON          string  `json:"process_snapshot_json"`
-	ProductionConfigSnapshotJSON string  `json:"production_config_snapshot_json"`
-	CustomerProductSnapshotJSON  string  `json:"customer_product_snapshot_json"`
-	SequenceNo                   int     `json:"sequence_no"`
-	OperationID                  int64   `json:"operation_id"`
-	WorkstationID                int64   `json:"workstation_id"`
-	Operation                    string  `json:"operation"`
-	Workstation                  string  `json:"workstation"`
-	WorkstationCapacityID        int64   `json:"workstation_capacity_id"`
-	WorkstationCapacityName      string  `json:"workstation_capacity_name"`
-	BatchSizeQty                 float64 `json:"batch_size_qty"`
-	BatchSizeUnit                string  `json:"batch_size_unit"`
-	PlannedBatchCount            int     `json:"planned_batch_count"`
-	PlannedMinutes               int     `json:"planned_minutes"`
-	HourlyRate                   float64 `json:"hourly_rate"`
-	CostMethod                   string  `json:"cost_method"`
-	PieceRate                    float64 `json:"piece_rate"`
-	PlannedOperationCost         float64 `json:"planned_operation_cost"`
-	ActualMinutes                int     `json:"actual_minutes"`
-	ActualOperationCost          float64 `json:"actual_operation_cost"`
-	Status                       string  `json:"status"`
-	StartedAt                    string  `json:"started_at"`
-	PausedAt                     string  `json:"paused_at"`
-	ResumedAt                    string  `json:"resumed_at"`
-	CompletedAt                  string  `json:"completed_at"`
-	Operator                     string  `json:"operator"`
-	PlannedInputQty              float64 `json:"planned_input_qty"`
-	ActualInputQty               float64 `json:"actual_input_qty"`
-	ActualOutputQty              float64 `json:"actual_output_qty"`
-	ActualLossQty                float64 `json:"actual_loss_qty"`
-	ActualLossRate               float64 `json:"actual_loss_rate"`
-	RecordsLoss                  bool    `json:"records_loss"`
-	LossReason                   string  `json:"loss_reason"`
-	ExceptionReason              string  `json:"exception_reason"`
-	ProcessRequirement           string  `json:"process_requirement"`
-	MetricsJSON                  string  `json:"metrics_json"`
-	ParameterSchemaJSON          string  `json:"parameter_schema_json"`
-	PlannedStartAt               string  `json:"planned_start_at"`
-	PlannedEndAt                 string  `json:"planned_end_at"`
-	ShiftCode                    string  `json:"shift_code"`
-	AssignedTo                   string  `json:"assigned_to"`
-	Priority                     int     `json:"priority"`
-	SchedulingNote               string  `json:"scheduling_note"`
-	WorkCenter                   string  `json:"work_center"`
+	ID                           int64    `json:"id"`
+	WorkOrderID                  int64    `json:"work_order_id"`
+	WorkOrderNo                  string   `json:"work_order_no"`
+	ProductID                    int64    `json:"product_id"`
+	ProductName                  string   `json:"product_name"`
+	SpecG                        int64    `json:"spec_g"`
+	OrderNos                     string   `json:"order_nos"`
+	PlannedG                     int64    `json:"planned_g"`
+	PlannedOutputG               int64    `json:"planned_output_g"`
+	BomVersionID                 int64    `json:"bom_version_id"`
+	MaterialSnapshot             string   `json:"material_snapshot"`
+	ProcessSnapshotJSON          string   `json:"process_snapshot_json"`
+	ProductionConfigSnapshotJSON string   `json:"production_config_snapshot_json"`
+	CustomerProductSnapshotJSON  string   `json:"customer_product_snapshot_json"`
+	SequenceNo                   int      `json:"sequence_no"`
+	OperationID                  int64    `json:"operation_id"`
+	WorkstationID                int64    `json:"workstation_id"`
+	Operation                    string   `json:"operation"`
+	Workstation                  string   `json:"workstation"`
+	WorkstationCapacityID        int64    `json:"workstation_capacity_id"`
+	WorkstationCapacityName      string   `json:"workstation_capacity_name"`
+	BatchSizeQty                 float64  `json:"batch_size_qty"`
+	CustomBatchSizeQty           *float64 `json:"custom_batch_size_qty,omitempty"`
+	BatchSizeUnit                string   `json:"batch_size_unit"`
+	PlannedBatchCount            int      `json:"planned_batch_count"`
+	PlannedMinutes               int      `json:"planned_minutes"`
+	HourlyRate                   float64  `json:"hourly_rate"`
+	CostMethod                   string   `json:"cost_method"`
+	PieceRate                    float64  `json:"piece_rate"`
+	PlannedOperationCost         float64  `json:"planned_operation_cost"`
+	ActualMinutes                int      `json:"actual_minutes"`
+	ActualOperationCost          float64  `json:"actual_operation_cost"`
+	Status                       string   `json:"status"`
+	StartedAt                    string   `json:"started_at"`
+	PausedAt                     string   `json:"paused_at"`
+	ResumedAt                    string   `json:"resumed_at"`
+	CompletedAt                  string   `json:"completed_at"`
+	Operator                     string   `json:"operator"`
+	PlannedInputQty              float64  `json:"planned_input_qty"`
+	ActualInputQty               float64  `json:"actual_input_qty"`
+	ActualOutputQty              float64  `json:"actual_output_qty"`
+	ActualLossQty                float64  `json:"actual_loss_qty"`
+	ActualLossRate               float64  `json:"actual_loss_rate"`
+	RecordsLoss                  bool     `json:"records_loss"`
+	LossReason                   string   `json:"loss_reason"`
+	ExceptionReason              string   `json:"exception_reason"`
+	ProcessRequirement           string   `json:"process_requirement"`
+	MetricsJSON                  string   `json:"metrics_json"`
+	ParameterSchemaJSON          string   `json:"parameter_schema_json"`
+	PlannedStartAt               string   `json:"planned_start_at"`
+	PlannedEndAt                 string   `json:"planned_end_at"`
+	ShiftCode                    string   `json:"shift_code"`
+	AssignedTo                   string   `json:"assigned_to"`
+	Priority                     int      `json:"priority"`
+	SchedulingNote               string   `json:"scheduling_note"`
+	WorkCenter                   string   `json:"work_center"`
 }
 
 type ProductionWorkstationOverviewQuery struct {
@@ -1157,20 +1175,23 @@ type ProductionWorkstationLoad struct {
 }
 
 type ProductionTask struct {
-	MaterialConsumptionPolicy string  `json:"material_consumption_policy"`
-	AutomaticCompletion       bool    `json:"automatic_completion"`
-	HasPredecessor            bool    `json:"has_predecessor"`
-	PredecessorCompleted      bool    `json:"predecessor_completed"`
-	PredecessorOutputQty      float64 `json:"predecessor_output_qty"`
-	ProductionPlanID          int64   `json:"production_plan_id"`
-	ProductionPlanItemID      int64   `json:"production_plan_item_id"`
-	OperationID               int64   `json:"operation_id"`
-	WorkstationID             int64   `json:"workstation_id"`
-	RosterEmployeeID          int64   `json:"roster_employee_id"`
-	RosterEmployeeName        string  `json:"roster_employee_name"`
-	RosterSource              string  `json:"roster_source"`
-	RosterStatus              string  `json:"roster_status"`
-	PendingHandover           bool    `json:"pending_handover"`
+	PredecessorOutputUnit      string  `json:"predecessor_output_unit,omitempty"`
+	PredecessorOutputUnitState string  `json:"predecessor_output_unit_state,omitempty"`
+	ReportingType              string  `json:"reporting_type,omitempty"`
+	MaterialConsumptionPolicy  string  `json:"material_consumption_policy"`
+	AutomaticCompletion        bool    `json:"automatic_completion"`
+	HasPredecessor             bool    `json:"has_predecessor"`
+	PredecessorCompleted       bool    `json:"predecessor_completed"`
+	PredecessorOutputQty       float64 `json:"predecessor_output_qty"`
+	ProductionPlanID           int64   `json:"production_plan_id"`
+	ProductionPlanItemID       int64   `json:"production_plan_item_id"`
+	OperationID                int64   `json:"operation_id"`
+	WorkstationID              int64   `json:"workstation_id"`
+	RosterEmployeeID           int64   `json:"roster_employee_id"`
+	RosterEmployeeName         string  `json:"roster_employee_name"`
+	RosterSource               string  `json:"roster_source"`
+	RosterStatus               string  `json:"roster_status"`
+	PendingHandover            bool    `json:"pending_handover"`
 
 	AssignedEmployeeID      int64              `json:"assigned_employee_id"`
 	CollaboratorEmployeeIDs []int64            `json:"collaborator_employee_ids"`
@@ -1561,16 +1582,18 @@ type ProductionTraceLinkRow struct {
 }
 
 type ProductionCostVarianceRow struct {
-	WorkOrderID          int64   `json:"work_order_id"`
-	WorkOrderNo          string  `json:"work_order_no"`
-	BatchID              string  `json:"batch_id"`
-	ProductName          string  `json:"product_name"`
-	PlannedCost          float64 `json:"planned_cost"`
-	ActualCost           float64 `json:"actual_cost"`
-	PlannedOperationCost float64 `json:"planned_operation_cost"`
-	ActualOperationCost  float64 `json:"actual_operation_cost"`
-	Variance             float64 `json:"variance"`
-	VarianceRate         float64 `json:"variance_rate"`
+	PlannedCostUnavailable bool    `json:"planned_cost_unavailable"`
+	ActualCostUnavailable  bool    `json:"actual_cost_unavailable"`
+	WorkOrderID            int64   `json:"work_order_id"`
+	WorkOrderNo            string  `json:"work_order_no"`
+	BatchID                string  `json:"batch_id"`
+	ProductName            string  `json:"product_name"`
+	PlannedCost            float64 `json:"planned_cost"`
+	ActualCost             float64 `json:"actual_cost"`
+	PlannedOperationCost   float64 `json:"planned_operation_cost"`
+	ActualOperationCost    float64 `json:"actual_operation_cost"`
+	Variance               float64 `json:"variance"`
+	VarianceRate           float64 `json:"variance_rate"`
 }
 
 type ProductionAbnormalLossRow struct {
@@ -1588,11 +1611,12 @@ type ProductionAbnormalLossRow struct {
 }
 
 type ProductionTraceAnalyticsResult struct {
-	TraceLinks        []ProductionTraceLinkRow    `json:"trace_links"`
-	CostVariance      []ProductionCostVarianceRow `json:"cost_variance"`
-	AbnormalLosses    []ProductionAbnormalLossRow `json:"abnormal_losses"`
-	TotalVariance     float64                     `json:"total_variance"`
-	AbnormalLossCount int                         `json:"abnormal_loss_count"`
+	TotalVarianceUnavailable bool                        `json:"total_variance_unavailable"`
+	TraceLinks               []ProductionTraceLinkRow    `json:"trace_links"`
+	CostVariance             []ProductionCostVarianceRow `json:"cost_variance"`
+	AbnormalLosses           []ProductionAbnormalLossRow `json:"abnormal_losses"`
+	TotalVariance            float64                     `json:"total_variance"`
+	AbnormalLossCount        int                         `json:"abnormal_loss_count"`
 }
 
 type JobCardActualsCommand struct {
@@ -1614,16 +1638,17 @@ type BatchCostQuery struct {
 }
 
 type BatchCostRow struct {
-	ID            int64   `json:"id"`
-	RunningItemID int64   `json:"running_item_id"`
-	BatchID       string  `json:"batch_id"`
-	ProductName   string  `json:"product_name"`
-	MaterialCost  float64 `json:"material_cost"`
-	OperationCost float64 `json:"operation_cost"`
-	TotalCost     float64 `json:"total_cost"`
-	FinishedG     int64   `json:"finished_g"`
-	UnitCostPerKG float64 `json:"unit_cost_per_kg"`
-	CreatedAt     string  `json:"created_at"`
+	ActualCostUnavailable bool    `json:"actual_cost_unavailable"`
+	ID                    int64   `json:"id"`
+	RunningItemID         int64   `json:"running_item_id"`
+	BatchID               string  `json:"batch_id"`
+	ProductName           string  `json:"product_name"`
+	MaterialCost          float64 `json:"material_cost"`
+	OperationCost         float64 `json:"operation_cost"`
+	TotalCost             float64 `json:"total_cost"`
+	FinishedG             int64   `json:"finished_g"`
+	UnitCostPerKG         float64 `json:"unit_cost_per_kg"`
+	CreatedAt             string  `json:"created_at"`
 }
 
 type StockEntryCommand struct {
@@ -1820,13 +1845,17 @@ type WorkOrderDetail struct {
 }
 
 type JobCardActionCommand struct {
-	RequestID        string                 `json:"request_id"`
-	ExpectedVersion  string                 `json:"expected_version"`
-	InputUnit        string                 `json:"input_unit"`
-	OutputUnit       string                 `json:"output_unit"`
-	DifferenceReason string                 `json:"difference_reason"`
-	FinishOperation  *bool                  `json:"finish_operation"`
-	Materials        []OperationMaterialUse `json:"materials"`
+	SelectedUnissuedRemainders []PackagingUnissuedRemainder `json:"selected_unissued_remainders,omitempty"`
+	ActualRemainderG           *float64                     `json:"actual_remainder_g,omitempty"`
+	RemainderWarehouse         string                       `json:"remainder_warehouse,omitempty"`
+	WasteQty                   *float64                     `json:"waste_qty,omitempty"`
+	RequestID                  string                       `json:"request_id"`
+	ExpectedVersion            string                       `json:"expected_version"`
+	InputUnit                  string                       `json:"input_unit"`
+	OutputUnit                 string                       `json:"output_unit"`
+	DifferenceReason           string                       `json:"difference_reason"`
+	FinishOperation            *bool                        `json:"finish_operation"`
+	Materials                  []OperationMaterialUse       `json:"materials"`
 
 	ID                   int64
 	EmployeeID           int64
@@ -2385,11 +2414,27 @@ func validatePlanCapacityInput(item ProductionPlanOperationSplit) error {
 	if item.ProductionPlanItemID <= 0 || item.WorkstationCapacityID <= 0 {
 		return fmt.Errorf("production plan item and workstation capacity required")
 	}
+	return validateCapacitySplitInput(item)
+}
+
+func validateCapacitySplitInput(item ProductionPlanOperationSplit) error {
+	if item.CustomBatchSizeQty != nil {
+		if err := ValidateCustomBatchSizeQty(*item.CustomBatchSizeQty); err != nil {
+			return err
+		}
+	}
 	if math.IsNaN(item.PlannedQty) || math.IsInf(item.PlannedQty, 0) || item.PlannedQty < 0 || item.PlannedBatchCount < 0 {
 		return fmt.Errorf("产量不能为负，批次数必须是正整数")
 	}
 	if item.PlannedQty <= 0 && item.PlannedBatchCount <= 0 {
 		return fmt.Errorf("planned_qty or positive planned_batch_count required")
+	}
+	return nil
+}
+
+func ValidateCustomBatchSizeQty(qty float64) error {
+	if math.IsNaN(qty) || math.IsInf(qty, 0) || qty <= 0 || qty >= 1e10 || math.Abs(qty*1000-math.Round(qty*1000)) > 0.000001 {
+		return fmt.Errorf("自定义每批数量必须为有效正数，最多保留三位小数")
 	}
 	return nil
 }
@@ -2477,8 +2522,8 @@ func (s *Service) SaveWorkOrderOperationSplits(ctx context.Context, cmd SaveWork
 		if item.WorkstationCapacityID <= 0 {
 			return WorkOrderOperationSplitsResult{}, fmt.Errorf("workstation_capacity_id required")
 		}
-		if item.PlannedQty <= 0 {
-			return WorkOrderOperationSplitsResult{}, fmt.Errorf("planned_qty required")
+		if err := validateCapacitySplitInput(*item); err != nil {
+			return WorkOrderOperationSplitsResult{}, err
 		}
 		if item.OperationSeq < 0 {
 			return WorkOrderOperationSplitsResult{}, fmt.Errorf("operation_seq must be >= 0")
@@ -2533,7 +2578,7 @@ func (s *Service) SubmitProductionPlans(ctx context.Context, cmd SubmitProductio
 			continue
 		}
 		seen[id] = true
-		submitted, err := s.SubmitProductionPlan(ctx, SubmitProductionPlanCommand{ID: id, Operator: cmd.Operator})
+		submitted, err := s.SubmitProductionPlan(ctx, SubmitProductionPlanCommand{ID: id, Operator: cmd.Operator, DraftToken: cmd.DraftTokens[id]})
 		if err != nil {
 			result.Failed = append(result.Failed, ProductionPlanSubmitFailure{ID: id, Error: err.Error()})
 			continue
@@ -3156,7 +3201,7 @@ func (s *Service) GetWorkOrderDetail(ctx context.Context, id int64) (WorkOrderDe
 			return WorkOrderDetail{}, err
 		}
 	}
-	cost := BatchCostRow{RunningItemID: wo.RunningItemID, BatchID: wo.BatchID, ProductName: wo.ProductName, TotalCost: wo.ActualCost}
+	cost := batchCostFallback(wo)
 	if len(costs) > 0 {
 		cost = costs[0]
 	}
@@ -3583,7 +3628,7 @@ func (s *Service) transitionJobCard(ctx context.Context, cmd JobCardActionComman
 	if cmd.ActualMinutes < 0 {
 		return JobCardActionResult{}, fmt.Errorf("actual_minutes must be >= 0")
 	}
-	if cmd.ActualInputQty > 0 && (cmd.InputUnit == "" || cmd.InputUnit == cmd.OutputUnit) {
+	if cmd.WasteQty == nil && cmd.ActualInputQty > 0 && (cmd.InputUnit == "" || cmd.InputUnit == cmd.OutputUnit) {
 		lossQty, lossRate, err := productiondomain.ActualLossMetrics(cmd.ActualInputQty, cmd.ActualOutputQty)
 		if err != nil {
 			return JobCardActionResult{}, err
@@ -3753,6 +3798,24 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 		applyTaskBatchAndMaterialReadiness(tasks, jobCards, coverageByWorkOrder)
 	}
 	applyTaskOperationHandoff(tasks, jobCards)
+	var predecessorUnits map[int64]PredecessorOutputUnitInfo
+	if repo, ok := s.repo.(interface {
+		JobCardOutputUnits(context.Context, []int64) (map[int64]PredecessorOutputUnitInfo, error)
+	}); ok {
+		ids := make([]int64, 0, len(jobCards))
+		for _, card := range jobCards {
+			if card.Status == "completed" {
+				ids = append(ids, card.ID)
+			}
+		}
+		if len(ids) > 0 {
+			predecessorUnits, err = repo.JobCardOutputUnits(ctx, ids)
+			if err != nil {
+				return ProductionWorkstationOverview{}, err
+			}
+		}
+	}
+	applyTaskPredecessorOutputUnits(tasks, jobCards, predecessorUnits)
 	if frozenRepo, ok := s.repo.(workOrderFrozenSourceDocumentRepository); ok {
 		issueActionByOrder := map[int64]bool{}
 		checked := map[int64]bool{}
@@ -4065,6 +4128,7 @@ func productionTaskFromJobCard(card JobCardRow, workOrder WorkOrderRow) Producti
 	status := normalizeProductionTaskStatus(card.Status)
 	blockingReason := productionBlockingReason(status, card.ExceptionReason, workCenter, assignedTo)
 	task := ProductionTask{
+		ReportingType:    frozenOperationReportingType(workOrder, card.SequenceNo),
 		ProductionPlanID: workOrder.ProductionPlanID, ProductionPlanItemID: workOrder.ProductionPlanItemID,
 		JobCardID: card.ID, OperationID: card.OperationID, WorkstationID: card.WorkstationID, AssignedEmployeeID: card.AssignedEmployeeID, CollaboratorEmployeeIDs: []int64{}, Collaborators: []ScheduleEmployee{}, ScheduleVersion: card.ScheduleVersion,
 		SequenceNo:                card.SequenceNo,
@@ -4377,7 +4441,11 @@ func applyPackagingGroupKeys(tasks []ProductionTask, workOrders map[int64]WorkOr
 	for i := range tasks {
 		task := &tasks[i]
 		task.PackagingGroupKey = ""
-		if !isPackagingOperation(task.Operation) || task.JobCardID <= 0 || task.WorkOrderID <= 0 || task.PlannedOutputInventoryQty <= 0 || len(task.MaterialReadiness) == 0 || !task.MaterialDataComplete {
+		if task.ReportingType == "" {
+			task.ReportingType = frozenOperationReportingType(workOrders[task.WorkOrderID], task.SequenceNo)
+		}
+		packaging := task.ReportingType == "piece" || ((task.ReportingType == "" || task.ReportingType == "legacy") && isPackagingOperation(task.Operation))
+		if !packaging || task.JobCardID <= 0 || task.WorkOrderID <= 0 || task.PlannedOutputInventoryQty <= 0 || len(task.MaterialReadiness) == 0 || !task.MaterialDataComplete {
 			continue
 		}
 		wo := workOrders[task.WorkOrderID]
@@ -4393,7 +4461,7 @@ func applyPackagingGroupKeys(tasks []ProductionTask, workOrders map[int64]WorkOr
 		}
 		sort.Strings(lines)
 		productID := firstNonZeroInt64(wo.OutputProductID, wo.ProductID)
-		task.PackagingGroupKey = task.MaterialConsumptionPolicy + ":" + fmt.Sprintf("pack:%d:%d:%s:%s:%d:%s:%s:%s", productID, task.SpecG, task.InventoryUnit, task.TargetWarehouse, task.SequenceNo, strings.TrimSpace(task.Operation), strings.TrimSpace(task.Workstation), strings.Join(lines, ";"))
+		task.PackagingGroupKey = task.MaterialConsumptionPolicy + ":" + task.ReportingType + ":" + fmt.Sprintf("pack:%d:%d:%s:%s:%d:%s:%s:%s", productID, task.SpecG, task.InventoryUnit, task.TargetWarehouse, task.SequenceNo, strings.TrimSpace(task.Operation), strings.TrimSpace(task.Workstation), strings.Join(lines, ";"))
 		var frozen struct {
 			Operations []struct {
 				Seq           int    `json:"seq"`
@@ -4417,6 +4485,28 @@ func applyPackagingGroupKeys(tasks []ProductionTask, workOrders map[int64]WorkOr
 
 func isPackagingOperation(operation string) bool {
 	return strings.Contains(operation, "包装") || strings.Contains(operation, "分装") || strings.Contains(operation, "装袋") || strings.Contains(operation, "装盒")
+}
+
+func frozenOperationReportingType(wo WorkOrderRow, seq int) string {
+	var snapshot struct {
+		Operations []struct {
+			Seq           int    `json:"seq"`
+			ExecutionJSON string `json:"execution_json"`
+		} `json:"operations"`
+	}
+	if json.Unmarshal([]byte(wo.ProcessSnapshotJSON), &snapshot) != nil {
+		return ""
+	}
+	for _, operation := range snapshot.Operations {
+		if operation.Seq == seq {
+			var execution OperationExecution
+			if json.Unmarshal([]byte(operation.ExecutionJSON), &execution) == nil {
+				return strings.TrimSpace(execution.ReportingType)
+			}
+			return ""
+		}
+	}
+	return ""
 }
 
 func markTaskWaitingForMaterials(task *ProductionTask, rows []ProductionTaskMaterialReadiness, label string) {
@@ -4628,6 +4718,10 @@ func buildWorkOrderExecutionHub(wo WorkOrderRow, wipStatus ProductionWIPStatus, 
 		TraceTimeline:         buildProductionTraceTimeline(wo, jobCards, stockEntries, ledgerEntries, filteredQualityRows, logs, cost),
 		ContextActions:        buildWorkOrderContextActions(wo, jobCards, readiness),
 	}
+}
+
+func batchCostFallback(wo WorkOrderRow) BatchCostRow {
+	return BatchCostRow{RunningItemID: wo.RunningItemID, BatchID: wo.BatchID, ProductName: wo.ProductName, TotalCost: wo.ActualCost, ActualCostUnavailable: wo.ActualCostUnavailable}
 }
 
 func buildWorkOrderExecutionHeader(wo WorkOrderRow) WorkOrderExecutionHeader {
@@ -5116,7 +5210,11 @@ func buildProductionTraceTimeline(wo WorkOrderRow, cards []JobCardRow, stockEntr
 		rows = append(rows, ProductionTraceTimelineEntry{Type: "log", Title: "生产日志", Summary: firstNonEmpty(row.FinishedBatchCode, row.BatchID, row.ProductName), At: row.FinishedAt, RefType: "production_log", RefID: row.ID, View: "produceLogs", Params: workOrderContextParams(wo, 0, nil)})
 	}
 	if cost.RunningItemID > 0 || cost.TotalCost > 0 {
-		rows = append(rows, ProductionTraceTimelineEntry{Type: "cost", Title: "成本归集", Summary: fmt.Sprintf("%.2f", cost.TotalCost), At: cost.CreatedAt, RefType: "batch_cost", RefID: cost.ID, View: "productionCosts", Params: workOrderContextParams(wo, 0, map[string]any{"batch_id": firstNonEmpty(cost.BatchID, wo.BatchID)})})
+		summary := fmt.Sprintf("%.2f", cost.TotalCost)
+		if cost.ActualCostUnavailable {
+			summary = "待核算"
+		}
+		rows = append(rows, ProductionTraceTimelineEntry{Type: "cost", Title: "成本归集", Summary: summary, At: cost.CreatedAt, RefType: "batch_cost", RefID: cost.ID, View: "productionCosts", Params: workOrderContextParams(wo, 0, map[string]any{"batch_id": firstNonEmpty(cost.BatchID, wo.BatchID)})})
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
 		left, right := rows[i].At, rows[j].At

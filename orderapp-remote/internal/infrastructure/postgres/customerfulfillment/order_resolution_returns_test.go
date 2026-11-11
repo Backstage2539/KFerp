@@ -405,3 +405,32 @@ func TestOrderResolutionReturnCopiesExactStoredCost(t *testing.T) {
 		t.Fatalf("original stored cost changed: %v %v", equal, err)
 	}
 }
+
+func TestOrderReturnPreservesUnknownBatchCost(t *testing.T) {
+	pool, schema := orderReturnFixture(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.stock_batches SET cost_unavailable=true WHERE id=78500`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	repo := resolutionpg.NewRepository(pool, schema)
+	current, err := repo.Context(ctx, 78500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := repo.Submit(ctx, 78500, returnCommand(current.Version), "sales")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range result.Steps {
+		if step.Kind == "return_stock" {
+			_, err = repo.CompleteStep(ctx, 78500, result.ID, step.ID, resolutionpg.StepCommand{Choice: "receive", Reference: "原出库", Note: "已确认实物", PostingDate: "2026-11-08", IdempotencyKey: "unknown-return"}, "warehouse")
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	var unavailable bool
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT cost_unavailable FROM %s.stock_batches WHERE source_doc_type='order_resolution_return'`, schema)).Scan(&unavailable); err != nil || !unavailable {
+		t.Fatalf("returned cost unavailable=%v err=%v", unavailable, err)
+	}
+}

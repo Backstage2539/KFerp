@@ -95,6 +95,9 @@ func (r Repository) StartOperationGroup(ctx context.Context, c app.OperationStar
 				}
 			}
 		}
+		if err = lockProductionFinancePeriodTx(ctx, tx, r.schema); err != nil {
+			return unused, err
+		}
 		for _, x := range locks {
 			if err = lockReceiptWorkOrderTx(ctx, tx, r.schema, x.work); err != nil {
 				return unused, err

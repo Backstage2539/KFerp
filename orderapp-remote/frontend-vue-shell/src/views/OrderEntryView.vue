@@ -487,6 +487,13 @@
           <label><span>收件省份</span><input v-model.trim="form.shipping_province" @input="fulfillmentManualDestination = true" /></label><label><span>收件城市</span><input v-model.trim="form.shipping_city" @input="fulfillmentManualDestination = true" /></label><label><span>收件区县</span><input v-model.trim="form.shipping_district" @input="fulfillmentManualDestination = true" /></label>
         </div>
         <details class="fulfillment-adjustment"><summary>本单服务费调整</summary><label class="checkline"><input v-model="fulfillmentServiceAdjustment.enabled" type="checkbox" />人工调整本单服务费</label><template v-if="fulfillmentServiceAdjustment.enabled"><label><span>服务费（元）</span><input v-model="fulfillmentServiceAdjustment.amount" type="number" min="0" step="0.01" /></label><label><span>费用调整原因</span><textarea v-model.trim="fulfillmentServiceAdjustment.reason" rows="2" /></label></template></details>
+        <template v-if="fulfillmentEditContext?.fulfillment_mode === 'stock'">
+          <label class="checkline"><input v-model="fulfillmentReplacePending" type="checkbox" :disabled="saving || !!editBlockReason" />使用客户现货补足待入库预订</label>
+          <p v-if="fulfillmentReplacePending" class="muted">保留本单已有实物批次，以本客户同仓同规格的可用现货补足；释放相应待入库预订，不改原购货和入库记录。请先核算并核对以下批次，再保存。</p>
+          <ul v-if="fulfillmentReplacePending && fulfillmentPreview?.stock_sources?.length" aria-label="补足后的库存来源">
+            <li v-for="source in fulfillmentPreview.stock_sources" :key="`${source.warehouse}:${source.batch_code}:${source.bom_spec_id}`">{{ fulfillmentPreview.items.find(i => i.product_id === source.product_id && i.bom_spec_id === source.bom_spec_id)?.product_name }} · 本客户货权 · 仓库 {{ source.warehouse }} · 批次 {{ source.batch_code }} · {{ source.qty }} {{ fulfillmentPreview.items.find(i => i.product_id === source.product_id && i.bom_spec_id === source.bom_spec_id)?.inventory_unit }}</li>
+          </ul>
+        </template>
         <button class="secondary" type="button" :disabled="saving || fulfillmentPreviewLoading || !!editBlockReason" @click="previewFulfillmentEdit">{{ fulfillmentPreviewLoading ? '核算中…' : '重新核算代发费用' }}</button>
         <p v-if="fulfillmentPreview" class="muted">已按本次商品和收件地区核算；保存时会再次核对。</p>
       </template>
@@ -823,6 +830,8 @@ const fulfillmentOrderEditing = computed(() => !props.customerPortal && !copyMod
   && ['stock', 'on_demand'].includes(fulfillmentEditData.value?.fulfillment_mode))
 const fulfillmentEditContext = ref(null)
 const fulfillmentPreview = ref(null)
+const fulfillmentReplacePending = ref(false)
+const fulfillmentPreviewCommand = ref(null)
 const fulfillmentPreviewLoading = ref(false)
 const fulfillmentServiceAdjustment = reactive({ enabled: false, amount: '0.00', reason: '' })
 const fulfillmentManualDestination = ref(false)
@@ -888,12 +897,12 @@ async function refreshStaffOrderCatalog() {
   }
   syncBeanListVersionForCustomer()
   if (!data.catalog_updated) {
-    if (previousKey && previousKey !== staffCatalog.key) syncRowsForType({ priceListChanged: true })
+    if (previousKey && previousKey !== staffCatalog.key) syncRowsForType({ priceListChanged: true, preserveRetainedSnapshots: true })
     else repriceHydratedRows()
   }
   if (data.catalog_updated) {
     ok.value = '价格表已更新，请重新选择规格并核对原有商品价格。'
-    for (const row of rows.value) if (Number(row.product_id) > 0 && !preservesStoredOrderPrice(row)) { row.spec_invalid_message = '价格表已更新，请重新选择规格并核对价格'; row.price_missing = true }
+    for (const row of rows.value) if (Number(row.product_id) > 0 && !row.preserve_retained_initial_snapshot && !preservesStoredOrderPrice(row)) { row.spec_invalid_message = '价格表已更新，请重新选择规格并核对价格'; row.price_missing = true }
   }
   return true
 }
@@ -1949,6 +1958,7 @@ function assignProductFamilyHeader(row, family) {
 }
 
 function applyPriceListSpecToRow(row, family, spec, publicationID) {
+  row.preserve_retained_initial_snapshot = false
   row.spec_conversion = null
   const qty = row.qty
   const itemNote = row.item_note
@@ -2138,6 +2148,7 @@ function onLegacySpecChange(row) {
 function syncRowsForType(options = {}) {
   if (fulfillmentOrderEditing.value) return
   rows.value.forEach((row) => {
+    if (options.preserveRetainedSnapshots && row.preserve_retained_initial_snapshot) return
     if (preservesStoredOrderPrice(row)) return
     if (options.priceListChanged) {
       row.price_selection_mode = 'auto'
@@ -2202,6 +2213,7 @@ function syncRowsForType(options = {}) {
 }
 
 function syncPrice(row, options = {}) {
+  row.preserve_retained_initial_snapshot = false
   if (fulfillmentOrderEditing.value) return
   if (isFrozenConversion(row)) return
   if (preservesSampleSpec(row, sampleOrderEditing.value) && row.manual_price && !options.force) return
@@ -2353,6 +2365,7 @@ function dripUnitOptionsForRow(row) {
 }
 
 function markManualPrice(row) {
+  row.preserve_retained_initial_snapshot = false
   if (isFrozenConversion(row)) return
   row.manual_price = true
   row.tier_id = 'manual'
@@ -2680,6 +2693,8 @@ function applyEditData(data) {
       item.bean_list_publication_id,
     )
     const keepSampleSpec = sampleOrderEditing.value && Number(item.bom_spec_id || 0) > 0
+    const keepRetainedSnapshot = !copyMode.value && data.delivery_mode === 'customer_stock' && Number(item.item_id || 0) > 0
+    hydrated.preserve_retained_initial_snapshot = keepRetainedSnapshot
     const keepFrozenPublication = keepSampleSpec || shouldKeepFrozenOrderPublication(
       beanListVersionGroups.value,
       item.bean_list_publication_id,
@@ -2710,7 +2725,7 @@ function applyEditData(data) {
     hydrated.spec_g = specNumber
     hydrated.custom_spec_g = ''
     hydrated.historical_spec_readonly = !pricedSpec || keepFrozenPublication
-    hydrated.spec_invalid_message = !pricedSpec && !keepFrozenPublication ? '原商品规格在此报价表中不可用，请重新选择有效规格。' : ''
+    hydrated.spec_invalid_message = !pricedSpec && !keepFrozenPublication && !keepRetainedSnapshot ? '原商品规格在此报价表中不可用，请重新选择有效规格。' : ''
     if (pricedSpec && family) {
       Object.assign(hydrated, orderFamilyHydratedSpecRowPatch(
         family,
@@ -2719,6 +2734,18 @@ function applyEditData(data) {
         {
           bom_spec_id: Number(item.bom_spec_id || 0),
           bom_variant_id: Number(item.bom_variant_id || 0),
+          ...(keepRetainedSnapshot ? {
+            customer_product_reference_id: Number(item.customer_product_reference_id || 0),
+            customer_product_alias_id: Number(item.customer_product_alias_id || 0),
+            product_name: item.product_name || '',
+            product_query: item.product_name || '',
+            unit: item.unit || '件',
+            ...(productKind === 'drip_bag' ? {
+              sales_unit: salesUnit,
+              unit_bag_count: Number(item.unit_bag_count || 0),
+              unit_bean_g: Number(item.unit_bean_g || 0),
+            } : {}),
+          } : {}),
           tier_id: item.tier_id || 'auto',
           price_selection_mode: item.price_selection_mode || (item.price_override === true || item.tier_id === 'manual' ? 'manual' : 'auto'),
           selected_price_row_key: item.selected_price_row_key || '',
@@ -2734,6 +2761,14 @@ function applyEditData(data) {
         },
         keepFrozenPublication,
       ))
+    }
+    if (keepRetainedSnapshot) {
+      hydrated.customer_product_reference_id = Number(item.customer_product_reference_id || 0)
+      hydrated.customer_product_alias_id = Number(item.customer_product_alias_id || 0)
+      hydrated.product_name = item.product_name || ''
+      hydrated.product_query = hydrated.product_name
+      hydrated.product_kind = item.product_kind || productKind
+      hydrated.unit = item.unit || '件'
     }
     if (keepSampleSpec) {
       Object.assign(hydrated, sampleStoredItemIdentity(item))
@@ -2761,6 +2796,7 @@ function applyEditData(data) {
 function repriceHydratedRows() {
   if (fulfillmentOrderEditing.value) return
   for (const row of rows.value) {
+    if (row.preserve_retained_initial_snapshot) continue
     if (preservesStoredOrderPrice(row)) continue
     if (row.historical_spec_readonly) {
       ensureRowBeanListVersion(row)
@@ -2929,6 +2965,8 @@ function applyFulfillmentEditContext(context) {
   form.shipping_district = context.district || destination.district || ''
   fulfillmentManualDestination.value = false
   Object.assign(fulfillmentServiceAdjustment, { enabled: false, amount: (Number(context.fees?.service_fee_cents || 0) / 100).toFixed(2), reason: '' })
+  fulfillmentReplacePending.value = false
+  fulfillmentPreviewCommand.value = null
   fulfillmentPreview.value = null
 }
 
@@ -2951,9 +2989,11 @@ async function previewFulfillmentEdit() {
       fulfillmentPreviewLoading.value = true
     }
     const command = fulfillmentEditCommand(fulfillmentEditContext.value, form, rows.value, fulfillmentServiceAdjustment)
+    if (fulfillmentReplacePending.value) command.replace_pending_with_stock = true
     const preview = await apiSend(`/api/orders/${Number(form.edit_id)}/fulfillment/preview`, { body: command })
     if (version !== fulfillmentPreviewVersion) return null
     fulfillmentPreview.value = preview
+    fulfillmentPreviewCommand.value = command
     return { preview, command }
   } catch (err) {
     if (version === fulfillmentPreviewVersion) error.value = err.message || '代发费用核算失败'
@@ -2967,7 +3007,12 @@ async function saveFulfillmentEdit() {
   saving.value = true
   ok.value = ''
   try {
-    const checked = await previewFulfillmentEdit()
+    // Stock sources must be the preview the operator saw, never a silently
+    // regenerated source plan. The server rechecks that exact token under locks.
+    const checked = fulfillmentReplacePending.value
+      ? fulfillmentPreview.value && fulfillmentPreviewCommand.value && { preview: fulfillmentPreview.value, command: fulfillmentPreviewCommand.value }
+      : await previewFulfillmentEdit()
+    if (fulfillmentReplacePending.value && !checked) throw new Error('请先重新核算并核对补足后的库存来源，再保存')
     if (!checked) return
     const data = await apiSend(`/api/orders/${Number(form.edit_id)}/fulfillment`, { method: 'PATCH', body: { ...checked.command, preview_token: checked.preview.preview_token } })
     await load()
@@ -3287,11 +3332,12 @@ watch(() => form.receiver_address, address => {
   form.shipping_city = original.city || destination.city || ''
   form.shipping_district = original.district || destination.district || ''
 })
-watch(() => [form.receiver_address, form.shipping_province, form.shipping_city, form.shipping_district, form.notes, form.order_date,
+watch(() => [form.receiver_name, form.receiver_phone, form.receiver_company, form.receiver_address, form.shipping_province, form.shipping_city, form.shipping_district, form.notes, form.order_date, fulfillmentReplacePending.value,
   rows.value.map(row => [row.product_id, row.bom_spec_id, row.bom_variant_id, row.qty]), { ...fulfillmentServiceAdjustment }], () => {
   if (!fulfillmentOrderEditing.value) return
   fulfillmentPreviewVersion++
   fulfillmentPreview.value = null
+  fulfillmentPreviewCommand.value = null
   fulfillmentPreviewLoading.value = false
 }, { deep: true })
 watch(() => [fulfillmentCurrentFees.value, fulfillmentGoodsCents.value, orderFreight.value], () => {

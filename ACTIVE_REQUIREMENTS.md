@@ -1,3 +1,96 @@
+### PR-758-UPSTREAM-WAIT
+- Branch: `codex/production-upstream-preparation-20261111`; base: `origin/develop`.
+- Scope: 物料准备区区分前道待生产与需现货调拨的数量，并核对单项及批量调拨保护。
+- DEV: `DEV-PR758-UPSTREAM-01` 页面提示及调拨入口；`DEV-PR758-UPSTREAM-02` 隔离接口回归、手册和验收。
+- Status: RED/GREEN、历史只读兼容、隔离接口、1884 项前端测试、构建及桌面/窄屏模拟页面检查通过；开发环境已发布，用户验收待完成，正式发布另行安排。
+- Development: ERP-only `a4112c102fa2eefa15017328b2018c8f96ee035c`，登录 200、未登录计划接口 401，应用运行、数据库健康，页面资源含等待前道提示；保留原小程序。回滚源 `/opt/stacks/erp/orderapp.backup.deploy-20261111095407-a4112c102fa2`。
+
+### PR-757-PRODUCTION-CAPACITY-FLEXIBLE
+- Branch: `codex/production-capacity-flexible-20261110`; base: `origin/develop`.
+- Scope: 允许产能超排或不足；本次自定义批量、建议批数及自选加入工位预定义产能。
+- DEV: `DEV-PR757-01` 产能拆分及快照；`DEV-PR757-02` 预定义创建与审计；`DEV-PR757-03` 页面、手册、验证及开发交付。
+- Status: RED/GREEN、后端全量、隔离数据库 API、前端 1833 项及构建、模拟页面交互通过；用户验收待完成。
+- Deployment: 待验证后发布 development；正式环境未授权。
+- Notes: 需求编号预留脚本在 macOS 上因 awk 多行参数失败，已核对编号并手动登记。
+
+### PR-MINIAPP-PHONE-IDENTITY-20261110
+- Branch: `codex/miniapp-wechat-phone-login-20261110`; base: `origin/develop`.
+- Scope: 先通过微信验证手机号，识别员工、已授权客户与访客；移除小程序密码登录；管理员可只读查看选定客户界面。
+- DEV: `DEV-MINIAPP-PHONE-IDENTITY` 身份校验与撤销；`DEV-MINIAPP-PHONE-ROUTING` 页面分流；`DEV-MINIAPP-ADMIN-CUSTOMER-READ` 管理员客户只读查看；`DEV-MINIAPP-PHONE-VERIFY` 手册与验收。
+- Status: 自动化、隔离数据库和开发／正式部署技术检查通过；管理员微信手机号登录及客户只读预览真机验收通过；喜沁客户本人手机号直登待验收。生产保持旧版密码兼容。
+- Deployment: 开发 `23f15a7f54e4b256bb1cb8b07d39d032da295cf3`；正式及生产小程序包 `1613c632b867de80b0ac8446ed29a99e40df7871`。备份与检查见 `orderapp-remote/docs/acceptance/2026-11-10-miniapp-phone-identity.md`。
+
+### PR-758-PRODUCTION-MATERIAL-PREPARATION
+- Branch: `codex/production-material-preparation-20261110`; original base: `origin/develop` 23f15a7f54e4b256bb1cb8b07d39d032da295cf3; merged `origin/develop` 71a798b93bed49f10c2131df50163d8b7dd06e18 before verification.
+- Scope: 物料准备与产能安排两步、单项及批量调拨草稿、仓库确认和工单提交校验；正式发布不在本次范围。
+- DEV: `DEV-PR758-01` 页面与步骤；`DEV-PR758-02` 调拨关联及保护；`DEV-PR758-03` 抽屉及验收。
+- Status: 开发环境已发布，用户验收待完成；WIP、待确认调拨提交保护、1.001 kg 数量精度及单项调拨响应丢失重试已记录 RED/GREEN，隔离数据库定向接口、库存、生产及并发回归通过；前端全量 1848 项、构建及无数据库 Go 全量通过。隔离数据库生产接口全量仍有 21 项失败，原 develop 基线有 25 项且本分支无新增失败；生产仓储套件另有 1 个相同基线夹具失败，两套均未全绿。桌面/窄窗口在模拟接口页面检查，尚非真实业务接口端到端验收。详见 `orderapp-remote/docs/acceptance/2026-11-10-production-material-preparation.md`。
+- Development: ERP-only `352b1d700cf9d9cee2ec41dc7ee7b772857c0b40`；登录 200，物料库存接口未登录 401，应用运行、数据库健康，页面资源公网/服务器/容器一致；保留原小程序包。回滚源 `orderapp.backup.deploy-20261111002519-352b1d700cf9`。
+- Note: `reserve_req_id.sh --claim` 在 macOS awk 因换行报错；已查重并后续发现 PR-757 已被并行工作占用，重新核对并手工登记 PR-758。
+
+### PR-756-PRODUCTION-LIVE-SUPPLY
+- Branch: `codex/production-live-supply-20261110`; base: `origin/develop`.
+- Scope: 草稿按冻结配方和实时供应增量更新上游工序，保护人工安排并在提交时复核；已提交工单保留快照。
+- DEV: `DEV-PR756-01` 差异同步；`DEV-PR756-02` 提交与并发保护；`DEV-PR756-03` 页面、手册及验收。
+- Status: RED/GREEN、隔离数据库、前端及构建验证通过；已发布开发与正式 ERP，用户验收待完成。PP24 按 Van 明确选择通过接口同步，未提交工单。
+- Deployment: 开发 `96359d3940c2b3d35261478f333507e0c6ff68e1`；正式 `edb6cf3bff92e8c109e626f64c1f61d44fbb34af`；回滚及 PP24 操作日志见 `orderapp-remote/docs/acceptance/2026-11-10-production-live-supply.md`。
+- Notes: macOS 预留脚本因 awk 报错未写入，已核对 PR 编号并登记。
+
+### PR-755-FULFILLMENT-ORDER-RESERVATION-LABEL
+- Branch: `codex/fulfillment-pending-orders-label-20261110`.
+- Scope: 成品库存表将现货占用改名为待发订单占用，数量计算保持不变；原料、包材、半成品仍使用现货占用。
+- DEV-PR755-01: 类型区分与用户手册；目标 DOM 回归测试和 Vue 构建。
+- Status: targeted frontend tests, Vue build and support API tests passed; user acceptance pending.
+- Development: ERP-only `a84eede23cda9c3c5adad6ca04397fc4d8205fd2`; login HTTP 200, PR-755 API visible, Vue bundle/manual marker present, application running and database healthy. Backup `/opt/stacks/erp/orderapp.backup.deploy-20261110105725-a84eede23cda`; user acceptance pending.
+
+### PR-754-OPERATION-REPORTING-MODES
+- Branch: `codex/production-operation-modes-20261109`; base: `origin/develop`.
+- Status: 已合入 develop 并发布开发环境，自动及隔离数据库回归通过；用户验收待完成。
+- Scope: 烘焙、来料加工、按件包装的数量安排、报工及余料结算。
+- DEV: `DEV-PR754-01` 排产与产能；`DEV-PR754-02` 色选报工；`DEV-PR754-03` 包装余料；`DEV-PR754-04` 手册与验证。
+- Verifier: RED/GREEN 前端、接口、数据库与库存成本回归，Vue 构建及桌面/窄屏验收。
+- Deployment: 开发 ERP 运行版本 `dabda990b70f7aae159f6dfffea435f93e41c9ff`；保留既有小程序包，正式环境未部署。备份 `/opt/stacks/erp/orderapp.backup.deploy-20261110015307-dabda990b70f`。
+- Notes: macOS `reserve_req_id.sh --claim` 因 awk 多行参数失败，已核对编号并手动登记；页面验收误停用开发工位 #6 后已恢复，详见验收记录。
+
+### PR-PRODUCTION-FOUR-FIXES-20261109
+- Branch: `codex/production-workstation-four-fixes-20261109`; base: `origin/develop`.
+- Scope: 包装组工位补料、待计划异常布局、移除库存充足提示区、标准分钟非负整数校验。
+- Status: 前端全量 1779 项、后端、Vue 构建及隔离 PostgreSQL 三工单 44 件补料/重试/日志验证通过；用户验收待完成，不部署，不修改真实业务数据。
+- DEV: `DEV-PRODUCTION-FOUR-FIXES-01` / `02` / `03`；验收证据见 `orderapp-remote/docs/acceptance/2026-11-09-production-four-fixes.md`。
+
+### PR-753-FULFILLMENT-SHIPPING-ADDRESS
+- Branch: `codex/fulfillment-shipping-address-20261109`
+- Status: implementation and isolated verification passed; user acceptance pending.
+- Scope: 展示费用出账相关运费的订单收货地址、寄件结算重量，严格隔离客户并区分历史快照与当前订单信息。
+- DEV-PR753-01: 订单收货地址安全读取、出账冻结及历史只读回显。
+- DEV-PR753-02: 待出账、预览、已出账及导出显示地址和寄件重量。
+- DEV-PR753-03: 手册、API和用户流程验证及环境交付。
+- Production business action: 已按用户授权重传4个原文件，仅补录7条重量，留有操作日志，未重复发货扣费。
+
+### PR-752-FULFILLMENT-FREIGHT-DETAILS
+- Branch: `codex/fulfillment-freight-details-20261109`
+- Status: implementation and isolated verification passed; Van acceptance pending.
+- Scope: 运费出账清单名称、单号及寄件回传重量；历史数据以原始文件和实际来源为准，不改变账单金额或重复发货。
+- DEV-PR752-01: 费用清单、历史账单及导出展示准确运费名称与单号。
+- DEV-PR752-02: 寄件表 P 列结算重量兼容实际表头，并安全处理历史文件重传。
+- DEV-PR752-03: 隔离测试、页面及输出验证、操作手册与交付。
+- Verifier: PostgreSQL/API import and billing regression; 23 frontend tests; Go full suite without business DB; Vue build; Excel/PDF tests and rendered PDF; manuals and acceptance document.
+- Deployment: development ERP-only `668d6eb2e1cf79003e9fe52173bfb3f9c6f0c7c7`; login 200, PR-752 API visible, app running, Postgres healthy. Backup `/opt/stacks/erp/orderapp.backup.deploy-20261109203613-668d6eb2e1cf`. Production not deployed and no production business data written.
+
+### PR-751-SHIPPING-RETURN-CANDIDATES
+- 2026-11-09 follow-up completed: 按 Van 明确选择完成公司转喜沁 4 袋（SE-0000000149），两张运单已分别回填至订单 190/173 并扣减 14/12 袋。喜沁余量 17 袋，对应旧单 165/167 的 12/5 袋占用，未挪用其他订单。转仓、显式分配、实际运费和回填均有日志。
+- Follow-up verifier: `TestShippingReturnSharedBatchExcludesAlreadyDeductedOrders` RED 复现首单出库后第二单被误拦；隔离数据库候选/历史库存/共享批次回归及全包后端 GREEN，验证两单依次通过 HTTP 回填、重复提交不重扣、不超配和分配历史保留。修复已随功能提交 `d38be8ff8` 集成发布。
+- Branch: `codex/shipping-return-correct-candidates`; base `origin/develop` 79df1f424.
+- Scope: 实时收件信息候选与发货条件分开；显式客户现货补足待入库预订，保留原购货/批次/货权和历史数量；预览后保存，再选择运单。
+- DEV-PR751-01: 候选实时查询、未就绪原因、自动唯一匹配防误配。
+- DEV-PR751-02: 原单显式现货补足、预览来源、锁定复核和日志回滚。
+- DEV-PR751-03: Vue 操作、手册、隔离 API/组件验证及开发交付。
+- Verifier: targeted PostgreSQL `TestShippingReturn|TestFulfillmentOrderEdit|TestFulfillmentExplicitPhysicalReplenishment`; frontend shipping-return-runtime/fulfillment-full-edit-dom; backend and frontend build.
+- RED: 候选为空；显式补足后 StockReady=false；禁用候选仍触发提交。证据 `/tmp/kferp-return-verification`。
+- Status: implementation, isolated API verification, 1767 Vue tests and build passed. Latest development runtime `9e49202b386445f0157218223c894e259d132a16`; production runtime `d9a9f5dd95f0a34d8d7b2e7cfd3e6b3a9b8fe9f9`, both ERP-only releases verified. Authorized production matching and shipment operations completed; PR/DEV remain review pending Van acceptance.
+- Production: service running with 0 restarts, Postgres healthy, login 200; order-progress source SHA256 matches tested code. Browser and database show both returns applied to the confirmed orders, both shipped with one set of deductions. Receipt-only commits after deployment do not change the stated runtime version. Detailed rollback and business evidence: `orderapp-remote/docs/acceptance/2026-11-08-shipping-return-candidates.md`.
+- Note: macOS reserve_req_id.sh awk failed before write; reserved PR-751 manually after inspecting next id.
+
 ### PR-749-ORDER-RESOLUTION 订单取消、关闭与更正
 - 状态：已验证的三批业务能力已实施、合入 develop/main 并部署开发及正式 ERP；等待 Van 现场业务验收。PR/DEV 保持待验收，未代用户接受产品需求。
 - Branch：`codex/order-resolution-20261106`；最后功能 e7d4cd58b，验证 54c7be454，开发发布 03e5e0091b3e5a79ee9616b7bf6b9ff8e7767d1f，正式发布 2657ca8e2e9f1b15762b7c8155315a39c7efc1a4。发布后只补充验收文档，不改变此运行版本。
@@ -13,10 +106,12 @@
 - 手册：`orderapp-remote/docs/OP_MANUAL_ORDER_RESOLUTION.md`（Vue 订单处理手册入口）。验收及各批发布回执：`orderapp-remote/docs/acceptance/2026-11-07-order-resolution.md`。
 
 ### PR-ORDER-DATE-SAVE-20261104 留厂及代发订单日期保存
+- 正式发布：按 Van 明确要求完整合并 develop，运行版本 `d48ad618d27d69cd099c3df4e921ce24fc19a110`，正式服务、认证订单表单及手册核对通过；SO-20261104-0006 只读检查仍为原日期，现场修改日期验收待完成。发布后回执只更新文档，不改变运行版本。
+- 2026-11-08 跟进 SO-20261104-0006：原单历史生产版本与当前目录不同，编辑页面自动更新规格和报价导致日期保存被关联保护拦截。分支 `codex/retained-order-date-snapshot`；隔离组件复现 RED，修复后保留原版本与报价，显式换表仍按新选择；隔离 PostgreSQL 原日期保存/实际修改保护回归及前端 1765 项通过。已合入 develop 并部署开发环境 `8c270204cde1cacb7659d86e28240759797c9fb0`；服务健康，登录页面/表单/手册/需求 API 与源码核对通过。正式订单只读核查，未修改；现场验收待完成。
 - Branch: `codex/order-date-save-20261104`; base `origin/main` 873ab8a41。
 - 留厂销售已有代发、生产或入库关联时，保存未更改的商品明细；历史代发地址与冻结运费地区一致时，修改日期沿用原有费用依据。
 - 验证：隔离 PostgreSQL 与员工 API 先 RED 后 GREEN，检查日期、商品身份、库存权益、运费快照、操作日志及真实变更限制；不改动正式订单。
-- 状态：隔离数据库 API 回归通过；集成、部署和现场验收待完成。
+- 状态：隔离数据库 API 回归通过，已完成开发及正式环境部署；现场验收待完成。
 
 ### PR-DIRECTSHIP-HISTORICAL-STOCK-20261104 代发历史批次分配
 - Branch: `codex/directship-frozen-variant-20261104`; base `origin/develop` 6566b26f。
@@ -6477,6 +6572,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-750-ORDER-WECHAT-NOTIFICATIONS
 - 2026-11-11 跟进：DEV-PR750-05～07 正在实现逐笔收款、出账、接单、逐次发货及分渠道配置；上述 2026-11-08 发布证据不代表本次跟进已部署或通过。Van 提供的接单和发货状态枚举截图均为审核中；真实服务号与生产群送达尚待逐项核验。
+- 正式发布：Van 明确要求随 develop 完整上线，正式运行版本 `d48ad618d27d69cd099c3df4e921ce24fc19a110`；两个自动发送开关关闭、设备 0、生命周期投递 0；真实微信送达及现场验收仍未完成，小程序包已构建导出但未上传/提审/发布。
 - Branch: codex/order-wechat-notifications-20261108
 - Owner/session: Codex / order-wechat-notifications
 - Status: automated verification and development deployment passed; live WeChat acceptance pending
@@ -6487,5 +6583,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Runtime evidence: notification APIs reject anonymous access (401); authenticated configuration/manual/PR/DEV/shell return 200. App running with 0 restarts; database healthy; notification static bundle and development Mini Program release identity match. Both automatic switches off, 0 devices, 0 deliveries. Root entry redirects 303 to the existing public Vue shell; API auth is verified separately.
 - Mini Program: development artifact exported to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`, 100 manifest files and 25 pages. No platform upload/review/publication. Prior artifact retained at `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20261108174902-184ae0944e34`.
 - Last update: 2026-11-08
-- Notes: reserved PR-750 after macOS awk claim failure. Van confirmed test group “口加生产” and official account “棵凡咖啡-服务号”, and manually closed the storage warning. Current WeChat observation is still a blank window with no readable chat controls, including after raising it. Public-platform browser access was explicitly blocked by the site safety policy; no workaround attempted. No real notification sent; suitable order templates, readable target chat and live acceptance remain pending. Production was not deployed.
+- Notes: reserved PR-750 after macOS awk claim failure. Van confirmed test group “口加生产” and official account “棵凡咖啡-服务号”, and manually closed the storage warning. Current WeChat observation is still a blank window with no readable chat controls, including after raising it. Public-platform browser access was explicitly blocked by the site safety policy; no workaround attempted. No real notification sent; suitable order templates, readable target chat and live acceptance remain pending.
 - Evidence: orderapp-remote/docs/acceptance/2026-11-08-order-wechat-notifications.md; DEV-PR750-01 through 04 remain doing for live acceptance.
+### PR-MINIAPP-HIDE-ORDER-20261110
+- Branch: `codex/hide-customer-order-20261110`；状态：开发中，隔离验证、部署及 Van 验收待完成。
+- 范围：管理员对指定客户、指定订单记录可恢复的小程序隐藏标记；隐藏不按订单关闭状态批量推断，不新增客户按钮或 ERP 页面入口。
+- DEV：`DEV-MINIAPP-HIDE-ORDER-SCOPE` 精确过滤与首页汇总；`DEV-MINIAPP-HIDE-ORDER-AUDIT` 管理员隐藏/恢复及日志；`DEV-MINIAPP-HIDE-ORDER-REVIEW` 历史保护、测试与手册。
+- 验证待执行：客户隔离、分页及统计一致、重复隐藏与恢复、越权拒绝和日志；ERP 订单、账单、库存、生产历史保持不变。正式业务操作和现场验收单独记录结果，不预填通过。

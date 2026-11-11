@@ -9,16 +9,19 @@ import (
 )
 
 type OperationCompletionGroupCommand struct {
-	ProcessedInputs  map[int64]float64      `json:"processed_inputs,omitempty"`
-	JobCardIDs       []int64                `json:"job_card_ids"`
-	ActualOutputQty  float64                `json:"actual_output_qty"`
-	OutputUnit       string                 `json:"output_unit"`
-	ActualMinutes    int                    `json:"actual_minutes"`
-	Materials        []OperationMaterialUse `json:"materials"`
-	DifferenceReason string                 `json:"difference_reason"`
-	FinishGroup      bool                   `json:"finish_group"`
-	ExpectedVersion  string                 `json:"expected_version"`
-	RequestID        string                 `json:"request_id"`
+	SelectedUnissuedRemainders map[int64][]PackagingUnissuedRemainder `json:"selected_unissued_remainders,omitempty"`
+	ActualRemaindersG          map[int64]float64                      `json:"actual_remainders_g,omitempty"`
+	RemainderWarehouse         string                                 `json:"remainder_warehouse,omitempty"`
+	ProcessedInputs            map[int64]float64                      `json:"processed_inputs,omitempty"`
+	JobCardIDs                 []int64                                `json:"job_card_ids"`
+	ActualOutputQty            float64                                `json:"actual_output_qty"`
+	OutputUnit                 string                                 `json:"output_unit"`
+	ActualMinutes              int                                    `json:"actual_minutes"`
+	Materials                  []OperationMaterialUse                 `json:"materials"`
+	DifferenceReason           string                                 `json:"difference_reason"`
+	FinishGroup                bool                                   `json:"finish_group"`
+	ExpectedVersion            string                                 `json:"expected_version"`
+	RequestID                  string                                 `json:"request_id"`
 
 	EmployeeID           int64  `json:"-"`
 	AssignedEmployeeName string `json:"-"`
@@ -26,20 +29,23 @@ type OperationCompletionGroupCommand struct {
 }
 
 type OperationCompletionGroupItem struct {
-	InputQty      float64 `json:"input_qty"`
-	InputUnit     string  `json:"input_unit"`
-	JobCardID     int64   `json:"job_card_id"`
-	WorkOrderID   int64   `json:"work_order_id"`
-	WorkOrderNo   string  `json:"work_order_no"`
-	ProductName   string  `json:"product_name"`
-	SpecG         int64   `json:"spec_g"`
-	PlannedQty    float64 `json:"planned_qty"`
-	CompletedQty  float64 `json:"completed_qty"`
-	RemainingQty  float64 `json:"remaining_qty"`
-	Unit          string  `json:"unit"`
-	Warehouse     string  `json:"warehouse"`
-	WarehouseName string  `json:"warehouse_name"`
-	Version       string  `json:"version"`
+	PackagingUnissuedCandidates []PackagingUnissuedRemainder `json:"packaging_unissued_candidates,omitempty"`
+	PackagingAvailableG         float64                      `json:"packaging_available_g,omitempty"`
+	PackagingStandardGPerPiece  float64                      `json:"packaging_standard_g_per_piece,omitempty"`
+	InputQty                    float64                      `json:"input_qty"`
+	InputUnit                   string                       `json:"input_unit"`
+	JobCardID                   int64                        `json:"job_card_id"`
+	WorkOrderID                 int64                        `json:"work_order_id"`
+	WorkOrderNo                 string                       `json:"work_order_no"`
+	ProductName                 string                       `json:"product_name"`
+	SpecG                       int64                        `json:"spec_g"`
+	PlannedQty                  float64                      `json:"planned_qty"`
+	CompletedQty                float64                      `json:"completed_qty"`
+	RemainingQty                float64                      `json:"remaining_qty"`
+	Unit                        string                       `json:"unit"`
+	Warehouse                   string                       `json:"warehouse"`
+	WarehouseName               string                       `json:"warehouse_name"`
+	Version                     string                       `json:"version"`
 }
 
 type OperationCompletionGroupMaterial struct {
@@ -57,6 +63,7 @@ type OperationCompletionGroupMaterial struct {
 }
 
 type OperationCompletionGroupPreview struct {
+	ReportingType             string                             `json:"reporting_type,omitempty"`
 	MaterialConsumptionPolicy string                             `json:"material_consumption_policy"`
 	GroupKey                  string                             `json:"group_key"`
 	Version                   string                             `json:"version"`

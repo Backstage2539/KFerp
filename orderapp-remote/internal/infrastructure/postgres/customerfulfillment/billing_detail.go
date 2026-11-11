@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	app "orderapp/internal/application/customerfulfillment"
@@ -13,9 +14,6 @@ import (
 // billingLineDetail reads only sources belonging to the bill's customer.
 // It is used within the issuing transaction and, for older bills, read-only.
 func (r *Repository) billingLineDetail(ctx context.Context, q billingReader, customerID int64, line app.SettlementLineSummary, source string) (*app.BillingLineDetail, error) {
-	if line.ChargeType != "order_goods" && line.ChargeType != "product" && line.ChargeType != "shipping" && line.ChargeType != "direct_ship_service" {
-		return nil, nil
-	}
 	orderID := int64(0)
 	fee := app.AccountFee{}
 	if line.SourceType == "order" {
@@ -39,10 +37,13 @@ func (r *Repository) billingLineDetail(ctx context.Context, q billingReader, cus
 	}
 	order := app.AccountOrder{}
 	if orderID > 0 {
-		err := q.QueryRow(ctx, fmt.Sprintf(`SELECT id,coalesce(order_no,''),round(coalesce(discount_amount,0)*100)::bigint FROM %s.orders WHERE id=$1 AND customer_id=$2`, r.schema), orderID, customerID).Scan(&order.ID, &order.OrderNo, &order.DiscountCents)
+		err := q.QueryRow(ctx, fmt.Sprintf(`SELECT id,coalesce(order_no,''),round(coalesce(discount_amount,0)*100)::bigint,coalesce(receiver_address,'') FROM %s.orders WHERE id=$1 AND customer_id=$2`, r.schema), orderID, customerID).Scan(&order.ID, &order.OrderNo, &order.DiscountCents, &order.ReceiverAddress)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return nil, err
 		}
+	}
+	if order.ID == 0 && line.ChargeType != "order_goods" && line.ChargeType != "product" && line.ChargeType != "shipping" && line.ChargeType != "direct_ship_service" {
+		return nil, nil
 	}
 	if order.ID > 0 && (line.ChargeType == "order_goods" || line.ChargeType == "product") {
 		rows, err := q.Query(ctx, fmt.Sprintf(`SELECT coalesce(item_name,''),coalesce(spec,''),coalesce(qty,0)::text,coalesce(unit,''),coalesce(unit_price,0)::text,coalesce(line_total,0)::text FROM %s.order_items WHERE order_id=$1 AND qty>0 ORDER BY id`, r.schema), order.ID)
@@ -165,6 +166,12 @@ func (r *Repository) hydrateBillingLineDetails(ctx context.Context, q billingRea
 			if err := json.Unmarshal(raw, &d); err != nil {
 				return err
 			}
+			if err := r.fillMissingSnapshotAddress(ctx, q, customerID, lines[i], &d); err != nil {
+				return err
+			}
+			if err := r.fillMissingSnapshotWeights(ctx, q, customerID, &d); err != nil {
+				return err
+			}
 			lines[i].Detail = &d
 			continue
 		}
@@ -173,6 +180,77 @@ func (r *Repository) hydrateBillingLineDetails(ctx context.Context, q billingRea
 			return err
 		}
 		lines[i].Detail = detail
+	}
+	return nil
+}
+
+// Historical bills without an address snapshot can show only their own
+// customer's current order address, clearly labelled as current information.
+func (r *Repository) fillMissingSnapshotAddress(ctx context.Context, q billingReader, customerID int64, line app.SettlementLineSummary, d *app.BillingLineDetail) error {
+	if d.OrderID <= 0 || strings.TrimSpace(d.ReceiverAddress) != "" {
+		return nil
+	}
+	matched := line.SourceType == "order" && line.SourceID == d.OrderID
+	if line.SourceType == "customer_fee_item" {
+		var sourceType string
+		var sourceID int64
+		err := q.QueryRow(ctx, fmt.Sprintf(`SELECT coalesce(source_type,''),coalesce(source_id,0) FROM %s.customer_fee_items WHERE id=$1 AND customer_id=$2`, r.schema), line.SourceID, customerID).Scan(&sourceType, &sourceID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		matched = sourceType == "order" && sourceID == d.OrderID
+		if sourceType == "freight_actual" && relationExists(ctx, q, r.schema+".freight_actual_entries") && relationExists(ctx, q, r.schema+".freight_actual_shipments") {
+			err = q.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.freight_actual_entries e JOIN %[1]s.freight_actual_shipments s ON s.id=e.shipment_id WHERE e.id=$1 AND s.customer_id=$2 AND s.order_id=$3)`, r.schema), sourceID, customerID, d.OrderID).Scan(&matched)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	if !matched {
+		return nil
+	}
+	var address string
+	err := q.QueryRow(ctx, fmt.Sprintf(`SELECT coalesce(receiver_address,'') FROM %s.orders WHERE id=$1 AND customer_id=$2`, r.schema), d.OrderID, customerID).Scan(&address)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(address) != "" {
+		d.ReceiverAddress, d.ReceiverAddressSource = address, "订单当前收货地址"
+	}
+	return nil
+}
+
+// Only enrich missing shipment metadata in the read model; the issued bill's
+// snapshot, amounts, and existing values remain untouched. An order/waybill
+// pair with multiple applied return rows is ambiguous and cannot be inferred.
+func (r *Repository) fillMissingSnapshotWeights(ctx context.Context, q billingReader, customerID int64, d *app.BillingLineDetail) error {
+	if d.OrderID <= 0 || len(d.Shipments) == 0 || !relationExists(ctx, q, r.schema+".shipping_return_rows") {
+		return nil
+	}
+	for i := range d.Shipments {
+		s := &d.Shipments[i]
+		tracking := strings.TrimSpace(s.TrackingNo)
+		if strings.TrimSpace(s.SettlementWeightKG) != "" || tracking == "" || (s.OrderID > 0 && s.OrderID != d.OrderID) {
+			continue
+		}
+		var weight string
+		err := q.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(MAX(NULLIF(btrim(sr.payload->>'settlement_weight_kg'),'')),'')
+FROM %[1]s.shipping_return_rows sr JOIN %[1]s.orders o ON o.id=sr.selected_order_id
+WHERE sr.status='applied' AND sr.selected_order_id=$1 AND sr.payload->>'tracking_no'=$2 AND o.customer_id=$3
+HAVING COUNT(*)=1`, r.schema), d.OrderID, tracking, customerID).Scan(&weight)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		s.SettlementWeightKG = weight
 	}
 	return nil
 }
