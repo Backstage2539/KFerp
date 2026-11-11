@@ -12,27 +12,59 @@ import (
 
 func (r Repository) executionBatchListTx(ctx context.Context, tx pgx.Tx, id int64) (app.ExecutionBatchList, error) {
 	out := app.ExecutionBatchList{Batches: []app.ExecutionBatch{}}
-	p, _, err := r.operationCompletionContextTx(ctx, tx, id, false)
+	p, wo, err := r.operationCompletionContextTx(ctx, tx, id, false)
 	if err != nil {
 		return out, err
 	}
 	out.Version = p.Version
-	var count, history int
+	var count, history, minutes int
 	var size float64
 	var mode, status string
-	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(planned_batch_count,0),COALESCE(NULLIF(custom_batch_size_qty,0),batch_size_qty,0)::float8,COALESCE(scheduling_mode,''),status,((SELECT count(*) FROM %[1]s.production_operation_events WHERE job_card_id=$1 AND kind='complete' AND status='posted') + CASE WHEN COALESCE(actual_input_qty,0)>0 OR COALESCE(actual_output_qty,0)>0 THEN 1 ELSE 0 END) FROM %[1]s.job_cards WHERE id=$1`, r.schema), id).Scan(&count, &size, &mode, &status, &history)
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(planned_batch_count,0),COALESCE(NULLIF(custom_batch_size_qty,0),batch_size_qty,0)::float8,COALESCE(scheduling_mode,''),status,((SELECT count(*) FROM %[1]s.production_operation_events WHERE job_card_id=$1 AND kind='complete' AND status='posted') + CASE WHEN COALESCE(actual_input_qty,0)>0 OR COALESCE(actual_output_qty,0)>0 THEN 1 ELSE 0 END),COALESCE(planned_minutes,0) FROM %[1]s.job_cards WHERE id=$1`, r.schema), id).Scan(&count, &size, &mode, &status, &history, &minutes)
 	if err != nil {
 		return out, err
 	}
-	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id,batch_no,planned_input_qty::float8,COALESCE(NULLIF(input_unit,''),$2),actual_input_qty::float8,actual_output_qty::float8,status FROM %s.production_execution_batches WHERE job_card_id=$1 ORDER BY batch_no`, r.schema), id, p.InputUnit)
+	var sourceInput, sourceOutput int64
+	var sourceOK bool
+	var priorInputG float64
+	if wo.ProductionPlanItemID > 0 {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT pi.planned_g,pi.planned_output_g, pi.planned_g>0 AND pi.planned_output_g>0 AND pi.bom_version_id=w.bom_version_id AND pi.bom_variant_id=w.bom_variant_id AND pi.planned_g=w.planned_g AND pi.planned_output_g=w.planned_output_g AND pi.component_snapshot_json=w.material_snapshot FROM %[1]s.work_orders w JOIN %[1]s.production_plan_items pi ON pi.id=w.production_plan_item_id AND pi.production_plan_id=w.production_plan_id WHERE w.id=$1`, r.schema), wo.ID).Scan(&sourceInput, &sourceOutput, &sourceOK)
+		if err != nil && err != pgx.ErrNoRows {
+			return out, err
+		}
+	}
+	if sourceOK && !p.PredecessorRequired {
+		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(other.planned_input_qty),0)::float8 FROM %[1]s.job_cards current JOIN %[1]s.job_cards other ON other.work_order_id=current.work_order_id AND other.sequence_no=current.sequence_no AND other.id<current.id AND other.status<>'cancelled' WHERE current.id=$1`, r.schema), id).Scan(&priorInputG); err != nil {
+			return out, err
+		}
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT b.id,b.batch_no,b.planned_input_qty::float8,COALESCE(NULLIF(b.input_unit,''),$2),b.actual_input_qty::float8,b.actual_output_qty::float8,b.status,b.planned_output_qty::float8,COALESCE(NULLIF(b.output_unit,''),$3),b.planned_minutes,CASE WHEN e.id IS NULL THEN NULL ELSE COALESCE(NULLIF(e.payload->>'actual_minutes','')::int,NULLIF(e.payload->>'ActualMinutes','')::int,0) END,COALESCE(e.difference_reason,'') FROM %s.production_execution_batches b LEFT JOIN %s.production_operation_events e ON e.id=b.event_id WHERE b.job_card_id=$1 ORDER BY b.batch_no`, r.schema, r.schema), id, p.InputUnit, p.OutputUnit)
 	if err != nil {
 		return out, err
 	}
 	for rows.Next() {
 		var b app.ExecutionBatch
-		if err = rows.Scan(&b.ID, &b.BatchNo, &b.PlannedInputQty, &b.InputUnit, &b.ActualInputQty, &b.ActualOutputQty, &b.Status); err != nil {
+		if err = rows.Scan(&b.ID, &b.BatchNo, &b.PlannedInputQty, &b.InputUnit, &b.ActualInputQty, &b.ActualOutputQty, &b.Status, &b.PlannedOutputQty, &b.OutputUnit, &b.PlannedMinutes, &b.ActualMinutes, &b.Remark); err != nil {
 			rows.Close()
 			return out, err
+		}
+		if b.PlannedOutputQty == nil && sourceOK && !p.PredecessorRequired {
+			factor := app.OperationUnitFactor(b.InputUnit)
+			if factor > 0 {
+				if q, ok := app.ExecutionBatchPlannedOutputSlice(priorInputG/factor, b.PlannedInputQty, b.InputUnit, b.OutputUnit, sourceInput, sourceOutput); ok {
+					b.PlannedOutputQty = &q
+				}
+			}
+		}
+		priorInputG += b.PlannedInputQty * app.OperationUnitFactor(b.InputUnit)
+		if b.Status == "pending" {
+			if b.PlannedMinutes == nil && minutes > 0 && count > 0 && b.BatchNo <= count {
+				m := (minutes*b.BatchNo)/count - (minutes*(b.BatchNo-1))/count
+				b.PlannedMinutes = &m
+			}
+			if b.PlannedOutputQty == nil || b.PlannedMinutes == nil {
+				b.DefaultUnavailableReason = "原计划数据不完整，请补填本批产出或工时"
+			}
 		}
 		out.Batches = append(out.Batches, b)
 	}
@@ -66,6 +98,25 @@ func (r Repository) ListExecutionBatches(ctx context.Context, id int64) (app.Exe
 	}
 	defer tx.Rollback(ctx)
 	return r.executionBatchListTx(ctx, tx, id)
+}
+
+// freezeExecutionBatchDefaultsTx persists only defaults that can be recovered
+// from the frozen plan. Missing historical inputs remain NULL, never guessed.
+func (r Repository) freezeExecutionBatchDefaultsTx(ctx context.Context, tx pgx.Tx, id int64) error {
+	list, err := r.executionBatchListTx(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	for _, b := range list.Batches {
+		if b.Status != "pending" {
+			continue
+		}
+		_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_execution_batches SET planned_output_qty=COALESCE(planned_output_qty,$2),output_unit=CASE WHEN output_unit='' THEN $3 ELSE output_unit END,planned_minutes=COALESCE(planned_minutes,$4) WHERE id=$1`, r.schema), b.ID, b.PlannedOutputQty, b.OutputUnit, b.PlannedMinutes)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 func (r Repository) InitializeExecutionBatches(ctx context.Context, c app.ExecutionBatchInitCommand) (app.ExecutionBatchList, error) {
 	if c.EmployeeID <= 0 {
@@ -145,6 +196,9 @@ func (r Repository) InitializeExecutionBatches(ctx context.Context, c app.Execut
 		if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.production_execution_batches(job_card_id,batch_no,planned_input_qty,init_request_id,init_expected_version,input_unit) VALUES($1,$2,$3,$4,$5,$6)`, r.schema), c.ID, i+1, n, c.RequestID, c.ExpectedVersion, p.InputUnit); err != nil {
 			return out, err
 		}
+	}
+	if err = r.freezeExecutionBatchDefaultsTx(ctx, tx, c.ID); err != nil {
+		return out, err
 	}
 	if err = infra.AuditInsertTx(ctx, tx, r.schema, c.Operator, "job_card", &c.ID, "initialize_execution_batches", nil, nil, nil, infra.AuditMeta{"request_id": c.RequestID, "batch_count": count}); err != nil {
 		return out, err

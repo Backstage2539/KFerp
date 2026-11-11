@@ -1,3 +1,11 @@
+### PR-762-WORKSTATION-INLINE-BATCH
+- Branch: `codex/workstation-batch-inline-20261111`；Status: 开发验证中。
+- Scope: 工位任务直接展开全部批次，计划默认值、单批及原子完成全部。
+- DEV: `DEV-PR762-01` 冻结批次默认值；`DEV-PR762-02` 原子批量报工；`DEV-PR762-03` 工位交互；`DEV-PR762-04` 验证及手册。
+- Verifier: 先记录 RED，再验证单测、API、隔离数据库、前端构建与桌面/窄屏；正式环境只读。
+- Evidence: `orderapp-remote/docs/acceptance/2026-11-11-workstation-inline-batches.md`；用户验收待完成。
+- Deployment: 尚未合并或部署。
+
 ### PR-761-WORKSTATION-BATCH-WIP- Branch: `codex/semi-finished-direct-wip-20261111`；Status: 已部署正式环境，用户验收待完成。
 - DEV: `DEV-PR761-01` 逐批事务；`DEV-PR761-02` 补料草稿和确认；`DEV-PR761-03` 工位页面和产能口径；`DEV-PR761-04` 手册、验证及交付。
 - Verifier: RED/GREEN；隔离数据库及 HTTP 验证批次、库存、成本、幂等、权限、回滚及补料到逐批完成；前端 1935 项、构建和桌面/窄屏模拟页面通过。生产业务数据仅只读检查。

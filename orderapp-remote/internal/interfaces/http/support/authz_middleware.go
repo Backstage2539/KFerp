@@ -138,7 +138,7 @@ func operationCompletionStockPermission(method, path string) string {
 	if method == http.MethodGet && (strings.HasSuffix(path, "/completion-preview") || strings.HasSuffix(path, "/conversion-preview") || path == "/api/production/process-balances" || path == "/api/production/records") {
 		return "stock.read"
 	}
-	if method == http.MethodPost && ((strings.HasPrefix(path, "/api/job-cards/") && strings.HasSuffix(path, "/complete")) || (strings.HasPrefix(path, "/api/produce/job-cards/") && strings.HasSuffix(path, "/correct-output")) || path == "/api/production/legacy-review/submit" || path == "/api/production/operation-conversion") {
+	if method == http.MethodPost && ((strings.HasPrefix(path, "/api/job-cards/") && (strings.HasSuffix(path, "/complete") || strings.HasSuffix(path, "/execution-batches/complete-all"))) || (strings.HasPrefix(path, "/api/produce/job-cards/") && strings.HasSuffix(path, "/correct-output")) || path == "/api/production/legacy-review/submit" || path == "/api/production/operation-conversion") {
 		return "stock.write"
 	}
 	if strings.HasPrefix(path, "/api/production/legacy-review") {

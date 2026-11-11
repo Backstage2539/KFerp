@@ -9,7 +9,7 @@ test('roasting task card exposes policy-aware start, completion and work order a
   const actions = view.match(/<template v-if="isSimplifiedTask\(task\)">([\s\S]*?)<\/template>/)?.[1] || ''
   assert.match(actions, /工序完成/)
   assert.match(actions, /查看工单/)
-  assert.equal((actions.match(/<button\b/g) || []).length, 3)
+  assert.match(actions, /完成所有批次/)
   assert.match(actions, /needsConfirmedStart\(task\)/)
   assert.match(actions, /开工/)
   assert.doesNotMatch(view, /继续处理下一工序|核对旧单并继续生产/)

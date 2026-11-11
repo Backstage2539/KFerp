@@ -192,6 +192,29 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 		return out, err
 	}
 	plannedQty := p.PlannedQty
+	// Batch completion compares against the output of the batches actually
+	// scheduled, not an entire order target that may be under-scheduled.
+	if batchCount > 0 && cmd.ExecutionBatchID > 0 {
+		batchList, listErr := r.executionBatchListTx(ctx, tx, cmd.ID)
+		if listErr != nil {
+			return out, listErr
+		}
+		expected, posted := 0.0, 0.0
+		known := len(batchList.Batches) == batchCount
+		for _, batch := range batchList.Batches {
+			if batch.PlannedOutputQty == nil || batch.OutputUnit != p.OutputUnit {
+				known = false
+				break
+			}
+			expected += *batch.PlannedOutputQty
+			if batch.Status == "completed" && batch.ActualOutputQty != nil {
+				posted += *batch.ActualOutputQty
+			}
+		}
+		if known {
+			plannedQty = math.Max(0, expected-posted)
+		}
+	}
 	if p.Execution.ReportingType == "incoming" {
 		plannedQty = cmd.ActualOutputQty
 	}
@@ -273,7 +296,7 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 	modernTimer := (p.Execution.ReportingType == "batch" || p.Execution.ReportingType == "incoming" || p.Execution.ReportingType == "piece") && unmarkedEvents == 0
 	actualMinutes := cmd.ActualMinutes
 	actualSeconds := actualMinutes * 60
-	if actualMinutes == 0 && timed {
+	if actualMinutes == 0 && timed && !cmd.ActualMinutesExplicit {
 		if modernTimer {
 			actualSeconds = timerSeconds - priorTimerBaseline
 		} else {

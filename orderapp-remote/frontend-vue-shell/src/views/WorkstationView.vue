@@ -93,7 +93,7 @@
             :class="{ focused: isRequestedTask(task) }"
             :data-task-key="taskKey(task)">
             <div class="task-title">
-              <strong><input v-if="!isSimplifiedTask(task)" v-model="selectedIssueTasks" type="checkbox" :value="Number(task.job_card_id)" :disabled="!workstationCanOpenIssue(task)" :aria-label="`选择任务 ${task.work_order_no} ${task.job_card_id}`" />{{ taskTitle(task) }}</strong>
+              <strong><input v-if="!isSimplifiedTask(task)" v-model="selectedIssueTasks" type="checkbox" :value="Number(task.job_card_id)" :disabled="!workstationCanOpenIssue(task)" :aria-label="`选择任务 ${task.work_order_no} ${task.job_card_id}`" /><button v-if="isInlineBatchTask(task)" type="button" class="task-expand" :aria-expanded="isFinishPanelForTask(task)" @click="toggleFinishPanel(task)">{{ isFinishPanelForTask(task) ? '▾' : '▸' }} {{ taskTitle(task) }}</button><template v-else>{{ taskTitle(task) }}</template></strong>
               <small>{{ taskBatchLabel(task) }} · {{ task.work_order_no || '-' }} · P{{ task.priority || 0 }}</small>
               <small v-for="line in taskQuantityLines(task)" :key="line" class="task-quantity">{{ line }}</small>
               <small>工序要求：{{ task.process_requirement || '按冻结工艺路线执行' }}</small>
@@ -110,7 +110,7 @@
             <div class="actions">
               <template v-if="isSimplifiedTask(task)">
                 <button v-if="needsConfirmedStart(task)" type="button" class="primary" :disabled="Boolean(busyKey) || loading || isTaskUnattended(task)" @click="openStartPanel(task)">开工</button>
-                <button v-else type="button" class="primary" :disabled="Boolean(busyKey) || loading || isTaskUnattended(task)" @click="openFinishPanel(task)">{{ Number(task.planned_batch_count || 0) > 1 ? '查看批次并报工' : '工序完成' }}</button>
+                <button v-else-if="!isInlineBatchTask(task) || isHistoricalBatchTask(task)" type="button" class="primary" :disabled="Boolean(busyKey) || loading || isTaskUnattended(task)" @click="openFinishPanel(task)">工序完成</button><button v-else type="button" class="primary" :disabled="!isFinishPanelForTask(task) || !['running','paused'].includes(task.status) || Boolean(busyKey) || loading || isTaskUnattended(task)" @click="finishForm?.[0]?.completeAll()">完成所有批次</button>
                 <small v-if="isTaskUnattended(task)" class="schedule-required">今日无人值班，请先完成排班</small>
                 <button type="button" class="secondary" @click="openExecutionHub(task, 'job_card')">查看工单</button>
               </template>
@@ -158,7 +158,7 @@
             </div>
 
             <OperationStartForm v-if="startPanel.open && sameTask(startPanel.task,task)" :key="`start-${task.job_card_id}`" :job-card-id="Number(task.job_card_id)" :refresh-token="startPanel.revision" :locked="batchIssue.open" @close="startPanel.open=false" @posted="startPosted" @issue="(shortages, input) => openStartIssue(task, shortages, input)" />
-            <OperationCompletionForm v-if="isFinishPanelForTask(task)" :key="task.job_card_id" :job-card-id="Number(task.job_card_id)" :return-params="completionReturnParams(task)" @close="closeFinishPanel" @posted="automaticPosted" />
+            <OperationCompletionForm v-if="isFinishPanelForTask(task)" ref="finishForm" :external-bulk="isInlineBatchTask(task)" :can-complete="['running','paused'].includes(task.status) && !isTaskUnattended(task)" :key="task.job_card_id" :job-card-id="Number(task.job_card_id)" :return-params="completionReturnParams(task)" @close="closeFinishPanel" @posted="automaticPosted" @batch-state="state => setBatchState(task,state)" />
           </div>
         </div>
       </article>
@@ -304,13 +304,18 @@ const executionHub = reactive({ open: false, workOrderId: 0, jobCardId: 0, focus
 const requestedJobCardID = computed(() => Number(props.viewParams?.job_card_id || 0))
 const taskFeedback = reactive({ taskKey: '', message: '', error: '' })
 const finishPanel = reactive({open:false,task:null})
+const finishForm = ref(null)
+const batchStates = reactive({})
+function isInlineBatchTask(task) { return task?.material_consumption_policy === 'bom_start_v1' && task?.reporting_type === 'batch' }
+function isHistoricalBatchTask(task) { return Boolean(batchStates[task.job_card_id]?.reason?.includes('历史汇总')) }
+function setBatchState(task,state) { batchStates[task.job_card_id]=state }
 const requestedTaskNotice = ref(null)
 let overviewLoadRevision = 0
 
 const tasks = computed(() => overview.value.tasks || [])
 async function convertedOldOrder(){closeFinishPanel();message.value='核对已保存，后续工序可直接完成';await load()}
 const lastAutomaticResult=ref(null)
-async function automaticPosted(data){message.value=data.completion?.message || '完成记录已保存';lastAutomaticResult.value={...data.completion};finishPanel.open=false;await load()}
+async function automaticPosted(data){message.value=data.completion?.message || '完成记录已保存';lastAutomaticResult.value={...data.completion};if(!data.batchPartial)finishPanel.open=false;await load()}
 watch(selectedWorkstation, () => { selectedIssueTasks.value = []; if (!batchIssue.recovering) batchIssue.open = false })
 watch(tasks, rows => { const available = new Set(rows.filter(workstationCanOpenIssue).map(task => Number(task.job_card_id))); selectedIssueTasks.value = selectedIssueTasks.value.filter(id => available.has(id)) })
 const sections = computed(() => {
@@ -566,11 +571,9 @@ function openIssue(task, mode) {
   issue.note = mode === 'material_call' ? '' : (task.blocking_reason || '')
 }
 
+function toggleFinishPanel(task) { if (isFinishPanelForTask(task)) closeFinishPanel(); else openFinishPanel(task) }
+
 function openFinishPanel(task) {
-  if (isTaskUnattended(task)) {
-    message.value = '今日该工位无人值班，请先完成排班'
-    return
-  }
   issue.open = false
   issue.task = null
   finishPanel.open = true
@@ -845,7 +848,7 @@ textarea { resize: vertical; }
   background: #fffbea;
   box-shadow: inset 3px 0 0 #d97706;
 }
-.task-title { display: grid; gap: 3px; min-width: 0; }
+.task-expand{border:0;background:transparent;padding:0;color:inherit;font:inherit;cursor:pointer;text-align:left}.task-title { display: grid; gap: 3px; min-width: 0; }
 .task-title strong, .task-title small {
   overflow: hidden;
   text-overflow: ellipsis;

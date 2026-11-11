@@ -260,3 +260,80 @@ func TestExecutionBatchesCompleteUsesStartedInputOnce(t *testing.T) {
 	}
 	assertProductionFlowCount(t, pool, schema, "production_execution_batches", fmt.Sprintf("job_card_id=%d AND status='completed'", card), 4)
 }
+
+func TestExecutionBatchDefaultsUseFrozenPlanAndRejectChangedSource(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	e, _, workID := createSubmittedFullStockTypedPlan(t, ctx, pool, schema, 94837)
+	registerProductionWorkstationAPI(e, app.NewService(postgresproduction.NewRepository(pool, schema)))
+	var id int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.job_cards WHERE work_order_id=$1 ORDER BY id LIMIT 1`, schema), workID).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	_, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.production_plan_items SET planned_g=1250,planned_output_g=1000 WHERE id=(SELECT production_plan_item_id FROM %[1]s.work_orders WHERE id=$1)`, schema), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.work_orders SET planned_g=1250,planned_output_g=1000 WHERE id=$1`, schema), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.job_cards SET planned_input_qty=1250,planned_batch_count=1,planned_minutes=18 WHERE id=$1`, schema), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.production_execution_batches SET planned_input_qty=1.25,input_unit='kg',planned_output_qty=NULL,output_unit='',planned_minutes=NULL WHERE job_card_id=$1`, schema), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func() app.ExecutionBatchList {
+		t.Helper()
+		res := serveMultilevelProductionJSON(t, e, "GET", fmt.Sprintf("/api/job-cards/%d/execution-batches", id), nil)
+		if res.Code != 200 {
+			t.Fatal(res.Body.String())
+		}
+		var list app.ExecutionBatchList
+		if err := json.Unmarshal(res.Body.Bytes(), &list); err != nil {
+			t.Fatal(err)
+		}
+		return list
+	}
+	b := read().Batches[0]
+	if b.PlannedOutputQty == nil || math.Abs(*b.PlannedOutputQty-1) > 1e-9 || b.PlannedMinutes == nil || *b.PlannedMinutes != 18 {
+		t.Fatalf("bad frozen defaults: %+v", b)
+	}
+	_, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.production_plan_items SET planned_g=3000 WHERE id=(SELECT production_plan_item_id FROM %[1]s.work_orders WHERE id=$1)`, schema), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.work_orders SET planned_g=3000 WHERE id=$1`, schema), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.job_cards SET planned_input_qty=3000,planned_batch_count=3,planned_minutes=54 WHERE id=$1`, schema), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = pool.Exec(ctx, fmt.Sprintf(`DELETE FROM %[1]s.production_execution_batches WHERE job_card_id=$1`, schema), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.production_execution_batches(job_card_id,batch_no,planned_input_qty,input_unit) SELECT $1,n,1,'kg' FROM generate_series(1,3) n`, schema), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, row := range read().Batches {
+		want := []float64{0.333333, 0.333333, 0.333334}[i]
+		if row.PlannedOutputQty == nil || math.Abs(*row.PlannedOutputQty-want) > 1e-9 {
+			t.Fatalf("batch %d output=%v, want %.6f", i+1, row.PlannedOutputQty, want)
+		}
+	}
+	_, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.production_plan_items SET planned_output_g=999 WHERE id=(SELECT production_plan_item_id FROM %[1]s.work_orders WHERE id=$1)`, schema), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b = read().Batches[0]
+	if b.PlannedOutputQty != nil || b.DefaultUnavailableReason == "" {
+		t.Fatalf("changed source must not be guessed: %+v", b)
+	}
+}

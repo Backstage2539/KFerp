@@ -100,3 +100,14 @@ export function completionRetry() {
 export function progressPayload(preview,draft) {
   return {expected_version:preview.version,output_unit:preview.output_unit,actual_output_qty:Number(draft.actual_output_qty)||0}
 }
+
+const executionBatchDrafts = new Map()
+const executionBatchRetries = new Map()
+export function executionBatchDraftCache(jobCardId) {
+  if (!executionBatchDrafts.has(jobCardId)) executionBatchDrafts.set(jobCardId, {})
+  return executionBatchDrafts.get(jobCardId)
+}
+export function executionBatchRetryCache(jobCardId) {
+  if (!executionBatchRetries.has(jobCardId)) executionBatchRetries.set(jobCardId, { retry: completionRetry(), rows: [], all: false })
+  return executionBatchRetries.get(jobCardId)
+}
