@@ -109,7 +109,7 @@ func (r Repository) NotificationPreferences(ctx context.Context, appID string, m
 }
 func (r Repository) SaveNotificationPreference(ctx context.Context, appID string, mini, customer, employee int64, enabled bool, events []string) error {
 	for _, v := range events {
-		if app.MilestoneLabels[v] == "" {
+		if app.NotificationLabel(v) == "" {
 			return errors.New("未知通知节点")
 		}
 	}
@@ -122,7 +122,7 @@ func (r Repository) SaveNotificationPreference(ctx context.Context, appID string
 		return e
 	}
 	defer tx.Rollback(ctx)
-	tag, e := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.wechat_bindings SET notifications_enabled=$1,notification_events=$2,notification_consent_at=CASE WHEN $1 AND NOT notifications_enabled THEN now() ELSE notification_consent_at END WHERE app_id=$3 AND mini_user_id=$4 AND customer_id=$5 AND employee_id=$6 AND (NOT $1 OR active AND subscribed)`, r.schema), enabled, raw, appID, mini, customer, employee)
+	tag, e := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.wechat_bindings SET notifications_enabled=$1,notification_events=$2,notification_consent_at=CASE WHEN $1 AND (NOT notifications_enabled OR notification_events IS DISTINCT FROM $2::jsonb) THEN now() ELSE notification_consent_at END WHERE app_id=$3 AND mini_user_id=$4 AND customer_id=$5 AND employee_id=$6 AND (NOT $1 OR active AND subscribed)`, r.schema), enabled, raw, appID, mini, customer, employee)
 	if e != nil {
 		return e
 	}

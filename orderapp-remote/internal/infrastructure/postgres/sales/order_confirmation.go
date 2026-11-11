@@ -275,6 +275,7 @@ func (r Repository) ReviewOrder(ctx context.Context, cmd salesapp.ReviewOrderCom
 	if edit := salesapp.EvaluateOrderEditability(state); !edit.CanEdit {
 		return salesapp.OrderConfirmation{}, salesapp.NewOrderEditConflictError(edit.BlockReason)
 	}
+	firstAcceptance := firstAcceptanceNotice(cmd.Decision, accepted)
 	next := cmd.Decision
 	if cmd.Decision == "accepted" {
 		var content orderContentSnapshot
@@ -333,6 +334,11 @@ func (r Repository) ReviewOrder(ctx context.Context, cmd salesapp.ReviewOrderCom
 	}
 	if cmd.Decision == "rejected" && accepted > 0 {
 		if err = postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "order", &cmd.OrderID, "restore_accepted_content", postgresinfra.StrPtr("content_revision"), postgresinfra.StrPtr(fmt.Sprint(revision)), postgresinfra.StrPtr(fmt.Sprint(accepted)), postgresinfra.AuditMeta{"reason": cmd.Reason}); err != nil {
+			return salesapp.OrderConfirmation{}, err
+		}
+	}
+	if firstAcceptance {
+		if err = recordOrderBusinessNotice(ctx, tx, r.schema, "order_accepted", fmt.Sprintf("order_accepted:%d", cmd.OrderID), cmd.OrderID, ""); err != nil {
 			return salesapp.OrderConfirmation{}, err
 		}
 	}

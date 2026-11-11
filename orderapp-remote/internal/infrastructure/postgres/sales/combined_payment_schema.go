@@ -3,12 +3,23 @@ package sales
 import (
 	"context"
 	"fmt"
+	messagepg "orderapp/internal/infrastructure/postgres/messagecenter"
+	"orderapp/internal/infrastructure/postgres/receipts"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func ensureCombinedPaymentSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	if err := receipts.EnsureSchema(ctx, pool, schema); err != nil {
+		return err
+	}
+	if err := messagepg.EnsureBusinessEventSchema(ctx, pool, schema); err != nil {
+		return err
+	}
 	_, err := pool.Exec(ctx, fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %[1]s.order_single_receipt_requests (
+ id BIGSERIAL PRIMARY KEY, idempotency_key TEXT NOT NULL UNIQUE, request_hash TEXT NOT NULL, receipt_id BIGINT NOT NULL DEFAULT 0, receipt_no TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS %[1]s.order_combined_payments (
  id BIGSERIAL PRIMARY KEY,
  idempotency_key TEXT NOT NULL UNIQUE,

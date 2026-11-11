@@ -4,11 +4,19 @@ import (
 	"context"
 	"fmt"
 	freightpg "orderapp/internal/infrastructure/postgres/freight"
+	messagepg "orderapp/internal/infrastructure/postgres/messagecenter"
+	"orderapp/internal/infrastructure/postgres/receipts"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	if err := receipts.EnsureSchema(ctx, pool, schema); err != nil {
+		return err
+	}
+	if err := messagepg.EnsureBusinessEventSchema(ctx, pool, schema); err != nil {
+		return err
+	}
 	q := fmt.Sprintf(`
 CREATE TABLE IF NOT EXISTS %[1]s.customer_fulfillment_import_batches (
 	id BIGSERIAL PRIMARY KEY,

@@ -3,6 +3,7 @@ package customerportal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	app "orderapp/internal/application/customerportal"
@@ -20,7 +21,10 @@ func (r Repository) OfficialAccountContext(ctx context.Context, userID, customer
 	defer tx.Rollback(ctx)
 	var openID string
 	if err = tx.QueryRow(ctx, fmt.Sprintf("SELECT openid FROM %s.mini_users WHERE id=$1 AND active=true", r.schema), userID).Scan(&openID); err != nil {
-		return app.CurrentContext{}, app.ErrCustomerBindingNotFound
+		if errors.Is(err, pgx.ErrNoRows) {
+			return app.CurrentContext{}, app.ErrCustomerBindingNotFound
+		}
+		return app.CurrentContext{}, err
 	}
 	if strings.HasPrefix(openID, "erp-internal-employee:") || strings.HasPrefix(openID, wechatEmployeePrefix) {
 		return app.CurrentContext{}, app.ErrCustomerBindingNotFound

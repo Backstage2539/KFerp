@@ -599,14 +599,18 @@ func (r Repository) selectShippingReturn(ctx context.Context, actor string, oid,
 	if e != nil {
 		return out, e
 	}
-	_, e = tx.Exec(ctx, fmt.Sprintf(`WITH changed AS(UPDATE %[1]s.order_shipment_orders SET tracking_no=$2,shipped_at=now() WHERE id=(SELECT id FROM %[1]s.order_shipment_orders WHERE order_id=$1 ORDER BY id DESC LIMIT 1)RETURNING shipment_id) UPDATE %[1]s.order_shipments SET status='shipped' WHERE id IN(SELECT shipment_id FROM changed)`, r.schema), oid, item.TrackingNo)
-	if e != nil {
+	var shipmentID int64
+	e = tx.QueryRow(ctx, fmt.Sprintf(`WITH changed AS(UPDATE %[1]s.order_shipment_orders SET tracking_no=$2,shipped_at=now() WHERE id=(SELECT id FROM %[1]s.order_shipment_orders WHERE order_id=$1 ORDER BY id DESC LIMIT 1)RETURNING shipment_id) UPDATE %[1]s.order_shipments SET status='shipped' WHERE id IN(SELECT shipment_id FROM changed) RETURNING id`, r.schema), oid, item.TrackingNo).Scan(&shipmentID)
+	if e != nil && e != pgx.ErrNoRows {
 		return out, e
 	}
 	if e = r.deductOrderAllocatedStockTx(ctx, tx, oid, actor); e != nil {
 		return out, e
 	}
 	if e = r.insertShippingAuditTx(ctx, tx, actor, oid, "shipping_return", item.TrackingNo+" · "+reason); e != nil {
+		return out, e
+	}
+	if e = recordShipmentNotices(ctx, tx, r.schema, oid, shipmentID, item.TrackingNo); e != nil {
 		return out, e
 	}
 	_, e = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.shipping_return_rows SET status='applied',selected_order_id=$2,result=$3 WHERE id=$1`, r.schema), rid, oid, reason)

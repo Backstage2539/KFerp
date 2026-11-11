@@ -46,8 +46,23 @@ function isSelectable(row) {
 // An approved resolution may reopen a receivable without reversing cash
 // already received. Legacy paid bills still require separate reconciliation.
 export function billPaymentAction(bill) {
+  if (bill?.status === 'confirmed' && Number(bill?.current_due_amount_cents || 0) > 0) return 'pay'
   if (bill?.payment_additional_allowed && Number(bill?.current_due_amount_cents || 0) > 0 && bill?.status === 'paid' && bill?.payment_reversible) return 'pay'
   if (bill?.payment_reversible) return 'reverse'
   if (bill?.status === 'confirmed' && Number(bill?.current_due_amount_cents || 0) > 0) return 'pay'
   return ''
+}
+import { parseCombinedMoneyCents } from './combined-order-payment.js'
+
+export function billingPartialAllocation(lines, values) {
+  const allocations=[]; let total=0
+  for (const line of lines || []) {
+    const raw=String(values?.[line.id] ?? '').trim()
+    if (!raw) continue
+    const amount=parseCombinedMoneyCents(raw), id=Number(line.id), due=Number(line.due_cents)
+    if (!Number.isSafeInteger(id) || id<=0 || !Number.isSafeInteger(due) || amount<=0 || amount>due || !Number.isSafeInteger(total+amount)) throw new Error('明细本次分配金额须大于零且不超过待收')
+    total+=amount; allocations.push({line_id:id,amount_cents:amount})
+  }
+  if (!allocations.length) throw new Error('请填写至少一条账单明细的收款金额')
+  return {actual_cents:total,allocations}
 }

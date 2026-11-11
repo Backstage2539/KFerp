@@ -3,6 +3,7 @@ package messagecenter
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // OrderState contains only notification-safe state, never receipts or addresses.
@@ -54,6 +55,16 @@ func OrderMilestones(before, after OrderState, created bool) []string {
 
 var MilestoneLabels = map[string]string{"created": "下单成功", "paid": "付款成功", "production_started": "开始生产", "production_finished": "生产完成", "shipped": "已发货", "cancelled": "订单已取消/失效"}
 
+// BusinessMilestoneLabels are separate from the six production-group events.
+var BusinessMilestoneLabels = map[string]string{"order_accepted": "已接单", "shipment_created": "已发货", "receipt_received": "货款到账", "bill_issued": "账单已生成"}
+
+func NotificationLabel(event string) string {
+	if label := MilestoneLabels[event]; label != "" {
+		return label
+	}
+	return BusinessMilestoneLabels[event]
+}
+
 func NotifyProduction(events []string) bool {
 	for _, e := range events {
 		if e == "created" || e == "production_started" || e == "production_finished" || e == "cancelled" {
@@ -64,26 +75,39 @@ func NotifyProduction(events []string) bool {
 }
 
 type OrderNotice struct {
-	ChangeID        int64      `json:"change_id"`
-	OrderID         int64      `json:"order_id"`
-	CustomerID      int64      `json:"customer_id"`
-	OrderNo         string     `json:"order_no"`
-	CustomerName    string     `json:"customer_name"`
-	ResponsibleID   int64      `json:"responsible_id"`
-	ResponsibleName string     `json:"responsible_name"`
-	Items           string     `json:"items"`
-	DueDate         string     `json:"due_date"`
-	Milestones      []string   `json:"milestones"`
-	State           OrderState `json:"state"`
-	OccurredAt      string     `json:"occurred_at"`
-	Test            bool       `json:"test"`
+	ChangeID           int64      `json:"change_id"`
+	BusinessEventKey   string     `json:"business_event_key,omitempty"`
+	BusinessOccurredAt time.Time  `json:"business_occurred_at,omitempty"`
+	OrderID            int64      `json:"order_id"`
+	CustomerID         int64      `json:"customer_id"`
+	OrderNo            string     `json:"order_no"`
+	CustomerName       string     `json:"customer_name"`
+	ResponsibleID      int64      `json:"responsible_id"`
+	ResponsibleName    string     `json:"responsible_name"`
+	Items              string     `json:"items"`
+	TrackingNo         string     `json:"tracking_no"`
+	ReceiptID          int64      `json:"receipt_id,omitempty"`
+	ReceiptNo          string     `json:"receipt_no,omitempty"`
+	ReceiptDate        string     `json:"receipt_date,omitempty"`
+	ReceivableAmount   string     `json:"receivable_amount,omitempty"`
+	ReceivedAmount     string     `json:"received_amount,omitempty"`
+	BillID             int64      `json:"bill_id,omitempty"`
+	BillNo             string     `json:"bill_no,omitempty"`
+	BillAmount         string     `json:"bill_amount,omitempty"`
+	BillPeriod         string     `json:"bill_period,omitempty"`
+	DueDate            string     `json:"due_date"`
+	Milestones         []string   `json:"milestones"`
+	State              OrderState `json:"state"`
+	OccurredAt         string     `json:"occurred_at"`
+	Test               bool       `json:"test"`
+	TestDetail         bool       `json:"test_detail,omitempty"`
 }
 
 func (n OrderNotice) StatusText() string {
 	var parts []string
 	for _, e := range n.Milestones {
-		label := MilestoneLabels[e]
-		if e == "shipped" && n.State.Shipping != "" {
+		label := NotificationLabel(e)
+		if (e == "shipped" || e == "shipment_created") && n.State.Shipping != "" {
 			label = n.State.Shipping
 		}
 		if label != "" {
@@ -93,8 +117,14 @@ func (n OrderNotice) StatusText() string {
 	return strings.Join(parts, "、")
 }
 func (n OrderNotice) MiniPath(employee bool) string {
-	if n.Test {
+	if n.Test && !n.TestDetail {
 		return "pages/order-notifications/order-notifications"
+	}
+	if !employee && n.ReceiptID > 0 {
+		return fmt.Sprintf("pages/notification-detail/notification-detail?type=receipt&id=%d", n.ReceiptID)
+	}
+	if !employee && n.BillID > 0 {
+		return fmt.Sprintf("pages/notification-detail/notification-detail?type=bill&id=%d", n.BillID)
 	}
 	if employee {
 		return fmt.Sprintf("pages/employee-order-detail/employee-order-detail?id=%d", n.OrderID)
@@ -102,7 +132,7 @@ func (n OrderNotice) MiniPath(employee bool) string {
 	return fmt.Sprintf("pages/service/service?key=orders&source=notice&order_id=%d&customer_id=%d", n.OrderID, n.CustomerID)
 }
 func (n OrderNotice) Values() map[string]string {
-	return map[string]string{"order_no": n.OrderNo, "customer_name": n.CustomerName, "status": n.StatusText(), "occurred_at": n.OccurredAt, "items": n.Items, "due_date": n.DueDate, "responsible_name": n.ResponsibleName}
+	return map[string]string{"order_no": n.OrderNo, "customer_name": n.CustomerName, "status": n.StatusText(), "occurred_at": n.OccurredAt, "items": n.Items, "tracking_no": n.TrackingNo, "receipt_no": n.ReceiptNo, "receipt_date": n.ReceiptDate, "receivable_amount": n.ReceivableAmount, "received_amount": n.ReceivedAmount, "bill_no": n.BillNo, "bill_amount": n.BillAmount, "bill_period": n.BillPeriod, "due_date": n.DueDate, "responsible_name": n.ResponsibleName}
 }
 func (n OrderNotice) GroupText() string {
 	prefix := "【订单通知】"

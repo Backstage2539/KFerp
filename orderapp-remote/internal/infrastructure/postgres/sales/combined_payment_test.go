@@ -415,3 +415,31 @@ func TestCombinedOrderPaymentHistoricalPartialPrepayment(t *testing.T) {
 		t.Fatalf("prepayment=%d goods=%d err=%v", prepay, goods, err)
 	}
 }
+
+func TestCombinedPaymentCreatesOneCashReceipt(t *testing.T) {
+	ctx := context.Background()
+	repo, rev := combinedPaymentFixture(t)
+	cmd := combinedFixtureCommand(rev)
+	cmd.ReceiptDate = "2026-11-10"
+	result, err := repo.CombinedOrderPayment(ctx, cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	var actual, receivable int64
+	var source, date string
+	err = repo.pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*),max(actual_cents),max(receivable_cents),max(source_type),max(receipt_date::text) FROM %s.cash_receipts WHERE source_id=$1`, repo.schema), result.BatchID).Scan(&count, &actual, &receivable, &source, &date)
+	if err != nil || count != 1 || actual != 12500 || receivable != 15000 || source != "combined_payment" || date != "2026-11-10" {
+		t.Fatalf("receipt count=%d actual=%d receivable=%d source=%s err=%v", count, actual, receivable, source, err)
+	}
+	if _, err = repo.CombinedOrderPayment(ctx, cmd); err != nil {
+		t.Fatal(err)
+	}
+	cmd.ReceiptDate = "2026-11-09"
+	if _, err = repo.CombinedOrderPayment(ctx, cmd); err == nil {
+		t.Fatal("changed receipt date reused original key")
+	}
+	if err = repo.pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.cash_receipts`, repo.schema)).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("receipt retry: count=%d err=%v", count, err)
+	}
+}

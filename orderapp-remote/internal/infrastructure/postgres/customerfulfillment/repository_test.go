@@ -2840,6 +2840,10 @@ func TestIssueBillingReleasesDraftSourceAndIsIdempotent(t *testing.T) {
 	if auditCount != 1 {
 		t.Fatalf("issue audit rows=%d", auditCount)
 	}
+	var noticeCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.message_business_events WHERE event_type='bill_issued' AND source_key=$1`, schema), fmt.Sprintf("bill_issued:%d", first.BatchID)).Scan(&noticeCount); err != nil || noticeCount != 1 {
+		t.Fatalf("bill issue marker rows=%d err=%v", noticeCount, err)
+	}
 	_, err = repo.IssueBilling(ctx, app.IssueBillingCommand{BillingPreviewCommand: cmd, PreviewVersion: preview.PreviewVersion, IdempotencyKey: "issue-again-with-new-key"})
 	if err == nil || !strings.Contains(err.Error(), "unavailable") {
 		t.Fatalf("second issue with new key error=%v, want source already issued", err)

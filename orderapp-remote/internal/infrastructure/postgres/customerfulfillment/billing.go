@@ -11,6 +11,7 @@ import (
 
 	app "orderapp/internal/application/customerfulfillment"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
+	messagepg "orderapp/internal/infrastructure/postgres/messagecenter"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -351,8 +352,9 @@ func (r *Repository) getIssuedBill(ctx context.Context, query billingReader, cus
 			return out, e
 		}
 	}
-	out.PaymentAdditionalAllowed = len(adjustments) > 0
+	out.PaymentAdditionalAllowed = len(adjustments) > 0 || (out.PaymentReversible && out.Status == "confirmed")
 	out.DueAmountCents = total
+	lineAllocationsExist := relationExists(ctx, query, r.schema+".customer_settlement_payment_line_allocations") && relationExists(ctx, query, r.schema+".customer_settlement_payments")
 	for i := range out.Lines {
 		line := &out.Lines[i]
 		credit, adjusted := adjustments[line.ID]
@@ -374,6 +376,10 @@ func (r *Repository) getIssuedBill(ctx context.Context, query billingReader, cus
 			currentReceived = max(int64(0), receipts[line.SourceID]-line.ReceivedCents)
 		} else if out.Status == "paid" {
 			currentReceived = line.AmountCents
+		} else if lineAllocationsExist {
+			if err := query.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(sum(a.amount_cents),0)::bigint FROM %[1]s.customer_settlement_payment_line_allocations a JOIN %[1]s.customer_settlement_payments p ON p.id=a.payment_id WHERE p.customer_id=$1 AND p.settlement_batch_id=$2 AND p.reversed_at IS NULL AND a.line_id=$3`, r.schema), customerID, batchID, line.ID).Scan(&currentReceived); err != nil {
+				return out, err
+			}
 		}
 		if currentReceived > line.AmountCents {
 			currentReceived = line.AmountCents
@@ -404,6 +410,25 @@ func (r *Repository) getIssuedBill(ctx context.Context, query billingReader, cus
 	}
 	if out.DueAmountCents < 0 {
 		out.DueAmountCents = 0
+	}
+	if relationExists(ctx, query, r.schema+".cash_receipts") && relationExists(ctx, query, r.schema+".customer_settlement_payments") {
+		rows, e := query.Query(ctx, fmt.Sprintf(`SELECT r.receipt_no,COALESCE(r.receipt_date::text,''),r.actual_cents,r.reversed_at IS NOT NULL FROM %[1]s.cash_receipts r JOIN %[1]s.customer_settlement_payments p ON p.id=r.source_id AND r.source_type='billing_payment' WHERE r.customer_id=$1 AND p.customer_id=$1 AND p.settlement_batch_id=$2 ORDER BY r.id`, r.schema), customerID, batchID)
+		if e != nil {
+			return out, e
+		}
+		for rows.Next() {
+			var receipt app.BillingReceipt
+			if e = rows.Scan(&receipt.ReceiptNo, &receipt.ReceiptDate, &receipt.AmountCents, &receipt.Reversed); e != nil {
+				rows.Close()
+				return out, e
+			}
+			out.Receipts = append(out.Receipts, receipt)
+		}
+		e = rows.Err()
+		rows.Close()
+		if e != nil {
+			return out, e
+		}
 	}
 	return out, nil
 }
@@ -649,6 +674,9 @@ func (r *Repository) IssueBilling(ctx context.Context, cmd app.IssueBillingComma
 		return app.BillingBill{}, err
 	}
 	if err = postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_fulfillment_settlement", &batchID, "issue", nil, nil, postgresinfra.StrPtr(billNo), postgresinfra.AuditMeta{"customer_id": cmd.CustomerID, "settlement_no": billNo, "line_count": len(current.Lines), "total_amount_cents": current.TotalAmountCents, "preview_version": cmd.PreviewVersion, "idempotency_key": cmd.IdempotencyKey}); err != nil {
+		return app.BillingBill{}, err
+	}
+	if err = messagepg.RecordBusinessEvent(ctx, tx, r.schema, "bill_issued", fmt.Sprintf("bill_issued:%d", batchID), 0, cmd.CustomerID, map[string]any{"bill_id": batchID, "bill_no": billNo, "customer_name": current.CustomerName, "amount_cents": current.TotalAmountCents, "period_from": current.PeriodFrom, "period_to": current.PeriodTo}); err != nil {
 		return app.BillingBill{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {

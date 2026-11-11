@@ -3347,6 +3347,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			return salesapp.SaveOrderResult{}, err
 		}
 	}
+	if editID == 0 && !cmd.RequireConfirmation {
+		if err := recordOrderBusinessNotice(ctx, tx, r.schema, "order_accepted", fmt.Sprintf("order_accepted:%d", orderID), orderID, ""); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+	}
 	if r.orderTx == nil {
 		if err := tx.Commit(ctx); err != nil {
 			return salesapp.SaveOrderResult{}, err

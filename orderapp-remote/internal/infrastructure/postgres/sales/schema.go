@@ -4,11 +4,15 @@ import (
 	"context"
 	"fmt"
 	customerstock "orderapp/internal/infrastructure/postgres/customerstock"
+	messagepg "orderapp/internal/infrastructure/postgres/messagecenter"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	if err := messagepg.EnsureBusinessEventSchema(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureCombinedPaymentSchema(ctx, pool, schema); err != nil {
 		return err
 	}

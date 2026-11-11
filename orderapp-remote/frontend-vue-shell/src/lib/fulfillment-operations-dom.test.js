@@ -173,8 +173,10 @@ test('账单收款与撤销展示确认金额并刷新履约数据', async () =>
   const before=calls.filter(([path])=>path.includes('/overview')).length
   ;[...drawer.querySelectorAll('button')].find(b=>b.textContent.trim()==='标记已收清').click();await flush()
   const select=document.querySelector('.bill-payment-dialog select');assert.ok(select);select.value='微信支付';select.dispatchEvent(new Event('change',{bubbles:true}));await flush()
+  const date=document.querySelector('.bill-payment-dialog input[type="date"]');date.value='2026-11-10';date.dispatchEvent(new Event('input',{bubbles:true}));await flush()
   document.querySelector('.bill-payment-dialog').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await flush()
   const payRequest=JSON.parse(calls.find(([path])=>path.endsWith('/payment'))[1].body)
+  assert.equal(payRequest.receipt_date,'2026-11-10')
   assert.equal(payRequest.action,'pay');assert.equal(payRequest.expected_due_amount_cents,2500);assert.equal(payRequest.expected_payment_revision,0);assert.equal(payRequest.payment_method,'微信支付');assert.ok(payRequest.idempotency_key)
   assert.match(drawer.textContent,/账单 CB-9 已标记收清/);assert.match(drawer.textContent,/未收 ¥0\.00/)
   assert.ok(calls.filter(([path])=>path.includes('/overview')).length>before)
@@ -186,11 +188,58 @@ test('账单收款与撤销展示确认金额并刷新履约数据', async () =>
   failPayment=true
   ;[...drawer.querySelectorAll('button')].find(b=>b.textContent.trim()==='标记已收清').click();await flush()
   const selectAgain=document.querySelector('.bill-payment-dialog select');selectAgain.value='微信支付';selectAgain.dispatchEvent(new Event('change',{bubbles:true}));await flush()
+  const dateAgain=document.querySelector('.bill-payment-dialog input[type="date"]');dateAgain.value='2026-11-10';dateAgain.dispatchEvent(new Event('input',{bubbles:true}));await flush()
   document.querySelector('.bill-payment-dialog').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await flush()
   assert.match(drawer.textContent,/未能确认收款操作/)
   assert.equal([...drawer.querySelectorAll('button')].find(b=>b.textContent.trim()==='标记已收清').disabled,true)
   ;[...drawer.querySelectorAll('button')].find(b=>b.textContent.trim()==='关闭').click();await flush()
   failPayment=false;[...document.querySelectorAll('.workspace-header button')].find(b=>b.textContent.trim()==='刷新').click();await flush()
   assert.equal(button('标记已收清').disabled,false)
+ }finally{app.unmount();window.confirm=oldConfirm;globalThis.fetch=original;document.body.innerHTML='<div id="app"></div>'}
+})
+
+test('逐笔收款未确认时保留原请求并按账号隔离', async () => {
+ const {component}=await loadComponent('../components/OrderReceipts.vue')
+ const oldFetch=globalThis.fetch, oldStorage=globalThis.localStorage
+ globalThis.localStorage=window.localStorage;window.localStorage.clear()
+ let failures=0
+ globalThis.fetch=async (url,opts={})=>{
+  const path=String(url)
+  if(path.endsWith('/status-batch/preview'))return response({orders:[{order_id:44,edit_revision:'rev1',total_cents:5000,paid_cents:0,due_cents:5000}]})
+  if(path.endsWith('/orders/44/receipts') && opts.method==='POST'){failures++;return failures===1 ? {ok:false,status:500,json:async()=>({error:'连接中断'})}:{ok:false,status:400,json:async()=>({error:'无效',not_committed:true})}}
+  return response({receipts:[]})
+ }
+ const makeApp=identity=>{const app=createApp(component,{orderId:44,actorIdentity:identity,canWrite:true});app.config.warnHandler=()=>{};app.mount(document.querySelector('#app'));return app}
+ let app=makeApp('employee-11')
+ try {
+  const details=document.querySelector('details');details.open=true;details.dispatchEvent(new Event('toggle'));await flush()
+  const inputs=details.querySelectorAll('input');inputs[0].value='20.00';inputs[0].dispatchEvent(new Event('input',{bubbles:true}));inputs[1].value='2026-11-10';inputs[1].dispatchEvent(new Event('input',{bubbles:true}))
+  const select=details.querySelector('select');select.value='微信支付';select.dispatchEvent(new Event('change',{bubbles:true}));await flush()
+  button('登记收款').click();await flush();assert.ok(button('重试原次登记'));assert.ok(window.localStorage.getItem('kferp.order-receipt.pending.employee-11.order-44'))
+  button('重试原次登记').click();await flush();assert.ok(button('重试原次登记'));assert.ok(window.localStorage.getItem('kferp.order-receipt.pending.employee-11.order-44'))
+  app.unmount();document.body.innerHTML='<div id="app"></div>';app=makeApp('employee-12');const other=document.querySelector('details');other.open=true;other.dispatchEvent(new Event('toggle'));await flush();assert.equal(button('重试原次登记'),undefined)
+ }finally{app.unmount();globalThis.fetch=oldFetch;globalThis.localStorage=oldStorage;window.localStorage.clear();document.body.innerHTML='<div id="app"></div>'}
+})
+
+test('账单部分收款明确分配明细并可撤销最近一笔', async () => {
+ const {component}=await loadComponent('../views/CustomerFulfillmentView.vue')
+ const original=globalThis.fetch, oldConfirm=window.confirm, calls=[]
+ let bill={batch_id:9,customer_id:8,settlement_no:'CB-9',customer_name:'测试客户',period_from:'2026-10-01',period_to:'2026-10-29',status:'confirmed',total_amount_cents:2500,current_received_cents:0,current_due_amount_cents:2500,payment_reversible:false,payment_revision:0,lines:[{id:4,description:'代发费',due_cents:2500}]}
+ window.confirm=()=>true
+ globalThis.fetch=async (url,options={})=>{const path=String(url);calls.push([path,options])
+  if(path.endsWith('/billing/bills/9/payment')){const request=JSON.parse(options.body);bill=request.action==='pay'?{...bill,status:'confirmed',current_received_cents:1000,current_due_amount_cents:1500,payment_reversible:true,payment_additional_allowed:true,payment_revision:1,lines:[{id:4,description:'代发费',due_cents:1500}]}:{...bill,status:'confirmed',current_received_cents:0,current_due_amount_cents:2500,payment_reversible:false,payment_revision:2,lines:[{id:4,description:'代发费',due_cents:2500}]};return response(bill)}
+  if(path.includes('/overview'))return response({customer_id:8,customer_name:'测试客户',capabilities:['settlement'],operations:{},assets:[]})
+  if(path.includes('/customers'))return response({customers:[{id:8,name:'测试客户'}]});if(path.includes('/settings'))return response({modes:[]})
+  if(path.endsWith('/billing/bills/9'))return response(bill);if(path.includes('/billing/bills'))return response({rows:[bill],total:1,page:1});if(path.includes('/billing/summary'))return response({total_unpaid_cents:bill.current_due_amount_cents,unbilled_cents:0,issued_cents:bill.current_due_amount_cents});return response({rows:[],summary:{orders:0}})
+ }
+ const app=createApp(component,{viewParams:{},customerContextId:8,actor:{basic_auth_admin:true}});app.config.warnHandler=()=>{}
+ try{app.mount(document.querySelector('#app'));await flush();button('费用').click();await flush();button('已出账').click();await flush();button('费用明细').click();await flush()
+  const drawer=document.querySelector('.billing-bill-drawer');[...drawer.querySelectorAll('button')].find(b=>b.textContent.trim()==='标记已收清').click();await flush()
+  const dialog=document.querySelector('.bill-payment-dialog'),radio=dialog.querySelector('input[value="partial"]');radio.checked=true;radio.dispatchEvent(new Event('change',{bubbles:true}));await flush()
+  const amount=dialog.querySelector('input[type="number"]');assert.ok(amount);amount.value='10';amount.dispatchEvent(new Event('input',{bubbles:true}))
+  const select=dialog.querySelector('select');select.value='微信支付';select.dispatchEvent(new Event('change',{bubbles:true}));const date=dialog.querySelector('input[type="date"]');date.value='2026-11-10';date.dispatchEvent(new Event('input',{bubbles:true}));await flush();dialog.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await flush()
+  const pay=JSON.parse(calls.filter(([path])=>path.endsWith('/payment'))[0][1].body);assert.equal(pay.actual_cents,1000);assert.deepEqual(pay.allocations,[{line_id:4,amount_cents:1000}]);assert.match(drawer.textContent,/部分收款已登记/)
+  const reverse=[...drawer.querySelectorAll('button')].find(b=>b.textContent.trim()==='撤销最近收款');assert.ok(reverse);reverse.click();await flush()
+  const requests=calls.filter(([path])=>path.endsWith('/payment'));assert.equal(requests.length,2);assert.equal(JSON.parse(requests[1][1].body).action,'reverse');assert.match(drawer.textContent,/收款已撤销/)
  }finally{app.unmount();window.confirm=oldConfirm;globalThis.fetch=original;document.body.innerHTML='<div id="app"></div>'}
 })

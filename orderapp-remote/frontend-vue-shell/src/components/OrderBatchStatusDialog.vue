@@ -17,13 +17,14 @@
       <p v-if="loading" role="status">正在读取所选订单…</p>
       <p v-if="error" role="alert" class="error">{{ error }} <button v-if="!drafts.length" class="secondary" type="button" :disabled="busy" @click="readOrders(selectedRows.map(row => Number(row.id)))">重新读取</button></p>
       <section v-if="paymentMode === 'combined'" class="combined-payment" aria-label="合并付款信息">
-        <div v-if="combinedUncertain" class="combined-warning" role="alert">上次合并付款结果尚未确认，请重试原次操作。原订单：{{ pendingOrderIDs }}；本次收款 ¥{{ formatCents(pendingCombined?.actual_cents) }}；待收合计 ¥{{ formatCents(pendingCombined?.expected_due_cents) }}。重试会使用原订单及原发货设置。</div>
+        <div v-if="combinedUncertain" class="combined-warning" role="alert">上次合并付款结果尚未确认，请重试原次操作。原订单：{{ pendingOrderIDs }}；本次收款 ¥{{ formatCents(pendingCombined?.actual_cents) }}；到账日期：{{ combinedPendingReceiptDate(pendingCombined) }}；待收合计 ¥{{ formatCents(pendingCombined?.expected_due_cents) }}。重试会使用原订单及原发货设置。</div>
         <div v-if="combinedResult" class="ok" role="status">合并付款已完成。订单：{{ resultOrderIDs }}；本次收款 ¥{{ formatCents(combinedResult.actual_cents) }}，结清 ¥{{ formatCents(combinedResult.due_cents) }}，待分配 ¥{{ formatCents(combinedResult.unallocated_cents) }}。</div>
         <div v-if="!combinedUncertain && !combinedResult" class="combined-totals"><span>订单总应收 <strong>¥{{ formatCents(combinedSummary.totalCents) }}</strong></span><span>已有收款 <strong>¥{{ formatCents(combinedSummary.paidCents) }}</strong></span><span>本次待收合计 <strong>¥{{ formatCents(combinedSummary.dueCents) }}</strong></span><span>本次收款订单 {{ combinedSummary.payableCount }} 单</span></div>
         <p v-if="combinedSummary.error && !combinedUncertain && !combinedResult" class="error" role="alert">{{ combinedSummary.error }}</p>
         <p v-if="combinedStorageError && !combinedResult" class="error" role="alert">{{ combinedStorageError }}</p>
         <div v-if="!combinedResult" class="payment-fields">
           <label>本次实际收款（元）<input v-model="combinedActual" type="number" min="0" step="0.01" :disabled="busy || combinedUncertain" /></label>
+          <label>实际到账日期<input v-model="combinedReceiptDate" type="date" :disabled="busy || combinedUncertain" /></label>
           <label>收款方式<select v-model="combinedMethod" :disabled="busy || combinedUncertain"><option value="">请选择</option><option v-for="method in methods" :key="method" :value="method">{{ method }}</option></select></label>
           <label class="voucher">收款凭证（可选）<input type="file" accept="image/*,.pdf" :disabled="busy || combinedUncertain" @change="uploadCombinedVoucher" /><small>{{ combinedVoucherUploading ? '上传中…' : (combinedVoucherName || '未上传') }}</small></label>
         </div>
@@ -56,7 +57,7 @@
       <footer class="batch-actions">
         <button v-if="paymentMode === 'individual' && hasFailed" class="secondary" type="button" :disabled="busy" title="更新保存版本和资料，保留手动修改的输入" @click="reloadFailures">重新读取失败订单</button>
         <button class="secondary" type="button" :disabled="busy" @click="close">{{ submitted || combinedResult ? '完成' : '取消' }}</button>
-        <button v-if="paymentMode === 'combined' && !combinedResult" class="primary" type="button" :disabled="busy || loading || !!combinedStorageError || (!combinedUncertain && (!drafts.length || !!combinedSummary.error || combinedSummary.dueCents <= 0 || !combinedActual || !!combinedAmountError || !combinedMethod || combinedNeedsRefresh || !!combinedVoucherError))" @click="submitCombined">{{ submitting ? '保存中…' : combinedUncertain ? '重试原次合并付款' : '确认合并付款' }}</button>
+        <button v-if="paymentMode === 'combined' && !combinedResult" class="primary" type="button" :disabled="busy || loading || !!combinedStorageError || (!combinedUncertain && (!drafts.length || !!combinedSummary.error || combinedSummary.dueCents <= 0 || !combinedActual || !combinedReceiptDate || !!combinedAmountError || !combinedMethod || combinedNeedsRefresh || !!combinedVoucherError))" @click="submitCombined">{{ submitting ? '保存中…' : combinedUncertain ? '重试原次合并付款' : '确认合并付款' }}</button>
         <button v-if="paymentMode === 'individual'" class="primary" type="button" :disabled="busy || loading || !drafts.length || (!payStatusID && !shipStatusID) || !hasPending" @click="submit">{{ submitting ? '保存中…' : submitted ? '重试未成功订单' : '确认修改' }}</button>
       </footer>
     </section>
@@ -68,7 +69,7 @@ import { computed, onMounted, ref } from 'vue'
 import { apiSend } from '../api/client'
 import { orderReceiptMethodOptions as methods } from '../lib/order-entry'
 import { batchStatusRequest, batchStatusResultLabel, makeBatchStatusDraft, refreshBatchStatusDraft } from '../lib/order-batch-status'
-import { combinedPaymentRequest, combinedPaymentSummary, parseCombinedMoneyCents } from '../lib/combined-order-payment'
+import { combinedPaymentRequest, combinedPaymentSummary, parseCombinedMoneyCents, combinedPendingReceiptDate } from '../lib/combined-order-payment'
 
 const props = defineProps({ selectedRows: { type: Array, required: true }, payStatuses: { type: Array, required: true }, shipStatuses: { type: Array, required: true } })
 const emit = defineEmits(['close', 'updated'])
@@ -81,6 +82,7 @@ const error = ref('')
 const submitted = ref(false)
 const paymentMode = ref('individual')
 const combinedActual = ref(''), combinedMethod = ref(''), combinedVoucherID = ref(0), combinedVoucherName = ref('')
+const combinedReceiptDate = ref('')
 const combinedVoucherUploading = ref(false), combinedVoucherError = ref('')
 const combinedStorageError = ref('')
 const combinedNeedsRefresh = ref(false), combinedUncertain = ref(false), combinedResult = ref(null), pendingCombined = ref(null)
@@ -165,6 +167,7 @@ function restorePendingCombined() {
     combinedUncertain.value = true
     paymentMode.value = 'combined'
     combinedActual.value = formatCents(pending.actual_cents)
+    combinedReceiptDate.value = pending.receipt_date || ''
     combinedMethod.value = pending.payment_method || ''
     combinedVoucherID.value = Number(pending.payment_voucher_asset_id || 0)
     combinedVoucherName.value = combinedVoucherID.value ? '原次操作已上传' : ''
@@ -203,7 +206,7 @@ async function submitCombined() {
   if (!request) {
     try {
       const key = globalThis.crypto?.randomUUID?.() || `combined-${Date.now()}-${Math.random().toString(36).slice(2)}`
-      request = combinedPaymentRequest(drafts.value, { actual: combinedActual.value, method: combinedMethod.value, key, voucherID: combinedVoucherID.value, shipStatusID: shipStatusID.value })
+      request = combinedPaymentRequest(drafts.value, { actual: combinedActual.value, method: combinedMethod.value, key, voucherID: combinedVoucherID.value, shipStatusID: shipStatusID.value, receiptDate: combinedReceiptDate.value })
       combinedStorage().setItem(pendingStorageKey, JSON.stringify(request))
       pendingCombined.value = request
     } catch (cause) { error.value = cause.message || '无法准备付款'; return }

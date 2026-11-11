@@ -54,3 +54,11 @@ test('unpaid shipped orders remain red; only fully paid shipped orders are green
 test('approved resolution allows collecting reopened receivable while preserving old payment', () => {
  assert.equal(billPaymentAction({status:'paid',current_due_amount_cents:6000,payment_reversible:true,payment_additional_allowed:true}),'pay')
 })
+
+test('部分账单收款只采用人工指定的明细金额', async () => {
+ const {billingPartialAllocation}=await import('./customer-billing.js')
+ const lines=[{id:11,due_cents:6000},{id:12,due_cents:300}]
+ assert.deepEqual(billingPartialAllocation(lines,{11:'40.00',12:'3.00'}),{actual_cents:4300,allocations:[{line_id:11,amount_cents:4000},{line_id:12,amount_cents:300}]})
+ assert.throws(()=>billingPartialAllocation(lines,{11:'60.01'}))
+ assert.throws(()=>billingPartialAllocation(lines,{}))
+})
