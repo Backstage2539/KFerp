@@ -1,10 +1,10 @@
 ### PR-763-SEMI-LOSS-INCOMING-PRECISION
-- Branch: `codex/incoming-subgram-handoff-20261111`；Status: 开发验证中。
+- Branch: `codex/incoming-subgram-handoff-20261111`；Status: 已部署开发及正式环境，用户验收待完成。
 - Scope: 半成品库存选择及刷新保留冻结 BOM 损耗；色选承接亚克精度。
 - DEV: `DEV-PR763-01` 冻结配方重算；`DEV-PR763-02` 精确交接；`DEV-PR763-03` 隔离接口验证及交付。
 - Verifier: 重算前后各库存选择的损耗、投入及工序；亚克交接、成本和库存守恒；已开工历史记录不改写。
 - Evidence: `orderapp-remote/docs/acceptance/2026-11-11-semi-loss-incoming-precision.md`。
-- Deployment: 尚未部署；用户验收待完成。
+- Deployment: development `c81fbee3218e0cf1815c7cc83f7bf2421376a162`；production `3a2f16be55aa6e19149fa0b78b9dcb0bfd4bb9f6`。正式环境色选开工预览准确返回 59.961751 kg，工单和余额未变；服务健康，小程序包不变。
 
 ### PR-PRICE-LIST-COST-AVAILABILITY-20261111
 - Branch: `codex/price-list-cost-availability-fix-20261111`；Status: 测试通过，待集成及用户验收。
