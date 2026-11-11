@@ -501,14 +501,13 @@ onBeforeUnmount(() => { disposed = true; identityRevision++; quoteFlow.dispose()
       <text class="title">{{ createTitle }}</text>
       <text v-if="readOnly" class="muted">客户只读预览：可查看库存和下单页面，不能编辑或提交订单。</text>
       <view v-if="stockScenario" class="stock-overview">
-        <view class="section-head"><text class="subtitle">已购商品</text><text class="muted">累计数量</text></view>
+        <view class="section-head"><text class="subtitle">客户库存</text></view>
         <text v-if="loading" class="muted">正在刷新库存…</text>
         <text v-else-if="!stockOverview.length" class="muted">暂无可安排代发的库存，可先下单库存</text>
         <view v-for="row in stockOverview" :key="row.key" class="stock-overview-row" :class="{ 'stock-selected': row.requested > 0 }">
-          <view class="stock-overview-copy"><text class="line-name">{{ row.name }}</text><text class="muted">{{ row.spec }}<template v-if="row.requested"> · 本单 {{ row.requested }}{{ row.unit }}</template></text></view>
-          <view class="stock-overview-copy"><text>现货可用 {{ row.physical }}{{ row.unit }}</text><text>待入库可安排 {{ row.pendingAvailable }}{{ row.unit }}</text><text>待入库已预订 {{ row.reserved }}{{ row.unit }}</text><text>累计已购买 {{ row.purchased ?? '未记录' }}</text><text>累计已入库 {{ row.received ?? '未记录' }}</text><text v-if="row.gap > 0" class="stock-gap">需补购 {{ row.gap }}{{ row.unit }}</text></view>
+          <view class="stock-overview-copy"><text class="line-name">{{ row.name }}</text><text class="muted">{{ row.spec }}</text></view>
+          <view class="stock-overview-copy"><text>现货可用 {{ row.physical }}{{ row.unit }}</text><text>待入库已预订 {{ row.reserved }}{{ row.unit }}</text></view>
         </view>
-        <text class="muted">累计购买和入库不代表当前可发货数量；实际发货以可用实物为准。</text>
         <button class="secondary" :loading="openingStockPurchase" :disabled="submitting || openingStockPurchase || loading" @tap="startTopup">商品下单</button>
       </view>
       <text v-if="retainedPurchase" class="purchase-hint">本次购买的商品留在工厂，备货入库后供你安排代发。</text>
@@ -558,7 +557,6 @@ onBeforeUnmount(() => { disposed = true; identityRevision++; quoteFlow.dispose()
         <text class="field-label">数量（{{ line.sales_unit || line.inventory_unit || '件' }}）</text>
         <view class="quantity-field"><input v-model.number="line.qty" type="number" :disabled="readOnly || submitting" placeholder="填写数量" @input="invalidatePreview()" /><text>{{ line.sales_unit || line.inventory_unit || '件' }}</text></view>
         <view v-if="stockScenario && stockRow(line) && firstStockLine(line)" class="stock-line-status">
-          <view class="supply-metrics"><text>累计已购买 {{ stockRow(line)!.purchased ?? '未记录' }}</text><text>累计已入库 {{ stockRow(line)!.received ?? '未记录' }}</text></view>
           <text v-if="stockRow(line)!.gap > 0" class="stock-gap">还能安排{{ stockRow(line)!.available }}{{ stockRow(line)!.unit }}，本单{{ stockRow(line)!.requested }}{{ stockRow(line)!.unit }}，还需购货{{ stockRow(line)!.gap }}{{ stockRow(line)!.unit }}。</text>
           <text v-else-if="stockRow(line)!.requested > stockRow(line)!.physical" class="muted">本单还需等{{ stockRow(line)!.requested - stockRow(line)!.physical }}{{ stockRow(line)!.unit }}备货完成，入库齐全后发货。商品货款不重复收取。</text>
         </view>

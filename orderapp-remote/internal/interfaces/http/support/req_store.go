@@ -275,6 +275,8 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-PR759-02", title: "选定批次的调拨、在制仓与工单一致性", status: "review", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PR759-03", title: "物料准备及产能安排库存选择", status: "review", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PR759-04", title: "测试、操作手册及开发环境验收", status: "doing", assignee: "Codex"},
+		{table: "req_product", code: "PR-MINIAPP-INVENTORY-SUMMARY-20261111", title: "客户代发库存摘要仅显示现货可用和待入库已预订", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-11-miniapp-inventory-summary.md；用户验收待完成"},
+		{table: "req_dev", code: "DEV-MINIAPP-INVENTORY-SUMMARY-20261111", title: "精简客户代发库存摘要，保留下单与补购计算", status: "done", assignee: "Codex", evidence: "小程序真实组件回归；生产验收待完成"},
 		{table: "req_product", code: "PR-MINIAPP-CUSTOMER-ACCESS-20261111", title: "客户代发只读完整预览及可控账号密码登录", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-11-11-miniapp-customer-access.md；用户验收待完成"},
 		{table: "req_dev", code: "DEV-MINIAPP-ACCESS-PASSWORD", title: "ERP 管理员控制小程序密码入口并保留旧版兼容", status: "doing", assignee: "Codex", evidence: "默认关闭；开关审计；旧密码接口与会话兼容"},
 		{table: "req_dev", code: "DEV-MINIAPP-ACCESS-PREVIEW", title: "客户代发和补库存使用完整只读预览及客户隔离库存", status: "doing", assignee: "Codex", evidence: "只读 GET；禁止草稿、核价及业务写入"},

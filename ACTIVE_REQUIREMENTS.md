@@ -1,3 +1,9 @@
+### PR-MINIAPP-INVENTORY-SUMMARY-20261111
+
+- Branch: `codex/miniapp-inventory-summary-20261111`；DEV: `DEV-MINIAPP-INVENTORY-SUMMARY-20261111`。
+- Scope: 客户小程序代发库存摘要只显示现货可用与待入库已预订，保留库存计算及补购行为。
+- Status: 定向 RED/GREEN 36 项、小程序全量 527 项、类型检查及 support Go 测试通过；开发／正式部署进行中，用户验收待完成。
+
 ### PR-MINIAPP-CUSTOMER-ACCESS-20261111
 
 - Branch: `codex/miniapp-customer-access-repair-20261111`；DEV: `DEV-MINIAPP-ACCESS-PASSWORD`、`DEV-MINIAPP-ACCESS-PREVIEW`、`DEV-MINIAPP-ACCESS-DELIVERY`。
