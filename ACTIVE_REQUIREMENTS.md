@@ -1,3 +1,11 @@
+### PR-PRICE-LIST-COST-AVAILABILITY-20261111
+- Branch: `codex/price-list-cost-availability-fix-20261111`；Status: 测试通过，待集成及用户验收。
+- Scope: 修正历史规格工序成本档位误判，保留异常商品规格资料，纠正规格勾选警告和成本来源提示。
+- DEV: `DEV-PRICE-LIST-COST-QUERY-20261111`、`DEV-PRICE-LIST-SPEC-IDENTITY-20261111`、`DEV-PRICE-LIST-COST-VERIFY-20261111`。
+- Verifier: 定向 RED/GREEN、隔离 PostgreSQL、API、前端测试和构建；生产数据只读。
+- Evidence: `orderapp-remote/docs/acceptance/2026-11-11-price-list-cost-availability.md`。
+- Deployment: 不自动部署正式环境。
+
 ### PR-762-WORKSTATION-INLINE-BATCH
 - Branch: `codex/workstation-batch-inline-20261111`；Status: 已部署正式环境，用户验收待完成。
 - Scope: 工位任务直接展开全部批次，计划默认值、单批及原子完成全部。

@@ -744,6 +744,27 @@ func TestResolveBomMissingOperationSpeedIsUnavailable(t *testing.T) {
 	if !inputs[0].CostUnavailable {
 		t.Fatal("missing speed did not mark product cost unavailable")
 	}
+	warnings := strings.Join(inputs[0].Warnings, " ")
+	if !strings.Contains(warnings, "工序") || strings.Contains(warnings, "库存批次") {
+		t.Fatalf("operation cost warning misreported a material batch problem: %v", inputs[0].Warnings)
+	}
+}
+
+func TestUnavailableBomCostWarningsKeepMaterialAndOperationCauses(t *testing.T) {
+	cost := productionBomResolvedCost{ProductID: 1, VersionID: 101, UnresolvedIssues: []appcosting.PricingRuleTrialCostIssue{
+		{Code: "operation_cost_unavailable"},
+		{Code: "operation_cost_unavailable"},
+		{Code: "material_cost_unavailable"},
+	}}
+	inputs := applyResolvedProductionBomCosts([]domain.ProductInput{{ProductID: 1, BomCostPerUnit: 22, OperationCostPerUnit: 3, OperationCostPerKg: 4, GreenBeanCostPerKg: 10}}, map[int64]productionBomResolvedCost{1: cost})
+	got := inputs[0]
+	if !got.CostUnavailable || got.BomCostPerUnit != 0 || got.OperationCostPerUnit != 0 || got.OperationCostPerKg != 0 || got.GreenBeanCostPerKg != 0 {
+		t.Fatalf("unavailable costs remained priceable: %+v", got)
+	}
+	warnings := strings.Join(got.Warnings, " ")
+	if len(got.Warnings) != 2 || !strings.Contains(warnings, "工序") || !strings.Contains(warnings, "库存批次") {
+		t.Fatalf("unavailable warnings lost or duplicated their causes: %v", got.Warnings)
+	}
 }
 
 func TestUnknownCostIdentityRespectsSpecificVariant(t *testing.T) {

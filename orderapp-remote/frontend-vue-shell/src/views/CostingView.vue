@@ -620,8 +620,8 @@
                   <small v-if="isPdfProductSpecSelected(row, spec) && priceListProductSpecPricingWarning(row, spec)" class="product-spec-pricing-warning">
                     {{ priceListProductSpecPricingWarning(row, spec) }}
                   </small>
-                  <div v-if="priceListProductTierTemplateWarning(spec)" class="product-picker-tier-warning">
-                    <strong>{{ priceListProductTierTemplateWarning(spec) }}</strong>
+                  <div v-if="priceListProductTierTemplateWarning(row, spec)" class="product-picker-tier-warning">
+                    <strong>{{ priceListProductTierTemplateWarning(row, spec) }}</strong>
                   </div>
                 </div>
               </div>
@@ -2910,8 +2910,8 @@ function priceListTierTemplateCompatibilityForItem(item = {}, template = null) {
   return priceTierTemplateUnitCompatibility(item, template)
 }
 
-function priceListProductTierTemplateWarning(item = {}) {
-  if (!isPdfProductSelected(itemProductID(item))) return ''
+function priceListProductTierTemplateWarning(family = {}, item = {}) {
+  if (!isPdfProductSpecSelected(family, item)) return ''
   const resolved = priceListTemplateResolutionForItem(item)
   if (String(resolved.pricing_mode || '').trim() !== 'tier_template') return ''
   const template = priceTierTemplateByID(resolved.tier_template_id)

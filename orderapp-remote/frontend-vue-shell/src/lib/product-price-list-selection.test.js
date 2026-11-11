@@ -32,6 +32,23 @@ test('price-list spec label skips blank higher-priority fields before using the 
   )
 })
 
+test('BOM default is restored without replacing existing valid selections', () => {
+  const rows = [[71, '18g装袋'], [76, '454g袋装'], [219, '1KG袋装']].map(([id, label]) => ({
+    product_id: 52, parent_product_id: 52, bom_spec_id: id, bom_variant_id: id + 3000,
+    bom_id: 891, bom_version_id: 672, default_bom_spec_id: 76,
+    bom_spec_authoritative: true, migration_state: 'cutover', spec_label: label, name: '曲奇',
+  }))
+  const families = buildPriceListProductFamilies(rows)
+  assert.equal(families[0].default_sku_id, 76)
+  assert.equal(priceListProductSpecLabel(families[0].sku_options[0]), '454g袋装')
+  assert.equal(defaultPriceListProductSpecSelections(families)[0].sku_id, 76)
+  for (const skuID of [71, 219]) {
+    const result = normalizePriceListProductSpecSelections([{ parent_product_id: 52, sku_id: skuID, bom_spec_id: skuID, selection_source: 'explicit' }], families)
+    assert.equal(result[0].sku_id, skuID)
+    assert.equal(result[0].selection_issue, undefined)
+  }
+})
+
 const categoryRows = [
   {
     code: 'business-group-9-90',
