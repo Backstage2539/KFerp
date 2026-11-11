@@ -472,7 +472,11 @@ func buildManufacturingExpansionTx(ctx context.Context, tx pgx.Tx, schema string
 			if basisInventoryQty <= 0 {
 				return result, fmt.Errorf("%s 的冻结产出单位不兼容", item.OutputName)
 			}
-			run := ProduceRunRow{Product: item.OutputName, ProductID: outputID, SpecG: item.SpecG, NeedG: outputG, InputG: outputG, MaterialSnapshot: item.MaterialSnapshot}
+			calculationSnapshot, e := manufacturingOutputCalculationSnapshot(item.MaterialSnapshot)
+			if e != nil {
+				return result, e
+			}
+			run := ProduceRunRow{Product: item.OutputName, ProductID: outputID, SpecG: item.SpecG, NeedG: outputG, InputG: outputG, MaterialSnapshot: calculationSnapshot}
 			needs, ok, e := materialSnapshotNeedsTx(run, InvQty{Units: outputUnits, LooseG: outputG})
 			if e != nil {
 				return result, e
