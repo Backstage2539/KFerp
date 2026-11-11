@@ -2717,6 +2717,10 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 	if err := r.markUnknownLegacyBomCosts(ctx, out); err != nil {
 		return nil, err
 	}
+	if skipResolvedProductionBomCosts {
+		// Trial details resolve costs separately; an unloaded graph is not a failed resolution.
+		return out, nil
+	}
 	return applyResolvedProductionBomCosts(out, resolvedBomCosts), nil
 }
 
