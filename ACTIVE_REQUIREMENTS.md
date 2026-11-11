@@ -1,3 +1,10 @@
+### PR-759-SEMI-FINISHED-STOCK-SELECTION
+- Branch: `codex/semi-finished-stock-selection`；Owner: Codex；Status: 技术验证通过，待集成、开发部署及用户验收。
+- Scope: 订单计划手动选择半成品批次、预览并重算生产和产能，保留历史草稿及批次追溯。
+- DEV: `DEV-PR759-01` 供应策略、预览与重算；`DEV-PR759-02` 批次、库存与工单一致性；`DEV-PR759-03` 物料及产能页面；`DEV-PR759-04` 验证、手册与交付。
+- Verifier: 前端 1917 项及构建、无数据库 Go 全量、隔离数据库关键 API、库存/调拨及并发测试通过；生产接口全量分组的既有失败与基线逐项对照，详见验收文档。部署前合并最新 develop 并复验。
+- Deployment: 未部署；Van 验收待完成。
+
 ### PR-MINIAPP-PREVIEW-DROPSHIP-20261111
 
 - Scope: 管理员只读预览按所选客户已开通场景显示「一件代发」「无库存代发」入口，查看客户商品、规格和收件地址；不可下单、修改地址或读取/覆盖客户草稿。

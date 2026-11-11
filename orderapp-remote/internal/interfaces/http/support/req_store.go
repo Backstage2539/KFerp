@@ -270,6 +270,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-759-SEMI-FINISHED-STOCK-SELECTION", title: "生产计划选择半成品库存并调整产能", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-11-semi-finished-stock-selection.md；用户验收待完成"},
+		{table: "req_dev", code: "DEV-PR759-01", title: "半成品库存策略、预览与生产重算", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR759-02", title: "选定批次的调拨、在制仓与工单一致性", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR759-03", title: "物料准备及产能安排库存选择", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR759-04", title: "测试、操作手册及开发环境验收", status: "doing", assignee: "Codex"},
 		{table: "req_product", code: "PR-MINIAPP-PREVIEW-DROPSHIP-20261111", title: "客户只读预览显示已开通的一件代发入口", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-11-miniapp-preview-dropship.md；用户验收待完成"},
 		{table: "req_dev", code: "DEV-MINIAPP-PREVIEW-DROPSHIP-UI", title: "按客户能力显示代发入口及只读查看", status: "review", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-MINIAPP-PREVIEW-DROPSHIP-ACCESS", title: "代发只读接口隔离与业务写入限制", status: "review", assignee: "Codex"},

@@ -301,6 +301,7 @@ func (r Repository) executePlanMaterialTransfers(ctx context.Context, cmd app.Pl
 	usedBatchG := map[string]int64{}
 	usedBatchUnits := map[string]int64{}
 	pendingBatch := map[string][2]int64{}
+	usedSelectedSourceBatch := map[string][2]int64{}
 	stockRepo := stockpg.NewRepository(r.pool, r.schema)
 	// Lock every physical identity before reading availability, matching stock posting's lock order.
 	lockItems := []stock.StockDocumentItemRow{}
@@ -357,6 +358,19 @@ func (r Repository) executePlanMaterialTransfers(ctx context.Context, cmd app.Pl
 			}
 			if candidate == nil {
 				return app.PlanMaterialTransferResult{}, fmt.Errorf("来源批次不可调拨，请重新核对")
+			}
+			if source.AllocationMode == "semi_finished_selected" {
+				key := fmt.Sprintf("%d:%s:%d:%s", choice.SourceID, choice.Warehouse, choice.OwnerCustomerID, batch.BatchCode)
+				used := usedSelectedSourceBatch[key]
+				var pendingG, pendingN int64
+				err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(i.qty_g),0),COALESCE(SUM(i.qty_units),0) FROM %[1]s.production_plan_material_transfer_links l JOIN %[1]s.stock_entries e ON e.id=l.stock_entry_id AND e.status='draft' JOIN %[1]s.stock_entry_items i ON i.id=l.stock_entry_item_id WHERE l.production_plan_id=$1 AND l.component_source_id=$2 AND i.from_warehouse=$3 AND i.owner_customer_id=$4 AND i.batch_code=$5`, r.schema), cmd.ProductionPlanID, choice.SourceID, choice.Warehouse, choice.OwnerCustomerID, batch.BatchCode).Scan(&pendingG, &pendingN)
+				if err != nil {
+					return app.PlanMaterialTransferResult{}, err
+				}
+				if err = validateSelectedSemiFinishedTransfer(source, choice.Warehouse, choice.OwnerCustomerID, batch.BatchCode, batch.QtyG, batch.QtyUnits, used[0]+pendingG, used[1]+pendingN); err != nil {
+					return app.PlanMaterialTransferResult{}, err
+				}
+				usedSelectedSourceBatch[key] = [2]int64{used[0] + batch.QtyG, used[1] + batch.QtyUnits}
 			}
 			key := fmt.Sprintf("%s:%s:%d:%d:%d:%d:%d:%s", choice.Warehouse, kind, source.ComponentID, source.ComponentBOMSpecID, source.ComponentBOMVariantID, source.ComponentSpecG, choice.OwnerCustomerID, batch.BatchCode)
 			pending, found := pendingBatch[key]
