@@ -420,7 +420,11 @@ func loadDefaultManufacturingOutputBOMsForPlanningTx(ctx context.Context, tx pgx
 		if outputQty <= 0 {
 			return nil, nil, nil, fmt.Errorf("BOM output unit incompatible with inventory unit: %s", basis.OutputName)
 		}
-		run := ProduceRunRow{Product: basis.OutputName, ProductID: basis.OutputID, SpecG: basis.OutputSpecG, NeedG: outputG, InputG: outputG, MaterialSnapshot: basis.Snapshot}
+		calculationSnapshot, err := manufacturingOutputCalculationSnapshot(basis.Snapshot)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		run := ProduceRunRow{Product: basis.OutputName, ProductID: basis.OutputID, SpecG: basis.OutputSpecG, NeedG: outputG, InputG: outputG, MaterialSnapshot: calculationSnapshot}
 		needs, ok, err := materialSnapshotNeedsTx(run, InvQty{Units: outputUnits, LooseG: outputG})
 		if err != nil || !ok {
 			if err == nil {
@@ -478,7 +482,11 @@ func canonicalOutputBasis(qty float64, unit string) (int64, int64) {
 
 func insertManufacturingOutputProductionPlanItemTx(ctx context.Context, tx pgx.Tx, schema string, planID int64, basis manufacturingOutputBOMPlanBasis, outputQty float64, roots []productionapp.ProductionPlanItem) (productionapp.ProductionPlanItem, error) {
 	outputG, outputUnits := canonicalFromManufacturingQty(outputQty, basis.InventoryUnit)
-	run := ProduceRunRow{Product: basis.OutputName, ProductID: basis.OutputID, SpecG: basis.OutputSpecG, NeedG: outputG, InputG: outputG, MaterialSnapshot: basis.Snapshot}
+	calculationSnapshot, err := manufacturingOutputCalculationSnapshot(basis.Snapshot)
+	if err != nil {
+		return productionapp.ProductionPlanItem{}, err
+	}
+	run := ProduceRunRow{Product: basis.OutputName, ProductID: basis.OutputID, SpecG: basis.OutputSpecG, NeedG: outputG, InputG: outputG, MaterialSnapshot: calculationSnapshot}
 	needs, ok, err := materialSnapshotNeedsTx(run, InvQty{Units: outputUnits, LooseG: outputG})
 	if err != nil {
 		return productionapp.ProductionPlanItem{}, err
@@ -595,6 +603,24 @@ func insertManufacturingOutputProductionPlanItemTx(ctx context.Context, tx pgx.T
 	item.CustomerProductSnapshotJSON = "[]"
 	item.TargetWarehouse = targetWarehouse
 	return item, nil
+}
+
+// When starting from an output quantity, loss has not yet been included in
+// InputG. Clear the flag only in this temporary calculation snapshot; the
+// persisted execution snapshot continues to mark the calculated input as gross.
+func manufacturingOutputCalculationSnapshot(raw string) (string, error) {
+	var rows []materialSnapshotRow
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &rows); err != nil {
+		return "", err
+	}
+	for i := range rows {
+		rows[i].InputIncludesMaterialLoss = false
+	}
+	result, err := json.Marshal(rows)
+	if err != nil {
+		return "", err
+	}
+	return string(result), nil
 }
 
 // The upstream item's PlannedG already includes BOM loss. Freeze that fact so
