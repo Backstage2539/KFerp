@@ -1,7 +1,7 @@
-### PR-761-WORKSTATION-BATCH-WIP- Branch: `codex/semi-finished-direct-wip-20261111`；Status: 隔离验证通过，集成与发布进行中，用户验收待完成。
+### PR-761-WORKSTATION-BATCH-WIP- Branch: `codex/semi-finished-direct-wip-20261111`；Status: 已部署正式环境，用户验收待完成。
 - DEV: `DEV-PR761-01` 逐批事务；`DEV-PR761-02` 补料草稿和确认；`DEV-PR761-03` 工位页面和产能口径；`DEV-PR761-04` 手册、验证及交付。
 - Verifier: RED/GREEN；隔离数据库及 HTTP 验证批次、库存、成本、幂等、权限、回滚及补料到逐批完成；前端 1935 项、构建和桌面/窄屏模拟页面通过。生产业务数据仅只读检查。
-- Deployment: 未合并、未部署。
+- Deployment: develop `070a329165aa0ab804e45328575691521d7d2132`；正式运行 `9f7f58a4710943bd091f3a1fbff8b9e494627130`，服务运行、数据库健康、工位资源公网与容器一致；保留原小程序包。回滚与验收证据见 `orderapp-remote/docs/acceptance/2026-11-11-workstation-batch-wip.md`。
 
 ### PR-760-SEMI-FINISHED-DIRECT-WIP
 
