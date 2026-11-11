@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	messages "orderapp/internal/application/messagecenter"
+	app "orderapp/internal/application/officialaccount"
 	"regexp"
 	"strconv"
 	"strings"
@@ -218,8 +219,9 @@ func (w *WechatClient) Subscribed(ctx context.Context, openid string) (bool, err
 func ProviderID(id int64) string { return strconv.FormatInt(id, 10) }
 
 func (w *WechatClient) NotificationQRCode(ctx context.Context, challenge string) (string, error) {
-	if len(challenge) != 64 {
-		return "", errors.New("invalid binding challenge")
+	scene, err := app.NotificationScene(challenge)
+	if err != nil {
+		return "", err
 	}
 	token, err := w.accessToken(ctx)
 	if err != nil {
@@ -228,7 +230,7 @@ func (w *WechatClient) NotificationQRCode(ctx context.Context, challenge string)
 	var out struct {
 		Ticket string `json:"ticket"`
 	}
-	err = w.call(ctx, "/cgi-bin/qrcode/create", url.Values{"access_token": {token}}, map[string]any{"expire_seconds": 300, "action_name": "QR_STR_SCENE", "action_info": map[string]any{"scene": map[string]string{"scene_str": "notify_" + challenge}}}, &out)
+	err = w.call(ctx, "/cgi-bin/qrcode/create", url.Values{"access_token": {token}}, map[string]any{"expire_seconds": 300, "action_name": "QR_STR_SCENE", "action_info": map[string]any{"scene": map[string]string{"scene_str": scene}}}, &out)
 	if err != nil {
 		return "", err
 	}

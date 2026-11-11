@@ -1,6 +1,6 @@
 <script setup>
 import {ref,onMounted,watch} from 'vue'
-import {fetchOrderNotifications,saveOrderNotifications,fetchOrderNotificationTemplates,testOrderNotification,retryOrderNotification,confirmOrderNotification,verifyBusinessNotificationTest,addNotificationDevice,revokeNotificationDevice} from '../api/message-center.js'
+import {fetchOrderNotifications,saveOrderNotifications,fetchOrderNotificationTemplates,testOrderNotification,retryOrderNotification,confirmOrderNotification,verifyBusinessNotificationTest,addNotificationDevice,revokeNotificationDevice,requestNotificationReselection} from '../api/message-center.js'
 import {notificationEvents,officialTestEvents,officialConfigEvents,noticeSources,templateFields,statusLabel,canRetry,canVerifyBusinessTest,normalizeNoticeConfig,approvedEnumValues} from '../lib/order-notifications.js'
 const cfg=ref({events:[],templates:{}}),devices=ref([]),deliveries=ref([]),failures=ref([]),templates=ref([]),busy=ref(false),error=ref(''),message=ref(''),ready=ref(false),pair=ref('')
 const name=ref('生产通知 Mac'),group=ref(''),testChannel=ref('wechat_service_account'),mini=ref(''),device=ref(0),event=ref('created'),testStatus=ref('已发货'),testDetailID=ref('')
@@ -9,6 +9,7 @@ watch(testChannel,()=>{if(testChannel.value==='wechat_desktop'&&!notificationEve
 async function run(fn){if(busy.value)return;busy.value=true;error.value='';message.value='';try{await fn()}catch(e){error.value=e.message||'操作失败'}finally{busy.value=false}}
 function chooseTemplate(key){const mapping=cfg.value.templates[key];const t=templates.value.find(t=>t.template_id===mapping.id);mapping.approved_enums={};mapping.fields=t?Object.fromEntries(templateFields(t.content).map(f=>[f,''])):{}}
 async function save(){await saveOrderNotifications(cfg.value);await load();message.value='通知设置已保存。启用后仅发送新变化。'}
+async function requestReselection(){if(!window.confirm('提醒所有已登录的小程序用户重新选择通知？这不会修改用户现有的通知选择。'))return;await requestNotificationReselection();message.value='已安排提醒，用户下次进入小程序时可重新选择通知。'}
 async function test(){await testOrderNotification({event:event.value,channel:testChannel.value,mini_user_id:Number(mini.value),device_id:Number(device.value),...(event.value==='shipment_created'?{status_value:testStatus.value}:{}),...(testDetailID.value&&['order_accepted','shipment_created','receipt_received','bill_issued'].includes(event.value)?{detail_id:Number(testDetailID.value)}:{})});await load();message.value='测试已排队，请刷新查看回执并核对微信中的消息。'}
 async function pairDevice(){const v=await addNotificationDevice({name:name.value,group_name:group.value});pair.value=v.token;await load();message.value='配对凭据仅显示一次，请在专用 Mac 中保存。'}
 async function resolve(d,alreadySent){if(!window.confirm(alreadySent?'已在微信核对这条完整通知确实存在？这将解除暂停，不会补发。':'已核对微信中没有这条通知？确认后会再次发送。'))return;await(alreadySent?confirmOrderNotification(d.id):retryOrderNotification(d.id,true));await load()}
@@ -19,6 +20,7 @@ onMounted(()=>run(load))
 <section class="external-notices">
  <header><div><h3>订单微信通知</h3><p>六类状态变化 · 客户与相关员工服务号 · 公司生产群</p></div><button :disabled="busy" @click="run(load)">刷新记录</button></header>
  <p>服务号接收人须在小程序“我的 → 订单通知”中关注、绑定并开启通知。生产群使用专用 Mac，完成六类实测后才可启用。</p>
+ <p>需要用户重新确认通知类型时，可以发起提醒；原有选择会保留，用户可自行调整或关闭。</p><button type="button" :disabled="busy" @click="run(requestReselection)">提醒用户重新选择通知</button>
  <div class="message" role="status">{{message}}</div><div v-if="error" class="error" role="alert">{{error}}</div>
  <form @submit.prevent="run(save)">
   <div class="channels"><label><input type="checkbox" v-model="cfg.official_enabled" :disabled="!ready">服务号自动发送</label><span v-if="!ready">服务号尚未配置</span><label><input type="checkbox" v-model="cfg.desktop_enabled">生产群自动发送</label><select v-model.number="cfg.desktop_id"><option :value="0">选择生产群设备</option><option v-for="d in devices.filter(d=>d.enabled)" :value="d.id" :key="d.id">{{d.name}} / {{d.group_name}} / {{d.verified?'已完成实测':'未完成实测'}}</option></select></div>

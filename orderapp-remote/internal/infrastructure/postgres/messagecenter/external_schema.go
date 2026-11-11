@@ -45,6 +45,12 @@ func EnsureExternalSchema(ctx context.Context, p *pgxpool.Pool, s string) error 
  CREATE TABLE IF NOT EXISTS %[1]s.message_notification_oauth(
  state_hash TEXT PRIMARY KEY,mini_user_id BIGINT NOT NULL,employee_id BIGINT NOT NULL DEFAULT 0,customer_id BIGINT NOT NULL DEFAULT 0,
  expires_at TIMESTAMPTZ NOT NULL,consumed_at TIMESTAMPTZ,app_id TEXT NOT NULL DEFAULT '',openid TEXT NOT NULL DEFAULT '');
+ ALTER TABLE %[1]s.message_notification_oauth ADD COLUMN IF NOT EXISTS scan_event_time BIGINT NOT NULL DEFAULT 0;
+ CREATE TABLE IF NOT EXISTS %[1]s.message_notification_subscription_events(app_id TEXT NOT NULL,openid TEXT NOT NULL,last_unsubscribe BIGINT NOT NULL DEFAULT 0,PRIMARY KEY(app_id,openid));
+ CREATE TABLE IF NOT EXISTS %[1]s.message_notification_prompt_settings(id INT PRIMARY KEY CHECK(id=1),version BIGINT NOT NULL DEFAULT 1);
+ INSERT INTO %[1]s.message_notification_prompt_settings(id) VALUES(1) ON CONFLICT DO NOTHING;
+ CREATE TABLE IF NOT EXISTS %[1]s.message_notification_choices(app_id TEXT NOT NULL,mini_user_id BIGINT NOT NULL,customer_id BIGINT NOT NULL,employee_id BIGINT NOT NULL,
+ version BIGINT NOT NULL,enabled BOOLEAN NOT NULL,events JSONB NOT NULL,updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),PRIMARY KEY(app_id,mini_user_id,customer_id,employee_id));
  CREATE OR REPLACE FUNCTION %[1]s.message_order_state(row_data JSONB) RETURNS JSONB LANGUAGE sql STABLE AS $fn$
  SELECT jsonb_build_object('payment',COALESCE((SELECT name FROM %[1]s.pay_statuses WHERE id=(row_data->>'pay_status_id')::bigint),''),
  'shipping',COALESCE((SELECT name FROM %[1]s.ship_statuses WHERE id=(row_data->>'ship_status_id')::bigint),''),
