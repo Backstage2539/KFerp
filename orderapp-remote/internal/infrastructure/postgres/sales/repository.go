@@ -21,6 +21,7 @@ import (
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"orderapp/internal/infrastructure/postgres/orderbeans"
 	resolutionpg "orderapp/internal/infrastructure/postgres/orderresolution"
+	"orderapp/internal/infrastructure/postgres/receipts"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -1525,6 +1526,32 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 	}
 	if cmd.CustomerRequestID != "" {
+		if cmd.EditID == 0 {
+			if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "order-create-global:"+cmd.CustomerRequestID); err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+			var cancelled bool
+			if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.order_create_request_cancellations WHERE request_id=$1)`, r.schema), cmd.CustomerRequestID).Scan(&cancelled); err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+			if cancelled {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("该录单请求已解除，不能再次提交")
+			}
+			var previous salesapp.SaveOrderResult
+			var oldActor, oldHash string
+			var oldCustomer int64
+			err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT k.order_id,k.customer_id,k.actor,k.request_hash,o.order_no,COALESCE(to_jsonb(o)->>'confirmation_status','accepted'),k.receipt_warning FROM %s.order_create_idempotency_keys k JOIN %s.orders o ON o.id=k.order_id WHERE k.request_id=$1`, r.schema, r.schema), cmd.CustomerRequestID).Scan(&previous.OrderID, &oldCustomer, &oldActor, &oldHash, &previous.OrderNo, &previous.ConfirmationStatus, &previous.ReceiptWarning)
+			if err == nil {
+				if oldCustomer != cmd.CustomerID || oldActor != cmd.Actor || oldHash != cmd.CustomerRequestHash {
+					return salesapp.SaveOrderResult{}, fmt.Errorf("录单请求标识已用于其他内容，请核对原请求")
+				}
+				previous.Replayed = true
+				return previous, nil
+			}
+			if err != pgx.ErrNoRows {
+				return salesapp.SaveOrderResult{}, err
+			}
+		}
 		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", fmt.Sprintf("customer-order:%d:%s", cmd.CustomerID, cmd.CustomerRequestID)); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
@@ -1553,6 +1580,17 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			return previous, nil
 		}
 		if err != pgx.ErrNoRows {
+			return salesapp.SaveOrderResult{}, err
+		}
+	}
+	if cmd.EditID == 0 && !cmd.CustomerSubmission && !cmd.BackfillMode && cmd.AmendmentID == 0 {
+		if err = validateInitialOrderReceiptDate(cmd.ReceiptDate); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, r.schema+":finance-period"); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+		if err = receipts.EnsureDateOpenTx(ctx, tx, r.schema, cmd.ReceiptDate); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
 	}
@@ -2748,6 +2786,19 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	grand0 := totalAmt + shippingAmt - discountAmt + outsourceTotal
 	grandTotal, roundingAmt := applyRoundToInt(grand0, roundToInt)
 
+	// Reject an explicit first-confirmation receipt before the freight helper
+	// can rewrite payment fields, then let that helper normalize old orders.
+	if cmd.RequireConfirmation && ((cmd.PrepaymentAmount != nil && *cmd.PrepaymentAmount > 0) || cmd.PaymentGoodsAmount > 0 || cmd.PaymentShippingAmount > 0) {
+		var accepted int64
+		if editID > 0 {
+			if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE((to_jsonb(o)->>'confirmation_accepted_revision')::bigint,0) FROM %s.orders o WHERE id=$1`, r.schema), editID).Scan(&accepted); err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+		}
+		if accepted == 0 {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("待首次确认订单不能登记收款；请先提交未收款订单，确认后逐笔登记实际到账")
+		}
+	}
 	if cmd.EditID > 0 && (freightSnapshot != nil || storedFreight != nil) {
 		if e := protectFreightReceiptsTx(ctx, tx, r.schema, cmd.EditID, &cmd, shippingAmt, grandTotal); e != nil {
 			return salesapp.SaveOrderResult{}, e
@@ -2767,6 +2818,17 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if cmd.PrepaymentAmount != nil {
 		prepayment = *cmd.PrepaymentAmount
 	}
+	if cmd.RequireConfirmation && (prepayment > 0 || cmd.PaymentGoodsAmount > 0 || cmd.PaymentShippingAmount > 0) {
+		var accepted int64
+		if editID > 0 {
+			if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE((to_jsonb(o)->>'confirmation_accepted_revision')::bigint,0) FROM %s.orders o WHERE id=$1`, r.schema), editID).Scan(&accepted); err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+		}
+		if accepted == 0 {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("待首次确认订单不能登记收款；请先提交未收款订单，确认后逐笔登记实际到账")
+		}
+	}
 	settlementReason, payStatusID, err := r.resolveSampleSettlementTx(ctx, tx, &cmd, allowFreeSamplePrice || sampleEdit, totalAmt, shippingAmt, outsourceTotal, grandTotal, payStatusID, prepayment)
 	if err != nil {
 		return salesapp.SaveOrderResult{}, err
@@ -2780,6 +2842,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 	if err := salesdomain.ValidatePrepayment(paymentStatus, prepayment, grandTotal); err != nil {
 		return salesapp.SaveOrderResult{}, err
+	}
+	if editID == 0 && !cmd.CustomerSubmission && !cmd.BackfillMode && !cmd.RequireConfirmation && cmd.AmendmentID == 0 && settlementReason != "free_sample" && cmd.ReceiptDate != "" && (prepayment > 0 || cmd.PaymentGoodsAmount > 0 || cmd.PaymentShippingAmount > 0) {
+		if _, valid := initialOrderReceiptConsistent(paymentStatus, grandTotal, shippingAmt, prepayment, cmd.PaymentGoodsAmount, cmd.PaymentShippingAmount); !valid {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("实际收款、货款及运费分项和付款状态不一致，请核对")
+		}
 	}
 	paymentMethod := ""
 	if settlementReason != "free_sample" {
@@ -3346,6 +3413,33 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if _, err := tx.Exec(ctx, fmt.Sprintf("UPDATE %s.orders SET customer_request_id=$2,customer_request_hash=$3 WHERE id=$1", r.schema), orderID, cmd.CustomerRequestID, cmd.CustomerRequestHash); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
+		if editID == 0 {
+			if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.order_create_idempotency_keys(request_id,actor,customer_id,request_hash,order_id) VALUES($1,$2,$3,$4,$5)`, r.schema), cmd.CustomerRequestID, cmd.Actor, cmd.CustomerID, cmd.CustomerRequestHash, orderID); err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+		}
+	}
+	receiptWarning := ""
+	if editID == 0 && !cmd.CustomerSubmission && !cmd.BackfillMode && !cmd.RequireConfirmation && cmd.AmendmentID == 0 && settlementReason != "free_sample" {
+		actual, valid := initialOrderReceiptConsistent(paymentStatus, grandTotal, shippingAmt, prepayment, cmd.PaymentGoodsAmount, cmd.PaymentShippingAmount)
+		if valid && strings.TrimSpace(paymentMethod) != "" && cmd.CustomerRequestID != "" {
+			receivable := int64(math.Round(grandTotal * 100))
+			if receivable <= 0 || actual > receivable {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("初始收款金额超过订单应收，请核对")
+			}
+			if err = recordInitialOrderReceipt(ctx, tx, r.schema, orderID, cmd.CustomerID, orderNo, paymentMethod, cmd.Actor, cmd.ReceiptDate, cmd.PaymentVoucherAssetID, actual, receivable); err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+		} else if cmd.ReceiptDate != "" && !valid && (prepayment > 0 || cmd.PaymentGoodsAmount > 0 || cmd.PaymentShippingAmount > 0) {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("初始收款金额或付款方式不明确，请核对")
+		} else if prepayment > 0 || cmd.PaymentGoodsAmount > 0 || cmd.PaymentShippingAmount > 0 {
+			receiptWarning = "本次录单未生成逐笔收款单或到账通知，请由财务核对；不要重复登记已计入的款项"
+		}
+	}
+	if editID == 0 && cmd.CustomerRequestID != "" && receiptWarning != "" {
+		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.order_create_idempotency_keys SET receipt_warning=$2 WHERE request_id=$1`, r.schema), cmd.CustomerRequestID, receiptWarning); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
 	}
 	if editID == 0 && !cmd.RequireConfirmation {
 		if err := recordOrderBusinessNotice(ctx, tx, r.schema, "order_accepted", fmt.Sprintf("order_accepted:%d", orderID), orderID, ""); err != nil {
@@ -3362,7 +3456,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if cmd.RequireConfirmation {
 		confirmationStatus = "pending"
 	}
-	return salesapp.SaveOrderResult{ConfirmationStatus: confirmationStatus, OrderID: orderID, OrderNo: orderNo, Edited: editID > 0, StockBatchUsed: !cmd.RequireConfirmation && stockDecision == "use_batch"}, nil
+	return salesapp.SaveOrderResult{ConfirmationStatus: confirmationStatus, OrderID: orderID, OrderNo: orderNo, Edited: editID > 0, StockBatchUsed: !cmd.RequireConfirmation && stockDecision == "use_batch", ReceiptWarning: receiptWarning}, nil
 
 }
 

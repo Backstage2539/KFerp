@@ -16,6 +16,7 @@ type CreateOrderRequest struct {
 	DeliveryWarehouseCode           string                  `form:"delivery_warehouse_code"`
 	SpecConversion                  []string                `form:"spec_conversion[]"`
 	PrepaymentAmount                *string                 `json:"prepayment_amount" form:"prepayment_amount"`
+	ReceiptDate                     string                  `json:"receipt_date" form:"receipt_date"`
 	DocumentDate                    string                  `form:"document_date"`
 	OrderDate                       string                  `form:"order_date"`
 	CustomerID                      int64                   `form:"customer_id"`
