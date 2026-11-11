@@ -6571,6 +6571,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - GREEN: frontend tests 1681/1681, frontend build, full backend, stock API, and local browser fixture. Production observed read-only; no production stock document or business data changed. Development/production deployment not performed.
 
 ### PR-750-ORDER-WECHAT-NOTIFICATIONS
+- Van 明确选择解除账号 90 并改绑 285；生产 ERP 显示账号 90 已解绑，公众号订单查询停止。账号 285 的手机确认及通知偏好尚待完成，不能记为改绑成功。
 - 生产实测：账号 285 扫码的微信已绑定账号 90，未改动该绑定；向账号 90 发送四类虚拟测试，微信回执均 success，Van 确认四条均收到并看到测试字样，点开一条可进入小程序订单通知页。这些测试未绑定具体单据，不能作为详情验收或账号 285 绑定通过；群控件仍不可读，自动发送保持关闭。
 - 2026-11-11 生产测试跟进：Van 确认服务号回调指向生产并要求使用生产小程序实测；生产四模板及已审接单/发货状态已保存，自动发送仍关闭。账号 285 未通过绑定、关注及通知设置校验，首次到账虚拟测试被拦截、未发送；真实送达和群实测尚未完成。固定虚拟内容可能与所选详情不一致，须修复或核对后才能确认通过。
 - 2026-11-11 最新现场跟进：Van 确认“已接单”“已发货”状态值审核通过，开发环境已分别保存这两个已审核值；“部分发货”仍待审核及单独实测，不能视为已发货。开发小程序账号 168 仍待完成服务号绑定；“口加生产”微信群的聊天控件目前不可读，服务号和群真实发送及回读验收均未完成。Van 要求提交下单、生产开始、生产完成、取消四类服务号模板暂缓，列为 TODO；不得将这些缺项记为已交付。PR/DEV 继续保持 doing。
