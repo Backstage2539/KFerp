@@ -18,7 +18,7 @@
 ## 待补证据
 
 - 定向 RED/GREEN：覆盖规格身份匹配、继承、草稿恢复、规则指纹和客户选品错误处理。
-- 功能分支合并 develop 后执行 `scripts/verify_kferp.sh all` 通过：Go 全量、前端 1976 项及构建通过。
+- 功能分支合并 develop 并补充代发、导出修复后执行 `scripts/verify_kferp.sh all` 通过：Go 全量、前端 1978 项及构建通过。
 - 隔离 PostgreSQL：计价组事务、并发、单表与批量发布、规则变更阻断及三规格代发价格读取通过。
 - 隔离 PostgreSQL：100g、227g 和 454g 使用各自物料和包装成本的测试通过。
 - Chrome 模拟 API：已检查导航、组选规格及异常阻断；真实业务端到端验收待完成。
