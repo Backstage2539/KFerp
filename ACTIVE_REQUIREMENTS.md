@@ -1,3 +1,9 @@
+### PR-MINIAPP-PREVIEW-DROPSHIP-20261111
+
+- Scope: 管理员只读预览按所选客户已开通场景显示「一件代发」「无库存代发」入口，查看客户商品、规格和收件地址；不可下单、修改地址或读取/覆盖客户草稿。
+- Branch: `codex/customer-preview-dropship-20261111`；DEV: `DEV-MINIAPP-PREVIEW-DROPSHIP-UI`、`DEV-MINIAPP-PREVIEW-DROPSHIP-ACCESS`。
+- Verification: 针对页面及接口进行 RED/GREEN、客户归属和写操作拒绝验证；用户业务验收待完成。
+
 ### PR-758-UPSTREAM-WAIT
 - Branch: `codex/production-upstream-preparation-20261111`; base: `origin/develop`.
 - Scope: 物料准备区区分前道待生产与需现货调拨的数量，并核对单项及批量调拨保护。
