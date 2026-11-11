@@ -3,6 +3,7 @@ package production
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 )
 
@@ -56,18 +57,24 @@ type ManufacturingDemand struct {
 }
 
 type ManufacturingBOMComponent struct {
-	Item     ManufacturingItemRef `json:"item"`
-	Qty      float64              `json:"qty"`
-	Fixed    bool                 `json:"fixed"`
-	LossRate float64              `json:"loss_rate"`
+	Item        ManufacturingItemRef `json:"item"`
+	Qty         float64              `json:"qty"`
+	Fixed       bool                 `json:"fixed"`
+	LossRate    float64              `json:"loss_rate"`
+	GramFactor  float64              `json:"-"`
+	RatioWeight float64              `json:"-"`
 }
 
 type ManufacturingBOM struct {
-	VersionID     int64                       `json:"version_id"`
-	Output        ManufacturingItemRef        `json:"output"`
-	OutputQty     float64                     `json:"output_qty"`
-	OperationCost float64                     `json:"operation_cost"`
-	Components    []ManufacturingBOMComponent `json:"components"`
+	VersionID        int64                       `json:"version_id"`
+	Output           ManufacturingItemRef        `json:"output"`
+	OutputQty        float64                     `json:"output_qty"`
+	OperationCost    float64                     `json:"operation_cost"`
+	Components       []ManufacturingBOMComponent `json:"components"`
+	GrossRatioGrams  bool                        `json:"-"`
+	OutputGramFactor float64                     `json:"-"`
+	OutputBasisGrams float64                     `json:"-"`
+	GrossLossFactor  float64                     `json:"-"`
 }
 
 type ManufacturingPlanNode struct {
@@ -210,8 +217,19 @@ func (b *manufacturingPlanBuilder) expand(outputKey string, bom ManufacturingBOM
 	defer delete(b.path, outputKey)
 
 	factor := manufactureQty / bom.OutputQty
-	for _, component := range bom.Components {
+	var grossAllocations []float64
+	if bom.GrossRatioGrams {
+		var err error
+		grossAllocations, err = manufacturingGrossRatioAllocations(bom, manufactureQty)
+		if err != nil {
+			return err
+		}
+	}
+	for componentIndex, component := range bom.Components {
 		required := normalizeManufacturingQty(manufacturingComponentGrossQty(component) * factor)
+		if grossAllocations != nil {
+			required = grossAllocations[componentIndex]
+		}
 		if required <= 0 {
 			continue
 		}
@@ -326,4 +344,52 @@ func manufacturingComponentGrossQty(component ManufacturingBOMComponent) float64
 		return component.Qty
 	}
 	return component.Qty / (1 - component.LossRate)
+}
+
+// A marked gross-ratio BOM first calculates the total planned input in grams,
+// then allocates whole grams by largest remainder. In particular it never
+// rounds a one-kilogram reference recipe before scaling to real demand.
+func manufacturingGrossRatioAllocations(bom ManufacturingBOM, qty float64) ([]float64, error) {
+	if bom.OutputGramFactor <= 0 || bom.OutputBasisGrams <= 0 || bom.GrossLossFactor <= 0 || len(bom.Components) == 0 {
+		return nil, fmt.Errorf("比例配方的重量单位无效")
+	}
+	outputGrams := math.Ceil(qty*bom.OutputGramFactor - 1e-8)
+	if outputGrams < 0 || outputGrams >= 1<<53 {
+		return nil, fmt.Errorf("比例配方的产出数量无效")
+	}
+	weights := make([]float64, len(bom.Components))
+	var sum float64
+	for i, c := range bom.Components {
+		if c.GramFactor <= 0 || c.Qty <= 0 || c.RatioWeight <= 0 || c.LossRate != 0 || c.Fixed {
+			return nil, fmt.Errorf("比例配方的原料数量无效")
+		}
+		weights[i] = c.RatioWeight
+		sum += weights[i]
+	}
+	gross := math.Ceil(outputGrams*bom.GrossLossFactor - 1e-8)
+	if gross < 0 || gross >= 1<<53 {
+		return nil, fmt.Errorf("比例配方的投入数量超出范围")
+	}
+	type remainder struct {
+		i     int
+		value float64
+	}
+	allocated := make([]int64, len(weights))
+	fractions := make([]remainder, len(weights))
+	var used int64
+	for i, w := range weights {
+		exact := gross * w / sum
+		allocated[i] = int64(math.Floor(exact))
+		used += allocated[i]
+		fractions[i] = remainder{i, exact - float64(allocated[i])}
+	}
+	sort.SliceStable(fractions, func(i, j int) bool { return fractions[i].value > fractions[j].value })
+	for i := int64(0); i < int64(gross)-used; i++ {
+		allocated[fractions[i%int64(len(fractions))].i]++
+	}
+	out := make([]float64, len(weights))
+	for i, n := range allocated {
+		out[i] = float64(n) / bom.Components[i].GramFactor
+	}
+	return out, nil
 }

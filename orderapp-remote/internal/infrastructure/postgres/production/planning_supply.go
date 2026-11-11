@@ -502,6 +502,7 @@ func buildManufacturingExpansionTx(ctx context.Context, tx pgx.Tx, schema string
 			basis := manufacturingOutputBOMPlanBasis{VersionID: item.BomVersionID, OutputType: typ, OutputID: outputID, BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID, OutputName: item.OutputName, InventoryUnit: item.OutputUnit, OutputSpecG: item.SpecG, OutputQty: basisQty, OutputUnit: basisUnit, ProcessRouteID: item.ProcessRouteID, FrozenProcessRouteSnapshot: item.ProcessSnapshotJSON, Snapshot: item.MaterialSnapshot}
 			bases[key] = basis
 			bom := domain.ManufacturingBOM{VersionID: item.BomVersionID, Output: ref, OutputQty: basisInventoryQty, Components: components}
+			configureManufacturingGrossRatioBOM(item.MaterialSnapshot, outputG, item.OutputUnit, &bom)
 			replaced := false
 			for i := range boms {
 				if boms[i].Output.Key() == key {
@@ -710,8 +711,12 @@ func createExpandedProductionItemsReusingTx(ctx context.Context, tx pgx.Tx, sche
 		if exists {
 			item.ID, item.PlanID = previous.ID, planID
 			item.TargetWarehouse = previous.TargetWarehouse
-			item.MaterialSnapshot, item.ProcessSnapshotJSON = previous.MaterialSnapshot, previous.ProcessSnapshotJSON
-			_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_plan_items SET output_qty=$2,planned_inventory_qty=$2,planned_g=$3,planned_output_g=$4,gap_g=$4,sales_spec_count=$5,order_nos=$6 WHERE id=$1`, schema), item.ID, item.OutputQty, item.PlannedG, item.PlannedOutputG, item.SalesSpecCount, item.OrderNos)
+			item.MaterialSnapshot, err = freezeManufacturingOutputMaterialSnapshot(previous.MaterialSnapshot)
+			if err != nil {
+				return result, err
+			}
+			item.ProcessSnapshotJSON = previous.ProcessSnapshotJSON
+			_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_plan_items SET output_qty=$2,planned_inventory_qty=$2,planned_g=$3,planned_output_g=$4,gap_g=$4,sales_spec_count=$5,order_nos=$6,component_snapshot_json=$7::jsonb WHERE id=$1`, schema), item.ID, item.OutputQty, item.PlannedG, item.PlannedOutputG, item.SalesSpecCount, item.OrderNos, item.MaterialSnapshot)
 			if err != nil {
 				return result, err
 			}
