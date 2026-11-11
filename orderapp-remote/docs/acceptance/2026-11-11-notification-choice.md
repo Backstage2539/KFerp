@@ -21,4 +21,7 @@
 
 - 合入 `origin/develop@d0baced02fc849bb1ebcb0eb3bd556b18f9eba38` 后重新验证：Go 全量通过；通知及加密回调隔离 PostgreSQL/HTTP 定向通过；Vue 1923 项及构建通过；小程序 541 项、类型检查及开发构建通过。首次绑定/退订竞争和延迟退订回调均有隔离数据库测试。独立复核未发现新的确定性阻断。
 - 随后同步 `origin/develop@070a329165aa0ab804e45328575691521d7d2132`：Go 全量、通知 PostgreSQL/HTTP 定向、Vue 1936 项及构建通过；此次同步未改动小程序源码，沿用上述 541 项及构建结果。
-- 尚未完成本次开发环境集成及微信开发者工具现场验证；生产发布不在本次范围。
+- 已推送功能分支并合入 `develop`，开发环境通过 `./deploy_orderapp.sh development` 部署提交 `6879bb2ce54165e711e3f65044606b712d800685`。只读检查：应用运行、重启 0 次，数据库 healthy，登录页 HTTP 200，未登录通知接口 HTTP 401，运行镜像与构建镜像一致。
+- 开发小程序包导出至 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；此前版本备份为 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20261111210329-6879bb2ce541`。服务端源码回滚备份 `/opt/stacks/erp/orderapp.backup.deploy-20261111205036-6879bb2ce541`，镜像回滚锚点 `kferp-orderapp-rollback:development-20261111205036-6879bb2ce541`。
+- 微信开发者工具重新打开开发包后，在已登录员工首页观察到“选择订单通知”，各选项未默认勾选；点击“稍后再说”后进入个人中心，页面切换未重复弹窗。真机和用户业务验收仍待验证。本次未部署生产，也未上传、提审或发布微信小程序。
+- 服务器磁盘使用率 99%，剩余约 784 MB；需要安排容量处理，不删除数据库和回滚锚点。
