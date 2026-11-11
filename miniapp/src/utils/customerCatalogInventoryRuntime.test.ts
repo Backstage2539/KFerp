@@ -7,16 +7,17 @@ import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import ts from 'typescript'
 import Inventory from '../components/CustomerInventoryPanel.vue'
 import DirectShip from '../components/CustomerDirectShipPanel.vue'
+import ReadOnlyShip from '../components/CustomerDirectShipReadOnly.vue'
 import ProductPicker from '../components/ProductFamilyPickerSheet.vue'
 import { useCustomerOrderDraftStore } from '../stores/customerOrderDraft'
 import { createDirectShipDraftLine, selectDirectShipDraftProduct } from './directShipDraft'
 
-const api = vi.hoisted(() => ({ requests: vi.fn(), assets: vi.fn(), stock: vi.fn(), directCatalog: vi.fn(), productCatalog: vi.fn(), recipients: vi.fn(), previewProductOrder: vi.fn(), createProductOrder: vi.fn(), previewDirectShip: vi.fn() }))
+const api = vi.hoisted(() => ({ requests: vi.fn(), assets: vi.fn(), stock: vi.fn(), directCatalog: vi.fn(), productCatalog: vi.fn(), recipients: vi.fn(), previewProductOrder: vi.fn(), createProductOrder: vi.fn(), previewDirectShip: vi.fn(), createDirectShip: vi.fn() }))
 vi.mock('../api/customerPortal', () => ({
   fetchCustomerAssetInventory: api.assets, fetchCustomerInventory: api.stock,
   fetchDirectShipCatalog: api.directCatalog, fetchProductOrderCatalog: api.productCatalog,
   fetchRecipientAddresses: api.recipients, fetchDirectShipRequests: api.requests,
-  cancelDirectShipRequest: vi.fn(), createDirectShipRequest: vi.fn(), createProductOrder: api.createProductOrder,
+  cancelDirectShipRequest: vi.fn(), createDirectShipRequest: api.createDirectShip, createProductOrder: api.createProductOrder,
   previewDirectShipRequest: api.previewDirectShip, previewProductOrder: api.previewProductOrder,
 }))
 vi.mock('@dcloudio/uni-app', () => ({ onShow: vi.fn(), onHide: vi.fn() }))
@@ -33,6 +34,7 @@ function clientRender(component: any, filename: string) {
 }
 clientRender(Inventory, 'CustomerInventoryPanel')
 clientRender(DirectShip, 'CustomerDirectShipPanel')
+clientRender(ReadOnlyShip, 'CustomerDirectShipReadOnly')
 clientRender(ProductPicker, 'ProductFamilyPickerSheet')
 function mount(component: any, props: Record<string, unknown>, prepare?: (pinia: ReturnType<typeof createPinia>) => void) {
   const root: Node = { type: 'root', children: [], props: {} }
@@ -255,4 +257,64 @@ it('real customer shipment records render shared ready-to-ship package status',a
  api.requests.mockResolvedValue({rows:[{id:8,request_no:'DSR-TEST',order_no:'SO-TEST',status:'reserved',fulfillment_mode:'stock',items:[],packages:[{id:1,order_id:116,order_no:'SO-TEST',status:'reserved',process_status:'库存待发货',ship_status:'待发货',fulfillment_progress:{label:'库存充足 · 可以发货',can_ship:true}}]}],total:1,total_pages:1})
  const {app,root}=mount(DirectShip,{orderMode:'direct_ship',token:'test',showCreate:false})
  try {await settle();expect(text(root)).toContain('库存充足 · 可以发货');expect(text(root)).not.toContain('生产：库存待发货')} finally{app.unmount()}
+})
+
+
+it('read-only direct ship shows scoped catalog and addresses without any order editing or requests', async () => {
+  api.directCatalog.mockResolvedValue({ current_customer_id: 901, product_families: [{ parent_product_id: 7, name: '客户咖啡', specs: [{ product_id: 7, spec_label: '454g袋', spec_g: 454 }] }] })
+  api.recipients.mockResolvedValue({ rows: [{ id: 1, customer_id: 901, recipient_name: '张三', phone: '13800138000', detail_address: '测试路' }] })
+  const { app, root } = mount(ReadOnlyShip, { entryMode: 'stock' })
+  try {
+    await settle()
+    expect(text(root)).toContain('客户咖啡')
+    expect(text(root)).toContain('454g袋')
+    expect(text(root)).toContain('张三')
+    expect(text(root)).toContain('客户只读预览')
+    expect(text(root)).not.toContain('提交代发订单')
+    expect(find(root, node => ['input', 'textarea', 'picker'].includes(node.type))).toHaveLength(0)
+    expect(api.directCatalog).toHaveBeenCalledWith('isolated', 'stock')
+    expect(api.previewDirectShip).not.toHaveBeenCalled()
+    expect(api.createDirectShip).not.toHaveBeenCalled()
+    expect(api.createProductOrder).not.toHaveBeenCalled()
+  } finally { app.unmount() }
+})
+
+it('read-only direct ship discards late data after changing customer', async () => {
+  let finishCatalog!: (value: unknown) => void
+  let finishAddress!: (value: unknown) => void
+  api.directCatalog.mockReturnValueOnce(new Promise(resolve => { finishCatalog = resolve })).mockResolvedValueOnce({ current_customer_id: 902, product_families: [{ parent_product_id: 8, name: '客户乙商品', specs: [] }] })
+  api.recipients.mockReturnValueOnce(new Promise(resolve => { finishAddress = resolve })).mockResolvedValueOnce({ rows: [] })
+  const root: Node = { type: 'root', children: [], props: {} }
+  const customer = Vue.ref(901)
+  const token = Vue.ref('first')
+  const app = renderer.createApp({ setup: () => () => h(ReadOnlyShip, { token: token.value, customerId: customer.value, entryMode: 'stock' }) })
+  app.provide(ssrContextKey, { modules: new Set() }); app.mount(root)
+  try {
+    customer.value = 902; token.value = 'second'; await settle()
+    expect(text(root)).toContain('客户乙商品')
+    finishCatalog({ current_customer_id: 901, product_families: [{ parent_product_id: 7, name: '客户甲商品', specs: [] }] })
+    finishAddress({ rows: [{ id: 1, customer_id: 901, recipient_name: '客户甲地址', detail_address: '测试路' }] })
+    await settle()
+    expect(text(root)).toContain('客户乙商品')
+    expect(text(root)).not.toContain('客户甲商品')
+    expect(text(root)).not.toContain('客户甲地址')
+  } finally { app.unmount() }
+})
+
+
+it('read-only direct ship retries failed data loads and rejects mixed customer records', async () => {
+  api.directCatalog.mockRejectedValueOnce(new Error('网络异常')).mockResolvedValueOnce({ current_customer_id: 901, product_families: [] }).mockResolvedValueOnce({ current_customer_id: 901, product_families: [] })
+  api.recipients.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: 2, customer_id: 999, recipient_name: '其他客户', detail_address: '其他地址' }] }).mockResolvedValueOnce({ rows: [] })
+  const { app, root } = mount(ReadOnlyShip, { entryMode: 'on_demand' })
+  try {
+    await settle()
+    expect(text(root)).toContain('网络异常')
+    await find(root, node => node.type === 'button' && text(node) === '重新加载')[0].props.onTap(); await settle()
+    expect(text(root)).toContain('客户数据不匹配')
+    expect(text(root)).not.toContain('其他客户')
+    await find(root, node => node.type === 'button' && text(node) === '重新加载')[0].props.onTap(); await settle()
+    expect(text(root)).toContain('暂无可用商品')
+    expect(api.previewDirectShip).not.toHaveBeenCalled()
+    expect(api.createDirectShip).not.toHaveBeenCalled()
+  } finally { app.unmount() }
 })

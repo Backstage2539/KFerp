@@ -270,6 +270,9 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-MINIAPP-PREVIEW-DROPSHIP-20261111", title: "客户只读预览显示已开通的一件代发入口", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-11-miniapp-preview-dropship.md；用户验收待完成"},
+		{table: "req_dev", code: "DEV-MINIAPP-PREVIEW-DROPSHIP-UI", title: "按客户能力显示代发入口及只读查看", status: "review", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-MINIAPP-PREVIEW-DROPSHIP-ACCESS", title: "代发只读接口隔离与业务写入限制", status: "review", assignee: "Codex"},
 		{table: "req_product", code: "PR-758-UPSTREAM-WAIT", title: "物料准备区区分等待前道生产与现货调拨", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-11-production-upstream-wait.md；用户验收待完成"},
 		{table: "req_dev", code: "DEV-PR758-UPSTREAM-01", title: "前道待生产提示及调拨入口", status: "review", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PR758-UPSTREAM-02", title: "前道与现货混合供应校验及验收", status: "review", assignee: "Codex"},
