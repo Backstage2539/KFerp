@@ -4383,6 +4383,9 @@ func normalizeConcreteProductSpecPublicationSnapshots(cmd *PublishBeanListComman
 	}
 
 	groups := beanListAnySlice(cmd.Content["groups"])
+	if groups == nil {
+		groups = []any{}
+	}
 	bySKU := map[int64]beanListConcreteSpecSnapshot{}
 	for groupIdx, rawGroup := range groups {
 		group, ok := objectSnapshotMap(rawGroup)

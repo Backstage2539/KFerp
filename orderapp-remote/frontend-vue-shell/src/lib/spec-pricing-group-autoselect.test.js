@@ -56,11 +56,11 @@ test('价格表展开三个规格分别使用组内对应模板', () => {
     { spec_key: 's2', inventory_unit:'袋', pricing_rule_id:102 },
     { spec_key: 's3', inventory_unit:'袋', pricing_rule_id:103 },
   ] }
-  const specs = [11,12,13].map((id, i) => ({ product_id:42, parent_product_id:42, sku_id:id, bom_spec_id:id, bom_variant_id:100+id, source_spec_template_id:7, source_spec_template_key:`s${i+1}`, inventory_unit:'袋' }))
+  const specs = [11,12,13].map((id, i) => ({ product_id:42, parent_product_id:42, sku_id:0, bom_spec_id:id, bom_variant_id:100+id, source_spec_template_id:7, source_spec_template_key:`s${i+1}`, inventory_unit:'袋' }))
   const family = { parent_product_id:42, sku_options:specs }
   const bindings = {
     tierKeyForListType: () => 'tiers', pdfTheme:ref({listType:'commercial'}),
-    itemSkuID:(item) => item.sku_id, itemProductID:item => item.product_id,
+    itemSkuID:(item, fallback) => item.sku_id || fallback, itemProductID:item => item.product_id,
     itemParentProductID:item => item.parent_product_id, priceListParentProductID,
     priceListGroupForItem:() => ({}), resolvePriceTableTemplateInheritance:() => ({pricing_mode:'spec_pricing_group', spec_pricing_group_id:1, pricing_mode_source:'subgroup'}),
     priceListTemplateDefaults:ref({}), priceListTemplateAssignments:() => [], priceListProductOverridesForSnapshot:() => [],

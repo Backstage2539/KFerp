@@ -1358,6 +1358,13 @@ func parseBeanListDisplaySummary(configJSON, contentJSON []byte, row *customerpo
 		content = map[string]any{}
 	}
 
+	row.SpecPricingGroup = false
+	for _, priceRow := range beanListMapsFromAny(content["price_rows"]) {
+		if beanListMapNumber(priceRow, "spec_pricing_group_id", 0) > 0 {
+			row.SpecPricingGroup = true
+			break
+		}
+	}
 	row.BrandName = beanListMapString(cfg, "brandName", "棵凡咖啡")
 	row.BrandIntro = beanListMapString(cfg, "brandIntro", "")
 	row.Title = beanListMapString(content, "title", buildBeanListDisplayTitle(row.ListType, row.BrandName))

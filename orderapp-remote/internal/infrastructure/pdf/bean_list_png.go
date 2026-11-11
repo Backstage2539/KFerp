@@ -111,7 +111,7 @@ func beanListPNGRender(canvas *salesOrderPNGCanvas, doc BeanListDocument) {
 
 func beanListPNGRenderItem(canvas *salesOrderPNGCanvas, left, right, y int, item BeanListItem, textColor color.Color, mutedColor color.Color) int {
 	boxH := beanListPNGItemHeight(*canvas, right-left, item)
-	canvas.rect(left, y, right-left, boxH, color.RGBA{R: 255, G: 255, B: 255, A: 230})
+	canvas.rect(left, y, right-left, boxH, color.RGBA{R: 255, G: 255, B: 255, A: 255})
 	innerX := left + 28
 	innerW := right - left - 56
 	cursor := y + 28
@@ -122,6 +122,13 @@ func beanListPNGRenderItem(canvas *salesOrderPNGCanvas, left, right, y int, item
 	cursor = canvas.wrappedText(innerX, cursor, innerW-180, 26, 36, textColor, []string{title})
 	if strings.TrimSpace(item.BadgeLabel) != "" {
 		canvas.textRight(right-28, y+32, 20, color.RGBA{R: 178, G: 54, B: 38, A: 255}, strings.TrimSpace(item.BadgeLabel))
+	}
+	for _, line := range item.AttributeLines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		cursor += 8
+		cursor = canvas.wrappedText(innerX, cursor, innerW, 19, 28, mutedColor, []string{strings.TrimSpace(line)})
 	}
 	for _, line := range []string{item.RecommendedUse, item.Flavor, item.Description} {
 		if strings.TrimSpace(line) == "" {
@@ -168,6 +175,11 @@ func beanListPNGItemHeight(canvas salesOrderPNGCanvas, width int, item BeanListI
 		title = strings.TrimSpace(item.Code) + "  " + title
 	}
 	h += canvas.wrappedTextHeight(innerW-180, 26, 36, []string{title})
+	for _, line := range item.AttributeLines {
+		if strings.TrimSpace(line) != "" {
+			h += 8 + canvas.wrappedTextHeight(innerW, 19, 28, []string{strings.TrimSpace(line)})
+		}
+	}
 	for _, line := range []string{item.RecommendedUse, item.Flavor, item.Description} {
 		if strings.TrimSpace(line) != "" {
 			h += 8 + canvas.wrappedTextHeight(innerW, 19, 28, []string{strings.TrimSpace(line)})

@@ -3679,11 +3679,12 @@ function priceListFlatRowsFromGroups(groups = []) {
         const group = specPricingGroups.value.find((row) => Number(row.id) === Number(resolved.spec_pricing_group_id))
         const family = pdfAvailableItems.value.find((row) => priceListParentProductID(row) === product.parent_product_id)
         const match = resolveSpecPricingGroup(group, family?.sku_options || [])
-        const matched = match.items.find(({ spec }) => Number(priceListSkuID(spec)) === Number(skuID))
+        const specID = priceListSkuID(item)
+        const matched = match.items.find(({ spec }) => Number(priceListSkuID(spec)) === Number(specID))
         const ruleID = Number(matched?.item?.pricing_rule_id || 0)
         const groupResolved = { ...resolved, pricing_mode: 'pricing_rule', pricing_rule_id: ruleID, pricing_rule_source: resolved.pricing_mode_source }
         const row = priceListFlatRowFromSource({ item, groupRow, productID, sourceTier: {},
-          rowKey: `${skuID || productID}:group:${group?.id || 0}:${group?.revision || 0}:${ruleID}`,
+          rowKey: `${specID || skuID || productID}:group:${group?.id || 0}:${group?.revision || 0}:${ruleID}`,
           tierLabel: '基础价', minQty: 0, maxQty: null, resolved: groupResolved,
           pricingRule: pricingRuleByID(ruleID), pricingRuleID: ruleID, pricingRuleSource: resolved.pricing_mode_source })
         row.spec_pricing_group_id = Number(group?.id || 0)

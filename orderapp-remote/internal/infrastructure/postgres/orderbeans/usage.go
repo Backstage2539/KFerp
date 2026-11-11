@@ -330,8 +330,8 @@ func ResolveUsageForPublication(ctx context.Context, q rowQuerier, schema string
 		  AND (
 		    EXISTS (
 		      SELECT 1
-		      FROM jsonb_array_elements(COALESCE(blp.content_json->'groups', '[]'::jsonb)) AS groups(group_json)
-		      CROSS JOIN LATERAL jsonb_array_elements(COALESCE(groups.group_json->'items', '[]'::jsonb)) AS items(item_json)
+		      FROM jsonb_array_elements(CASE WHEN jsonb_typeof(blp.content_json->'groups')='array' THEN blp.content_json->'groups' ELSE '[]'::jsonb END) AS groups(group_json)
+		      CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(groups.group_json->'items')='array' THEN groups.group_json->'items' ELSE '[]'::jsonb END) AS items(item_json)
 		      WHERE CASE
 		        WHEN items.item_json->>'sku_id' ~ '^[0-9]+$' THEN (items.item_json->>'sku_id')::bigint
 		        WHEN items.item_json->>'productId' ~ '^[0-9]+$' THEN (items.item_json->>'productId')::bigint
@@ -342,7 +342,7 @@ func ResolveUsageForPublication(ctx context.Context, q rowQuerier, schema string
 		    )
 		    OR EXISTS (
 		      SELECT 1
-		      FROM jsonb_array_elements(COALESCE(blp.content_json->'price_rows', '[]'::jsonb)) AS price_rows(row_json)
+		      FROM jsonb_array_elements(CASE WHEN jsonb_typeof(blp.content_json->'price_rows')='array' THEN blp.content_json->'price_rows' ELSE '[]'::jsonb END) AS price_rows(row_json)
 		      WHERE CASE
 		        WHEN row_json->>'sku_id' ~ '^[0-9]+$' THEN (row_json->>'sku_id')::bigint
 		        WHEN row_json->>'product_id' ~ '^[0-9]+$' THEN (row_json->>'product_id')::bigint

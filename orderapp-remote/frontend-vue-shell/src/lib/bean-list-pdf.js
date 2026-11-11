@@ -711,11 +711,18 @@ function priceListTierKeyForType(listType = 'commercial') {
 }
 
 function flatRowsForPdfItem(item = {}, rows = []) {
+  const bomSpecID = firstNumber(item.bom_spec_id, item.bomSpecID)
+  const parentID = firstNumber(item.parent_product_id, item.parentProductID, item.product_id, item.productID)
   const skuID = firstNumber(item.sku_id, item.skuID, item.skuId)
   const productID = firstNumber(item.product_id, item.productID, item.productId, item.id)
   const productKey = stringField(item.product_key ?? item.productKey)
   const productName = stringField(item.product_name_snapshot ?? item.productNameSnapshot ?? item.name)
   return rows.filter((row) => {
+    if (bomSpecID > 0) {
+      if (!(row.bom_spec_id > 0) || row.bom_spec_id !== bomSpecID) return false
+      const rowParentID = firstNumber(row.parent_product_id, row.parentProductID)
+      return !(parentID > 0 && rowParentID > 0 && rowParentID !== parentID)
+    }
     if (skuID > 0 && row.sku_id > 0) return row.sku_id === skuID
     if (productID > 0 && row.product_id > 0) return row.product_id === productID
     if (productKey && row.product_key) return row.product_key === productKey
