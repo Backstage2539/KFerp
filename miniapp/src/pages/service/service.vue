@@ -48,7 +48,6 @@ import { fetchMe, switchCurrentCustomer } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import CustomerBillsPanel from '../../components/CustomerBillsPanel.vue'
 import CustomerDirectShipPanel from '../../components/CustomerDirectShipPanel.vue'
-import CustomerDirectShipReadOnly from '../../components/CustomerDirectShipReadOnly.vue'
 import CustomerInventoryPanel from '../../components/CustomerInventoryPanel.vue'
 import CustomerProcessingPanel from '../../components/CustomerProcessingPanel.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
@@ -973,19 +972,13 @@ onShow(() => { void refreshMiniappShareMenu() })
  <button v-if="!session.currentCustomerID" @tap="openCustomerLogin">使用客户账号登录</button>
       </view>
 
-      <CustomerDirectShipReadOnly
-        v-if="serviceKey === 'directShip' && session.isCustomerPreview"
-        :key="`direct-ship-preview:${session.currentCustomerID}:${directShipEntryMode || 'legacy'}`"
-        :token="session.token"
-        :customer-id="session.currentCustomerID"
-        :entry-mode="directShipEntryMode"
-      />
       <CustomerDirectShipPanel
-        v-else-if="serviceKey === 'directShip'"
+        v-if="serviceKey === 'directShip'"
         :key="`direct-ship-create:${session.currentCustomerID}:${directShipEntryMode || 'legacy'}`"
         :token="session.token"
         :customer-id="session.currentCustomerID"
         :entry-mode="directShipEntryMode"
+        :read-only="session.isCustomerPreview"
       />
       <CustomerDirectShipPanel
         v-else-if="serviceKey === 'productOrder'"
@@ -994,6 +987,7 @@ onShow(() => { void refreshMiniappShareMenu() })
         :customer-id="session.currentCustomerID"
         order-mode="product_order"
         :stock-purchase="stockPurchase"
+        :read-only="session.isCustomerPreview"
       />
       <CustomerProcessingPanel
         v-else-if="serviceKey === 'processing'"

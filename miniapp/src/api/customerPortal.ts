@@ -1199,6 +1199,10 @@ export function loginWithPhoneIdentify(code: string, phoneCode: string): Promise
   })
 }
 
+export function fetchMiniLoginOptions(): Promise<{ show_password_login: boolean }> {
+  return miniRequest('/api/mini/login-options')
+}
+
 export function buildPasswordLoginPath(): string {
   return '/api/mini/login/password'
 }

@@ -32,6 +32,11 @@
           </span>
         </label>
 
+        <label class="toggle-row">
+          <input v-model="form.show_miniapp_password_login" type="checkbox" />
+          <span><strong>显示小程序账号密码登录入口</strong><small>开启后，小程序登录页显示账号密码输入；关闭仅隐藏入口，不关闭旧版登录和会话。</small><button type="button" :disabled="saving || loading" @click.prevent="savePasswordSetting">保存登录入口</button></span>
+        </label>
+
         <div class="actions">
           <button class="primary" type="button" :disabled="saving || loading" @click="save">{{ saving ? '保存中' : '保存设置' }}</button>
           <span v-if="ok" class="ok">{{ ok }}</span>
@@ -61,7 +66,7 @@ const loading = ref(false)
 const saving = ref(false)
 const ok = ref('')
 const error = ref('')
-const form = reactive({ hide_customer_account_fulfillment: true })
+const form = reactive({ hide_customer_account_fulfillment: true, show_miniapp_password_login: false })
 
 function selectTab(tab) {
   const next = normalizeTab(tab)
@@ -74,6 +79,7 @@ function selectTab(tab) {
 function assignSettings(data) {
   const settings = data?.settings || data || {}
   form.hide_customer_account_fulfillment = settings.hide_customer_account_fulfillment !== false
+  form.show_miniapp_password_login = settings.show_miniapp_password_login === true
 }
 
 async function load() {
@@ -101,6 +107,18 @@ async function save() {
   } finally {
     saving.value = false
   }
+}
+
+async function savePasswordSetting() {
+  saving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const data = await saveUISettings({ show_miniapp_password_login: !!form.show_miniapp_password_login })
+    form.show_miniapp_password_login = (data?.settings || data)?.show_miniapp_password_login === true
+    ok.value = '已保存登录入口设置'
+  } catch (err) { error.value = err.message || '保存登录入口失败' }
+  finally { saving.value = false }
 }
 
 onMounted(load)

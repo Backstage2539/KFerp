@@ -1,3 +1,9 @@
+### PR-MINIAPP-CUSTOMER-ACCESS-20261111
+
+- Branch: `codex/miniapp-customer-access-repair-20261111`；DEV: `DEV-MINIAPP-ACCESS-PASSWORD`、`DEV-MINIAPP-ACCESS-PREVIEW`、`DEV-MINIAPP-ACCESS-DELIVERY`。
+- Scope: ERP 可控密码入口；客户代发完整只读预览、库存与补购入口；生产验证不提交真实订单。
+- Status: 定向 RED/GREEN、小程序 524 项、类型检查、Vue 1917 项及构建、无数据库 Go 全包通过；隔离数据库验证、开发／正式部署和用户验收待完成。
+
 ### PR-759-SEMI-FINISHED-STOCK-SELECTION
 - Branch: `codex/semi-finished-stock-selection`；Owner: Codex；Status: 已部署开发与正式环境，待用户实际操作验收。
 - Scope: 订单计划手动选择半成品批次、预览并重算生产和产能，保留历史草稿及批次追溯。

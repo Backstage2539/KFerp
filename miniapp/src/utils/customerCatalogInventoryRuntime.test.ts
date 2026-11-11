@@ -23,7 +23,7 @@ vi.mock('../api/customerPortal', () => ({
 vi.mock('@dcloudio/uni-app', () => ({ onShow: vi.fn(), onHide: vi.fn() }))
 
 type Node = { type: string; children: Node[]; parent?: Node; props: Record<string, any>; text?: string; [key: string]: any }
-const renderer = createRenderer<Node, Node>({ createElement: type => ({ type, children: [], props: {}, ownerDocument: { activeElement: null }, tagName: type.toUpperCase(), addEventListener() {}, removeEventListener() {}, getRootNode() { return { activeElement: null } } }), createText: text => ({ type: '#text', text, children: [], props: {} }), createComment: text => ({ type: '#comment', text, children: [], props: {} }), setText: (node, text) => { node.text = text }, setElementText: (node, text) => { node.text = text }, patchProp: (node, key, _old, value) => { node.props[key] = value }, insert: (node, parent, anchor) => { node.parent = parent; const index = anchor ? parent.children.indexOf(anchor) : -1; if (index < 0) parent.children.push(node); else parent.children.splice(index, 0, node) }, remove: node => { if (node.parent) node.parent.children = node.parent.children.filter(child => child !== node) }, parentNode: node => node.parent || null, nextSibling: () => null })
+const renderer = createRenderer<Node, Node>({ createElement: type => ({ type, children: [], props: {}, ownerDocument: { activeElement: null }, tagName: type.toUpperCase(), addEventListener() {}, removeEventListener() {}, getRootNode() { return { activeElement: null } } }), createText: text => ({ type: '#text', text, children: [], props: {} }), createComment: text => ({ type: '#comment', text, children: [], props: {} }), setText: (node, text) => { node.text = text }, setElementText: (node, text) => { node.text = text }, patchProp: (node, key, _old, value) => { node.props[key] = value }, insert: (node, parent, anchor) => { node.parent = parent; const index = anchor ? parent.children.indexOf(anchor) : -1; if (index < 0) parent.children.push(node); else parent.children.splice(index, 0, node) }, remove: node => { if (node.parent) node.parent.children = node.parent.children.filter(child => child !== node) }, parentNode: node => node.parent || null, nextSibling: node => node.parent?.children[node.parent.children.indexOf(node) + 1] || null })
 function clientRender(component: any, filename: string) {
   const { descriptor } = parse(readFileSync(new URL(`../components/${filename}.vue`, import.meta.url), 'utf8'))
   const script = compileScript(descriptor, { id: filename })
@@ -316,5 +316,206 @@ it('read-only direct ship retries failed data loads and rejects mixed customer r
     expect(text(root)).toContain('暂无可用商品')
     expect(api.previewDirectShip).not.toHaveBeenCalled()
     expect(api.createDirectShip).not.toHaveBeenCalled()
+  } finally { app.unmount() }
+})
+
+it('preview shows customer stock and a disabled full order form without touching drafts or quote APIs', async () => {
+  api.directCatalog.mockResolvedValue({ current_customer_id: 901, fulfillment_mode: 'stock', fulfillment_settings: purchaseSettings, product_families: [{...purchaseFamily, specs: [{...purchaseFamily.specs[0], physical_available_qty: 3, pending_inbound_qty: 6, pending_reserved_qty: 2, purchased_qty: 14, received_qty: 8}]}], price_tables: [{ id: 71, table_name: '测试价格表' }] })
+  let store!: ReturnType<typeof useCustomerOrderDraftStore>
+  const { app, root } = mount(DirectShip, { entryMode: 'stock', readOnly: true }, pinia => { store = useCustomerOrderDraftStore(pinia); vi.spyOn(store, 'restoreDraft'); vi.spyOn(store, 'saveDraft'); vi.spyOn(store, 'consumeRecipient') })
+  try {
+    await settle()
+    expect(text(root)).toContain('客户只读预览')
+    expect(text(root)).toContain('现货可用 3')
+    expect(text(root)).toContain('待入库可安排 4')
+    expect(text(root)).toContain('待入库已预订 2')
+    expect(text(root)).toContain('累计已购买 14')
+    expect(text(root)).toContain('累计已入库 8')
+    const submit = find(root, node => node.type === 'button' && String(node.props.class || '').includes('submit'))[0]
+    expect(submit.props.disabled).toBe(true)
+    await submit.props.onTap(); await settle()
+    expect(store.restoreDraft).not.toHaveBeenCalled()
+    expect(store.saveDraft).not.toHaveBeenCalled()
+    expect(store.consumeRecipient).not.toHaveBeenCalled()
+    expect(api.previewDirectShip).not.toHaveBeenCalled()
+    expect(api.createDirectShip).not.toHaveBeenCalled()
+  } finally { app.unmount() }
+})
+
+it('preview topup navigates without saving a customer draft', async () => {
+  api.directCatalog.mockResolvedValue({ current_customer_id: 901, fulfillment_mode: 'stock', fulfillment_settings: purchaseSettings, product_families: [purchaseFamily], price_tables: [] })
+  let store!: ReturnType<typeof useCustomerOrderDraftStore>
+  const { app, root } = mount(DirectShip, { entryMode: 'stock', readOnly: true }, pinia => { store = useCustomerOrderDraftStore(pinia); vi.spyOn(store, 'saveDraft') })
+  try {
+    await settle()
+    const topup = find(root, node => node.type === 'button' && text(node) === '商品下单')[0]
+    await topup.props.onTap(); await settle()
+    expect(uni.navigateTo).toHaveBeenCalledWith(expect.objectContaining({url:'/pages/service/service?key=productOrder&stock_purchase=1'}))
+    expect(store.saveDraft).not.toHaveBeenCalled()
+    expect(api.previewDirectShip).not.toHaveBeenCalled()
+  } finally { app.unmount() }
+})
+
+it('preview retained purchase uses its customer-scoped catalog without quotes or draft access', async () => {
+  api.productCatalog.mockResolvedValue({ current_customer_id: 901, product_families: [purchaseFamily], price_tables: [{ id: 71, table_name: '测试价格表' }], fulfillment_settings: purchaseSettings })
+  let store!: ReturnType<typeof useCustomerOrderDraftStore>
+  const { app, root } = mount(DirectShip, { orderMode: 'product_order', stockPurchase: true, readOnly: true }, pinia => { store = useCustomerOrderDraftStore(pinia); vi.spyOn(store, 'restoreDraft'); vi.spyOn(store, 'saveDraft') })
+  try {
+    await settle()
+    expect(text(root)).toContain('客户只读预览')
+    expect(text(root)).toContain('下单库存')
+    expect(text(root)).toContain('测试价格表')
+    const submit = find(root, node => node.type === 'button' && String(node.props.class || '').includes('submit'))[0]
+    expect(submit.props.disabled).toBe(true)
+    await submit.props.onTap(); await settle()
+    expect(store.restoreDraft).not.toHaveBeenCalled()
+    expect(store.saveDraft).not.toHaveBeenCalled()
+    expect(api.previewProductOrder).not.toHaveBeenCalled()
+    expect(api.createProductOrder).not.toHaveBeenCalled()
+  } finally { app.unmount() }
+})
+
+it('preview rejects a catalog belonging to a different customer', async () => {
+  api.directCatalog.mockResolvedValue({ current_customer_id: 902, fulfillment_mode: 'stock', fulfillment_settings: purchaseSettings, product_families: [purchaseFamily], price_tables: [] })
+  const { app, root } = mount(DirectShip, { entryMode: 'stock', readOnly: true })
+  try { await settle(); expect(text(root)).toContain('客户数据不匹配'); expect(text(root)).not.toContain('测试成品') }
+  finally { app.unmount() }
+})
+
+it('preview discards an old catalog when the customer and token change', async () => {
+  let completeOld!: (value: unknown) => void
+  api.directCatalog.mockImplementation((token: string) => token === 'old-token'
+    ? new Promise(resolve => { completeOld = resolve })
+    : Promise.resolve({ current_customer_id: 902, fulfillment_mode: 'stock', fulfillment_settings: purchaseSettings, product_families: [{ ...purchaseFamily, name: '新客户商品' }], price_tables: [] }))
+  const identity = Vue.reactive({ token: 'old-token', customerId: 901 })
+  const root: Node = { type: 'root', children: [], props: {} }, pinia = createPinia()
+  const app = renderer.createApp({ setup: () => () => h(DirectShip, { ...identity, entryMode: 'stock', readOnly: true }) })
+  app.use(pinia); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root)
+  try {
+    await settle()
+    identity.token = 'new-token'; identity.customerId = 902
+    await settle()
+    completeOld({ current_customer_id: 901, fulfillment_mode: 'stock', fulfillment_settings: purchaseSettings, product_families: [{ ...purchaseFamily, name: '旧客户商品' }], price_tables: [] })
+    await settle()
+    expect(text(root)).toContain('新客户商品')
+    expect(text(root)).not.toContain('旧客户商品')
+  } finally { app.unmount() }
+})
+
+it('changing a normal customer session to preview rejects the old in-flight catalog and quote', async () => {
+  let completeOld!: (value: unknown) => void
+  api.directCatalog.mockImplementation((token: string) => token === 'customer-token'
+    ? new Promise(resolve => { completeOld = resolve })
+    : Promise.resolve({ current_customer_id: 901, fulfillment_mode: 'stock', fulfillment_settings: purchaseSettings, product_families: [{ ...purchaseFamily, name: '只读商品' }], price_tables: [] }))
+  const identity = Vue.reactive({ token: 'customer-token', customerId: 901, readOnly: false })
+  const root: Node = { type: 'root', children: [], props: {} }, pinia = createPinia()
+  const app = renderer.createApp({ setup: () => () => h(DirectShip, { ...identity, entryMode: 'stock' }) })
+  app.use(pinia); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root)
+  try {
+    await settle()
+    identity.token = 'preview-token'; identity.readOnly = true
+    await settle()
+    completeOld({ current_customer_id: 901, fulfillment_mode: 'stock', fulfillment_settings: purchaseSettings, product_families: [{ ...purchaseFamily, name: '过期客户商品' }], price_tables: [] })
+    await settle()
+    expect(text(root)).toContain('只读商品')
+    expect(text(root)).not.toContain('过期客户商品')
+    expect(api.previewDirectShip).not.toHaveBeenCalled()
+  } finally { app.unmount() }
+})
+
+it('leaving preview rejects an old preview catalog for the same customer', async () => {
+  let completeOld!: (value: unknown) => void
+  api.directCatalog.mockImplementation((token: string) => token === 'preview-token'
+    ? new Promise(resolve => { completeOld = resolve })
+    : Promise.resolve({ current_customer_id: 901, fulfillment_mode: 'stock', fulfillment_settings: purchaseSettings, product_families: [{ ...purchaseFamily, name: '客户新商品' }], price_tables: [] }))
+  const identity = Vue.reactive({ token: 'preview-token', customerId: 901, readOnly: true })
+  const root: Node = { type: 'root', children: [], props: {} }, pinia = createPinia()
+  const app = renderer.createApp({ setup: () => () => h(DirectShip, { ...identity, entryMode: 'stock' }) })
+  app.use(pinia); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root)
+  try {
+    await settle()
+    identity.token = 'customer-token'; identity.readOnly = false
+    await settle()
+    completeOld({ current_customer_id: 901, fulfillment_mode: 'stock', fulfillment_settings: purchaseSettings, product_families: [{ ...purchaseFamily, name: '旧预览商品' }], price_tables: [] })
+    await settle()
+    expect(text(root)).toContain('客户新商品')
+    expect(text(root)).not.toContain('旧预览商品')
+  } finally { app.unmount() }
+})
+
+it('switching to preview removes real customer in-memory draft content', async () => {
+  api.directCatalog.mockResolvedValue({ current_customer_id: 901, fulfillment_mode: 'stock', fulfillment_settings: purchaseSettings, product_families: [{ ...purchaseFamily, name: '客户目录商品' }], price_tables: [] })
+  const identity = Vue.reactive({ token: 'customer-token', customerId: 901, readOnly: false })
+  const root: Node = { type: 'root', children: [], props: {} }, pinia = createPinia()
+  purchaseDraft(pinia, 'direct_ship', 'ship')
+  const store = useCustomerOrderDraftStore(pinia)
+  const app = renderer.createApp({ setup: () => () => h(DirectShip, { ...identity, entryMode: 'stock' }) })
+  app.use(pinia); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root)
+  try {
+    await settle()
+    expect(text(root)).toContain('测试成品')
+    const spy = vi.spyOn(store, 'restoreDraft')
+    identity.token = 'preview-token'; identity.readOnly = true
+    await settle()
+    expect(text(root)).not.toContain('测试成品')
+    expect(find(root, node => node.type === 'textarea')[0].props.modelValue || '').toBe('')
+    expect(spy).not.toHaveBeenCalled()
+  } finally { app.unmount() }
+})
+
+it('preview to customer transition supports recipient handoff', async () => {
+  api.directCatalog.mockResolvedValue({ current_customer_id: 901, fulfillment_mode: 'stock', fulfillment_settings: purchaseSettings, product_families: [purchaseFamily], price_tables: [] })
+  const identity = Vue.reactive({ token: 'preview-token', customerId: 901, readOnly: true })
+  const root: Node = { type: 'root', children: [], props: {} }, pinia = createPinia()
+  const app = renderer.createApp({ setup: () => () => h(DirectShip, { ...identity, entryMode: 'stock' }) })
+  app.use(pinia); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root)
+  try {
+    await settle()
+    identity.token = 'customer-token'; identity.readOnly = false
+    await settle()
+    const handler = vi.mocked(uni.$on).mock.calls.find(call => call[0] === 'customer-order-recipient-selected')?.[1] as (event: unknown) => void
+    expect(handler).toBeTypeOf('function')
+    useCustomerOrderDraftStore(pinia).stageRecipient(901, 'direct_ship', {recipient_name:'新地址',phone:'123',detail_address:'街道'}, 'stock')
+    handler({ customerID: 901, orderMode: 'direct_ship', fulfillmentMode: 'stock' }); await settle()
+    expect(text(root)).toContain('新地址')
+  } finally { app.unmount() }
+})
+
+it('a successful old submission cannot clear or navigate the newly previewed session', async () => {
+  let completeCreate!: (value: unknown) => void
+  api.productCatalog.mockResolvedValue({ current_customer_id: 901, product_families: [purchaseFamily], price_tables: [{ id: 71, table_name: '测试价格表' }], fulfillment_settings: purchaseSettings })
+  api.previewProductOrder.mockResolvedValue({ can_submit: true, total_amount: 20, price_quote_token: 'retained-price-token', items: [] })
+  api.createProductOrder.mockImplementation(() => new Promise(resolve => { completeCreate = resolve }))
+  const identity = Vue.reactive({ token: 'customer-token', customerId: 901, readOnly: false })
+  const root: Node = { type: 'root', children: [], props: {} }, pinia = createPinia()
+  purchaseDraft(pinia, 'stock_purchase', 'customer_stock')
+  const store = useCustomerOrderDraftStore(pinia), clear = vi.spyOn(store, 'clearDraft')
+  const app = renderer.createApp({ setup: () => () => h(DirectShip, { ...identity, orderMode: 'product_order', stockPurchase: true }) })
+  app.use(pinia); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root)
+  try {
+    await settle()
+    const submit = find(root, node => node.type === 'button' && String(node.props.class || '').includes('submit'))[0]
+    const pending = submit.props.onTap()
+    await settle()
+    expect(api.createProductOrder).toHaveBeenCalledTimes(1)
+    identity.token = 'preview-token'; identity.readOnly = true
+    await settle()
+    completeCreate({ id: 90101 }); await pending; await settle()
+    expect(clear).not.toHaveBeenCalled()
+    expect(uni.navigateBack).not.toHaveBeenCalled()
+    expect(uni.showToast).not.toHaveBeenCalled()
+  } finally { app.unmount() }
+})
+
+it('leaving preview restores the customer draft recipient', async () => {
+  api.directCatalog.mockResolvedValue({ current_customer_id: 901, fulfillment_mode: 'stock', fulfillment_settings: purchaseSettings, product_families: [purchaseFamily], price_tables: [] })
+  const identity = Vue.reactive({ token: 'preview-token', customerId: 901, readOnly: true })
+  const root: Node = { type: 'root', children: [], props: {} }, pinia = createPinia()
+  useCustomerOrderDraftStore(pinia).saveDraft(901, 'direct_ship', { order_date: '2026-11-11', recipient: {recipient_name:'保留收件人',phone:'123',detail_address:'收件地址'}, note:'', lines: [selectDirectShipDraftProduct(createDirectShipDraftLine('saved'), purchaseFamily)!], idempotency_key:'restore-recipient', fulfillment_mode:'stock' }, 'stock')
+  const app = renderer.createApp({ setup: () => () => h(DirectShip, { ...identity, entryMode: 'stock' }) })
+  app.use(pinia); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root)
+  try {
+    await settle(); identity.token = 'customer-token'; identity.readOnly = false; await settle()
+    expect(text(root)).toContain('保留收件人')
   } finally { app.unmount() }
 })
