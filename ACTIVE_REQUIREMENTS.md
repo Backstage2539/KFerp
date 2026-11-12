@@ -1,3 +1,11 @@
+### 简单 BUG：小程序首页库存代发已接单统计
+- Branch: `codex/dropship-home-count-20261112`; base: `origin/develop`.
+- Scope: 修复首页“已接单”统计与对应订单筛选遗漏库存待发货代发订单；订单状态、库存和其他业务规则保持不变。
+- Reproduction: 生产只读现场已确认存在 `accepted / stock / direct_ship / 库存待发货` 的有效订单，而首页“已接单”计数为 0；不记录真实客户或订单标识。
+- Status: 已修复共用 `orderProgressSQL` 进度条件遗漏“库存待发货”；真实 PostgreSQL 定向 RED/GREEN、无业务数据库 Go 全包及静态检查通过，待合并和生产发布。
+- Verifier: `TestOrderProgressIncludesAcceptedStockDropshipAwaitingShipment`：RED 得到 accepted=0（应为 2）；GREEN 连同分页统计、隐藏订单回归 3 项通过，覆盖 14 种状态边界、首页统计与筛选一致性。日志 `/tmp/dropship-home-red.log`、`/tmp/dropship-home-green.log`。
+- Manual: 无新增入口、字段或操作流程，恢复既有统计与筛选口径，无需修改手册；按简单 BUG 流程不新增 PR/DEV 编号或完整验收文档。
+
 ### PR-765-DROPSHIP-PRODUCED-BATCH
 - Branch: `codex/dropship-submit-fix-20261112`; base: `origin/develop`.
 - Scope: 修复客户自有历史生产批次用于同规格新代发时，被当前配方版本保护误拦截的问题；保留原批次配方、货权及数量。
