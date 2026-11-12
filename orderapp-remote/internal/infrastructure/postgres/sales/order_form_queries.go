@@ -286,7 +286,8 @@ func orderEditItemsQuery(schema string) string {
 				to_jsonb(oi)->>'material_item_weight_g',
 				to_jsonb(oi)->>'logistics_unit_weight_g',
 				to_jsonb(oi)->>'logistics_item_weight_g',
-				COALESCE(to_jsonb(oi)->>'weight_snapshot_json','{}')
+				COALESCE(to_jsonb(oi)->>'weight_snapshot_json','{}'),
+				COALESCE(to_jsonb(oi)->>'operation_notes_json','[]')
 		FROM %s.order_items oi
 		LEFT JOIN %s.products p ON p.id=oi.product_id
 		WHERE oi.order_id=$1 AND oi.qty>0
@@ -2423,7 +2424,11 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 	for rows.Next() {
 		var it salesapp.OrderEditItem
 		var qty, unitPrice, lineTotal, discountValue, discountAmount, unitBeanG, matchedPriceQty float64
-		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.ProductID, &it.BomSpecID, &it.BomVariantID, &it.BomSpecKey, &it.BomSpecName, &it.Product, &it.CustomerProductAliasID, &it.CustomerProductReferenceID, &it.MaterialSourceMode, &it.CustomerProductDisplayNameSnapshot, &it.CustomerItemCodeSnapshot, &it.BrandNameSnapshot, &it.ProductCodeSnapshot, &it.ProductNameSnapshot, &it.Note, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID, &it.PriceOverride, &it.BeanListPublicationID, &it.BeanListVersionNo, &it.DiscountType, &discountValue, &discountAmount, &it.ProductKind, &it.SalesUnit, &it.UnitBagCount, &unitBeanG, &matchedPriceQty, &it.PriceSourceJSON, &it.MaterialUnitWeightG, &it.MaterialItemWeightG, &it.LogisticsUnitWeightG, &it.LogisticsItemWeightG, &it.WeightSnapshotJSON); err != nil {
+		var operationNotesJSON string
+		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.ProductID, &it.BomSpecID, &it.BomVariantID, &it.BomSpecKey, &it.BomSpecName, &it.Product, &it.CustomerProductAliasID, &it.CustomerProductReferenceID, &it.MaterialSourceMode, &it.CustomerProductDisplayNameSnapshot, &it.CustomerItemCodeSnapshot, &it.BrandNameSnapshot, &it.ProductCodeSnapshot, &it.ProductNameSnapshot, &it.Note, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID, &it.PriceOverride, &it.BeanListPublicationID, &it.BeanListVersionNo, &it.DiscountType, &discountValue, &discountAmount, &it.ProductKind, &it.SalesUnit, &it.UnitBagCount, &unitBeanG, &matchedPriceQty, &it.PriceSourceJSON, &it.MaterialUnitWeightG, &it.MaterialItemWeightG, &it.LogisticsUnitWeightG, &it.LogisticsItemWeightG, &it.WeightSnapshotJSON, &operationNotesJSON); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(operationNotesJSON), &it.OperationNotes); err != nil {
 			return nil, err
 		}
 		it.Qty = trimFloatZero(qty)

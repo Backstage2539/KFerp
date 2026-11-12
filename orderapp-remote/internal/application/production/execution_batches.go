@@ -49,11 +49,40 @@ func ExecutionBatchPlannedOutputSlice(before, input float64, inputUnit, outputUn
 }
 
 type ExecutionBatchList struct {
-	Batches       []ExecutionBatch `json:"batches"`
-	CanInitialize bool             `json:"can_initialize"`
-	Reason        string           `json:"reason"`
-	Version       string           `json:"version"`
+	Batches        []ExecutionBatch `json:"batches"`
+	PreviewBatches []ExecutionBatch `json:"preview_batches,omitempty"`
+	CanInitialize  bool             `json:"can_initialize"`
+	Reason         string           `json:"reason"`
+	Version        string           `json:"version"`
 }
+
+// ExecutionBatchPreviewPlan computes a read-only preview using frozen values.
+func ExecutionBatchPreviewPlan(total, size float64, count int, inUnit, outUnit string, minutes int, planInputG, planOutputG int64, outputKnown bool, before float64) ([]ExecutionBatch, error) {
+	quantities, err := ExecutionBatchPlan(total, size, count)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]ExecutionBatch, 0, len(quantities))
+	for i, quantity := range quantities {
+		row := ExecutionBatch{BatchNo: i + 1, PlannedInputQty: quantity, InputUnit: inUnit, OutputUnit: outUnit, Status: "pending"}
+		if outputKnown {
+			if q, ok := ExecutionBatchPlannedOutputSlice(before, quantity, inUnit, outUnit, planInputG, planOutputG); ok {
+				row.PlannedOutputQty = &q
+			}
+		}
+		if minutes > 0 {
+			m := minutes*(i+1)/count - minutes*i/count
+			row.PlannedMinutes = &m
+		}
+		if row.PlannedOutputQty == nil || row.PlannedMinutes == nil {
+			row.DefaultUnavailableReason = "原计划数据不完整，请核对本批预计产出或工时"
+		}
+		rows = append(rows, row)
+		before += quantity
+	}
+	return rows, nil
+}
+
 type ExecutionBatchInitCommand struct {
 	ID              int64  `json:"-"`
 	ExpectedVersion string `json:"expected_version"`

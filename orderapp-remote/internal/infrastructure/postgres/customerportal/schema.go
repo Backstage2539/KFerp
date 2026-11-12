@@ -453,6 +453,7 @@ ALTER TABLE IF EXISTS %[1]s.order_items ADD COLUMN IF NOT EXISTS material_item_w
 ALTER TABLE IF EXISTS %[1]s.order_items ADD COLUMN IF NOT EXISTS logistics_unit_weight_g NUMERIC(20,6);
 ALTER TABLE IF EXISTS %[1]s.order_items ADD COLUMN IF NOT EXISTS logistics_item_weight_g NUMERIC(20,6);
 ALTER TABLE IF EXISTS %[1]s.order_items ADD COLUMN IF NOT EXISTS weight_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE IF EXISTS %[1]s.order_items ADD COLUMN IF NOT EXISTS operation_notes_json JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE IF EXISTS %[1]s.order_items ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE IF EXISTS %[1]s.order_items ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0;
 `, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)

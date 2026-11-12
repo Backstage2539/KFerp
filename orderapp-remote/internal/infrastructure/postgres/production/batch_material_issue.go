@@ -114,6 +114,9 @@ func (r Repository) previewBatchMaterialIssueTx(ctx context.Context, tx pgx.Tx, 
 	return r.previewBatchMaterialIssueIgnoringDraftsTx(ctx, tx, cmd, nil)
 }
 func (r Repository) previewBatchMaterialIssueIgnoringDraftsTx(ctx context.Context, tx pgx.Tx, cmd app.BatchMaterialIssueCommand, ignoredDrafts []int64) (app.BatchMaterialIssuePreview, error) {
+	if cmd.Workflow == "replenishment" {
+		return r.previewActualReplenishmentTx(ctx, tx, cmd, ignoredDrafts)
+	}
 	out := app.BatchMaterialIssuePreview{JobCardIDs: cmd.JobCardIDs, Groups: []app.BatchMaterialIssueGroup{}, Blocked: []app.BatchMaterialIssueBlocked{}}
 	tasks, err := r.batchIssueTasksTx(ctx, tx, cmd.JobCardIDs, ignoredDrafts)
 	if err != nil {

@@ -11,17 +11,17 @@
         <p>{{ todayRoster.date || overview.date || '今天' }} · {{ visibleSections.length }} 个工位 · {{ visibleTaskCount }} 个任务</p>
       </div>
       <div class="toolbar-actions">
-        <div v-if="canViewAll" class="scope-switch"><button type="button" :class="{ active: scope === 'mine' }" @click="switchScope('mine')">我的今日工位</button><button type="button" :class="{ active: scope === 'all' }" @click="switchScope('all')">全厂总览</button></div>
+        <div v-if="canViewAll" class="scope-switch"><button type="button" :disabled="startGroup.locked" :class="{ active: scope === 'mine' }" @click="switchScope('mine')">我的今日工位</button><button type="button" :disabled="startGroup.locked" :class="{ active: scope === 'all' }" @click="switchScope('all')">全厂总览</button></div>
         <label>
           <span>工位</span>
-          <select v-model="selectedWorkstation">
+          <select v-model="selectedWorkstation" :disabled="startGroup.locked">
             <option value="">全部工位</option>
             <option v-for="section in sections" :key="section.workstation" :value="section.workstation">{{ section.workstation }}</option>
           </select>
         </label>
         <button class="secondary" type="button" @click="openProductionHelp">开工扣料说明</button>
         <button class="secondary" type="button" @click="openScheduling">查看生产排班</button>
-        <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
+        <button class="secondary" type="button" @click="load" :disabled="loading || startGroup.locked">刷新</button>
       </div>
     </section>
 
@@ -44,6 +44,19 @@
           </div>
           <div class="station-head-actions"><span v-if="section.blockingReason" class="blocker">{{ section.blockingReason }}</span><button v-if="section.assignment?.handover_count" class="handover" type="button" :disabled="busyKey !== ''" @click="handoverStation(section)">接手工位（{{ section.assignment.handover_count }}）</button></div>
         </div>
+
+        <section v-if="packagingSummary(section).length" class="packaging-summary" aria-label="当前工位待包装汇总">
+          <h4>待包装汇总</h4>
+          <p>按产品与冻结规格统计当前工位显示的待处理、受阻、进行中及暂停任务，包含未排时间任务；已完成和已取消不计入。</p>
+          <div class="packaging-summary-grid">
+            <article v-for="row in packagingSummary(section)" :key="row.key">
+              <strong>{{ row.product_name }} · {{ row.spec_label }}</strong>
+              <span v-if="!row.unknown_quantity_count">待包装 {{ quantityText(row.remaining_qty) }} {{ row.unit }}</span>
+              <span v-else>{{ row.remaining_qty > 0 ? `已知待包装 ${quantityText(row.remaining_qty)} ${row.unit}；` : '' }}{{ row.unknown_quantity_count }} 项数量待核对</span>
+              <small>{{ row.order_count }} 张工单<template v-if="row.unscheduled_count"> · 其中 {{ row.unscheduled_count }} 张含未排时间任务</template></small>
+            </article>
+          </div>
+        </section>
 
         <div class="answer-grid">
           <div class="answer-block current">
@@ -71,14 +84,19 @@
           <button type="button" class="primary" :disabled="!issueSelectionState(issueTasks(section), selectedIssueTasks).count || loading" @click="openBatchIssue(section)">合并领料</button>
           <small>多选可领任务后，同料汇总、一次领到 WIP</small>
         </div>
-        <div v-if="selectedWorkstation && packagingGroups(section).length" class="packaging-groups">
-          <article v-for="group in packagingGroups(section)" :key="group.key" class="packaging-group-card">
-            <div class="packaging-group-head"><div><h4>{{ group.product_name }} · {{ group.spec_g }}g袋装 · {{ quantityText(group.remaining_output_qty) }} {{ group.inventory_unit }} · {{ group.tasks.length }}张工单</h4><p>目标仓：{{ warehouseLabel(group.target_warehouse_name || group.tasks[0]?.target_warehouse) }} · 已完成 {{ quantityText(group.completed_output_qty) }} / {{ quantityText(group.planned_output_qty) }} {{ group.inventory_unit }}</p></div><div class="packaging-group-actions"><button type="button" class="secondary" :disabled="loading || busyKey !== '' || !groupHasShortage(group)" @click="openPackagingGroupIssue(group)">补齐物料</button><button type="button" class="primary" :disabled="loading || busyKey !== ''" @click="needsConfirmedStart(group.tasks[0])?openGroupStart(group):openGroupCompletion(group)">{{needsConfirmedStart(group.tasks[0])?'合并开工':'完成并入库'}}</button></div></div>
-            <div class="group-material-table"><div class="material-row material-head"><span>物料</span><span>需求</span><span>WIP本组可用</span><span>待补</span><span>来源仓可补</span></div><div v-for="material in group.materials" :key="material.identity" class="material-row"><strong>{{ material.material_name }}</strong><span>{{ materialQuantity(material, 'required') }}</span><span>{{ materialQuantity(material, 'wip') }}</span><span :class="{ shortage: materialHasShortage(material) }">{{ materialQuantity(material, 'shortage') }}</span><span>{{ sourceAvailabilityLabel(group, material) }}</span></div></div>
-            <details class="group-source-orders"><summary>查看 {{ group.tasks.length }} 张来源工单</summary><div v-for="task in group.tasks" :key="taskKey(task)">{{ task.work_order_no }} · {{ task.customer_name || '客户未指定' }} · {{ quantityText(task.planned_output_inventory_qty) }} {{ task.inventory_unit }} <button type="button" class="text-button" @click="openExecutionHub(task, 'job_card')">查看工单</button> <button v-if="task.material_consumption_policy==='bom_start_v1'&&['running','paused'].includes(task.status)" type="button" class="text-button" @click="adjustment.task=task;adjustment.open=true">用料调整</button></div></details>
-            <OperationStartGroupForm v-if="startGroup.open&&startGroup.key===group.key" :key="`group-start-${group.key}`" :task-ids="startGroup.ids" @close="startGroup.open=false" @posted="groupStarted" />
+        <div v-if="selectedWorkstation && startableTasks(section).length" class="batch-start-toolbar">
+          <label><input type="checkbox" aria-label="全选当前工位可开工工单" :checked="startSelectionState(section).checked" :indeterminate="startSelectionState(section).indeterminate" :disabled="startGroup.locked" @change="toggleStartSelection(section)" /> 全选可开工工单</label>
+          <span>已选 {{ selectedStartRows(section).length }} 张</span>
+          <button type="button" class="secondary" :disabled="!selectedStartRows(section).length || loading || Boolean(busyKey)" @click="openPackagingGroupIssue({tasks:selectedStartRows(section)})">补齐所选物料</button>
+          <button type="button" class="primary" :disabled="selectedStartRows(section).length < 2 || loading || Boolean(busyKey) || startGroup.locked" @click="openSelectedStart(section)">合并开工</button>
+          <small>不同规格、客户分别扣料和记录；请逐单核对客户工序备注。</small>
+        </div>
+        <OperationStartGroupForm v-if="startGroup.open && startGroup.key===section.workstation" :key="`group-start-${startGroup.key}`" :task-ids="startGroup.ids" :source-tasks="startGroup.tasks" @close="startGroup.open=false" @posted="groupStarted" @lock-change="startGroup.locked=$event" />
+        <div v-if="selectedWorkstation && completionGroups(section).length" class="packaging-completion-actions">
+          <div v-for="group in completionGroups(section)" :key="group.key">
+            <button type="button" class="secondary" :disabled="loading || Boolean(busyKey)" @click="openGroupCompletion(group)">{{group.product_name}} · {{group.tasks[0]?.spec_label || '规格未记录'}} · {{group.tasks.length}} 张同规格工单完成并入库</button>
             <WorkstationPackagingCompletionForm v-if="completionGroup.open && completionGroup.key === group.key" :key="completionGroup.key" :task-ids="completionGroup.ids" @close="completionGroup.open = false" @posted="groupCompleted" />
-          </article>
+          </div>
         </div>
         <div v-if="selectedWorkstation && ungroupedTasks(section).length" class="task-table">
           <div class="task-row header">
@@ -93,10 +111,14 @@
             :class="{ focused: isRequestedTask(task) }"
             :data-task-key="taskKey(task)">
             <div class="task-title">
-              <strong><input v-if="!isSimplifiedTask(task)" v-model="selectedIssueTasks" type="checkbox" :value="Number(task.job_card_id)" :disabled="!workstationCanOpenIssue(task)" :aria-label="`选择任务 ${task.work_order_no} ${task.job_card_id}`" /><button v-if="isInlineBatchTask(task)" type="button" class="task-expand" :aria-expanded="isFinishPanelForTask(task)" @click="toggleFinishPanel(task)">{{ isFinishPanelForTask(task) ? '▾' : '▸' }} {{ taskTitle(task) }}</button><template v-else>{{ taskTitle(task) }}</template></strong>
+              <strong><input v-if="canSelectStart(task)" v-model="selectedStartTasks" :disabled="startGroup.locked" type="checkbox" :value="Number(task.job_card_id)" :aria-label="`选择开工工单 ${task.work_order_no}`" /><input v-if="!isSimplifiedTask(task)" v-model="selectedIssueTasks" type="checkbox" :value="Number(task.job_card_id)" :disabled="!workstationCanOpenIssue(task)" :aria-label="`选择任务 ${task.work_order_no} ${task.job_card_id}`" /><button v-if="isInlineBatchTask(task)" type="button" class="task-expand" :aria-expanded="isTaskExpanded(task)" @click="toggleFinishPanel(task)">{{ isTaskExpanded(task) ? '▾' : '▸' }} {{ taskTitle(task) }}</button><template v-else>{{ taskTitle(task) }}</template></strong>
               <small>{{ taskBatchLabel(task) }} · {{ task.work_order_no || '-' }} · P{{ task.priority || 0 }}</small>
-              <small v-for="line in taskQuantityLines(task)" :key="line" class="task-quantity">{{ line }}</small>
+              <small v-if="isPackagingTask(task)" class="task-spec">{{task.spec_label || '规格未记录'}}</small>
+              <small v-for="line in taskDisplayQuantityLines(task)" :key="line" class="task-quantity">{{ line }}</small>
               <small>工序要求：{{ task.process_requirement || '按冻结工艺路线执行' }}</small>
+              <div v-if="task.related_orders?.length" class="task-related-orders" aria-label="关联订单与工序备注">
+                <div v-for="order in task.related_orders" :key="`${order.order_id}:${order.order_item_id}`"><strong>{{order.order_no}} · {{order.customer_name || '客户未记录'}}</strong><span v-if="order.late_association"> · 后关联</span><span v-if="order.quantity"> · {{quantityText(order.quantity)}} {{order.sales_unit}}</span><p v-if="order.original_order_note">原订单备注：{{order.original_order_note}}</p><p v-if="order.original_item_note">原商品备注：{{order.original_item_note}}</p><p v-for="(note,index) in order.operation_notes || []" :key="index">{{note.operation_name || task.operation}}：{{note.note}}</p></div>
+              </div>
               <details v-if="task.material_readiness?.length" class="material-readiness" :class="`material-state-${materialReadinessState(task)}`">
                 <summary>{{ materialSummary(task) }}</summary>
                 <div class="material-row material-head"><span>物料名称</span><span>需求</span><span>WIP 可用</span><span>缺口</span></div>
@@ -157,7 +179,8 @@
               <button class="secondary" @click="handleTaskAction(task,task.status==='paused'?'resume':'pause')">{{task.status==='paused'?'恢复':'暂停'}}</button>
             </div>
 
-            <OperationStartForm v-if="startPanel.open && sameTask(startPanel.task,task)" :key="`start-${task.job_card_id}`" :job-card-id="Number(task.job_card_id)" :refresh-token="startPanel.revision" :locked="batchIssue.open" @close="startPanel.open=false" @posted="startPosted" @issue="(shortages, input) => openStartIssue(task, shortages, input)" />
+            <ExecutionBatchPreview v-if="startPanel.open && sameTask(startPanel.task,task) && isInlineBatchTask(task)" :job-card-id="Number(task.job_card_id)" />
+            <OperationStartForm v-if="startPanel.open && sameTask(startPanel.task,task)" :key="`start-${task.job_card_id}`" :job-card-id="Number(task.job_card_id)" :refresh-token="startPanel.revision" :locked="batchIssue.open || isTaskUnattended(task)" @close="startPanel.open=false" @posted="startPosted" @issue="(shortages, input) => openStartIssue(task, shortages, input)" />
             <OperationCompletionForm v-if="isFinishPanelForTask(task)" ref="finishForm" :external-bulk="isInlineBatchTask(task)" :can-complete="['running','paused'].includes(task.status) && !isTaskUnattended(task)" :key="task.job_card_id" :job-card-id="Number(task.job_card_id)" :return-params="completionReturnParams(task)" @close="closeFinishPanel" @posted="automaticPosted" @batch-state="state => setBatchState(task,state)" />
           </div>
         </div>
@@ -167,7 +190,7 @@
         <span>{{ emptyState.hint }}</span>
       </div>
     </section>
-    <WorkstationBatchIssueDrawer v-if="batchIssue.open" :task-ids="batchIssue.ids" :workstation="selectedWorkstation" :return-params="{scope}" :start-shortages="batchIssue.startShortages" :start-input="batchIssue.startInput" @close="batchIssue.open = false" @posted="batchIssuePosted" @cancelled="batchIssueCancelled" />
+    <WorkstationBatchIssueDrawer v-if="batchIssue.open" :task-ids="batchIssue.ids" :workstation="selectedWorkstation" :return-params="{scope}" :replenishment="batchIssue.replenishment" :start-shortages="batchIssue.startShortages" :start-input="batchIssue.startInput" @close="batchIssue.open = false" @posted="batchIssuePosted" @cancelled="batchIssueCancelled" />
     <ProductionExecutionHubDrawer
       :open="executionHub.open"
       :work-order-id="executionHub.workOrderId"
@@ -180,6 +203,7 @@
 
 <script setup>
 import OperationCompletionForm from '../components/OperationCompletionForm.vue'
+import ExecutionBatchPreview from '../components/ExecutionBatchPreview.vue'
 import OperationStartForm from '../components/OperationStartForm.vue'
 import OperationStartGroupForm from '../components/OperationStartGroupForm.vue'
 import OperationAdjustmentForm from '../components/OperationAdjustmentForm.vue'
@@ -200,12 +224,12 @@ import {
   materialReadinessState,
   taskTitle,
   taskQuantityLines,
+  isPackagingTask,
   isSimplifiedWorkstationTask,
   workstationCanOpenIssue,
   workstationVisibleActions,
   workstationTaskSections,
   workstationPackagingGroups,
-  workstationPackagingMaterialIdentity,
   workstationFocusDisposition,
   workstationTaskRequiresSchedule,
 } from '../lib/production-workstation.js'
@@ -215,79 +239,81 @@ const props = defineProps({
   actor: { type: Object, default: null },
 })
 
-const adjustment=reactive({open:false,task:null}),startGroup=reactive({open:false,key:'',ids:[]})
+const adjustment=reactive({open:false,task:null}),startGroup=reactive({open:false,key:'',ids:[],tasks:[],locked:false})
 async function adjusted(){adjustment.open=false;await load()}
-function openGroupStart(group){completionGroup.open=false;startGroup.key=group.key;startGroup.ids=group.tasks.map(t=>Number(t.job_card_id));startGroup.open=true}
-async function groupStarted(){startGroup.open=false;await load()}
+async function groupStarted(_result,submittedIDs=startGroup.ids){selectedStartTasks.value=selectedStartTasks.value.filter(id=>!submittedIDs.includes(id));startGroup.open=false;await load()}
 const startPanel=reactive({open:false,task:null,revision:0})
 function needsConfirmedStart(task){return task.material_consumption_policy==='bom_start_v1' && ['pending','ready','released'].includes(task.status)}
 function openStartPanel(task){if(isTaskUnattended(task)){message.value='今日该工位无人值班，请先完成排班';return};finishPanel.open=false;startPanel.task=task;startPanel.open=true}
 async function startPosted(){startPanel.open=false;await load()}
+const selectedStartTasks=ref([])
+watch(selectedStartTasks,()=>{
+  if(!startGroup.open || startGroup.locked)return
+  const section=sections.value.find(row=>row.workstation===startGroup.key)
+  if(!section)return
+  const tasks=selectedStartRows(section)
+  startGroup.ids=tasks.map(task=>Number(task.job_card_id));startGroup.tasks=tasks
+},{deep:true,flush:'sync'})
+function canSelectStart(task){return isPackagingTask(task) && needsConfirmedStart(task) && !isTaskUnattended(task)}
+function startableTasks(section){return (section.tasks || []).filter(canSelectStart)}
+function selectedStartRows(section){return startableTasks(section).filter(task=>selectedStartTasks.value.includes(Number(task.job_card_id)))}
+function startSelectionState(section){const total=startableTasks(section).length,count=selectedStartRows(section).length;return {checked:total>0&&count===total,indeterminate:count>0&&count<total}}
+function toggleStartSelection(section){if(startGroup.locked)return;const ids=startableTasks(section).map(task=>Number(task.job_card_id));const selected=new Set(selectedStartTasks.value);const remove=startSelectionState(section).checked;for(const id of ids){if(remove)selected.delete(id);else selected.add(id)}selectedStartTasks.value=[...selected]}
+function openSelectedStart(section){if(startGroup.locked)return;const tasks=selectedStartRows(section);if(tasks.length<2)return;completionGroup.open=false;startPanel.open=false;startGroup.key=section.workstation;startGroup.ids=tasks.map(task=>Number(task.job_card_id));startGroup.tasks=tasks;startGroup.open=true}
+function completionGroups(section){return packagingGroups(section).filter(group=>group.tasks.every(task=>!needsConfirmedStart(task)))}
+function packagingSummary(section){
+  const rows=(section.tasks||[]).filter(task=>isPackagingTask(task)&&['pending','ready','released','blocked','running','paused'].includes(task.status)&&!['completed','cancelled'].includes(task.work_order_status))
+  const orderTaskCounts=new Map()
+  for(const task of rows){const order=task.work_order_id||task.work_order_no||`card:${task.job_card_id}`;orderTaskCounts.set(order,(orderTaskCounts.get(order)||0)+1)}
+  const groups=new Map()
+  for(const task of rows){
+    const order=task.work_order_id||task.work_order_no||`card:${task.job_card_id}`
+    const spec=String(task.spec_label||'').trim(),unit=String(task.inventory_unit||'').trim()
+    const product=Number(task.product_id)>0?`product:${task.product_id}`:task.packaging_group_key||`order:${order}`
+    const key=JSON.stringify([product,spec||`unknown-spec:${order}`,Number(task.bom_spec_id||0),Number(task.bom_variant_id||0),unit||`unknown-unit:${order}`])
+    if(!groups.has(key))groups.set(key,{key,product_name:task.product_name||'产品未记录',spec_label:spec||'规格未记录',unit:unit||'单位未记录',remaining_qty:0,unknown_quantity_count:0,orders:new Set(),unscheduled:new Set()})
+    const group=groups.get(key)
+    group.orders.add(order)
+    if(!String(task.planned_start_at||'').trim())group.unscheduled.add(order)
+    const target=Number(task.planned_output_inventory_qty),totalInput=Number(task.operation_total_input_qty),taskInput=Number(task.planned_input_qty)
+    const planned=Number.isFinite(target)&&target>=0?(totalInput>0&&taskInput>=0?target*taskInput/totalInput:orderTaskCounts.get(order)===1?target:null):null
+    if(planned===null || !unit)group.unknown_quantity_count++
+    else group.remaining_qty+=Math.max(0,planned-Math.max(0,Number(task.actual_output_qty)||0))
+  }
+  return [...groups.values()].map(({orders,unscheduled,...row})=>({...row,remaining_qty:Number(row.remaining_qty.toFixed(6)),order_count:orders.size,unscheduled_count:unscheduled.size}))
+}
+function taskDisplayQuantityLines(task){return taskQuantityLines(task).map(line=>isInlineBatchTask(task)?line.replace(/^本批投料 /,'计划总投入 ').replace(/^目标产出 /,'工单目标产出 '):line)}
 const selectedIssueTasks = ref([])
-const batchIssue = reactive({open: false, ids: [], startShortages: [], startInput: null, recovering: false})
+const batchIssue = reactive({open: false, ids: [], startShortages: [], startInput: null, recovering: false, replenishment: false})
 const completionGroup = reactive({ open: false, key: '', ids: [] })
 const lastGroupResult = ref(null)
-const packagingSourceAvailability = ref(new Map())
-let packagingSourceAvailabilityRevision = 0
-function groupedTasks(section) { return workstationPackagingGroups(section.tasks).flatMap(group => group.tasks) }
-function ungroupedTasks(section) { const ids = new Set(groupedTasks(section).map(task => Number(task.job_card_id))); return section.tasks.filter(task => !ids.has(Number(task.job_card_id))) }
+function ungroupedTasks(section) { return section.tasks }
 function isSimplifiedTask(task) { return isSimplifiedWorkstationTask(task) }
 function issueTasks(section) { return ungroupedTasks(section).filter(task => !isSimplifiedTask(task)) }
 function packagingGroups(section) { return workstationPackagingGroups(section.tasks) }
-function openBatchIssueForTasks(tasks) { if (batchIssue.open) return; batchIssue.recovering = false; batchIssue.startShortages = []; batchIssue.ids = tasks.filter(workstationCanOpenIssue).map(task => Number(task.job_card_id)); batchIssue.open = batchIssue.ids.length > 0 }
+function openBatchIssueForTasks(tasks) { if (batchIssue.open) return; batchIssue.replenishment=false; batchIssue.recovering = false; batchIssue.startShortages = []; batchIssue.startInput=null; batchIssue.ids = tasks.filter(workstationCanOpenIssue).map(task => Number(task.job_card_id)); batchIssue.open = batchIssue.ids.length > 0 }
 function openPackagingGroupIssue(group) {
   if (batchIssue.open) return
+  batchIssue.replenishment=true
   // Simplified tasks have no legacy stock_action; use the same group as the source-stock preview.
   const ids = [...new Set((group?.tasks || []).map(task => Number(task.job_card_id)).filter(id => Number.isSafeInteger(id) && id > 0))]
   if (!ids.length) { error.value = '本组没有可补料的有效任务，请刷新工位后重试。'; return }
   error.value = ''
   batchIssue.recovering = false
   batchIssue.startShortages = []
+  batchIssue.startInput=null
   batchIssue.ids = ids
   batchIssue.open = true
 }
-function openStartIssue(task, shortages, input) { if (batchIssue.open) return; batchIssue.recovering = false; batchIssue.ids = [Number(task.job_card_id)]; batchIssue.startShortages = shortages; batchIssue.startInput = input; batchIssue.open = true }
+function openStartIssue(task, shortages, input) { if (batchIssue.open) return; batchIssue.replenishment=true; batchIssue.recovering = false; batchIssue.ids = [Number(task.job_card_id)]; batchIssue.startShortages = shortages; batchIssue.startInput = input; batchIssue.open = true }
 async function batchIssuePosted(result) { if (batchIssue.startShortages.length && Number(result?.success_count || 0) > 0) startPanel.revision++; await load() }
 async function batchIssueCancelled() { if (batchIssue.startShortages.length) startPanel.revision++; await load() }
 function openBatchIssue(section) { openBatchIssueForTasks(issueTasks(section).filter(task => selectedIssueTasks.value.includes(Number(task.job_card_id)))) }
 function openGroupCompletion(group) { completionGroup.key = group.key; completionGroup.ids = group.tasks.map(task => Number(task.job_card_id)); completionGroup.open = true; batchIssue.open = false }
 async function groupCompleted(result) { lastGroupResult.value = result; completionGroup.open = false; message.value = `已完成并入库 ${result.completed_qty} ${result.output_unit}`; await load() }
 function quantityText(value) { return Number(value || 0).toLocaleString('zh-CN', { maximumFractionDigits: 3 }) }
-function sourceAvailabilityKey(groupKey, materialIdentity) { return `${groupKey}:${materialIdentity}` }
-function sourceAvailabilityLabel(group, material) {
-  const row = packagingSourceAvailability.value.get(sourceAvailabilityKey(group.key, material.identity))
-  if (!row) return '正在查询…'
-  if (row.error) return '暂不可查询'
-  if (row.g > 0) return `${quantityText(row.g)}g`
-  return `${quantityText(row.units)}${material.unit || '件'}`
-}
 function warehouseLabel(code) { const key = String(code || ''); return warehouseNames.value.get(key) || ({ finished_goods: '成品仓', packaging: '包材仓', raw_materials: '原料仓', wip: 'WIP在制仓' })[key] || (key ? `仓库名待加载（${key}）` : '待确认') }
 async function loadWarehouseNames() { try { const data = await apiGet('/api/stock/warehouses'); const rows = Array.isArray(data) ? data : (data.rows || data.warehouses || []); warehouseNames.value = new Map(rows.filter(row => row?.code).map(row => [String(row.code), String(row.name || row.code)])) } catch { warehouseNames.value = new Map() } }
-async function loadPackagingSourceAvailability(tasks) {
-  const revision = ++packagingSourceAvailabilityRevision
-  const groups = workstationPackagingGroups(tasks)
-  const values = new Map()
-  for (const group of groups) for (const material of group.materials) values.set(sourceAvailabilityKey(group.key, material.identity), { g: 0, units: 0 })
-  packagingSourceAvailability.value = values
-  await Promise.all(groups.map(async group => {
-    try {
-      const data = await apiSend('/api/production/workstation/material-issue/preview', { body: { job_card_ids: group.tasks.map(task => Number(task.job_card_id)) } })
-      for (const row of data.groups || []) {
-        const identity = workstationPackagingMaterialIdentity({ item_type: row.item_type, item_id: row.item_id, material_id: row.item_id, bom_spec_id: row.bom_spec_id, owner_customer_id: row.owner_customer_id, unit: row.unit, spec_g: row.spec_g })
-        const material = group.materials.find(item => item.identity === identity)
-        if (!material) continue
-        const key = sourceAvailabilityKey(group.key, identity)
-        const availability = values.get(key) || { g: 0, units: 0 }
-        if (row.quantity_basis === 'weight') availability.g += Number(row.available || 0)
-        else availability.units += Number(row.available || 0)
-        values.set(key, availability)
-      }
-    } catch {
-      for (const material of group.materials) values.set(sourceAvailabilityKey(group.key, material.identity), { error: true })
-    }
-  }))
-  if (revision === packagingSourceAvailabilityRevision) packagingSourceAvailability.value = new Map(values)
-}
 const loading = ref(false)
 const busyKey = ref('')
 const error = ref('')
@@ -454,10 +480,6 @@ function materialHasShortage(material) {
   return Number(material?.shortage_g || 0) > 0 || Number(material?.shortage_units || 0) > 0
 }
 
-function groupHasShortage(group) {
-  return (group?.materials || []).some(materialHasShortage)
-}
-
 function materialSummary(task) {
   if (materialReadinessState(task) === 'unknown') return '用料待核对'
   const rows = task?.material_readiness || []
@@ -571,7 +593,8 @@ function openIssue(task, mode) {
   issue.note = mode === 'material_call' ? '' : (task.blocking_reason || '')
 }
 
-function toggleFinishPanel(task) { if (isFinishPanelForTask(task)) closeFinishPanel(); else openFinishPanel(task) }
+function isTaskExpanded(task){return isFinishPanelForTask(task) || (startPanel.open && sameTask(startPanel.task,task))}
+function toggleFinishPanel(task) { if(needsConfirmedStart(task)){if(startPanel.open&&sameTask(startPanel.task,task))startPanel.open=false;else {finishPanel.open=false;startPanel.task=task;startPanel.open=true};return};if (isFinishPanelForTask(task)) closeFinishPanel(); else openFinishPanel(task) }
 
 function openFinishPanel(task) {
   issue.open = false
@@ -668,7 +691,6 @@ async function load(options = {}) {
     if (revision !== overviewLoadRevision) return false
     overview.value = overviewData
     todayRoster.value = rosterData
-    void loadPackagingSourceAvailability(overviewData.tasks || [])
     if (selectedWorkstation.value && !sections.value.some((section) => section.workstation === selectedWorkstation.value)) {
       selectedWorkstation.value = ''
     }
@@ -715,7 +737,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.packaging-groups{display:grid;gap:16px;margin:18px 0}.packaging-group-card{border:1px solid #d7e2da;border-radius:12px;padding:18px;background:#fff}.packaging-group-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px}.packaging-group-head h4{margin:0 0 6px;font-size:18px;color:#203b2c}.packaging-group-head p,.group-source-orders{color:#69776f}.packaging-group-actions{display:flex;gap:8px;flex-wrap:wrap}.group-material-table{margin-top:14px}.group-material-table .material-row{grid-template-columns:minmax(130px,1fr) repeat(4,minmax(74px,.55fr))}.group-source-orders{margin-top:12px}.group-source-orders summary{cursor:pointer}.group-source-orders>div{padding:7px 0}.text-button{border:0;background:none;color:#267349;text-decoration:underline;cursor:pointer}.group-result{padding:16px}.group-result p{margin:.3rem 0}
+.batch-start-toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:14px 0}.batch-start-toolbar label{display:flex;gap:7px;align-items:center}.batch-start-toolbar input{width:auto}.batch-start-toolbar small{width:100%;color:#69776f}.task-related-orders{margin-top:8px;padding:8px 10px;border-left:3px solid #c7ddce;overflow-wrap:anywhere;font-size:13px}.task-related-orders p{margin:4px 0;color:#58675f}.task-spec{font-weight:600}.packaging-completion-actions{margin:12px 0}.packaging-groups{display:grid;gap:16px;margin:18px 0}.packaging-group-card{border:1px solid #d7e2da;border-radius:12px;padding:18px;background:#fff}.packaging-group-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px}.packaging-group-head h4{margin:0 0 6px;font-size:18px;color:#203b2c}.packaging-group-head p,.group-source-orders{color:#69776f}.packaging-group-actions{display:flex;gap:8px;flex-wrap:wrap}.group-material-table{margin-top:14px}.group-material-table .material-row{grid-template-columns:minmax(130px,1fr) repeat(4,minmax(74px,.55fr))}.group-source-orders{margin-top:12px}.group-source-orders summary{cursor:pointer}.group-source-orders>div{padding:7px 0}.text-button{border:0;background:none;color:#267349;text-decoration:underline;cursor:pointer}.group-result{padding:16px}.group-result p{margin:.3rem 0}
 .batch-issue-toolbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:18px 0 12px}.batch-issue-toolbar small{color:#6c786f}.task-table input[type=checkbox]{width:16px;height:16px;vertical-align:middle;margin:0 8px 0 0;accent-color:#315740}
 
 .page { padding: 20px; color: #252525; }
@@ -921,6 +943,13 @@ textarea { resize: vertical; }
   align-items: end;
 }
 .form-grid .span-2 { grid-column: span 2; }
+.packaging-summary { margin: 16px 0; padding: 14px; border: 1px solid #d7e4dc; border-radius: 10px; background: #f5faf7; }
+.packaging-summary h4 { margin: 0 0 8px; }
+.packaging-summary > p { margin: 0 0 12px; color: #607568; font-size: 13px; }
+.packaging-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.packaging-summary-grid article { display: grid; gap: 7px; padding: 12px; background: white; border: 1px solid #dce7e0; border-radius: 8px; min-width: 0; overflow-wrap: anywhere; }
+.packaging-summary-grid span { color: #246a45; font-weight: 600; }
+.packaging-summary-grid small { color: #607568; }
 
 @media (max-width: 1100px) {
   .station-grid { grid-template-columns: 1fr; }
@@ -930,6 +959,7 @@ textarea { resize: vertical; }
   .page { padding: 14px; }
   .toolbar, .station-head { align-items: stretch; flex-direction: column; }
   .answer-grid, .form-grid { grid-template-columns: 1fr; }
+  .packaging-summary-grid { grid-template-columns: minmax(0, 1fr); }
   .form-grid .span-2 { grid-column: auto; }
   .task-row { grid-template-columns: 1fr; min-width: 0; align-items: start; }
   .task-row.header { display: none; }

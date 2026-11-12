@@ -152,7 +152,14 @@ func applyOrderContentSnapshotTx(ctx context.Context, tx pgx.Tx, schema string, 
 	if _, err = tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.order_items WHERE order_id=$1`, schema), id); err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.order_items SELECT * FROM jsonb_populate_recordset(NULL::%[1]s.order_items,$1::jsonb)`, schema), s.Items)
+	// Old confirmation snapshots predate operation_notes_json. PostgreSQL's
+	// populate_recordset fills absent fields with NULL rather than column
+	// defaults; supply an empty array only when the snapshot lacks a value.
+	_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.order_items
+		SELECT * FROM jsonb_populate_recordset(NULL::%[1]s.order_items,
+			(SELECT COALESCE(jsonb_agg(value || jsonb_build_object('operation_notes_json',
+				COALESCE(NULLIF(value->'operation_notes_json','null'::jsonb),'[]'::jsonb))),'[]'::jsonb)
+			 FROM jsonb_array_elements($1::jsonb) value))`, schema), s.Items)
 	return err
 }
 

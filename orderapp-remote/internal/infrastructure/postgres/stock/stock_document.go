@@ -49,13 +49,16 @@ func (r Repository) CreateWorkstationReplenishmentDraftTx(ctx context.Context, t
 }
 
 // SubmitWorkstationReplenishmentTx may only be used after the production service revalidates the full draft group.
-func (r Repository) SubmitWorkstationReplenishmentTx(ctx context.Context, tx pgx.Tx, id int64, actor string) (stockapp.StockDocumentDetail, error) {
+func (r Repository) SubmitWorkstationReplenishmentTx(ctx context.Context, tx pgx.Tx, id int64, actor string, allowFreeSource ...bool) (stockapp.StockDocumentDetail, error) {
 	var source string
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(return_source,'') FROM %s.stock_entries WHERE id=$1`, r.schema), id).Scan(&source); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
 	if source != "workstation_replenishment" {
 		return stockapp.StockDocumentDetail{}, fmt.Errorf("非工位补料单")
+	}
+	if len(allowFreeSource) > 0 && allowFreeSource[0] {
+		ctx = context.WithValue(ctx, workstationFreeSourceKey{}, true)
 	}
 	return r.submitStockDocumentGuardedTx(ctx, tx, id, actor, true)
 }

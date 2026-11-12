@@ -1768,7 +1768,7 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		           ) bi
 		           LEFT JOIN %s.materials m ON m.id=bi.material_id
 		       ), ''),
-		       COALESCE(wo.customer_id,0),COALESCE(wo.target_warehouse,''),COALESCE(wo.processing_request_item_id,0)
+		       COALESCE(wo.customer_id,0),COALESCE(wo.target_warehouse,''),COALESCE(wo.processing_request_item_id,0),COALESCE(to_jsonb(wo)->>'related_orders_snapshot_json','')
 		FROM %s.work_orders wo
 		LEFT JOIN %s.produce_running_items ri ON ri.id=wo.running_item_id
 		LEFT JOIN %s.products p ON p.id=wo.product_id
@@ -1796,7 +1796,7 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 			&row.PlannedG, &row.PlannedOutputG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt,
 			&row.RoastLevel, &row.YieldRate, &row.SuggestedInputG, &row.PlannedUnits, &row.PlannedLooseG, &row.OrderNos, &snapshotText, &row.WIPReservedG, &row.WIPConsumedG, &row.WIPRemainingReservedG, &row.BomVersionID, &row.ProcessTemplateID, &row.ProcessTemplateName, &row.ProcessSnapshotJSON, &row.OperationSummaryJSON,
 			&row.PlannedStartAt, &row.PlannedEndAt, &row.ShiftCode, &row.AssignedTo, &row.Priority, &row.SchedulingNote, &row.WorkCenter, &fallbackMaterialSummary,
-			&row.CustomerID, &row.TargetWarehouse, &row.ProcessingRequestItemID,
+			&row.CustomerID, &row.TargetWarehouse, &row.ProcessingRequestItemID, &row.RelatedOrdersSnapshotJSON,
 		); err != nil {
 			return nil, err
 		}
@@ -1835,6 +1835,24 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 	}
 	rows.Close()
 	for index := range out {
+		if snapshot := strings.TrimSpace(out[index].RelatedOrdersSnapshotJSON); snapshot != "" && snapshot != "null" {
+			if err := json.Unmarshal([]byte(snapshot), &out[index].RelatedOrders); err != nil {
+				return nil, err
+			}
+			if out[index].ProductionPlanItemID > 0 {
+				later, err := r.workstationRelatedOrders(ctx, out[index].ID)
+				if err != nil {
+					return nil, err
+				}
+				out[index].RelatedOrders = mergeLateSupplyOrders(out[index].RelatedOrders, later)
+			}
+		} else if out[index].ProductionPlanItemID > 0 {
+			orders, err := r.workstationRelatedOrders(ctx, out[index].ID)
+			if err != nil {
+				return nil, err
+			}
+			out[index].RelatedOrders = orders
+		}
 		plannedUnknown, actualUnknown, err := r.workOrderCostUnavailable(ctx, out[index].ID)
 		if err != nil {
 			return nil, err
@@ -1848,6 +1866,154 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		decorateWorkOrderDependencies(&out[index], dependencies)
 	}
 	return out, nil
+}
+
+// workstationRelatedOrders uses structured plan demand references, never the
+// display-only, comma-separated order numbers on legacy work orders.
+func (r Repository) workstationRelatedOrders(ctx context.Context, id int64) ([]productionapp.ProductionDemandOrder, error) {
+	return loadWorkstationRelatedOrders(ctx, r.pool, r.schema, id, false)
+}
+
+// New downstream orders may reuse an already submitted supplier. Show their
+// identity without changing the immutable snapshot or inventing instructions.
+func mergeLateSupplyOrders(frozen, current []productionapp.ProductionDemandOrder) []productionapp.ProductionDemandOrder {
+	out := append([]productionapp.ProductionDemandOrder{}, frozen...)
+	seen := make(map[int64]bool, len(out))
+	for _, order := range out {
+		seen[order.OrderItemID] = true
+	}
+	for _, order := range current {
+		if order.OrderItemID <= 0 || seen[order.OrderItemID] {
+			continue
+		}
+		seen[order.OrderItemID] = true
+		order.LateAssociation = true
+		order.OperationNotes = nil
+		order.OriginalOrderNote, order.OriginalItemNote = "", ""
+		out = append(out, order)
+	}
+	return out
+}
+
+func loadWorkstationRelatedOrders(ctx context.Context, queryer workOrderDependencyQuerier, schema string, id int64, includeNotes bool) ([]productionapp.ProductionDemandOrder, error) {
+	rows, err := queryer.Query(ctx, fmt.Sprintf(`WITH RECURSIVE downstream(id) AS (
+		SELECT $1::bigint
+		UNION SELECT d.work_order_id FROM %[1]s.work_order_dependencies d JOIN downstream x ON x.id=d.depends_on_work_order_id
+	), plan_ids(id) AS (
+		SELECT wo.production_plan_item_id FROM %[1]s.work_orders wo JOIN downstream x ON x.id=wo.id WHERE wo.production_plan_item_id>0
+		UNION SELECT a.production_plan_item_id FROM %[1]s.production_supply_allocations a JOIN downstream x ON x.id=a.supplier_work_order_id WHERE a.production_plan_item_id>0 AND COALESCE(to_jsonb(a)->>'status','')='reserved' AND COALESCE((to_jsonb(a)->>'work_order_id')::bigint,0)>0
+	)
+	SELECT COALESCE(pi.demand_sources_json,'[]'::jsonb)::text FROM %[1]s.production_plan_items pi JOIN plan_ids ON plan_ids.id=pi.id`, schema), id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	orders := []productionapp.ProductionDemandOrder{}
+	seen := map[int64]bool{}
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var found []productionapp.ProductionDemandOrder
+		if err := json.Unmarshal([]byte(raw), &found); err != nil {
+			return nil, err
+		}
+		for _, order := range found {
+			if order.OrderItemID <= 0 || seen[order.OrderItemID] {
+				continue
+			}
+			seen[order.OrderItemID] = true
+			orders = append(orders, order)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	if len(orders) == 0 {
+		return orders, nil
+	}
+	ids := make([]int64, 0, len(orders))
+	for _, order := range orders {
+		ids = append(ids, order.OrderItemID)
+	}
+	noteRows, err := queryer.Query(ctx, fmt.Sprintf(`SELECT oi.id,oi.order_id,COALESCE(to_jsonb(o)->>'notes',''),COALESCE(to_jsonb(oi)->>'item_note',''),COALESCE(to_jsonb(oi)->>'operation_notes_json','[]') FROM %[1]s.order_items oi JOIN %[1]s.orders o ON o.id=oi.order_id WHERE oi.id=ANY($1::bigint[])`, schema), ids)
+	if err != nil {
+		return nil, err
+	}
+	defer noteRows.Close()
+	byID := make(map[int64]int, len(orders))
+	for i := range orders {
+		byID[orders[i].OrderItemID] = i
+	}
+	for noteRows.Next() {
+		var itemID, orderID int64
+		var orderNote, itemNote, operationNotes string
+		if err := noteRows.Scan(&itemID, &orderID, &orderNote, &itemNote, &operationNotes); err != nil {
+			return nil, err
+		}
+		i, ok := byID[itemID]
+		if ok && orders[i].OrderID == orderID {
+			orders[i].OriginalOrderNote, orders[i].OriginalItemNote = orderNote, itemNote
+			if includeNotes {
+				if err := json.Unmarshal([]byte(operationNotes), &orders[i].OperationNotes); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+	return orders, noteRows.Err()
+}
+
+func freezeWorkOrderRelatedOrdersTx(ctx context.Context, tx pgx.Tx, schema string, id int64, outputType string, outputID, bomSpecID, bomVariantID, routeID int64) ([]productionapp.ProductionDemandOrder, error) {
+	orders, err := loadWorkstationRelatedOrders(ctx, tx, schema, id, true)
+	if err != nil {
+		return nil, err
+	}
+	for i := range orders {
+		all := orders[i].OperationNotes
+		orders[i].OperationNotes = nil
+		for _, note := range all {
+			if note.OutputType != outputType || note.OutputID != outputID || note.BomSpecID != bomSpecID {
+				continue
+			}
+			if note.BomVariantID != bomVariantID {
+				return nil, fmt.Errorf("订单 %s 的工序备注对应制造版本已变化，请先核对", orders[i].OrderNo)
+			}
+			if note.RouteID != routeID {
+				return nil, fmt.Errorf("订单 %s 的工序备注对应工艺已变化，请先核对", orders[i].OrderNo)
+			}
+			var seq int
+			var opID int64
+			var opName string
+			err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT seq,operation_id,operation FROM %s.process_route_operations WHERE id=$1 AND route_id=$2`, schema), note.StepID, note.RouteID).Scan(&seq, &opID, &opName)
+			if errors.Is(err, pgx.ErrNoRows) || (err == nil && opID != note.OperationID) {
+				return nil, fmt.Errorf("订单 %s 的工序备注对应步骤已变化，请先核对", orders[i].OrderNo)
+			}
+			if err != nil {
+				return nil, err
+			}
+			var frozenStepExists bool
+			err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.job_cards WHERE work_order_id=$1 AND sequence_no=$2 AND operation_id=$3)`, schema), id, seq, opID).Scan(&frozenStepExists)
+			if err != nil {
+				return nil, err
+			}
+			if !frozenStepExists {
+				return nil, fmt.Errorf("订单 %s 的工序备注与冻结工序不一致，请先核对", orders[i].OrderNo)
+			}
+			note.SequenceNo, note.OperationName = seq, opName
+			orders[i].OperationNotes = append(orders[i].OperationNotes, note)
+		}
+	}
+	raw, err := json.Marshal(orders)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET related_orders_snapshot_json=$2::jsonb WHERE id=$1`, schema), id, string(raw)); err != nil {
+		return nil, err
+	}
+	return orders, nil
 }
 
 func (r Repository) workOrderCostUnavailable(ctx context.Context, id int64) (bool, bool, error) {

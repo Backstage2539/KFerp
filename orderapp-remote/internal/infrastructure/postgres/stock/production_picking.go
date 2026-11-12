@@ -26,6 +26,41 @@ type pickingBinding struct {
 	ComponentType, BatchCode, Warehouse                                                                              string
 }
 
+// Only the atomic replenishment confirmation path can authorize new free
+// source batches. Ordinary picking still requires its frozen batch binding.
+type workstationFreeSourceKey struct{}
+
+func validateWorkstationFreeSourceTx(ctx context.Context, tx pgx.Tx, schema string, detail app.StockDocumentDetail, item app.StockDocumentItemRow, g, n int64) error {
+	kind, id := "material", item.MaterialID
+	if item.ItemType == itemTypeFinishedProduct {
+		kind, id = "product", item.ProductID
+	}
+	var matches bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.work_order_material_reservations WHERE work_order_id=$1 AND component_type=$2 AND component_id=$3 AND component_bom_spec_id=$4 AND component_bom_variant_id=$5 AND component_spec_g=$6 AND source_owner_customer_id=$7 AND status IN('reserved','consumed'))`, schema), detail.WorkOrderID, kind, id, item.BomSpecID, item.BomVariantID, item.SpecG, item.OwnerCustomerID).Scan(&matches); err != nil {
+		return err
+	}
+	if !matches {
+		return fmt.Errorf("补料物料、规格或货主不属于本工单")
+	}
+	query := app.TransferOptionsQuery{Warehouse: item.FromWarehouse, ItemType: item.ItemType, ItemID: id, BomSpecID: item.BomSpecID, SpecG: item.SpecG, Limit: 500}
+	for {
+		page, err := (Repository{schema: schema}).ListTransferOptionsTx(ctx, tx, query)
+		if err != nil {
+			return err
+		}
+		for _, row := range page.Rows {
+			if row.BatchCode == item.BatchCode && row.OwnerCustomerID == item.OwnerCustomerID && row.BomSpecID == item.BomSpecID && row.BomVariantID == item.BomVariantID && row.SpecG == item.SpecG && row.UnavailableReason == "" && g <= row.AvailableG && n <= row.AvailableUnits {
+				return nil
+			}
+		}
+		if !page.HasNext {
+			break
+		}
+		query.Offset += query.Limit
+	}
+	return fmt.Errorf("%s 的补料批次自由库存不足、质量或占用已变化", item.ItemName)
+}
+
 func pickingBindingsTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64, item app.StockDocumentItemRow, warehouse string) ([]pickingBinding, error) {
 	componentType, id := "material", item.MaterialID
 	if item.ItemType == itemTypeFinishedProduct {
@@ -89,6 +124,12 @@ func validateAutomaticPickingTx(ctx context.Context, tx pgx.Tx, schema string, d
 		q[1] += in
 		used[key] = q
 		if len(bindings) == 0 {
+			if allowed, _ := ctx.Value(workstationFreeSourceKey{}).(bool); allowed && detail.ReturnSource == "workstation_replenishment" && !detail.IsReturn {
+				if err := validateWorkstationFreeSourceTx(ctx, tx, schema, detail, item, q[0], q[1]); err != nil {
+					return err
+				}
+				continue
+			}
 			return fmt.Errorf("%s / %s 不属于本工单冻结的来源仓、货主和批次，请刷新领料建议", item.ItemName, item.BatchCode)
 		}
 		if detail.IsReturn && (q[0] > g || q[1] > n) {

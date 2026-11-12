@@ -462,6 +462,7 @@
             <span>条目备注</span>
             <input v-model.trim="row.item_note" placeholder="如贴标、磨粉、特殊包装" />
           </label>
+          <OrderOperationNotes v-if="!fulfillmentOrderEditing && row.product_id" ref="operationNoteEditors" v-model="row.operation_notes" v-model:context="row.operation_notes_context" class="line-note" :options-url="operationOptionsURL(row)" :context-key="orderOperationNotesContext(row, form.customer_id)" :disabled="saving" />
 
           <div v-if="!fulfillmentOrderEditing && !props.customerPortal && !isFrozenConversion(row) && tierRows(row).length" class="tier-prices">
             <small class="tier-choice-hint">手动选择价格档（不受数量门槛限制）</small>
@@ -800,6 +801,8 @@ import { initialReceiptDateRequired, initialReceiptPrepayment, validateInitialRe
 import OrderFreightEstimate from '../components/OrderFreightEstimate.vue'
 import {emptyFreightState,freightStateFromOrder,freightAmount} from '../lib/order-freight'
 import CustomerRecipientPicker from '../components/CustomerRecipientPicker.vue'
+import OrderOperationNotes from '../components/OrderOperationNotes.vue'
+import { orderOperationNotesContext, orderOperationOptionsURL } from '../lib/order-operation-notes.js'
 import { customerStockWarehouses, isCustomerStockOrder } from '../lib/customer-stock-entry'
 import { businessGroupFeatureSelectionIDs, businessGroupRowsForFeatureSelection } from '../lib/business-grouping'
 import { buildProductCatalogTemplatePriceListTypeOptions } from '../lib/product-price-list-types'
@@ -970,6 +973,7 @@ let editorLoadVersion = 0
 let editorAlive = true
 const editBlockReason = ref('')
 const saving = ref(false)
+const operationNoteEditors = ref([])
 const error = ref('')
 const ok = ref('')
 const stockBatchNotice = ref('')
@@ -1174,9 +1178,15 @@ function newRow() {
     qty: 1,
     unit: '件',
     item_note: '',
+    operation_notes: undefined,
+    operation_notes_context: '',
     discount_type: '',
     discount_value: '',
   }
+}
+
+function operationOptionsURL(row) {
+  return orderOperationOptionsURL(row, { customerPortal: props.customerPortal, customerId: form.customer_id, portalService: props.portalService })
 }
 
 function emptyCustomerForm() {
@@ -2096,6 +2106,7 @@ function applyPriceListSpecToRow(row, family, spec, publicationID) {
   row.spec_conversion = null
   const qty = row.qty
   const itemNote = row.item_note
+  const operationNotes = row.operation_notes
   const discountType = row.discount_type
   const discountValue = row.discount_value
   clearWholesalePriceMetadata(row)
@@ -2107,6 +2118,7 @@ function applyPriceListSpecToRow(row, family, spec, publicationID) {
     manual_price: false,
     qty,
     item_note: itemNote,
+    operation_notes: operationNotes,
     discount_type: discountType,
     discount_value: discountValue,
   })
@@ -2803,6 +2815,7 @@ function applyEditData(data) {
       qty: Number(item.qty || 1),
       unit: productKind === 'drip_bag' ? (salesUnit === 'box' ? '盒' : '袋') : (item.unit || '件'),
       item_note: item.note || '',
+      operation_notes: Array.isArray(item.operation_notes) ? item.operation_notes.map(note => ({ ...note })) : undefined,
       discount_type: item.discount_type || '',
       discount_value: item.discount_value || '',
     }
@@ -2890,6 +2903,7 @@ function applyEditData(data) {
           manual_price: item.price_selection_mode === 'manual' || item.price_override === true || item.tier_id === 'manual',
           qty: Number(item.qty || 1),
           item_note: item.note || '',
+          operation_notes: Array.isArray(item.operation_notes) ? item.operation_notes.map(note => ({ ...note })) : undefined,
           discount_type: item.discount_type || '',
           discount_value: item.discount_value || '',
         },
@@ -2955,6 +2969,7 @@ function repriceHydratedRows() {
         price_source_json: row.price_source_json,
         qty: row.qty,
         item_note: row.item_note,
+        operation_notes: row.operation_notes,
         discount_type: row.discount_type,
         discount_value: row.discount_value,
       }
@@ -3216,6 +3231,9 @@ async function saveOrderUnlocked(options = {}, lockedIdentity = '', lockedToken 
       await restorePendingOrderCreate(lockedIdentity,lockedToken)
       if (pendingOrderIdentity !== lockedIdentity) throw new Error('当前账号已变化，请重新打开录单核对')
       if (pendingOrderCreate.value) { error.value = '请先重试并核对上次未确认订单'; return }
+    }
+    for (const editor of operationNoteEditors.value) {
+      if (!await editor.validate()) { error.value = '请核对商品的工序备注；已填内容已保留。'; return }
     }
     const payload = buildOrderPayload({ form, rows: rows.value })
     if (initialReceiptExpected.value && !protectInitialReceipt) throw new Error('收款信息已变化，请重新保存并核对')

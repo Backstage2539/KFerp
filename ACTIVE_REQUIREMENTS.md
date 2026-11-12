@@ -7,6 +7,12 @@
 - Verifier: `TestMiniDirectShipProducedHistoricalBatchWithCurrentOrderVariantHTTP` 与 `TestDirectShipHistoricalOwnedBatchesWithCurrentOrderVariantHTTP`；`env -u DATABASE_URL -u ORDERAPP_TEST_DATABASE_URL go test ./...`。覆盖当前版本订单与历史自有批次、客户及仓库隔离、数量/来源校验、幂等与事务回滚；命令与结果见验收记录。
 - Manual: 操作入口、字段、价格、计费及提交步骤不变，修复恢复现有库存代发行为；无手册修改。
 - Evidence: `orderapp-remote/docs/acceptance/2026-11-12-dropship-produced-batch.md`。
+### PR-766-WORKSTATION-BATCH-START-NOTES
+- Branch: `codex/workstation-batch-start-notes-20261112`；Status: 开发中。
+- Scope: 工位批次预览、实际缺口补料、跨规格合并开工和订单工序备注。
+- DEV: `DEV-PR766-BATCH`、`DEV-PR766-REPLENISHMENT`、`DEV-PR766-START`、`DEV-PR766-ORDER-NOTES`、`DEV-PR766-VERIFY`。
+- Verifier: 单元/API RED/GREEN、隔离数据库、桌面和窄屏、构建及手册；正式业务只读。
+- Deployment: 验证完成后合并 develop/main 并发布 ERP；保留小程序包。
 
 ### PR-764-PLAN-MATERIAL-FLEXIBLE-TRANSFER
 - Branch: `codex/plan-transfer-flexible-20261112`；Status: 已发布开发及正式环境，用户验收待完成。

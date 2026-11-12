@@ -15,10 +15,12 @@ import (
 	"time"
 
 	customerportalapp "orderapp/internal/application/customerportal"
+	salesapp "orderapp/internal/application/sales"
 	catalogdomain "orderapp/internal/domain/catalog"
 	salesdomain "orderapp/internal/domain/sales"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"orderapp/internal/infrastructure/postgres/orderbeans"
+	productionpg "orderapp/internal/infrastructure/postgres/production"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -2610,6 +2612,17 @@ func (r Repository) CreateMallOrder(ctx context.Context, cmd customerportalapp.C
 
 	for i, item := range cmd.Items {
 		line := linesByMallProduct[item.MallProductID]
+		var operationNotes []salesapp.OrderOperationNote
+		if item.OperationNotes != nil && len(*item.OperationNotes) > 0 {
+			options, err := productionpg.OrderOperationOptionsTx(ctx, tx, r.schema, line.ProductID, line.BomSpecID, line.BomVariantID)
+			if err != nil {
+				return customerportalapp.FulfillmentOrder{}, err
+			}
+			operationNotes, err = salesapp.MatchOrderOperationNotes(*item.OperationNotes, options)
+			if err != nil {
+				return customerportalapp.FulfillmentOrder{}, err
+			}
+		}
 		pricing, err := portalMallLinePricingFor(line, item)
 		if err != nil {
 			return customerportalapp.FulfillmentOrder{}, err
@@ -2630,17 +2643,30 @@ func (r Repository) CreateMallOrder(ctx context.Context, cmd customerportalapp.C
 				return customerportalapp.FulfillmentOrder{}, err
 			}
 		}
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		var insertedItemID int64
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			INSERT INTO %s.order_items(
 				order_id,line_no,product_id,bom_spec_id,bom_variant_id,product_kind,
 				bean_list_publication_id,bean_list_version_no,item_name,qty,unit,spec,unit_price,line_total,
 				sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json
 			)
-			VALUES($1,$2,$3,$4,$5,$6,NULLIF($7,0),$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb)
+			VALUES($1,$2,$3,$4,$5,$6,NULLIF($7,0),$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb) RETURNING id
 		`, r.schema), orderID, i+1, line.ProductID, line.BomSpecID, line.BomVariantID, line.ProductKind, int64(0), "", line.Title,
 			item.Qty, pricing.DisplayUnit, pricing.SpecText, pricing.UnitPrice, pricing.LineTotal, pricing.SalesUnit,
-			pricing.UnitBagCount, pricing.UnitBeanG, item.Qty, priceSourceSnapshot); err != nil {
+			pricing.UnitBagCount, pricing.UnitBeanG, item.Qty, priceSourceSnapshot).Scan(&insertedItemID); err != nil {
 			return customerportalapp.FulfillmentOrder{}, err
+		}
+		if len(operationNotes) > 0 {
+			raw, err := json.Marshal(operationNotes)
+			if err != nil {
+				return customerportalapp.FulfillmentOrder{}, err
+			}
+			if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.order_items SET operation_notes_json=$2::jsonb WHERE id=$1 AND order_id=$3`, r.schema), insertedItemID, string(raw), orderID); err != nil {
+				return customerportalapp.FulfillmentOrder{}, err
+			}
+			if err = postgresinfra.AuditInsertTx(ctx, tx, r.schema, firstNonEmpty(cmd.Actor, portalMiniActor(cmd.CreatedByMiniUserID)), "order", &orderID, "update", postgresinfra.StrPtr("operation_notes"), nil, postgresinfra.StrPtr(string(raw)), postgresinfra.AuditMeta{"order_item_id": insertedItemID}); err != nil {
+				return customerportalapp.FulfillmentOrder{}, err
+			}
 		}
 		if line.ProductKind == catalogdomain.ProductKindDripBag {
 			if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, firstNonEmpty(cmd.Actor, portalMiniActor(cmd.CreatedByMiniUserID)), "customer_portal_order", &orderID, "mall drip submit", nil, nil, nil, postgresinfra.AuditMeta{
