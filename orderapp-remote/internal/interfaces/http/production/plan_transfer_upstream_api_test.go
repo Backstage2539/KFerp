@@ -12,8 +12,8 @@ import (
 )
 
 // Upstream quantities remain allocated to production even if matching stock
-// later appears in a warehouse. Only the separately planned stock portion may
-// be transferred; these requests exercise the actual plan transfer endpoints.
+// later appears in a warehouse. Automatic suggestions cover only the planned
+// stock portion; explicit transfers can move extra stock without replacing upstream supply.
 func TestPlanTransferAPIHonoursUpstreamSupply(t *testing.T) {
 	for _, tc := range []struct {
 		name                                  string
@@ -96,21 +96,16 @@ func TestPlanTransferAPIHonoursUpstreamSupply(t *testing.T) {
 			if !upstreamUnavailable {
 				t.Fatalf("bulk preview did not explain unavailable upstream supply: %+v", bulk)
 			}
-			badQty := tc.wantStock + 1
-			invalid := checkPreview([]app.PlanMaterialTransferItem{batchItem(badQty)})
-			if len(invalid.Unavailable) == 0 {
-				t.Fatalf("single preview allowed upstream quantity %+v", invalid)
-			}
-			bad := serveMultilevelProductionJSON(t, e, http.MethodPost, createURL, app.PlanMaterialTransferCommand{DraftToken: plan.DraftToken, IdempotencyKey: "upstream-over-limit", Items: []app.PlanMaterialTransferItem{batchItem(badQty)}})
-			if bad.Code == http.StatusOK || !strings.Contains(bad.Body.String(), "待补数量") {
-				t.Fatalf("direct create allowed upstream quantity: %d %s", bad.Code, bad.Body.String())
+			additional := checkPreview([]app.PlanMaterialTransferItem{batchItem(tc.wantStock + 1)})
+			if len(additional.Unavailable) != 0 || len(additional.Groups) != 1 {
+				t.Fatalf("explicit extra transfer should be allowed without replacing upstream %+v", additional)
 			}
 			assertProductionFlowCount(t, pool, schema, "production_plan_material_transfer_links", fmt.Sprintf("production_plan_id=%d", plan.ID), 0)
 			if tc.wantStock == 0 {
 				return
 			}
-			// A valid partial draft consumes the allowable stock portion but must not
-			// affect the upstream portion; automatic and direct requests recheck it.
+			// A valid partial draft reduces only the suggested stock portion; the
+			// frozen upstream portion and explicit extra transfer remain separate.
 			first := serveMultilevelProductionJSON(t, e, http.MethodPost, createURL, app.PlanMaterialTransferCommand{DraftToken: plan.DraftToken, IdempotencyKey: "upstream-partial", Items: []app.PlanMaterialTransferItem{batchItem(4000)}})
 			if first.Code != http.StatusOK {
 				t.Fatalf("valid partial create %d %s", first.Code, first.Body.String())
@@ -129,9 +124,9 @@ func TestPlanTransferAPIHonoursUpstreamSupply(t *testing.T) {
 			if suggested != 6000 {
 				t.Fatalf("bulk after pending=%d want 6000: %+v", suggested, after)
 			}
-			excess := serveMultilevelProductionJSON(t, e, http.MethodPost, createURL, app.PlanMaterialTransferCommand{DraftToken: plan.DraftToken, IdempotencyKey: "upstream-over-pending", Items: []app.PlanMaterialTransferItem{batchItem(6001)}})
-			if excess.Code == http.StatusOK || !strings.Contains(excess.Body.String(), "待补数量") {
-				t.Fatalf("pending overrun accepted %d %s", excess.Code, excess.Body.String())
+			extra := checkPreview([]app.PlanMaterialTransferItem{batchItem(6001)})
+			if len(extra.Unavailable) != 0 || len(extra.Groups) != 1 {
+				t.Fatalf("explicit extra after pending should be allowed: %+v", extra)
 			}
 			assertProductionFlowCount(t, pool, schema, "production_plan_material_transfer_links", fmt.Sprintf("production_plan_id=%d AND component_source_id=%d", plan.ID, source.ID), 1)
 			var bulkItems []app.PlanMaterialTransferItem

@@ -7,7 +7,7 @@
         <button class="material-name" type="button" @click="$emit('material-stock', source)">{{ source.component_name }}</button>
         <div><span>需求</span><strong>{{ amount(source, 'demand') }}</strong></div>
         <div><span>WIP库存</span><strong>{{ amount(source, 'wip_covered') }}</strong><b v-if="stockMissing(source)" class="missing">缺料 {{ stockMissingAmount(source) }}</b><b v-if="upstreamWaiting(source)" class="waiting">等待前道生产 {{ amount(source, 'upstream') }}</b><b v-if="!stockMissing(source) && !upstreamWaiting(source)">充足</b></div>
-        <button v-if="transferRemaining(source)" type="button" :disabled="saving" @click="$emit('material-transfer', source)">生成调拨单</button>
+        <button v-if="transferAvailable(source)" type="button" :disabled="saving" @click="$emit('material-transfer', source)">生成调拨单</button>
         <p v-for="doc in documentsFor(source)" :key="`${doc.id}-${doc.source_id}`" class="plan-transfer-document">{{ doc.entry_no || `#${doc.id}` }} · {{ documentStatus(doc.status) }} · {{ quantity(doc.qty_g, doc.qty_units, source) }}</p>
       </article>
     </div>
@@ -66,7 +66,7 @@ const stockRequired=(s,key)=>Math.max(0,Number(s[`required_${key}`]??Math.max(0,
 const stockMissing=(s)=>stockRequired(s,isWeight(s)?'g':'units')>0
 const stockMissingAmount=(s)=>quantity(stockRequired(s,'g'),stockRequired(s,'units'),s)
 const upstreamWaiting=(s)=>Number(s[isWeight(s)?'upstream_g':'upstream_units']||0)>0
-const transferRemaining=(s)=>{const key=isWeight(s)?'g':'units';const pending=documentsFor(s).filter(doc=>doc.status==='draft').reduce((n,doc)=>n+Number(doc[`qty_${key}`]||0),0);return stockRequired(s,key)>pending}
+const transferAvailable=(s)=>{const key=isWeight(s)?'g':'units';return stockRequired(s,key)>0||documentsFor(s).some(doc=>doc.status==='draft')||!Array.isArray(s.options)||s.options.some(o=>o.warehouse!=='wip'&&Number(o[`available_${key}`]||0)>0)}
 const itemName=(s)=>{const i=props.items.find(i=>Number(i.id)===Number(s.production_plan_item_id));return i?.output_name||i?.product_name||''}
 const stateLabel=(s)=>s.preparation_status==='shortage'?'缺料':s.preparation_status==='awaiting_production'?'待生产入库':s.preparation_status==='awaiting_transfer'?'供给已落实':'现场已齐套'
 const upstreamOrders=(s)=>props.supplyAllocations.filter(a=>Number(a.production_plan_item_id)===Number(s.production_plan_item_id)&&Number(a.material_id)===Number(s.component_id))
