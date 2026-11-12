@@ -4,7 +4,7 @@
 - 分支：`codex/dropship-submit-fix-20261112`
 - 产品需求：`PR-765-DROPSHIP-PRODUCED-BATCH`
 - 开发任务：`DEV-PR765-01` / `DEV-PR765-02`
-- 当前状态：修复、50 个负例及定向 RED/GREEN 已完成，独立静态审查通过；历史转仓和发货 HTTP 回归通过。数据库身份全包与已预留生产入库测试存在已确认的同基线夹具失败。最新 develop 集成验证待完成，未部署，用户业务验收待完成。
+- 当前状态：修复、50 个负例及定向 RED/GREEN 已完成，独立静态审查通过；历史转仓和发货 HTTP 回归通过。数据库身份全包与已预留生产入库测试存在已确认的同基线夹具失败。最新 develop 同步验证通过，未部署，用户业务验收待完成。
 
 ## 问题与现场证据
 
@@ -37,7 +37,7 @@
 - [x] 不连接业务数据库的后端全包测试通过。
 - [ ] 真实数据库身份保护全包通过（存在已确认的同基线夹具失败，见下文）。
 - [ ] 已预留生产入库回归通过（存在已确认的同基线夹具失败，见下文）。
-- [ ] 集成到最新 `develop` 后重跑相关验证。
+- [x] 同步最新 `develop` 后重跑相关验证。
 - [ ] 用户业务验收。
 
 在 `orderapp-remote` 目录运行；隔离数据库连接由 `ORDERAPP_TEST_DATABASE_URL` 提供，不使用真实业务库。回归样本仅使用合成数据。
@@ -49,7 +49,7 @@
 5. 最终相关回归：新增历史制造批次提交、原历史转仓批次提交及历史批次发货三个 HTTP 用例通过（23.122s），证据 `/tmp/dropship-final-related.log`。
 6. 另一已知基线失败：`TestFrozenProductionReceiptConvertsRetainedSupplyAfterBOMRepublish` 的两个子用例也因缺少 `order_resolution_stock_returns` 表失败；原 `origin/develop` 基线同样失败。证据 `/tmp/dropship-final-related.log` 与 `/tmp/dropship-production-baseline.log`。本次不声称已预留生产入库回归通过。
 
-提交号、最新 develop 集成验证和合入状态须以实际完成后补记。
+修复提交 `08d75e78f`，同步 `origin/develop` 的 `1e541e90e` 后，在 `cb3c96a6a` 再跑三项代发/历史发货数据库 HTTP 测试通过（19.969s）；support 与 productspecmigration 包的无数据库测试、`scripts/verify_kferp.sh changed` 通过。证据为 `/tmp/dropship-merged-targeted.log`、`/tmp/dropship-merged-backend.log`、`/tmp/dropship-changed.log`。整合记录见 [GitHub PR #337](https://github.com/Backstage2539/KFerp/pull/337)。
 
 ## 手册影响
 
@@ -59,4 +59,4 @@
 
 PR/DEV 已通过现有需求 API 登记并读回，开发环境当前状态为 `doing`。本分支启动种子已更新产品为 `review`、两个开发任务为 `done`，保留技术验证和用户验收的区别；现有 API 仅提供创建/读取 PR/DEV 和更新 REV 状态，没有 PR/DEV 的状态修改接口，本次不直接改库。后续运行新版本启动种子时再同步界面状态。不新增旧 UT/API/REV 表条目。
 
-提交、合并、部署与用户验收尚未完成，版本及检查结果待实际发生后补充。
+代码和验证结果已提交并推送，develop 整合状态以 GitHub PR #337 为准。开发和生产均未部署；生产发布需另行确认。真实订单重提及用户验收未执行。

@@ -2,7 +2,8 @@
 - Branch: `codex/dropship-submit-fix-20261112`; base: `origin/develop`.
 - Scope: 修复客户自有历史生产批次用于同规格新代发时，被当前配方版本保护误拦截的问题；保留原批次配方、货权及数量。
 - DEV: `DEV-PR765-01` 精确生产入库来源及分配保护；`DEV-PR765-02` 隔离数据库 HTTP 回归、反例与交付证据。
-- Status: 生产只读现场确认；真实小程序 HTTP 与数据库触发器 RED/GREEN、50 个负例、历史转仓/发货回归及无业务数据库 Go 全包通过；最终三项 HTTP 23.122s 通过，独立静态审查通过。数据库身份全包及已预留生产入库测试存在缺表夹具失败，两项在原 develop 基线亦失败；不记为全绿。最新 develop 集成验证待完成，未提交真实订单、未部署，用户验收待完成。
+- Status: 真实小程序 HTTP 与数据库触发器 RED/GREEN、50 个负例、历史转仓/发货回归及无业务数据库 Go 全包通过，独立静态审查通过。同步最新 develop `1e541e90e` 后三项 HTTP 再次通过（19.969s），support/identity 包及 changed 检查通过。数据库身份全包及已预留生产入库测试有两项同基线缺表夹具失败；不记为全绿。未提交真实订单、未部署，用户验收待完成。
+- Delivery: 修复提交 `08d75e78f`；GitHub PR [#337](https://github.com/Backstage2539/KFerp/pull/337) 跟踪 develop 整合；生产发布需单独确认。
 - Verifier: `TestMiniDirectShipProducedHistoricalBatchWithCurrentOrderVariantHTTP` 与 `TestDirectShipHistoricalOwnedBatchesWithCurrentOrderVariantHTTP`；`env -u DATABASE_URL -u ORDERAPP_TEST_DATABASE_URL go test ./...`。覆盖当前版本订单与历史自有批次、客户及仓库隔离、数量/来源校验、幂等与事务回滚；命令与结果见验收记录。
 - Manual: 操作入口、字段、价格、计费及提交步骤不变，修复恢复现有库存代发行为；无手册修改。
 - Evidence: `orderapp-remote/docs/acceptance/2026-11-12-dropship-produced-batch.md`。
