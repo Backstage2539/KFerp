@@ -27,23 +27,24 @@
         </div>
         <label>用量差异原因<textarea v-model.trim="draft.difference_reason" rows="2" /></label>
       </fieldset>
-      <button type="button" class="primary" :disabled="locked || busy || !!preview.blocked_reason" @click="submit">{{ busy ? '正在开工…' : retry.uncertain ? '重试本次开工' : preview.predecessor_required ? '确认开工' : '确认开工并扣料' }}</button>
+      <button type="button" class="primary" :disabled="locked || busy || needsReview || !!preview.blocked_reason" @click="submit">{{ busy ? '正在开工…' : retry.uncertain ? '重试本次开工' : preview.predecessor_required ? '确认开工' : '确认开工并扣料' }}</button>
     </template>
   </section>
 </template>
 <script setup>
 import {computed,onMounted,reactive,ref,watch} from 'vue'
 import {apiGet,apiSend} from '../api/client'
-import {completionRetry} from '../lib/operation-completion.js'
+import {workstationFormCache,clearWorkstationFormCache} from '../lib/workstation-form-cache.js'
 import {startDraft,startPayload,startSuggestedMaterials,refreshStartDraft} from '../lib/operation-start.js'
 const props=defineProps({jobCardId:{type:Number,required:true},locked:{type:Boolean,default:false},refreshToken:{type:Number,default:0}})
 const emit=defineEmits(['close','posted','issue'])
-const preview=ref(null),draft=reactive({materials:[],actual_input_qty:0,difference_reason:''}),busy=ref(false),error=ref(''),retry=reactive(completionRetry())
+const formCache=workstationFormCache('start',props.jobCardId)
+const preview=ref(null),draft=reactive(formCache.draft),busy=ref(false),error=ref(''),retry=reactive(formCache.retry),needsReview=ref(false)
 const startShortages=computed(()=>preview.value?.predecessor_required?[]:(draft.materials||[]).filter(m=>m.warehouse==='wip' && Number.isFinite(Number(m.available_qty ?? 0)) && Number(m.qty)>Number(m.available_qty ?? 0)+1e-8).map(m=>({...m,shortage_qty:Number((Number(m.qty)-Number(m.available_qty ?? 0)).toFixed(6))})))
 function openIssue(){if(!props.locked&&!busy.value&&!retry.uncertain&&startShortages.value.length)emit('issue',startShortages.value,{expected_version:preview.value.version,actual_input_qty:draft.actual_input_qty,input_unit:preview.value.input_unit,materials:draft.materials.map(m=>({...m})),difference_reason:draft.difference_reason})}
 function recalculate(){draft.materials=startSuggestedMaterials(preview.value,draft.actual_input_qty)}
-async function load(preserve=false){busy.value=true;error.value='';try{const next=await apiGet(`/api/job-cards/${props.jobCardId}/start-preview`);const updated=preserve&&preview.value?refreshStartDraft(next,draft):startDraft(next);preview.value=next;Object.assign(draft,updated)}catch(e){error.value=e.message}finally{busy.value=false}}
-async function submit(){if(props.locked||busy.value)return;busy.value=true;error.value='';try{const payload=retry.begin(startPayload(preview.value,draft,''),()=>crypto.randomUUID());const result=await apiSend(`/api/job-cards/${props.jobCardId}/start`,{body:payload});retry.clear();emit('posted',result)}catch(e){retry.fail(e);error.value=retry.uncertain?'尚未收到开工结果，请重试原次操作，系统不会重复扣料。':e.message}finally{busy.value=false}}
+async function load(preserve=false){busy.value=true;error.value='';try{const next=await apiGet(`/api/job-cards/${props.jobCardId}/start-preview`);preview.value=next;needsReview.value=false;let updated;try{updated=(preserve||formCache.initialized)?refreshStartDraft(next,draft):startDraft(next)}catch(e){needsReview.value=true;throw e}Object.assign(draft,updated);formCache.initialized=true}catch(e){error.value=e.message}finally{busy.value=false}}
+async function submit(){if(props.locked||busy.value)return;busy.value=true;error.value='';try{const payload=retry.begin(startPayload(preview.value,draft,''),()=>crypto.randomUUID());const result=await apiSend(`/api/job-cards/${props.jobCardId}/start`,{body:payload});retry.clear();clearWorkstationFormCache('start',props.jobCardId);emit('posted',result)}catch(e){retry.fail(e);error.value=retry.uncertain?'尚未收到开工结果，请重试原次操作，系统不会重复扣料。':e.message}finally{busy.value=false}}
 watch(()=>props.refreshToken,()=>load(true))
 onMounted(()=>load())
 </script>

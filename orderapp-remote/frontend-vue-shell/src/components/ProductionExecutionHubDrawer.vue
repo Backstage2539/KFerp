@@ -29,6 +29,36 @@
           <div class="trace-links"><span>BOM {{ customerProcessingItem.bom_version_no || header.bom_version_id || '-' }} · 物料预订 {{ customerProcessingItem.material_reserved_g || customerProcessingItem.material_reserved_units || 0 }}</span><button v-for="order in customerProcessingItem.related_orders || []" :key="order.order_id" class="secondary" type="button" @click="openRelatedOrder(order)">{{ order.order_no }} · 预订 {{ order.reserved_qty }} · 已转 {{ order.converted_qty }}</button></div>
         </section>
 
+        <section class="frozen-detail-section" aria-label="关联订单">
+          <h3>关联订单</h3>
+          <div v-for="order in frozenDetail.orders" :key="`${order.order_id}:${order.order_item_id}`" class="frozen-order">
+            <button type="button" class="order-link" @click="openRelatedOrder(order)">{{ order.order_no || '订单号未记录' }}</button>
+            <span>{{ order.customer_name || '客户未记录' }}<template v-if="order.quantity"> · {{ quantity(order.quantity) }} {{ order.sales_unit }}</template><template v-if="order.late_association"> · 后关联</template></span>
+            <p v-if="order.original_order_note">原订单备注：{{ order.original_order_note }}</p>
+            <p v-if="order.original_item_note">原商品备注：{{ order.original_item_note }}</p>
+            <p v-for="(note, index) in order.operation_notes || []" :key="index">{{ note.operation_name || '工序' }}：{{ note.note }}</p>
+          </div>
+          <p v-if="!frozenDetail.orders.length" class="muted">关联订单未记录</p>
+        </section>
+        <section class="frozen-detail-section" aria-label="冻结 BOM 与工艺">
+          <h3>冻结 BOM 与工艺</h3>
+          <p>BOM {{ frozenDetail.bomVersionLabel }} · 规格 {{ frozenSpecLabel }}</p>
+          <p>冻结损耗：{{ frozenDetail.lossRate == null ? '未记录' : `${quantity(frozenDetail.lossRate)}%` }}</p>
+          <p>{{ hub.route_summary || '工艺路线未记录' }}</p>
+          <div v-if="frozenDetail.materials.length" class="frozen-materials">
+            <div v-for="(row,index) in frozenDetail.materials" :key="index"><strong>{{ row.material_name || '物料未记录' }}</strong><span>{{ snapshotMaterialQuantity(row) }}</span></div>
+          </div>
+          <p v-else class="muted">冻结配方明细未记录</p>
+        </section>
+        <section class="frozen-detail-section" aria-label="成本">
+          <h3>成本</h3>
+          <div class="frozen-cost"><span>已投入材料成本</span><strong>{{ costDisplay(costDetail.material) }}</strong></div>
+          <div class="frozen-cost"><span>计划工序成本</span><strong>{{ costDisplay(costDetail.plannedOperation) }}</strong></div>
+          <div class="frozen-cost"><span>实际工序成本</span><strong>{{ costDisplay(costDetail.actualOperation) }}</strong></div>
+          <div class="frozen-cost"><span>已记成本</span><strong>{{ costDisplay(costDetail.accumulated) }}</strong></div>
+          <div class="frozen-cost"><span>最终成本</span><strong>{{ costDisplay(costDetail.final) }}</strong></div>
+        </section>
+
         <section class="summary-grid">
           <div><span>工序进度</span><strong>{{ completedOperations }}/{{ operations.length }}</strong><small>{{ currentOperationText }}</small></div>
           <div><span>人员安排</span><strong>跟随工位排班</strong><small>开工时记录当天工位负责人</small></div>
@@ -49,6 +79,8 @@
                     <summary>工序记录</summary>
                     <div class="record-grid"><span>实际投入 <strong>{{ quantity(row.actual_input_qty) }}</strong></span><span>实际产出 <strong>{{ quantity(row.actual_output_qty) }}</strong></span><span>耗时 <strong>{{ row.actual_minutes || 0 }} 分钟</strong></span><span>损耗 <strong>{{ quantity(row.actual_loss_qty) }}</strong></span></div>
                   </details>
+                  <p v-if="batchProgress[row.job_card_id]">执行批次 {{ batchProgress[row.job_card_id].completed }} / {{ batchProgress[row.job_card_id].total }} 完成</p>
+                  <p v-else class="muted">执行批次未记录或无法读取</p>
                   <div class="operation-actions">
                     <span v-if="workOrderClosed" class="muted">{{ statusLabel(header.status) }}，任务只读</span>
                     <span v-else-if="['completed','cancelled'].includes(row.status)" class="muted">已完成，查看工序记录</span>
@@ -61,8 +93,7 @@
 
             <div class="section-head record-heading"><div><span class="step-no">02</span><strong>工序记录</strong></div><span class="muted">原“工序卡”记录已合入这里</span></div>
             <p class="record-help">展开已执行任务，可查看人员、投入、产出、耗时和损耗。旧工序卡链接仍可定位到对应任务。</p>
-            <details class="folded"><summary>冻结 BOM 与工艺路线</summary><p>{{ hub.bom_summary || '-' }}</p><p>{{ hub.route_summary || '-' }}</p></details>
-            <details class="folded"><summary>配方、成本与订单追溯</summary><p>成本 {{ hub.cost_summary?.actual_cost_unavailable ? '待核算' : money(hub.cost_summary?.total_cost) }} · 关联订单 {{ header.order_nos || '-' }}</p><div v-for="item in hub.trace_timeline || []" :key="`${item.type}-${item.ref_id}-${item.at}`" class="trace-row"><strong>{{ item.title }}</strong><span>{{ item.at || '-' }} · {{ item.summary || '-' }}</span></div></details>
+            <details class="folded"><summary>配方、成本与订单追溯</summary><div v-for="item in hub.trace_timeline || []" :key="`${item.type}-${item.ref_id}-${item.at}`" class="trace-row"><strong>{{ item.title }}</strong><span>{{ item.at || '-' }} · {{ item.summary || '-' }}</span></div></details>
           </main>
 
           <aside class="todo-column">
@@ -90,6 +121,7 @@
 import { computed, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { executionHubOutputLabel } from '../lib/production-execution-hub'
+import { frozenWorkOrderDetails, workstationTodoTarget, executionBatchProgress, workOrderCostDetails, snapshotMaterialQuantity } from '../lib/work-order-detail-card'
 import { customerProcessingProgress, customerProcessingTimeline } from '../lib/customer-processing-trace'
 
 const props = defineProps({ open: { type: Boolean, default: false }, workOrderId: { type: Number, default: 0 }, focus: { type: String, default: '' }, viewParams: { type: Object, default: () => ({}) } })
@@ -99,8 +131,15 @@ const error = ref('')
 const message = ref('')
 const detail = ref({})
 const customerProcessingRequest = ref(null)
+const batchProgress = ref({})
+let loadRevision = 0
 
 const hub = computed(() => detail.value.execution_hub || {})
+const frozenDetail = computed(() => frozenWorkOrderDetails({ ...(detail.value.work_order || {}), ...(detail.value.frozen_bom || {}) }))
+const costDetail = computed(() => workOrderCostDetails(detail.value.cost_summary || {}, detail.value.job_cards || [], detail.value.started_material_cost, { status: detail.value.work_order?.status, receipt_complete: operations.value.length > 0 && operations.value.every(row => ['completed','cancelled'].includes(row.status)) && (hub.value.finished_receipts || []).some(row => row.status === 'submitted') }))
+const frozenSpecLabel = computed(() => {
+  try { const snapshot = JSON.parse(detail.value.work_order?.sales_spec_snapshot_json || '{}'); return snapshot.spec_label || snapshot.name || '未记录' } catch { return '未记录' }
+})
 const header = computed(() => hub.value.header || detail.value.work_order || {})
 const operations = computed(() => (hub.value.operation_progress || []).map((row, index, rows) => ({ ...row, batch_index: rows.filter((item, itemIndex) => item.sequence_no === row.sequence_no && itemIndex <= index).length, batch_count: rows.filter((item) => item.sequence_no === row.sequence_no).length })))
 const workOrderHasNoPendingOperations = computed(() => operations.value.length > 0 && operations.value.every((row) => ['completed', 'cancelled'].includes(String(row.status || '').toLowerCase())))
@@ -135,6 +174,7 @@ function statusTone(value) { if (value === 'completed') return 'ready'; if (valu
 function batchLabel(row) { return `第 ${row.batch_index || 1} 批 / 共 ${row.batch_count || 1} 批` }
 function quantity(value) { return Number(value || 0).toLocaleString('zh-CN', { maximumFractionDigits: 3 }) }
 function money(value) { return `¥${Number(value || 0).toFixed(2)}` }
+function costDisplay(value) { return value == null || !Number.isFinite(value) ? '待核算' : money(value) }
 function formatTargetQuantity(row) { const value = Number(row.output_qty || row.planned_units || row.planned_output_g || row.planned_g || 0); return `${quantity(value)} ${row.output_unit || (row.planned_units ? '件' : 'g')}` }
 function isOperationRecorded(row) { return Boolean(row.started_at || row.completed_at || row.actual_minutes || row.actual_input_qty || row.actual_output_qty) }
 function materialQty(row, kind) { const g = Number(row?.[`${kind}_g`] || 0); if (g > 0) return `${quantity(g)}g`; const units = Number(row?.[`${kind}_units`] || 0); return `${quantity(units)}${row?.unit || '件'}` }
@@ -142,34 +182,55 @@ function customerProcessingStatusLabel(value) { return ({ awaiting_schedule: '�
 function todoActionLabel(code) { return ({ wip_shortage: '去领料', quality_freeze: '查看质检', prior_operation_incomplete: '进入前序工位', job_cards_incomplete: '进入工位', schedule_risk: '调整排程' }[code] || '查看处理') }
 function requestClose() { emit('close') }
 function navigate(key, params = {}) { const workOrderId = Number(params.work_order_id || header.value.work_order_id || props.workOrderId || 0); window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key, params: { work_order_id: workOrderId, ...params }, returnNavigation: { key: 'workOrders', label: '返回工单详情', params: { work_order_id: workOrderId } } } })); emit('close') }
-function enterWorkstation(row) { navigate('workstationView', { work_order_id: Number(row.work_order_id || props.workOrderId || 0), job_card_id: row.job_card_id, workstation: row.workstation || '', workstation_id: Number(row.workstation_id || 0), station_id: Number(row.workstation_id || 0), focus: 'workstation_task' }) }
+function enterWorkstation(row) { focusWorkstation({ work_order_id: Number(row.work_order_id || props.workOrderId || 0), job_card_id: row.job_card_id, workstation: row.workstation || '', workstation_id: Number(row.workstation_id || 0), station_id: Number(row.workstation_id || 0), focus: 'workstation_task' }) }
+function focusWorkstation(params) { navigate('workstationView', params); queueMicrotask(() => window.dispatchEvent(new CustomEvent('kferp:focus-workstation-task', { detail: params }))) }
 function enterFirstWorkstation() { const row = operations.value.find((item) => !['completed', 'cancelled'].includes(item.status)); if (row) enterWorkstation(row) }
 function openRoster() { navigate('productionSchedule') }
 function openCustomerRequest() { navigate('customerProcessing', { customer_id: header.value.customer_id, processing_request_id: customerProcessingRequest.value?.id }) }
-function openRelatedOrder(order) { navigate('customerOrders', { customer_id: header.value.customer_id, q: order.order_no, order_id: order.order_id }) }
+function openRelatedOrder(order) { navigate('customerOrders', { customer_id: order.customer_id || header.value.customer_id, q: order.order_no, order_id: order.order_id }) }
 
 function runTodo(todo) {
   const link = todo.reason?.related_links?.[0]
+  if (link?.view === 'workstationView' || todo.key === 'job_cards_incomplete' || todo.key === 'prior_operation_incomplete') {
+    const target = workstationTodoTarget(todo.reason, operations.value, props.workOrderId)
+    if (target) focusWorkstation(target)
+    else error.value = '未找到可定位的工序，请核对工单状态'
+    return
+  }
   if (link?.view) { navigate(link.view, link.params || {}); return }
   enterFirstWorkstation()
 }
 async function load() {
   if (!props.workOrderId) return
-  loading.value = true; error.value = ''
+  const revision = ++loadRevision
+  const workOrderId = props.workOrderId
+  loading.value = true; error.value = ''; batchProgress.value = {}
   try {
-    detail.value = await apiGet(`/api/produce/work-orders/${props.workOrderId}`)
+    const result = await apiGet(`/api/produce/work-orders/${workOrderId}`)
+    if (revision !== loadRevision) return
+    detail.value = result
+    const batchResults = await Promise.allSettled(operations.value.map(async row => [row.job_card_id, executionBatchProgress(await apiGet(`/api/job-cards/${row.job_card_id}/execution-batches`))]))
+    if (revision !== loadRevision) return
+    batchProgress.value = Object.fromEntries(batchResults.filter(item => item.status === 'fulfilled' && item.value[1]).map(item => item.value))
     customerProcessingRequest.value = null
     if (Number(header.value.customer_id || 0) > 0 && Number(header.value.processing_request_item_id || 0) > 0) {
       const requestData = await apiGet(`/api/customer-processing/internal/${header.value.customer_id}/processing-requests?limit=100`)
       customerProcessingRequest.value = (requestData.rows || []).find((request) => (request.items || []).some((item) => Number(item.id || 0) === Number(header.value.processing_request_item_id || 0))) || null
     }
     if (props.focus === 'assignment') openRoster()
-  } catch (err) { error.value = err.message || '加载工单详情失败' } finally { loading.value = false }
+  } catch (err) { error.value = err.message || '加载工单详情失败' } finally { if (revision === loadRevision) loading.value = false }
 }
-watch(() => [props.open, props.workOrderId], ([isOpen]) => { if (isOpen) load() }, { immediate: true })
+watch(() => [props.open, props.workOrderId], ([isOpen]) => { if (isOpen) load(); else loadRevision++ }, { immediate: true })
 </script>
 
 <style scoped>
+.frozen-detail-section { background:#fff; border:1px solid #dce9e2; border-radius:10px; padding:16px; margin:14px 0; overflow-wrap:anywhere; }
+.frozen-detail-section h3 { color:#24704a; margin:0 0 10px; font-size:17px; }
+.frozen-detail-section p { margin:5px 0; color:#617169; }
+.frozen-order { display:grid; gap:5px; border-top:1px solid #edf0ee; padding:8px 0; }
+.order-link { border:0; background:none; padding:0; color:#24704a; text-decoration:underline; text-align:left; cursor:pointer; font:inherit; }
+.frozen-materials > div,.frozen-cost { display:flex; justify-content:space-between; gap:12px; padding:7px 0; border-top:1px solid #edf0ee; }
+
 /* Previous compact declarations are retained below for source-history compatibility.
 *{box-sizing:border-box}.drawer-mask{position:fixed;inset:0;z-index:60;background:rgba(28,34,31,.26);display:flex;justify-content:flex-end}.work-order-detail{width:min(1120px,96vw);height:100%;overflow:auto;background:#f6f8f7;color:#18342b;padding:22px}.detail-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:16px}.back-link{border:0;background:transparent;color:#24704a;padding:0;margin-bottom:14px}.eyebrow{font-size:12px;color:#6b7b75;margin-bottom:4px}.detail-head h2{margin:0;font-size:28px}.detail-head p{margin:6px 0 0;color:#68766f}.secondary,.primary,.todo-card button{min-height:36px;border-radius:8px;padding:7px 12px;font:inherit;cursor:pointer}.secondary{border:1px solid #c8d0cc;background:#fff;color:#27463b}.primary,.todo-card button{border:1px solid #2f8f5b;background:#2f8f5b;color:#fff}.notice{padding:11px 13px;border:1px solid #e0c58f;border-radius:9px;background:#fff8e8;margin-bottom:12px}.notice.success{border-color:#acd4ba;background:#eff9f2}.notice.danger{border-color:#efb1aa;background:#fff1ef;color:#9e3328}.product-hero{display:flex;align-items:center;gap:14px;padding:18px;border:1px solid #dce9e2;border-radius:12px;background:linear-gradient(90deg,#eaf7ef,#f7fbf9);margin-bottom:14px}.product-icon{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:#784d2c;color:#b17c52}.product-hero strong{font-size:20px}.product-hero p{margin:5px 0 0;color:#637169}.status-pill{margin-left:auto;border:1px solid #d7ddd9;border-radius:999px;padding:5px 10px;background:#fff}.status-pill.running{color:#24704a;border-color:#acd4ba}.status-pill.danger{color:#9e3328;border-color:#efb1aa}.summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:16px}.summary-grid>div{display:grid;gap:5px;border:1px solid #e0e5e2;border-radius:10px;background:#fff;padding:12px}.summary-grid span,.summary-grid small,.muted{font-size:12px;color:#738079}.summary-grid strong{font-size:17px}.detail-layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:18px}.operation-column,.todo-column{border:1px solid #e0e5e2;border-radius:12px;background:#fff;padding:16px}.section-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.section-head>div{display:flex;align-items:center;gap:9px}.step-no{width:30px;height:30px;display:grid;place-items:center;border-radius:50%;background:#2f8f5b;color:#fff;font-size:12px}.step-no.warning{background:#d77b12}.operation-list{display:grid;gap:10px}.operation-card{display:grid;grid-template-columns:38px 1fr;gap:12px;padding:13px;border:1px solid #e2e7e4;border-radius:10px}.operation-card.running{border-color:#83bd99;box-shadow:inset 3px 0 #2f8f5b}.operation-card.waiting{border-color:#efd4a5}.operation-sequence{width:34px;height:34px;border-radius:50%;background:#edf6f0;color:#24704a;display:grid;place-items:center;font-weight:700}.operation-title{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.operation-title span{font-size:12px;color:#66736d}.operation-title em{font-size:12px;font-style:normal;border-radius:999px;padding:3px 8px;background:#f5f6f5}.operation-main p{margin:5px 0;color:#64716b}.operation-actions{display:flex;gap:8px;margin-top:10px}.assignment-panel{display:flex;gap:8px;align-items:end;padding:10px;background:#fff8e8;border-radius:8px;margin-top:10px}.assignment-panel label{display:grid;gap;gap:4px;min-width:220px}.assignment-panel span{font-size:12px;color:#6d7772}.assignment-panel select{min-height:36px;border:1px solid #cfd6d2;border-radius:7px;background:#fff;padding:6px 8px}.record-details,.folded{margin-top:9px;border-top:1px solid #edf0ee;padding-top:8px}.record-details summary,.folded summary{cursor:pointer;color:#24704a;font-weight:600}.record-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px;font-size:12px}.record-heading{margin-top:18px}.record-help{color:#6f7b75;margin-top:-5px}.folded{border:1px solid #e4e8e6;border-radius:9px;padding:11px;margin-top:10px}.folded p{color:#64716b}.trace-row{display:grid;gap:3px;border-top:1px solid #eee;padding:7px 0;font-size:12px}.todo-column{align-self:start;display:grid;gap:10px}.todo-card{border:1px solid #edcf9f;border-radius:10px;padding:12px;background:#fff9ed}.todo-card p{margin:5px 0 10px;color:#775c35;font-size:13px}.todo-card button{background:#fff;border-color:#d89a44;color:#9b5c08}.todo-card.ready{border-color:#acd4ba;background:#eff9f2}.todo-card.ready button{border-color:#2f8f5b;color:#24704a}.quality-summary{display:grid;gap:5px;border-top:1px solid #e5e9e7;padding-top:12px}.quality-summary span,.quality-summary small{font-size:12px;color:#738079}.empty{padding:18px;text-align:center;color:#738079}
 .material-details{margin:8px 0}.material-details summary{cursor:pointer;color:#9b5c08;font-size:12px}.material-details div{display:grid;gap:2px;border-top:1px solid #efdcb9;padding:7px 0}.material-details div span{font-size:11px;color:#775c35}

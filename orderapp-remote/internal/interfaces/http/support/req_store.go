@@ -270,6 +270,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-767-WORKSTATION-CARDS-READINESS", title: "工位卡片、投入齐套与工单详情", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-12-workstation-cards-readiness.md；待用户业务验收"},
+		{table: "req_dev", code: "DEV-PR767-READINESS", title: "任务已投入物料与真实缺口计算", status: "done", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR767-CARDS", title: "精简工位卡片及操作入口", status: "done", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR767-DETAIL", title: "工单详情冻结信息与工位定位", status: "done", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR767-VERIFY", title: "隔离验证、手册及交付", status: "done", assignee: "Codex"},
 		{table: "req_product", code: "PR-765-DROPSHIP-PRODUCED-BATCH", title: "修复客户历史生产库存提交代发失败", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-12-dropship-produced-batch.md；定向 RED/GREEN 通过，生产已发布 48b2dacec，用户验收待完成"},
 		{table: "req_dev", code: "DEV-PR765-01", title: "按真实生产入库来源校验历史客户批次代发分配", status: "done", assignee: "Codex", evidence: "真实小程序 HTTP 与数据库身份触发器 RED/GREEN，历史身份及来源保护"},
 		{table: "req_dev", code: "DEV-PR765-02", title: "隔离数据库接口回归、负例及交付证据", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-11-12-dropship-produced-batch.md；定向 HTTP 回归及无业务数据库 Go 全包通过，数据库身份全包存在同基线夹具失败"},

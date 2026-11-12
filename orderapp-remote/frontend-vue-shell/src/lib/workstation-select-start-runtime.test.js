@@ -107,9 +107,7 @@ test('packaging summary uses only visible unfinished rows and separates frozen s
  assert.equal(state.packagingSummary({tasks:tasks.slice(0,1)})[0].remaining_qty,50)
  state.overview.value={tasks}
  const content=textContent(await tree())
- assert.match(content,/待包装汇总/)
- assert.match(content,/未排时间/)
- assert.match(content,/75/)
+ assert.doesNotMatch(content,/待包装汇总/)
 })
 
 test('packaging summary does not merge missing specs or double-count a split work order',async()=>{
@@ -123,4 +121,33 @@ test('packaging summary does not merge missing specs or double-count a split wor
  assert.ok(unknown.every(row=>row.spec_label==='规格未记录'&&row.order_count===1))
  const unavailable=state.packagingSummary({tasks:[{...base,job_card_id:5,work_order_id:5,planned_output_inventory_qty:undefined}]})
  assert.equal(unavailable[0].unknown_quantity_count,1)
+})
+
+test('started packaging cards show recorded inputs and preserve resume without obsolete controls', async () => {
+ const {state,tree}=await harness()
+ const rows=packagingTasks().slice(0,2).map((row,index)=>({...row,status:index?'running':'paused',status_label:index?'执行中':'已暂停',actual_output_qty:0,spec_label:'1KG袋装',material_readiness_state:'ready',material_readiness:[{material_id:99,material_name:'曲奇-半成品',unit:'kg',required_g:50000,issued_g:50000,remaining_required_g:0,wip_available_g:0,shortage_g:0}]}))
+ state.overview.value={tasks:rows}
+ const node=await tree(), content=textContent(node)
+ for(const removed of ['待包装汇总','当前待办','待协同岗位','开工扣料说明','刷新','补料 / 退料 / 撤销','同规格工单完成并入库']) assert.ok(!content.includes(removed), `unexpected ${removed}`)
+ assert.ok(content.includes('物料已投入'))
+ assert.ok(content.includes('曲奇-半成品'))
+ assert.ok(content.includes('50 kg'))
+ assert.ok(content.includes('已完成 0 袋'))
+ assert.ok(findNode(node,n=>n.type==='button'&&n.children==='恢复'))
+ assert.ok(!findNode(node,n=>n.type==='button'&&n.children==='暂停'))
+ assert.ok(findNode(node,n=>n.props?.class?.includes?.('task-card')))
+})
+
+test('split packaging task target reflects its own share rather than the full order',async()=>{
+ const {state,tree}=await harness()
+ state.overview.value={tasks:[{...packagingTasks()[0],job_card_id:901,status:'running',planned_output_inventory_qty:100,operation_total_input_qty:100,planned_input_qty:25,actual_output_qty:7}]}
+ const content=textContent(await tree())
+ assert.match(content,/目标 25 袋/);assert.match(content,/已完成 7 袋/)
+})
+
+test('material details retain readable field names on narrow screens', async () => {
+ const {state,tree}=await harness()
+ state.overview.value={tasks:[{...packagingTasks()[0],status:'running',material_readiness_state:'ready',material_readiness:[{material_id:99,material_name:'曲奇-半成品',unit:'kg',required_g:50000,issued_g:50000,remaining_required_g:0,wip_available_g:0,shortage_g:0}]}]}
+ const node=await tree()
+ for(const label of ['需求','已投入','剩余需求','WIP 可用','缺口']) assert.ok(findNode(node,n=>n.props?.['data-label']===label),`missing mobile field label: ${label}`)
 })
