@@ -7,12 +7,37 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/jackc/pgx/v5"
+	"math"
 	app "orderapp/internal/application/production"
 	stock "orderapp/internal/application/stock"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 	stockpg "orderapp/internal/infrastructure/postgres/stock"
 	"strings"
 )
+
+// Quantities can originate in multiple request rows or pre-existing draft
+// links. Check before addition so wrapped values cannot pass stock checks.
+func sumPlanTransferQuantities(values ...int64) (int64, error) {
+	var sum int64
+	for _, value := range values {
+		if value < 0 || value > math.MaxInt64-sum {
+			return 0, fmt.Errorf("调拨数量异常或过大，请重新核对")
+		}
+		sum += value
+	}
+	return sum, nil
+}
+
+func remainingPlanTransferQuantity(required, covered, pending int64) int64 {
+	if required <= 0 || covered < 0 || pending < 0 || covered >= required {
+		return 0
+	}
+	remaining := required - covered
+	if pending >= remaining {
+		return 0
+	}
+	return remaining - pending
+}
 
 // Frozen packaged-product weight and count are equivalent representations,
 // while stock documents use qty_g for loose stock and qty_units for packages.
@@ -114,7 +139,17 @@ func (r Repository) PreviewPlanMaterialTransfers(ctx context.Context, cmd app.Pl
 		}
 		pendingDocs = append(pendingDocs, p)
 		q := pending[p.SourceID]
-		pending[p.SourceID] = [2]int64{q[0] + p.QtyG, q[1] + p.QtyUnits}
+		g, e := sumPlanTransferQuantities(q[0], p.QtyG)
+		if e != nil {
+			rows.Close()
+			return app.PlanMaterialTransferPreview{}, e
+		}
+		n, e := sumPlanTransferQuantities(q[1], p.QtyUnits)
+		if e != nil {
+			rows.Close()
+			return app.PlanMaterialTransferPreview{}, e
+		}
+		pending[p.SourceID] = [2]int64{g, n}
 	}
 	if err = rows.Err(); err != nil {
 		rows.Close()
@@ -157,15 +192,21 @@ func (r Repository) PreviewPlanMaterialTransfers(ctx context.Context, cmd app.Pl
 		for _, it := range accepted {
 			q := offered[it.SourceID]
 			for _, b := range it.Batches {
-				q[0] += b.QtyG
-				q[1] += b.QtyUnits
+				q[0], err = sumPlanTransferQuantities(q[0], b.QtyG)
+				if err != nil {
+					return app.PlanMaterialTransferPreview{}, err
+				}
+				q[1], err = sumPlanTransferQuantities(q[1], b.QtyUnits)
+				if err != nil {
+					return app.PlanMaterialTransferPreview{}, err
+				}
 			}
 			offered[it.SourceID] = q
 		}
 		for _, source := range detail.ComponentSources {
 			q := offered[source.ID]
 			p := pending[source.ID]
-			if source.DemandG > source.WIPCoveredG+p[0]+q[0] || source.DemandUnits > source.WIPCoveredUnits+p[1]+q[1] {
+			if remainingPlanTransferQuantity(source.DemandG, source.WIPCoveredG, p[0]) > q[0] || remainingPlanTransferQuantity(source.DemandUnits, source.WIPCoveredUnits, p[1]) > q[1] {
 				found := false
 				for _, entry := range result.Unavailable {
 					if entry.SourceID == source.ID {
@@ -277,7 +318,17 @@ func (r Repository) executePlanMaterialTransfers(ctx context.Context, cmd app.Pl
 			}
 			previewResult.PendingDocuments = append(previewResult.PendingDocuments, p)
 			old := pending[p.SourceID]
-			pending[p.SourceID] = [2]int64{old[0] + p.QtyG, old[1] + p.QtyUnits}
+			g, sumErr := sumPlanTransferQuantities(old[0], p.QtyG)
+			if sumErr != nil {
+				rows.Close()
+				return previewResult, sumErr
+			}
+			n, sumErr := sumPlanTransferQuantities(old[1], p.QtyUnits)
+			if sumErr != nil {
+				rows.Close()
+				return previewResult, sumErr
+			}
+			pending[p.SourceID] = [2]int64{g, n}
 		}
 		if e = rows.Err(); e != nil {
 			rows.Close()
@@ -290,15 +341,21 @@ func (r Repository) executePlanMaterialTransfers(ctx context.Context, cmd app.Pl
 			for _, it := range cmd.Items {
 				q := offered[it.SourceID]
 				for _, b := range it.Batches {
-					q[0] += b.QtyG
-					q[1] += b.QtyUnits
+					q[0], err = sumPlanTransferQuantities(q[0], b.QtyG)
+					if err != nil {
+						return previewResult, err
+					}
+					q[1], err = sumPlanTransferQuantities(q[1], b.QtyUnits)
+					if err != nil {
+						return previewResult, err
+					}
 				}
 				offered[it.SourceID] = q
 			}
 			for _, source := range detail.ComponentSources {
 				q := offered[source.ID]
 				p := pending[source.ID]
-				if source.DemandG > source.WIPCoveredG+p[0]+q[0] || source.DemandUnits > source.WIPCoveredUnits+p[1]+q[1] {
+				if remainingPlanTransferQuantity(source.DemandG, source.WIPCoveredG, p[0]) > q[0] || remainingPlanTransferQuantity(source.DemandUnits, source.WIPCoveredUnits, p[1]) > q[1] {
 					reason := "暂无足额可调库存，请先补齐供应"
 					if source.UpstreamG > 0 || source.UpstreamUnits > 0 {
 						reason = "部分物料由前道生产，尚无现货可调拨"
@@ -387,7 +444,7 @@ func (r Repository) executePlanMaterialTransfers(ctx context.Context, cmd app.Pl
 			if candidate == nil {
 				return app.PlanMaterialTransferResult{}, fmt.Errorf("来源批次不可调拨，请重新核对")
 			}
-			if source.AllocationMode == "semi_finished_selected" {
+			if direct && source.AllocationMode == "semi_finished_selected" {
 				key := fmt.Sprintf("%d:%s:%d:%s", choice.SourceID, choice.Warehouse, choice.OwnerCustomerID, batch.BatchCode)
 				used := usedSelectedSourceBatch[key]
 				var pendingG, pendingN int64
@@ -395,10 +452,51 @@ func (r Repository) executePlanMaterialTransfers(ctx context.Context, cmd app.Pl
 				if err != nil {
 					return app.PlanMaterialTransferResult{}, err
 				}
-				if err = validateSelectedSemiFinishedTransfer(source, choice.Warehouse, choice.OwnerCustomerID, batch.BatchCode, batch.QtyG, batch.QtyUnits, used[0]+pendingG, used[1]+pendingN); err != nil {
+				usedG, e := sumPlanTransferQuantities(used[0], pendingG)
+				if e != nil {
+					return app.PlanMaterialTransferResult{}, e
+				}
+				usedN, e := sumPlanTransferQuantities(used[1], pendingN)
+				if e != nil {
+					return app.PlanMaterialTransferResult{}, e
+				}
+				if _, e = sumPlanTransferQuantities(usedG, batch.QtyG); e != nil {
+					return app.PlanMaterialTransferResult{}, e
+				}
+				if _, e = sumPlanTransferQuantities(usedN, batch.QtyUnits); e != nil {
+					return app.PlanMaterialTransferResult{}, e
+				}
+				var allowedG, allowedN int64
+				for _, allocation := range source.Allocations {
+					if allocation.Warehouse != choice.Warehouse || allocation.OwnerCustomerID != choice.OwnerCustomerID {
+						continue
+					}
+					for _, selected := range allocation.Batches {
+						if selected.BatchCode != batch.BatchCode {
+							continue
+						}
+						allowedG, e = sumPlanTransferQuantities(allowedG, selected.QtyG)
+						if e != nil {
+							return app.PlanMaterialTransferResult{}, e
+						}
+						allowedN, e = sumPlanTransferQuantities(allowedN, selected.QtyUnits)
+						if e != nil {
+							return app.PlanMaterialTransferResult{}, e
+						}
+					}
+				}
+				if err = validateSelectedSemiFinishedTransfer(source, choice.Warehouse, choice.OwnerCustomerID, batch.BatchCode, batch.QtyG, batch.QtyUnits, usedG, usedN); err != nil {
 					return app.PlanMaterialTransferResult{}, err
 				}
-				usedSelectedSourceBatch[key] = [2]int64{used[0] + batch.QtyG, used[1] + batch.QtyUnits}
+				usedG, e = sumPlanTransferQuantities(used[0], batch.QtyG)
+				if e != nil {
+					return app.PlanMaterialTransferResult{}, e
+				}
+				usedN, e = sumPlanTransferQuantities(used[1], batch.QtyUnits)
+				if e != nil {
+					return app.PlanMaterialTransferResult{}, e
+				}
+				usedSelectedSourceBatch[key] = [2]int64{usedG, usedN}
 			}
 			key := fmt.Sprintf("%s:%s:%d:%d:%d:%d:%d:%s", choice.Warehouse, kind, source.ComponentID, source.ComponentBOMSpecID, source.ComponentBOMVariantID, source.ComponentSpecG, choice.OwnerCustomerID, batch.BatchCode)
 			pending, found := pendingBatch[key]
@@ -415,17 +513,37 @@ func (r Repository) executePlanMaterialTransfers(ctx context.Context, cmd app.Pl
 				}
 				pendingBatch[key] = pending
 			}
-			usedBatchG[key] += batch.QtyG
-			usedBatchUnits[key] += batch.QtyUnits
-			if usedBatchG[key]+pending[0] > candidate.AvailableG || usedBatchUnits[key]+pending[1] > candidate.AvailableUnits {
+			usedBatchG[key], err = sumPlanTransferQuantities(usedBatchG[key], batch.QtyG)
+			if err != nil {
+				return app.PlanMaterialTransferResult{}, err
+			}
+			usedBatchUnits[key], err = sumPlanTransferQuantities(usedBatchUnits[key], batch.QtyUnits)
+			if err != nil {
+				return app.PlanMaterialTransferResult{}, err
+			}
+			totalG, sumErr := sumPlanTransferQuantities(usedBatchG[key], pending[0])
+			if sumErr != nil {
+				return app.PlanMaterialTransferResult{}, sumErr
+			}
+			totalN, sumErr := sumPlanTransferQuantities(usedBatchUnits[key], pending[1])
+			if sumErr != nil {
+				return app.PlanMaterialTransferResult{}, sumErr
+			}
+			if totalG > candidate.AvailableG || totalN > candidate.AvailableUnits {
 				if batch.QtyUnits > 0 && candidate.AvailableUnits == 0 && candidate.AvailableG > 0 {
 					return app.PlanMaterialTransferResult{}, fmt.Errorf("该批次只有散装库存，不能按件调拨")
 				}
 				return app.PlanMaterialTransferResult{}, fmt.Errorf("批次可用库存不足，请重新核对")
 			}
-			usedSourceG[choice.SourceID] += equivalentG
-			usedSourceUnits[choice.SourceID] += batch.QtyUnits
-			if usedSourceG[choice.SourceID]+pendingG > source.RequiredG-source.WIPCoveredG || usedSourceUnits[choice.SourceID]+pendingUnits > source.RequiredUnits-source.WIPCoveredUnits {
+			usedSourceG[choice.SourceID], err = sumPlanTransferQuantities(usedSourceG[choice.SourceID], equivalentG)
+			if err != nil {
+				return app.PlanMaterialTransferResult{}, err
+			}
+			usedSourceUnits[choice.SourceID], err = sumPlanTransferQuantities(usedSourceUnits[choice.SourceID], batch.QtyUnits)
+			if err != nil {
+				return app.PlanMaterialTransferResult{}, err
+			}
+			if direct && (usedSourceG[choice.SourceID] > remainingPlanTransferQuantity(source.RequiredG, source.WIPCoveredG, pendingG) || usedSourceUnits[choice.SourceID] > remainingPlanTransferQuantity(source.RequiredUnits, source.WIPCoveredUnits, pendingUnits)) {
 				return app.PlanMaterialTransferResult{}, fmt.Errorf("调拨数量超过该物料待补数量")
 			}
 			gkey := fmt.Sprintf("%s:%d", choice.Warehouse, choice.OwnerCustomerID)
@@ -527,14 +645,8 @@ func (r Repository) executePlanMaterialTransfers(ctx context.Context, cmd app.Pl
 func planTransferSuggestions(sources []app.ProductionPlanComponentSource, pending map[int64][2]int64) []app.PlanMaterialTransferItem {
 	out := []app.PlanMaterialTransferItem{}
 	for _, s := range sources {
-		remainingG := s.RequiredG - s.WIPCoveredG - pending[s.ID][0]
-		remainingUnits := s.RequiredUnits - s.WIPCoveredUnits - pending[s.ID][1]
-		if remainingG < 0 {
-			remainingG = 0
-		}
-		if remainingUnits < 0 {
-			remainingUnits = 0
-		}
+		remainingG := remainingPlanTransferQuantity(s.RequiredG, s.WIPCoveredG, pending[s.ID][0])
+		remainingUnits := remainingPlanTransferQuantity(s.RequiredUnits, s.WIPCoveredUnits, pending[s.ID][1])
 		for _, allocation := range s.Allocations {
 			if allocation.Warehouse == "wip" {
 				continue

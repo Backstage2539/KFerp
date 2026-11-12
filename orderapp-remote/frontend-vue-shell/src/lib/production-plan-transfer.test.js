@@ -40,7 +40,9 @@ test('invalid or excessive quantities and mixed owners cannot be submitted', () 
   const rows = [{ batch_code: 'A', owner_customer_id: 1, available_g: 5000, quantity: 5 }, { batch_code: 'B', owner_customer_id: 2, available_g: 4000, quantity: 2 }]
   assert.match(validateTransferSelections(source, transferSelections(source, 'raw', rows), 0), /货主/)
   rows[1].owner_customer_id = 1
-  assert.match(validateTransferSelections(source, transferSelections(source, 'raw', rows), 0), /超过/)
+  assert.equal(validateTransferSelections(source, transferSelections(source, 'raw', rows), 0), '')
+  rows[0].quantity = 6
+  assert.match(validateTransferSelections(source, transferSelections(source, 'raw', rows), 0), /可用库存/)
   rows[0].quantity = -1
   assert.match(validateTransferSelections(source, transferSelections(source, 'raw', rows), 0), /数量/)
 })
@@ -89,4 +91,29 @@ test('loose product stock explains why it cannot satisfy piece transfers', () =>
   assert.match(transferRowIssue(source, { available_units: 0, available_g: 5000 }), /散装/)
   assert.equal(transferRowIssue(source, { available_units: 3, available_g: 5000 }), '')
   assert.equal(transferRowIssue(source, { available_units: 0, available_g: 5000, unavailable_reason: '质量冻结' }), '质量冻结')
+})
+
+
+test('ordinary material may exceed need or pending coverage when the selected batch has enough available stock', () => {
+  const source = { id: 5, component_type: 'material', unit: 'kg', demand_g: 65384, required_g: 65384 }
+  const row = { batch_code: 'RAW-1', owner_customer_id: 0, available_g: 200000, quantity: 120 }
+  assert.equal(validateTransferSelections(source, transferSelections(source, 'raw', [row]), 65384), '')
+  row.quantity = 201
+  assert.match(validateTransferSelections(source, transferSelections(source, 'raw', [row]), 65384), /可用库存/)
+})
+
+test('selected semi-finished stock may transfer extra from the same available batch', () => {
+  const source = { id: 5, allocation_mode: 'semi_finished_selected', unit: 'kg', demand_g: 10000, required_g: 10000 }
+  const row = { batch_code: 'SEMI-1', owner_customer_id: 0, available_g: 30000, quantity: 12 }
+  assert.equal(validateTransferSelections(source, transferSelections(source, 'raw', [row]), 0), '')
+})
+
+test('selectable quantity uses batch transfer availability after pending drafts', () => {
+ const source={id:5,component_type:'material',unit:'kg',demand_g:65384,required_g:65384}
+ const row={batch_code:'RAW-1',owner_customer_id:0,available_g:200000,transferable_g:120000,quantity:120}
+ assert.equal(validateTransferSelections(source,transferSelections(source,'raw',[row]),0),'')
+ row.quantity=121
+ assert.match(validateTransferSelections(source,transferSelections(source,'raw',[row]),0),/可用库存|可调/)
+ row.transferable_g=0;row.quantity=1
+ assert.match(validateTransferSelections(source,transferSelections(source,'raw',[row]),0),/可用库存|可调/)
 })

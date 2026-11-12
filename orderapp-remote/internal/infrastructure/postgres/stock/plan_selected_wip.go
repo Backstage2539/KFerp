@@ -28,12 +28,26 @@ func (r Repository) selectedPlanWIPCoverageTx(ctx context.Context, tx pgx.Tx, pl
 	if policy != "manual" {
 		return coverage, selectedSources, nil
 	}
+	// Only inspect selected batches for material identities participating in
+	// this calculation. Other plan items cannot cover these sources and an
+	// unrelated invalid selection must not block the current transfer.
+	materialIDs := make([]int64, 0, len(sources))
+	seenMaterials := map[int64]bool{}
+	for _, source := range sources {
+		if source.Kind == "material" && !seenMaterials[source.ItemID] {
+			seenMaterials[source.ItemID] = true
+			materialIDs = append(materialIDs, source.ItemID)
+		}
+	}
+	if len(materialIDs) == 0 {
+		return coverage, selectedSources, nil
+	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT s.material_id,s.batch_id,COALESCE(b.owner_customer_id,0),s.qty_g,s.qty_units,
  GREATEST(0,COALESCE(loc.qty_g,0)-COALESCE(res.g,0)),GREATEST(0,COALESCE(loc.qty_units,0)-COALESCE(res.n,0)),(b.status='active' AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject') AND b.material_id=s.material_id)
  FROM %[1]s.production_plan_semi_finished_selections s JOIN %[1]s.material_batches b ON b.id=s.batch_id
  LEFT JOIN %[1]s.material_batch_locations loc ON loc.material_batch_id=b.id AND loc.warehouse='wip'
  LEFT JOIN LATERAL (SELECT SUM(GREATEST(0,reserved_g-consumed_g-returned_g)) g,SUM(GREATEST(0,reserved_units-consumed_units-returned_units)) n FROM %[1]s.work_order_material_reservation_batches WHERE material_batch_id=b.id AND warehouse='wip' AND status='reserved') res ON true
- WHERE s.production_plan_id=$1 ORDER BY s.material_id,s.batch_id,s.warehouse`, r.schema), planID)
+ WHERE s.production_plan_id=$1 AND s.material_id=ANY($2::bigint[]) ORDER BY s.material_id,s.batch_id,s.warehouse`, r.schema), planID, materialIDs)
 	if err != nil {
 		return nil, nil, err
 	}

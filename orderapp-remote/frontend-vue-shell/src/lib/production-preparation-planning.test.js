@@ -18,7 +18,7 @@ test('planning shows per-task WIP coverage and full demand including upstream', 
  const Component = await component()
  const sources = [
   {id: 1, component_name: '熟豆', unit: 'kg', demand_g: 10000, required_g: 2000, upstream_g: 8000, wip_covered_g: 1000},
-  {id: 2, component_name: '包装袋', unit: '件', demand_units: 5, wip_covered_units: 5},
+  {id: 2, component_name: '包装袋', unit: '件', demand_units: 5, wip_covered_units: 5, options: []},
  ]
  const html = await renderToString(Vue.createSSRApp(Component, {sources, editable: true, planningDraft: true}))
  assert.match(html, /WIP库存/)
@@ -49,10 +49,10 @@ function renderedRow(html, id) {
 test('only unmet non-upstream requirement offers a transfer, with upstream separately visible', async () => {
  const Component = await component()
  const sources = [
-  {id: 21, component_name: '前道熟豆', unit: 'kg', demand_g: 43584, required_g: 0, upstream_g: 43584, wip_covered_g: 0},
+  {id: 21, component_name: '前道熟豆', unit: 'kg', demand_g: 43584, required_g: 0, upstream_g: 43584, wip_covered_g: 0, options: []},
   {id: 22, component_name: '混合熟豆', unit: 'kg', demand_g: 10000, required_g: 2000, upstream_g: 8000, wip_covered_g: 1000},
   {id: 23, component_name: '纯现货', unit: 'kg', demand_g: 3000, required_g: 3000, upstream_g: 0, wip_covered_g: 0},
-  {id: 24, component_name: '齐套包材', unit: '件', demand_units: 5, required_units: 5, wip_covered_units: 5},
+  {id: 24, component_name: '齐套包材', unit: '件', demand_units: 5, required_units: 5, wip_covered_units: 5, options: []},
  ]
  const html = await renderToString(Vue.createSSRApp(Component, {sources, editable: true, planningDraft: true}))
  const upstream = renderedRow(html, 21)
@@ -77,7 +77,7 @@ test('pending transfers reduce the quantity available to create without hiding u
  const documents = [{id: 1, source_id:31,status:'draft',qty_g:1000}, {id: 2, source_id:32,status:'draft',qty_g:1000}]
  const html = await renderToString(Vue.createSSRApp(Component, {sources, documents, editable: true, planningDraft: true}))
  assert.match(renderedRow(html, 31), /等待前道生产 8 kg/)
- assert.doesNotMatch(renderedRow(html, 31), /生成调拨单/)
+ assert.match(renderedRow(html, 31), /生成调拨单/)
  assert.match(renderedRow(html, 32), /等待前道生产 6 kg/)
  assert.match(renderedRow(html, 32), /缺料 3 kg/)
  assert.match(renderedRow(html, 32), /生成调拨单/)
@@ -101,4 +101,21 @@ test('submitted historical task preserves its original weight display when produ
  assert.match(html, /0\.454 kg/)
  assert.match(html, /待生产入库 1\.362 kg/)
  assert.doesNotMatch(html, /5 件|等待前道生产/)
+})
+
+
+test('ordinary material offers an extra transfer when demand is covered or pending but source stock remains', async () => {
+ const Component = await component()
+ const sources = [
+  {id: 61, component_type:'material', component_name:'生豆', unit:'kg', demand_g:65384, required_g:65384, wip_covered_g:0},
+  {id: 62, component_type:'material', component_name:'有额外库存的包材', unit:'件', demand_units:5, required_units:5, wip_covered_units:5, options:[{warehouse:'raw', available_units:20}]},
+  {id: 63, component_type:'material', component_name:'已固定半成品', allocation_mode:'semi_finished_selected', unit:'kg', demand_g:10000, required_g:10000, wip_covered_g:0},
+  {id: 64, component_type:'material', component_name:'库存待查询', unit:'kg', demand_g:5000, required_g:5000, wip_covered_g:5000},
+ ]
+ const documents=[{id:1,source_id:61,status:'draft',qty_g:65384},{id:2,source_id:63,status:'draft',qty_g:10000}]
+ const html=await renderToString(Vue.createSSRApp(Component,{sources,documents,editable:true,planningDraft:true}))
+ assert.match(renderedRow(html,61),/生成调拨单/)
+ assert.match(renderedRow(html,62),/生成调拨单/)
+ assert.match(renderedRow(html,63),/生成调拨单/)
+ assert.match(renderedRow(html,64),/生成调拨单/)
 })

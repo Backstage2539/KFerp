@@ -144,19 +144,18 @@ func TestPlanTransferSerializesWithIncomingWIP(t *testing.T) {
 			}
 			select {
 			case response := <-planDone:
-				if strings.HasPrefix(response, "200 ") {
-					t.Fatalf("plan posted after WIP coverage changed: %s", response)
+				if !strings.HasPrefix(response, "200 ") {
+					t.Fatalf("plan should post once concurrent incoming is committed: %s", response)
 				}
-				t.Logf("plan correctly rejected: %s", response)
 			case <-time.After(10 * time.Second):
 				t.Fatal("plan stuck")
 			}
 			var qty int64
-			if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(qty_g),0) FROM %s.material_batch_locations WHERE material_id=30 AND warehouse='wip'`, schema)).Scan(&qty); err != nil || qty != 19000 {
+			if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(qty_g),0) FROM %s.material_batch_locations WHERE material_id=30 AND warehouse='wip'`, schema)).Scan(&qty); err != nil || qty != 23000 {
 				t.Fatalf("WIP=%d err=%v", qty, err)
 			}
 			var status string
-			if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT status FROM %s.stock_entries WHERE id=$1`, schema), out.Documents[0].ID).Scan(&status); err != nil || status != "draft" {
+			if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT status FROM %s.stock_entries WHERE id=$1`, schema), out.Documents[0].ID).Scan(&status); err != nil || status != "submitted" {
 				t.Fatalf("plan status=%s err=%v", status, err)
 			}
 		})

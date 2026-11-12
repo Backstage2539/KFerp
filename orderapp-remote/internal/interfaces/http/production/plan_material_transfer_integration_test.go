@@ -100,7 +100,8 @@ func TestPlanTransferDraftAtomicReplayAndPosting(t *testing.T) {
 	}
 	assertProductionFlowCount(t, pool, schema, "material_batch_locations", "material_batch_id=1030 AND warehouse='wip' AND qty_g=6000", 1)
 	assertProductionFlowCount(t, pool, schema, "production_plan_material_transfer_links", "production_plan_id="+fmt.Sprint(plan.ID), 2)
-	// Stock entering WIP independently after draft creation must block an excess transfer.
+	// New WIP stock after draft creation does not prevent an explicit transfer;
+	// the additional stock remains physically traceable by its own batch.
 	thirdCommand := command
 	thirdCommand.IdempotencyKey = "sequential-doc-test"
 	thirdCommand.Items = []app.PlanMaterialTransferItem{{SourceID: plan.ComponentSources[0].ID, Warehouse: "raw_materials", Batches: []app.PlanMaterialTransferBatch{{BatchCode: "AUTO-GREEN", QtyG: 3000}}}}
@@ -108,15 +109,8 @@ func TestPlanTransferDraftAtomicReplayAndPosting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %s.material_batch_locations SET qty_g=20000 WHERE material_batch_id=1030 AND warehouse='wip'`, schema))
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 2030, 30, "EXTERNAL-WIP", "生产生豆", 14000)
 	postPath := fmt.Sprintf("/api/stock-documents/%d/submit", one.Documents[0].ID)
-	blocked := serveMultilevelProductionJSON(t, e, http.MethodPost, postPath, map[string]any{})
-	if blocked.Code == 200 {
-		t.Fatal("posting exceeded latest WIP shortage")
-	}
-
-	assertProductionFlowCount(t, pool, schema, "material_batch_locations", "material_batch_id=1030 AND warehouse='wip' AND qty_g=20000", 1)
-	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %s.material_batch_locations SET qty_g=6000 WHERE material_batch_id=1030 AND warehouse='wip'`, schema))
 	postedResp := serveMultilevelProductionJSON(t, e, http.MethodPost, postPath, map[string]any{})
 	var posted stockapp.StockDocumentDetail
 	if postedResp.Code != 200 || json.Unmarshal(postedResp.Body.Bytes(), &posted) != nil || posted.Status != "submitted" {
@@ -133,6 +127,7 @@ func TestPlanTransferDraftAtomicReplayAndPosting(t *testing.T) {
 		t.Fatalf("second valid transfer HTTP %d %s", thirdResp.Code, thirdResp.Body.String())
 	}
 	assertProductionFlowCount(t, pool, schema, "material_batch_locations", "material_batch_id=1030 AND warehouse='wip' AND qty_g=13000", 1)
+	assertProductionFlowCount(t, pool, schema, "material_batch_locations", "material_batch_id=2030 AND warehouse='wip' AND qty_g=14000", 1)
 }
 
 func TestPlanTransferConcurrentHTTPRequestsCannotOverpromise(t *testing.T) {

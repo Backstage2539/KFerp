@@ -56,9 +56,16 @@ func TestSelectedBatchTransferAndWorkOrderReservationFlow(t *testing.T) {
 	transfer := func(code string, qty int64, key string) *httptest.ResponseRecorder {
 		return serveMultilevelProductionJSON(t, e, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/material-transfers", plan.ID), map[string]any{"draft_token": plan.DraftToken, "idempotency_key": key, "items": []any{map[string]any{"source_id": source.ID, "warehouse": "raw_materials", "batches": []any{map[string]any{"batch_code": code, "qty_g": qty}}}}})
 	}
-	wrong := transfer("OTHER", 1000, "wrong-batch")
-	if wrong.Code == 200 {
-		t.Fatal("unselected batch accepted")
+	// An explicit extra transfer may use another available batch; cancelling
+	// this draft leaves the frozen selected batch and reservation unchanged.
+	extra := transfer("OTHER", 1000, "extra-batch")
+	var extraDoc app.PlanMaterialTransferResult
+	if extra.Code != 200 || json.Unmarshal(extra.Body.Bytes(), &extraDoc) != nil || len(extraDoc.Documents) != 1 {
+		t.Fatalf("explicit extra batch rejected: %d %s", extra.Code, extra.Body.String())
+	}
+	cancel := serveMultilevelProductionJSON(t, e, http.MethodPost, fmt.Sprintf("/api/stock-documents/%d/cancel", extraDoc.Documents[0].ID), map[string]any{})
+	if cancel.Code != 200 {
+		t.Fatalf("cancel extra draft: %d %s", cancel.Code, cancel.Body.String())
 	}
 	valid := transfer("CHOSEN", 15000, "chosen-batch")
 	if valid.Code != 200 {

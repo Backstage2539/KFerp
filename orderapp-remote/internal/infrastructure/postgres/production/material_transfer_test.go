@@ -2,10 +2,29 @@ package production
 
 import (
 	"fmt"
+	"math"
 	app "orderapp/internal/application/production"
 	stock "orderapp/internal/application/stock"
 	"testing"
 )
+
+func TestPlanTransferSuggestionsDoesNotWrapCoveredAndPending(t *testing.T) {
+	source := app.ProductionPlanComponentSource{ID: 1, RequiredG: 0, WIPCoveredG: 2, RequiredUnits: 0, WIPCoveredUnits: 2, Allocations: []app.ProductionPlanSourceAllocation{{Warehouse: "raw_materials", QtyG: 10, QtyUnits: 10, Batches: []app.ProductionPlanSourceBatch{{BatchCode: "B", QtyG: 10, QtyUnits: 10}}}}}
+	if out := planTransferSuggestions([]app.ProductionPlanComponentSource{source}, map[int64][2]int64{1: {math.MaxInt64, math.MaxInt64}}); len(out) != 0 {
+		t.Fatalf("over-covered demand wrapped into a transfer suggestion: %+v", out)
+	}
+}
+
+func TestPlanTransferQuantitySumRejectsOverflow(t *testing.T) {
+	for _, values := range [][]int64{{1, math.MaxInt64}, {math.MaxInt64, 1}, {1, 2, math.MaxInt64}, {-1, 1}} {
+		if _, err := sumPlanTransferQuantities(values...); err == nil {
+			t.Fatalf("accepted invalid quantity sum %v", values)
+		}
+	}
+	if got, err := sumPlanTransferQuantities(math.MaxInt64-1, 1); err != nil || got != math.MaxInt64 {
+		t.Fatalf("valid boundary sum = %d, %v", got, err)
+	}
+}
 
 func TestPlanTransferOptionsPreserveIdentityAndOwner(t *testing.T) {
 	source := app.ProductionPlanComponentSource{ComponentType: "product", ComponentID: 7, ComponentBOMSpecID: 9, ComponentBOMVariantID: 11, ComponentSpecG: 454, Options: []app.ProductionPlanComponentSourceOption{{Warehouse: "finished_goods", OwnerCustomerID: 3}}}
