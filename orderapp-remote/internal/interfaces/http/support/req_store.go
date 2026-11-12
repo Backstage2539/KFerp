@@ -203,7 +203,7 @@ func seedReqRow(ctx context.Context, pool *pgxpool.Pool, schema string, row reqS
 	}
 	// Delivery and Van's review happen after startup. Preserve their actual
 	// progress when subsequent restarts re-run the built-in requirement seeds.
-	if row.code == "PR-WECHAT-SUBSCRIPTION-ADMIN-20261112" || strings.HasPrefix(row.code, "DEV-WECHAT-SUBSCRIPTION-ADMIN-") || row.code == "PR-NOTIFICATION-CHOICE-20261111" || strings.HasPrefix(row.code, "DEV-NOTICE-CHOICE-") || row.code == "PR-751-SHIPPING-RETURN-CANDIDATES" || strings.HasPrefix(row.code, "DEV-PR751-") || row.code == "PR-750-ORDER-WECHAT-NOTIFICATIONS" || strings.HasPrefix(row.code, "DEV-PR750-") || row.code == "PR-748-BOM-START-CONSUMPTION" || strings.HasPrefix(row.code, "DEV-PR748-") || row.code == "PR-DIRECTSHIP-REGION-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-REGION-") || row.code == "PR-DIRECTSHIP-HISTORICAL-STOCK-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-HISTORICAL-STOCK-") || row.code == "PR-ORDER-DATE-SAVE-20261104" || strings.HasPrefix(row.code, "DEV-ORDER-DATE-SAVE-") {
+	if row.code == "PR-767-FINANCE-DAILY-LEDGER" || strings.HasPrefix(row.code, "DEV-PR767-") || row.code == "PR-WECHAT-SUBSCRIPTION-ADMIN-20261112" || strings.HasPrefix(row.code, "DEV-WECHAT-SUBSCRIPTION-ADMIN-") || row.code == "PR-NOTIFICATION-CHOICE-20261111" || strings.HasPrefix(row.code, "DEV-NOTICE-CHOICE-") || row.code == "PR-751-SHIPPING-RETURN-CANDIDATES" || strings.HasPrefix(row.code, "DEV-PR751-") || row.code == "PR-750-ORDER-WECHAT-NOTIFICATIONS" || strings.HasPrefix(row.code, "DEV-PR750-") || row.code == "PR-748-BOM-START-CONSUMPTION" || strings.HasPrefix(row.code, "DEV-PR748-") || row.code == "PR-DIRECTSHIP-REGION-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-REGION-") || row.code == "PR-DIRECTSHIP-HISTORICAL-STOCK-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-HISTORICAL-STOCK-") || row.code == "PR-ORDER-DATE-SAVE-20261104" || strings.HasPrefix(row.code, "DEV-ORDER-DATE-SAVE-") {
 		_, err := pool.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.%s(code,title,status,assignee,evidence)
 			VALUES($1,$2,$3,$4,$5) ON CONFLICT(code) DO NOTHING
@@ -282,11 +282,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-PRICE-LIST-COST-QUERY-20261111", title: "修复历史规格工序成本档位读取并区分成本异常", status: "done", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PRICE-LIST-SPEC-IDENTITY-20261111", title: "保留成本异常商品规格信息并修复勾选警告", status: "done", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PRICE-LIST-COST-VERIFY-20261111", title: "验证价格表成本与规格并更新手册", status: "done", assignee: "Codex"},
-		{table: "req_product", code: "PR-767-FINANCE-DAILY-LEDGER", title: "财务每日经营流水与利润曲线", status: "doing", assignee: "Van"},
+		{table: "req_product", code: "PR-767-FINANCE-DAILY-LEDGER", title: "财务每日经营流水与利润曲线", status: "review", assignee: "Van"},
 		{table: "req_dev", code: "DEV-PR767-COST", title: "按订单匹配实际销售成本并识别待核算", status: "done", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PR767-API", title: "每日流水、汇总和月结快照接口", status: "done", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PR767-UI", title: "财务首页趋势图与流水筛选", status: "done", assignee: "Codex"},
-		{table: "req_dev", code: "DEV-PR767-DELIVERY", title: "财务手册、验收及开发环境交付", status: "doing", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR767-DELIVERY", title: "财务手册、验收及开发环境交付", status: "done", assignee: "Codex"},
 		{table: "req_product", code: "PR-766-WORKSTATION-BATCH-START-NOTES", title: "工位批次预览、补料及多工单开工", status: "doing", assignee: "Van"},
 		{table: "req_dev", code: "DEV-PR766-BATCH", title: "开工前冻结批次预览", status: "doing", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PR766-REPLENISHMENT", title: "实际缺口补料与自由库存", status: "doing", assignee: "Codex"},
