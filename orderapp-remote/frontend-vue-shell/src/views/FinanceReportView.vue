@@ -79,7 +79,8 @@
 
     <section class="panel table-wrap">
       <div class="section-title">来源明细</div>
-      <div v-if="!drilldown.sections?.length" class="empty">暂无来源明细</div>
+	  <div v-if="drilldown.snapshot_unavailable" class="empty">此月份已结账，但没有冻结来源明细，无法查看历史明细。</div>
+	  <div v-else-if="!drilldown.sections?.length" class="empty">暂无来源明细</div>
       <div v-for="section in drilldown.sections" :key="section.section" class="drill-section">
         <div class="drill-head">
           <strong>{{ section.title || section.section }}</strong>

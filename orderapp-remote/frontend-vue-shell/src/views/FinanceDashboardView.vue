@@ -12,7 +12,9 @@
     </section>
 
     <div v-if="error" class="error">{{ error }}</div>
+    <div v-if="loading" class="panel" role="status">正在加载财务数据…</div>
 
+    <template v-if="loaded && !loading && !error">
     <section class="metrics">
       <div v-for="card in cards" :key="card.label" class="metric" :class="card.tone">
         <span>{{ card.label }}</span>
@@ -42,6 +44,9 @@
       </div>
     </section>
 
+    <FinanceDailyPanel :month="month" :daily="daily" :initial-date="initialReturnDate" @return-date-consumed="initialReturnDate = ''" />
+    </template>
+
     <section class="panel actions">
       <button type="button" @click="go('financeExpenses')">费用管理</button>
       <button type="button" @click="go('financeClosing')">月度结账</button>
@@ -53,6 +58,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import FinanceDailyPanel from './FinanceDailyPanel.vue'
 import { fetchFinanceDashboard } from '../api/finance.js'
 import {
   closingModeLabel,
@@ -64,31 +70,43 @@ import {
   taxpayerTypeLabel,
 } from '../lib/finance.js'
 
-const month = ref(currentMonth())
+const props = defineProps({ viewParams: { type: Object, default: () => ({}) } })
+const returnMonth = String(props.viewParams?.month || '')
+const month = ref(/^\d{4}-(0[1-9]|1[0-2])$/.test(returnMonth) ? returnMonth : currentMonth())
+const initialReturnDate = ref(String(props.viewParams?.date || ''))
 const loading = ref(false)
+const loaded = ref(false)
 const error = ref('')
 const settings = ref({})
 const report = ref({})
 const exceptions = ref([])
+const daily = ref(null)
 const cards = computed(() => financeMetricCards(report.value))
 
+let loadVersion = 0
 async function load() {
+  const version = ++loadVersion
   loading.value = true
+  loaded.value = false
   error.value = ''
+  daily.value = null
   try {
     const data = await fetchFinanceDashboard(month.value)
+    if (version !== loadVersion) return
     settings.value = data.settings || {}
     report.value = data.report || {}
     exceptions.value = data.exceptions || []
+    daily.value = data.daily || null
+    loaded.value = true
   } catch (err) {
-    error.value = err.message || '加载失败'
+    if (version === loadVersion) error.value = err.message || '加载失败'
   } finally {
-    loading.value = false
+    if (version === loadVersion) loading.value = false
   }
 }
 
 function go(key) {
-  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key } }))
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key, returnNavigation: { key: 'financeDashboard', label: '返回财务首页' } } }))
 }
 
 onMounted(load)

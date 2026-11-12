@@ -1,5 +1,6 @@
 <template>
   <div class="page">
+    <ProductionReturnLink :source="viewParams.return_navigation" />
     <section class="panel">
       <div class="panel-head">
         <h2>订单列表</h2>
@@ -458,6 +459,7 @@
 </template>
 
 <script setup>
+import ProductionReturnLink from '../components/ProductionReturnLink.vue'
 import ShippingReturnPicker from '../components/ShippingReturnPicker.vue'
 import OrderBatchStatusDialog from '../components/OrderBatchStatusDialog.vue'
 import OrderDetailsCopyButton from '../components/OrderDetailsCopyButton.vue'

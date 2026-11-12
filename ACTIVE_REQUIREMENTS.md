@@ -6729,3 +6729,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - DEV: `DEV-SPEC-GROUP-NAV`、`DEV-SPEC-GROUP-API`、`DEV-SPEC-GROUP-PRICING`、`DEV-SPEC-GROUP-DELIVERY`。
 - Verifier: 定向单元/API RED/GREEN、前端测试和构建、隔离数据库完整代发 HTTP 及浏览器模拟验证；成本与生产手册已更新。最终合并及部署验证待完成。
 - Deployment: 未部署。
+
+
+### PR-767-FINANCE-DAILY-LEDGER
+- Branch: `codex/finance-daily-ledger-20261112`；Owner: Codex；Status: 本地验证通过，开发环境部署与 Van 验收待完成。
+- Scope: 财务订单实际成本归集、每日流水曲线、月结快照和来源追溯。
+- DEV: `DEV-PR767-COST`、`DEV-PR767-API`、`DEV-PR767-UI`、`DEV-PR767-DELIVERY`。
+- Verifier: 隔离 PostgreSQL 财务应用/仓储/HTTP/权限通过；无数据库 Go 全套、Vue 2022 项与构建通过；隔离数据桌面 Chrome 页面核对通过，开发环境核验待完成。
+- Deployment: 开发环境待验证；生产未授权发布。
