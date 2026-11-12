@@ -6737,3 +6737,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - DEV: `DEV-PR767-COST`、`DEV-PR767-API`、`DEV-PR767-UI`、`DEV-PR767-DELIVERY`。
 - Verifier: 隔离 PostgreSQL 财务应用/仓储/HTTP/权限通过；无数据库 Go 全套、Vue 2022 项与构建通过；隔离数据桌面 Chrome 页面核对通过，开发环境核验待完成。
 - Deployment: 开发环境待验证；生产未授权发布。
+
+### PR-767-WORKSTATION-CARDS-READINESS
+- Branch: `codex/workstation-card-readiness-20261112`；Status: 验证通过，待发布及用户验收。
+- Scope: 工位卡片精简、已投入物料齐套、工单冻结信息和工位导航。
+- DEV: `DEV-PR767-READINESS`、`DEV-PR767-CARDS`、`DEV-PR767-DETAIL`、`DEV-PR767-VERIFY`。
+- Verifier: RED/GREEN、隔离数据库及 API、桌面窄屏、构建和手册；生产业务只读。
+- Deployment: 验证后先合并 main、部署正式 ERP，再合入 develop；保留小程序包。

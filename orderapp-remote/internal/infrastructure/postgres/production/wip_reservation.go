@@ -13,12 +13,149 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// GetWorkOrderWIPCoverage keeps the existing inventory coverage and adds
+// posted material inputs from each actual job card. No stock is changed.
 func (r Repository) GetWorkOrderWIPCoverage(ctx context.Context, workOrderID int64) (productionapp.ProductionWIPStatus, error) {
-	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly, IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		return productionapp.ProductionWIPStatus{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	status, err := r.getWorkOrderWIPCoverageBase(ctx, tx, workOrderID)
+	if err != nil {
+		return status, err
+	}
+	var exists bool
+	err = tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL AND to_regclass($2) IS NOT NULL AND to_regclass($3) IS NOT NULL`, r.schema+".production_started_inputs", r.schema+".production_started_input_components", r.schema+".production_started_input_returns").Scan(&exists)
+	if err != nil {
+		return status, err
+	}
+	if !exists {
+		return status, nil
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT i.job_card_id,c.component_type,c.component_id,c.bom_spec_id,c.bom_variant_id,c.spec_g,c.owner_customer_id,c.warehouse,c.unit,(c.qty-COALESCE((SELECT SUM(ret.qty) FROM %[1]s.production_started_input_returns ret WHERE ret.component_id=c.id),0))::float8,c.remaining_qty::float8 FROM %[1]s.production_started_inputs i JOIN %[1]s.production_started_input_components c ON c.input_id=i.id WHERE i.work_order_id=$1 AND i.status='posted' ORDER BY i.job_card_id,c.id`, r.schema), workOrderID)
+	if err != nil {
+		return status, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var x productionapp.TaskMaterialIssued
+		if err = rows.Scan(&x.JobCardID, &x.ItemType, &x.ItemID, &x.BomSpecID, &x.BomVariantID, &x.SpecG, &x.OwnerCustomerID, &x.Warehouse, &x.Unit, &x.IssuedQty, &x.InProcessQty); err != nil {
+			return status, err
+		}
+		status.StartedInputs = append(status.StartedInputs, x)
+	}
+	if err = rows.Err(); err != nil {
+		return status, err
+	}
+	status.StartedInputsKnown = true
+	applyPostedProductCoverage(&status)
+	return status, nil
+}
+
+func applyPostedProductCoverage(status *productionapp.ProductionWIPStatus) {
+	// Allocate each posted quantity at most once across identical frozen
+	// product components. Different owners/specifications/warehouses never
+	// share coverage. Quantities are normalized to grams or item count.
+	type inputKey struct {
+		itemType                          string
+		item, spec, variant, specG, owner int64
+		warehouse                         string
+		weight                            bool
+	}
+	key := func(kind string, id, spec, variant, specG, owner int64, warehouse string, weight bool) inputKey {
+		kind = strings.ToLower(strings.TrimSpace(kind))
+		if kind == "finished_product" {
+			kind = "product"
+		}
+		return inputKey{kind, id, spec, variant, specG, owner, strings.ToLower(strings.TrimSpace(warehouse)), weight}
+	}
+	posted := map[inputKey]float64{}
+	for _, x := range status.StartedInputs {
+		factor := productionapp.OperationUnitFactor(x.Unit)
+		qty := x.IssuedQty
+		if factor > 0 {
+			qty *= factor
+		}
+		posted[key(x.ItemType, x.ItemID, x.BomSpecID, x.BomVariantID, x.SpecG, x.OwnerCustomerID, x.Warehouse, factor > 0)] += qty
+	}
+	// Product stock queries return the same physical balance for duplicate
+	// demand rows. Reserve one shared budget for each exact identity.
+	available := map[inputKey]float64{}
+	for _, m := range status.Materials {
+		if m.ItemType != "product" && m.ItemType != "finished_product" {
+			continue
+		}
+		k := key(m.ItemType, m.ItemID, m.BomSpecID, m.BomVariantID, m.SpecG, m.OwnerCustomerID, m.SourceWarehouse, m.RequiredG > 0)
+		n := float64(m.AvailableUnits)
+		if m.RequiredG > 0 {
+			n = float64(m.AvailableG)
+		}
+		// Reservation rows are already separately allocated; projected rows
+		// each read the same physical balance and must share one budget.
+		if m.Status == "reserved" {
+			available[k] += n
+		} else {
+			available[k] = math.Max(available[k], n)
+		}
+	}
+	changed := false
+	for i := range status.Materials {
+		m := &status.Materials[i]
+		if m.ItemType != "product" && m.ItemType != "finished_product" {
+			continue
+		}
+		k := key(m.ItemType, m.ItemID, m.BomSpecID, m.BomVariantID, m.SpecG, m.OwnerCustomerID, m.SourceWarehouse, m.RequiredG > 0)
+		need := float64(m.RequiredUnits)
+		if m.RequiredG > 0 {
+			need = float64(m.RequiredG)
+		}
+		allocated := math.Min(need, posted[k])
+		posted[k] -= allocated
+		free := math.Min(math.Max(0, need-allocated), available[k])
+		available[k] -= free
+		changed = true
+		if m.RequiredG > 0 {
+			m.AvailableG = int64(math.Floor(free + 1e-9))
+			m.ShortageG = int64(math.Ceil(math.Max(0, need-allocated-free) - 1e-9))
+			m.AvailableQty = productionInventoryQuantity(m.AvailableG, m.InventoryUnit)
+			m.ShortageQty = productionInventoryQuantity(m.ShortageG, m.InventoryUnit)
+		} else {
+			m.AvailableUnits = int64(math.Floor(free + 1e-9))
+			m.ShortageUnits = int64(math.Ceil(math.Max(0, need-allocated-free) - 1e-9))
+			m.AvailableQty = float64(m.AvailableUnits)
+			m.ShortageQty = float64(m.ShortageUnits)
+		}
+	}
+	if changed {
+		status.ShortageG = 0
+		status.ShortageUnits = 0
+		status.AvailableG = 0
+		status.AvailableUnits = 0
+		for _, m := range status.Materials {
+			status.ShortageG += m.ShortageG
+			status.ShortageUnits += m.ShortageUnits
+			status.AvailableG += m.AvailableG
+			status.AvailableUnits += m.AvailableUnits
+		}
+		// Only replace this routine's own WIP shortage, never other blockers.
+		if status.DataComplete && (status.Status == "ok" || strings.HasPrefix(status.BlockingReason, "WIP 不足") || strings.Contains(status.BlockingReason, "尚未领齐到 WIP")) {
+			if status.ShortageG == 0 && status.ShortageUnits == 0 {
+				status.Status = "ok"
+				status.BlockingReason = ""
+			} else if status.ShortageG > 0 {
+				status.Status = "blocked"
+				status.BlockingReason = fmt.Sprintf("WIP 不足 %dg", status.ShortageG)
+			} else {
+				status.Status = "blocked"
+				status.BlockingReason = fmt.Sprintf("WIP 不足 %d件", status.ShortageUnits)
+			}
+		}
+	}
+}
+
+func (r Repository) getWorkOrderWIPCoverageBase(ctx context.Context, tx pgx.Tx, workOrderID int64) (productionapp.ProductionWIPStatus, error) {
+	var err error
 	var processSnapshot string
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(process_snapshot_json,'{}'::jsonb)::text FROM %s.work_orders WHERE id=$1`, r.schema), workOrderID).Scan(&processSnapshot); err != nil {
 		if err == pgx.ErrNoRows {
@@ -331,9 +468,6 @@ func (r Repository) GetWorkOrderWIPCoverage(ctx context.Context, workOrderID int
 		} else {
 			status.BlockingReason = fmt.Sprintf("WIP 不足 %d件", status.ShortageUnits)
 		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return productionapp.ProductionWIPStatus{}, err
 	}
 	return status, nil
 }

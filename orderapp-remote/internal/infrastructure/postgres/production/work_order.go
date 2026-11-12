@@ -1768,7 +1768,7 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		           ) bi
 		           LEFT JOIN %s.materials m ON m.id=bi.material_id
 		       ), ''),
-		       COALESCE(wo.customer_id,0),COALESCE(wo.target_warehouse,''),COALESCE(wo.processing_request_item_id,0),COALESCE(to_jsonb(wo)->>'related_orders_snapshot_json','')
+		       COALESCE(wo.customer_id,0),COALESCE(wo.target_warehouse,''),COALESCE(wo.processing_request_item_id,0),COALESCE(to_jsonb(wo)->>'related_orders_snapshot_json',''),COALESCE(wo.bom_version_id,0)
 		FROM %s.work_orders wo
 		LEFT JOIN %s.produce_running_items ri ON ri.id=wo.running_item_id
 		LEFT JOIN %s.products p ON p.id=wo.product_id
@@ -1796,7 +1796,7 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 			&row.PlannedG, &row.PlannedOutputG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt,
 			&row.RoastLevel, &row.YieldRate, &row.SuggestedInputG, &row.PlannedUnits, &row.PlannedLooseG, &row.OrderNos, &snapshotText, &row.WIPReservedG, &row.WIPConsumedG, &row.WIPRemainingReservedG, &row.BomVersionID, &row.ProcessTemplateID, &row.ProcessTemplateName, &row.ProcessSnapshotJSON, &row.OperationSummaryJSON,
 			&row.PlannedStartAt, &row.PlannedEndAt, &row.ShiftCode, &row.AssignedTo, &row.Priority, &row.SchedulingNote, &row.WorkCenter, &fallbackMaterialSummary,
-			&row.CustomerID, &row.TargetWarehouse, &row.ProcessingRequestItemID, &row.RelatedOrdersSnapshotJSON,
+			&row.CustomerID, &row.TargetWarehouse, &row.ProcessingRequestItemID, &row.RelatedOrdersSnapshotJSON, &row.FrozenBomVersionID,
 		); err != nil {
 			return nil, err
 		}
@@ -1805,6 +1805,7 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		} else {
 			row.BomSource = "sku"
 		}
+		row.MaterialSnapshot = snapshotText
 		row.MaterialSummary = formatMaterialSnapshotSummary(snapshotText)
 		if row.MaterialSummary == "" {
 			row.MaterialSummary = fallbackMaterialSummary

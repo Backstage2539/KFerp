@@ -2,7 +2,6 @@
   <div class="page workstation-view">
 
     <ProductionReturnLink :source="viewParams.return_navigation" />
-            <OperationAdjustmentForm v-if="adjustment.open" :job-card-id="Number(adjustment.task.job_card_id)" @close="adjustment.open=false" @posted="adjusted" />
     <section v-if="lastGroupResult" class="panel group-result"><strong>合并入库完成：{{ lastGroupResult.completed_qty }} {{ lastGroupResult.output_unit }}</strong><p v-for="item in lastGroupResult.items" :key="item.job_card.id">{{ item.work_order.work_order_no }} · 入库 {{ item.completion?.output_qty || 0 }} {{ item.completion?.output_unit }} · 单据 {{ item.completion?.stock_entry_ids?.join('、') || '无' }}</p><p>{{ lastGroupResult.remaining_qty > 0 ? `剩余 ${lastGroupResult.remaining_qty} 袋继续待办` : '本组任务已完成' }}</p><button class="secondary" @click="lastGroupResult=null">收起</button></section>
     <section v-if="lastAutomaticResult" class="panel"><strong>{{ lastAutomaticResult.message }} · {{ lastAutomaticResult.output_qty }} {{ lastAutomaticResult.output_unit }}</strong><p>关联单据：{{ lastAutomaticResult.stock_entry_ids?.join('、') || '工序交接记录' }}</p><button class="secondary" @click="lastAutomaticResult=null">收起</button></section>
     <section class="toolbar">
@@ -14,14 +13,12 @@
         <div v-if="canViewAll" class="scope-switch"><button type="button" :disabled="startGroup.locked" :class="{ active: scope === 'mine' }" @click="switchScope('mine')">我的今日工位</button><button type="button" :disabled="startGroup.locked" :class="{ active: scope === 'all' }" @click="switchScope('all')">全厂总览</button></div>
         <label>
           <span>工位</span>
-          <select v-model="selectedWorkstation" :disabled="startGroup.locked">
+          <select v-model="selectedWorkstation" :disabled="startGroup.locked" @change="load">
             <option value="">全部工位</option>
             <option v-for="section in sections" :key="section.workstation" :value="section.workstation">{{ section.workstation }}</option>
           </select>
         </label>
-        <button class="secondary" type="button" @click="openProductionHelp">开工扣料说明</button>
         <button class="secondary" type="button" @click="openScheduling">查看生产排班</button>
-        <button class="secondary" type="button" @click="load" :disabled="loading || startGroup.locked">刷新</button>
       </div>
     </section>
 
@@ -45,19 +42,6 @@
           <div class="station-head-actions"><span v-if="section.blockingReason" class="blocker">{{ section.blockingReason }}</span><button v-if="section.assignment?.handover_count" class="handover" type="button" :disabled="busyKey !== ''" @click="handoverStation(section)">接手工位（{{ section.assignment.handover_count }}）</button></div>
         </div>
 
-        <section v-if="packagingSummary(section).length" class="packaging-summary" aria-label="当前工位待包装汇总">
-          <h4>待包装汇总</h4>
-          <p>按产品与冻结规格统计当前工位显示的待处理、受阻、进行中及暂停任务，包含未排时间任务；已完成和已取消不计入。</p>
-          <div class="packaging-summary-grid">
-            <article v-for="row in packagingSummary(section)" :key="row.key">
-              <strong>{{ row.product_name }} · {{ row.spec_label }}</strong>
-              <span v-if="!row.unknown_quantity_count">待包装 {{ quantityText(row.remaining_qty) }} {{ row.unit }}</span>
-              <span v-else>{{ row.remaining_qty > 0 ? `已知待包装 ${quantityText(row.remaining_qty)} ${row.unit}；` : '' }}{{ row.unknown_quantity_count }} 项数量待核对</span>
-              <small>{{ row.order_count }} 张工单<template v-if="row.unscheduled_count"> · 其中 {{ row.unscheduled_count }} 张含未排时间任务</template></small>
-            </article>
-          </div>
-        </section>
-
         <div class="answer-grid">
           <div class="answer-block current">
             <span>当前任务 · 现在做</span>
@@ -69,15 +53,10 @@
             <strong>{{ taskTitle(section.nextTask) }}</strong>
             <small>{{ taskMeta(section.nextTask) }}</small>
           </div>
-          <div class="answer-block blocked" :class="{ empty: !section.blockingReason }">
-            <span>当前待办</span>
-            <strong>{{ section.blockingReason || '无阻塞' }}</strong>
-            <small>{{ section.blockingReason ? `待协同岗位：${nextHandler(section)}` : '可继续执行' }}</small>
-          </div>
         </div>
 
         <div v-if="!section.tasks.length" class="no-task">{{ scope === 'mine' ? '今日负责此工位，暂无任务' : '今日工位暂无任务' }}</div>
-        <button v-else-if="!selectedWorkstation" class="enter-station primary" type="button" @click="selectedWorkstation = section.workstation">进入本工位</button>
+        <button v-else-if="!selectedWorkstation" class="enter-station primary" type="button" @click="selectedWorkstation = section.workstation; load()">进入本工位</button>
 
         <div v-if="selectedWorkstation && issueTasks(section).length" class="batch-issue-toolbar">
           <span>已选 {{ issueSelectionState(issueTasks(section), selectedIssueTasks).count }} 个任务</span>
@@ -92,12 +71,6 @@
           <small>不同规格、客户分别扣料和记录；请逐单核对客户工序备注。</small>
         </div>
         <OperationStartGroupForm v-if="startGroup.open && startGroup.key===section.workstation" :key="`group-start-${startGroup.key}`" :task-ids="startGroup.ids" :source-tasks="startGroup.tasks" @close="startGroup.open=false" @posted="groupStarted" @lock-change="startGroup.locked=$event" />
-        <div v-if="selectedWorkstation && completionGroups(section).length" class="packaging-completion-actions">
-          <div v-for="group in completionGroups(section)" :key="group.key">
-            <button type="button" class="secondary" :disabled="loading || Boolean(busyKey)" @click="openGroupCompletion(group)">{{group.product_name}} · {{group.tasks[0]?.spec_label || '规格未记录'}} · {{group.tasks.length}} 张同规格工单完成并入库</button>
-            <WorkstationPackagingCompletionForm v-if="completionGroup.open && completionGroup.key === group.key" :key="completionGroup.key" :task-ids="completionGroup.ids" @close="completionGroup.open = false" @posted="groupCompleted" />
-          </div>
-        </div>
         <div v-if="selectedWorkstation && ungroupedTasks(section).length" class="task-table">
           <div class="task-row header">
             <span><input type="checkbox" aria-label="全选当前工位可领料任务" :checked="issueSelectionState(issueTasks(section), selectedIssueTasks).checked" :indeterminate="issueSelectionState(issueTasks(section), selectedIssueTasks).indeterminate" :disabled="!issueSelectionState(issueTasks(section), selectedIssueTasks).total" @change="selectedIssueTasks = toggleIssueSelection(issueTasks(section), selectedIssueTasks)" /> 任务</span>
@@ -107,31 +80,36 @@
           </div>
           <div v-for="task in ungroupedTasks(section)"
             :key="taskKey(task)"
-            class="task-row"
+            class="task-row task-card"
             :class="{ focused: isRequestedTask(task) }"
             :data-task-key="taskKey(task)">
             <div class="task-title">
               <strong><input v-if="canSelectStart(task)" v-model="selectedStartTasks" :disabled="startGroup.locked" type="checkbox" :value="Number(task.job_card_id)" :aria-label="`选择开工工单 ${task.work_order_no}`" /><input v-if="!isSimplifiedTask(task)" v-model="selectedIssueTasks" type="checkbox" :value="Number(task.job_card_id)" :disabled="!workstationCanOpenIssue(task)" :aria-label="`选择任务 ${task.work_order_no} ${task.job_card_id}`" /><button v-if="isInlineBatchTask(task)" type="button" class="task-expand" :aria-expanded="isTaskExpanded(task)" @click="toggleFinishPanel(task)">{{ isTaskExpanded(task) ? '▾' : '▸' }} {{ taskTitle(task) }}</button><template v-else>{{ taskTitle(task) }}</template></strong>
               <small>{{ taskBatchLabel(task) }} · {{ task.work_order_no || '-' }} · P{{ task.priority || 0 }}</small>
               <small v-if="isPackagingTask(task)" class="task-spec">{{task.spec_label || '规格未记录'}}</small>
+              <small v-if="isPackagingTask(task) && task.planned_output_inventory_qty != null && Number(task.planned_output_inventory_qty) >= 0 && task.inventory_unit" class="task-quantity">目标 {{ quantityText(packagingTargetQty(task)) }} {{ task.inventory_unit }} · 已完成 {{ quantityText(task.actual_output_qty) }} {{ task.inventory_unit }}</small>
               <small v-for="line in taskDisplayQuantityLines(task)" :key="line" class="task-quantity">{{ line }}</small>
               <small>工序要求：{{ task.process_requirement || '按冻结工艺路线执行' }}</small>
               <div v-if="task.related_orders?.length" class="task-related-orders" aria-label="关联订单与工序备注">
                 <div v-for="order in task.related_orders" :key="`${order.order_id}:${order.order_item_id}`"><strong>{{order.order_no}} · {{order.customer_name || '客户未记录'}}</strong><span v-if="order.late_association"> · 后关联</span><span v-if="order.quantity"> · {{quantityText(order.quantity)}} {{order.sales_unit}}</span><p v-if="order.original_order_note">原订单备注：{{order.original_order_note}}</p><p v-if="order.original_item_note">原商品备注：{{order.original_item_note}}</p><p v-for="(note,index) in order.operation_notes || []" :key="index">{{note.operation_name || task.operation}}：{{note.note}}</p></div>
               </div>
-              <details v-if="task.material_readiness?.length" class="material-readiness" :class="`material-state-${materialReadinessState(task)}`">
-                <summary>{{ materialSummary(task) }}</summary>
-                <div class="material-row material-head"><span>物料名称</span><span>需求</span><span>WIP 可用</span><span>缺口</span></div>
-                <div v-for="material in task.material_readiness" :key="material.reservation_id || material.material_id" class="material-row"><strong>{{ material.material_name }}</strong><span>{{ materialQuantity(material, 'required') }}</span><span>{{ materialQuantity(material, 'wip') }}</span><span :class="{ shortage: materialHasShortage(material) }">{{ materialQuantity(material, 'shortage') }}</span></div>
-                <button v-if="needsConfirmedStart(task) && task.material_readiness.some(materialHasShortage)" type="button" class="secondary" @click="openStartPanel(task)">核对缺口并生成补料单</button>
-              </details>
+              <div v-if="task.material_readiness?.length" class="material-readiness" :class="`material-state-${materialReadinessState(task)}`">
+                <div v-if="hasIssuedMaterials(task)" class="issued-materials"><strong>物料已投入</strong><div v-for="material in task.material_readiness" :key="`issued-${material.reservation_id || material.material_id}`"><span>{{ material.material_name }}</span><span>{{ materialQuantity(material, 'issued') }}</span></div></div>
+                <details>
+                  <summary>{{ materialSummary(task) }}</summary>
+                  <div class="material-row material-head"><span>物料名称</span><span>需求</span><span>已投入</span><span>剩余需求</span><span>WIP 可用</span><span>缺口</span></div>
+                  <div v-for="material in task.material_readiness" :key="material.reservation_id || material.material_id" class="material-row"><strong>{{ material.material_name }}</strong><span data-label="需求">{{ materialQuantity(material, 'required') }}</span><span data-label="已投入">{{ materialQuantity(material, 'issued') }}</span><span data-label="剩余需求">{{ materialQuantity(material, 'remaining_required') }}</span><span data-label="WIP 可用">{{ materialQuantity(material, 'wip') }}</span><span data-label="缺口" :class="{ shortage: materialHasShortage(material) }">{{ materialQuantity(material, 'shortage') }}</span></div>
+                  <button v-if="task.material_readiness.some(materialHasShortage)" type="button" class="secondary" @click="needsConfirmedStart(task) ? openStartPanel(task) : openPackagingGroupIssue({tasks:[task]})">核对缺口并生成补料单</button>
+                </details>
+              </div>
               <div v-else-if="!task.has_predecessor && materialReadinessState(task) === 'unknown'" class="material-readiness material-state-unknown">用料待核对</div>
             </div>
             <span class="pill" :class="statusClass(task)">{{ task.status_label || task.status || '-' }}</span>
-            <span class="task-staff">{{ task.assigned_to || task.roster_employee_name || '无人值班' }}<small v-if="task.pending_handover">排班已换人，待接手工位</small><small v-else-if="task.blocking_reason">待协同岗位：{{ task.next_handler || '-' }}</small></span>
+            <span class="task-staff">{{ task.assigned_to || task.roster_employee_name || '无人值班' }}<small v-if="task.pending_handover">排班已换人，待接手工位</small></span>
             <div class="actions">
               <template v-if="isSimplifiedTask(task)">
-                <button v-if="needsConfirmedStart(task)" type="button" class="primary" :disabled="Boolean(busyKey) || loading || isTaskUnattended(task)" @click="openStartPanel(task)">开工</button>
+                <button v-if="task.status === 'paused'" type="button" class="primary" :disabled="Boolean(busyKey) || loading || isTaskUnattended(task)" @click="handleTaskAction(task, 'resume')">恢复</button>
+                <button v-else-if="needsConfirmedStart(task)" type="button" class="primary" :disabled="Boolean(busyKey) || loading || isTaskUnattended(task)" @click="openStartPanel(task)">开工</button>
                 <button v-else-if="!isInlineBatchTask(task) || isHistoricalBatchTask(task)" type="button" class="primary" :disabled="Boolean(busyKey) || loading || isTaskUnattended(task)" @click="openFinishPanel(task)">工序完成</button><button v-else type="button" class="primary" :disabled="!isFinishPanelForTask(task) || !['running','paused'].includes(task.status) || Boolean(busyKey) || loading || isTaskUnattended(task)" @click="finishForm?.[0]?.completeAll()">完成所有批次</button>
                 <small v-if="isTaskUnattended(task)" class="schedule-required">今日无人值班，请先完成排班</small>
                 <button type="button" class="secondary" @click="openExecutionHub(task, 'job_card')">查看工单</button>
@@ -142,7 +120,7 @@
               <button v-if="task.readiness_label === '待质检'" type="button" class="secondary" @click="openQuality(task)">查看质检</button>
               <details v-if="isFirstOperationTask(task) && task.status === 'running'" class="material-actions"><summary>物料操作</summary><button type="button" @click="openStockAction(task, 'consume')">耗料</button><button type="button" @click="openStockAction(task, 'return')">退料</button></details>
               <button
-                v-for="action in workstationVisibleActions(task)"
+                v-for="action in workstationVisibleActions(task).filter(action => action !== 'pause')"
                 :key="action"
                 type="button"
                 :class="{ primary: action === 'start' || action === 'complete' }"
@@ -174,11 +152,6 @@
               <button class="primary" type="button" @click="submitIssue" :disabled="busyKey !== ''">提交</button>
             </div>
 
-            <div v-if="task.material_consumption_policy==='bom_start_v1'&&['running','paused'].includes(task.status)" class="task-actions">
-              <button class="secondary" @click="adjustment.task=task;adjustment.open=true">补料 / 退料 / 撤销</button>
-              <button class="secondary" @click="handleTaskAction(task,task.status==='paused'?'resume':'pause')">{{task.status==='paused'?'恢复':'暂停'}}</button>
-            </div>
-
             <ExecutionBatchPreview v-if="startPanel.open && sameTask(startPanel.task,task) && isInlineBatchTask(task)" :job-card-id="Number(task.job_card_id)" />
             <OperationStartForm v-if="startPanel.open && sameTask(startPanel.task,task)" :key="`start-${task.job_card_id}`" :job-card-id="Number(task.job_card_id)" :refresh-token="startPanel.revision" :locked="batchIssue.open || isTaskUnattended(task)" @close="startPanel.open=false" @posted="startPosted" @issue="(shortages, input) => openStartIssue(task, shortages, input)" />
             <OperationCompletionForm v-if="isFinishPanelForTask(task)" ref="finishForm" :external-bulk="isInlineBatchTask(task)" :can-complete="['running','paused'].includes(task.status) && !isTaskUnattended(task)" :key="task.job_card_id" :job-card-id="Number(task.job_card_id)" :return-params="completionReturnParams(task)" @close="closeFinishPanel" @posted="automaticPosted" @batch-state="state => setBatchState(task,state)" />
@@ -206,13 +179,11 @@ import OperationCompletionForm from '../components/OperationCompletionForm.vue'
 import ExecutionBatchPreview from '../components/ExecutionBatchPreview.vue'
 import OperationStartForm from '../components/OperationStartForm.vue'
 import OperationStartGroupForm from '../components/OperationStartGroupForm.vue'
-import OperationAdjustmentForm from '../components/OperationAdjustmentForm.vue'
 import WorkstationBatchIssueDrawer from '../components/WorkstationBatchIssueDrawer.vue'
-import WorkstationPackagingCompletionForm from '../components/WorkstationPackagingCompletionForm.vue'
 import { issueSelectionState, toggleIssueSelection } from '../lib/workstation-batch-issue.js'
 import { issueSessionStorage, readPendingIssue } from '../lib/workstation-issue-recovery.js'
 import ProductionReturnLink from '../components/ProductionReturnLink.vue'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { fetchProductionWorkstationOverview, runProductionTaskAction } from '../api/production.js'
 import { apiGet, apiSend } from '../api/client'
 import { actorHasFullViewAccess } from '../lib/menu-permissions.js'
@@ -239,8 +210,7 @@ const props = defineProps({
   actor: { type: Object, default: null },
 })
 
-const adjustment=reactive({open:false,task:null}),startGroup=reactive({open:false,key:'',ids:[],tasks:[],locked:false})
-async function adjusted(){adjustment.open=false;await load()}
+const startGroup=reactive({open:false,key:'',ids:[],tasks:[],locked:false})
 async function groupStarted(_result,submittedIDs=startGroup.ids){selectedStartTasks.value=selectedStartTasks.value.filter(id=>!submittedIDs.includes(id));startGroup.open=false;await load()}
 const startPanel=reactive({open:false,task:null,revision:0})
 function needsConfirmedStart(task){return task.material_consumption_policy==='bom_start_v1' && ['pending','ready','released'].includes(task.status)}
@@ -282,6 +252,7 @@ function packagingSummary(section){
   }
   return [...groups.values()].map(({orders,unscheduled,...row})=>({...row,remaining_qty:Number(row.remaining_qty.toFixed(6)),order_count:orders.size,unscheduled_count:unscheduled.size}))
 }
+function packagingTargetQty(task){const target=Number(task.planned_output_inventory_qty||0),total=Number(task.operation_total_input_qty||0),input=Number(task.planned_input_qty||0);return total>0&&input>0?target*input/total:target}
 function taskDisplayQuantityLines(task){return taskQuantityLines(task).map(line=>isInlineBatchTask(task)?line.replace(/^本批投料 /,'计划总投入 ').replace(/^目标产出 /,'工单目标产出 '):line)}
 const selectedIssueTasks = ref([])
 const batchIssue = reactive({open: false, ids: [], startShortages: [], startInput: null, recovering: false, replenishment: false})
@@ -476,6 +447,8 @@ function taskBatchLabel(task) {
   return `第 ${Number(task?.batch_index || 1)} 批 / 共 ${Number(task?.batch_count || 1)} 批`
 }
 
+function hasIssuedMaterials(task) { return (task?.material_readiness || []).some(row => Number(row.issued_g || 0) > 0 || Number(row.issued_units || 0) > 0) }
+
 function materialHasShortage(material) {
   return Number(material?.shortage_g || 0) > 0 || Number(material?.shortage_units || 0) > 0
 }
@@ -484,14 +457,17 @@ function materialSummary(task) {
   if (materialReadinessState(task) === 'unknown') return '用料待核对'
   const rows = task?.material_readiness || []
   const shortages = rows.filter(materialHasShortage).length
-  return shortages ? `缺料 ${shortages} 项，展开查看` : `本次用料 ${rows.length} 项，WIP 已齐套`
+  return shortages ? `缺料 ${shortages} 项，展开查看` : hasIssuedMaterials(task) ? '查看用料明细' : `本次用料 ${rows.length} 项，WIP 已齐套`
 }
 
 function materialQuantity(material, kind) {
-  const g = Number(material?.[`${kind === 'wip' ? 'wip_available' : kind}_g`] || 0)
-  const units = Number(material?.[`${kind === 'wip' ? 'wip_available' : kind}_units`] || 0)
-  if (g > 0) return `${g.toLocaleString('zh-CN')}g`
-  return `${units.toLocaleString('zh-CN')}${material?.unit || '件'}`
+  const prefix = kind === 'wip' ? 'wip_available' : kind
+  const g = Number(material?.[`${prefix}_g`] || 0)
+  const units = Number(material?.[`${prefix}_units`] || 0)
+  const unit = String(material?.unit || '').toLowerCase()
+  if (['kg','千克','公斤'].includes(unit)) return `${(g / 1000).toLocaleString('zh-CN', { maximumFractionDigits: 9 })} kg`
+  if (g !== 0 || ['g','克'].includes(unit)) return `${g.toLocaleString('zh-CN', { maximumFractionDigits: 9 })} g`
+  return `${units.toLocaleString('zh-CN', { maximumFractionDigits: 9 })}${material?.unit || '件'}`
 }
 
 function nextHandler(section) {
@@ -708,8 +684,6 @@ watch(() => [props.viewParams?.focus, props.viewParams?.work_order_id, props.vie
   const requestedScope = String(props.viewParams?.scope || '')
   if (requestedScope === 'mine' || (requestedScope === 'all' && canViewAll.value)) scope.value = requestedScope
   selectedWorkstation.value = String(props.viewParams?.workstation || tasks.value.find(row => Number(row.workstation_id || 0) === Number(props.viewParams?.workstation_id || props.viewParams?.station_id || 0))?.workstation || '')
-  finishPanel.open = false
-  finishPanel.task = null
   executionHub.open = false
   executionHub.workOrderId = 0
   executionHub.jobCardId = 0
@@ -717,7 +691,16 @@ watch(() => [props.viewParams?.focus, props.viewParams?.work_order_id, props.vie
   if (String(props.viewParams?.focus || '') === 'workstation_task') await load({ focusRequested: true })
 }, { flush: 'post' })
 
+async function refocusWorkstationTask(event) {
+  if (Number(event?.detail?.job_card_id || 0) <= 0) return
+  await nextTick()
+  executionHub.open = false
+  await load({ focusRequested: true })
+}
+onBeforeUnmount(() => window.removeEventListener('kferp:focus-workstation-task', refocusWorkstationTask))
+
 onMounted(async () => {
+  window.addEventListener('kferp:focus-workstation-task', refocusWorkstationTask)
   try {
     const pending = readPendingIssue(issueSessionStorage())
     if (pending) { batchIssue.ids = pending.job_card_ids; batchIssue.startShortages = []; batchIssue.recovering = true; batchIssue.open = true }
@@ -842,10 +825,9 @@ textarea { resize: vertical; }
     .enter-station { width: 100%; margin-bottom: 12px; }
     .task-table {
   display: grid;
-  border: 1px solid #ebe7df;
-  border-radius: 8px;
+  gap: 16px;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: visible;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-inline: contain;
 }
@@ -856,7 +838,9 @@ textarea { resize: vertical; }
   gap: 10px;
   align-items: center;
   padding: 10px;
-  border-top: 1px solid #ebe7df;
+  border: 1px solid #d9e4dc;
+  border-radius: 10px;
+  background: #fff;
 }
 .task-staff{display:grid;gap:5px;align-content:start;min-width:0}.task-staff small{display:block;font-size:12px;color:#657269;line-height:1.6}
 .task-row.header {
@@ -871,15 +855,11 @@ textarea { resize: vertical; }
   box-shadow: inset 3px 0 0 #d97706;
 }
 .task-expand{border:0;background:transparent;padding:0;color:inherit;font:inherit;cursor:pointer;text-align:left}.task-title { display: grid; gap: 3px; min-width: 0; }
-.task-title strong, .task-title small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.task-title strong, .task-title small { overflow-wrap: anywhere; white-space: normal; }
 .task-title small { color: #777; }
 .task-title .task-quantity { color:#294d39;font-weight:650; }
-.task-title>details{margin-top:5px}.material-readiness summary{cursor:pointer;color:#a85a08;font-size:12px}.material-row{display:grid;grid-template-columns:minmax(130px,1fr) repeat(3,minmax(74px,.55fr));gap:7px;padding:6px 0;border-top:1px solid #eee;font-size:12px}.material-row.material-head{color:#707a75}.material-row .shortage{color:#b85d0a;font-weight:700}.bulk-assignment{display:grid;grid-template-columns:minmax(240px,1fr) minmax(180px,260px) auto;gap:12px;align-items:end}.bulk-assignment p{font-size:12px}.assignment-panel{grid-template-columns:minmax(180px,280px) auto auto;align-items:end}
-.material-readiness.material-state-ready summary{color:#23824d;font-weight:700}.material-readiness.material-state-shortage summary{color:#b85d0a;font-weight:700}.material-state-unknown{margin-top:5px;color:#7b8580;font-size:12px}
+.task-title>details{margin-top:5px}.material-readiness summary{cursor:pointer;color:#a85a08;font-size:12px}.material-row{display:grid;grid-template-columns:minmax(130px,1fr) repeat(5,minmax(70px,.55fr));gap:7px;padding:6px 0;border-top:1px solid #eee;font-size:12px}.material-row.material-head{color:#707a75}.material-row .shortage{color:#b85d0a;font-weight:700}.bulk-assignment{display:grid;grid-template-columns:minmax(240px,1fr) minmax(180px,260px) auto;gap:12px;align-items:end}.bulk-assignment p{font-size:12px}.assignment-panel{grid-template-columns:minmax(180px,280px) auto auto;align-items:end}
+.issued-materials{display:grid;gap:5px;padding:10px;background:#edf8ef;border-radius:7px;color:#246b40}.issued-materials>div{display:flex;justify-content:space-between;gap:10px}.material-readiness details{margin-top:8px}.material-readiness.material-state-ready summary{color:#23824d;font-weight:700}.material-readiness.material-state-shortage summary{color:#b85d0a;font-weight:700}.material-state-unknown{margin-top:5px;color:#7b8580;font-size:12px}
 .pill {
   justify-self: start;
   border: 1px solid #d8d2c8;
@@ -964,5 +944,7 @@ textarea { resize: vertical; }
   .task-row { grid-template-columns: 1fr; min-width: 0; align-items: start; }
   .task-row.header { display: none; }
   .bulk-assignment,.assignment-panel,.material-row{grid-template-columns:1fr}.material-row.material-head{display:none}
+  .material-row:not(.material-head)>span{display:flex;justify-content:space-between;gap:12px}
+  .material-row:not(.material-head)>span::before{content:attr(data-label);font-weight:400;color:#707a75}
 }
 </style>
