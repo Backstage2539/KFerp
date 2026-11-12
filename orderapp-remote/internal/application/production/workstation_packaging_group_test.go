@@ -14,7 +14,7 @@ func TestPackagingGroupKeysAcceptEquivalentLegacyZeroSplitCards(t *testing.T) {
 			Status: "pending", PlannedOutputInventoryQty: qty, InventoryUnit: "袋", SpecG: 454,
 			TargetWarehouse: "finished_goods", PlannedInputQty: 0, MaterialDataComplete: true,
 			MaterialReadiness: []ProductionTaskMaterialReadiness{
-				{MaterialID: 127, MaterialName: "小菠萝-半成品", Unit: "g", RequiredG: int64(qty * 454), WIPAvailableG: int64(qty * 454), SourceWarehouse: "wip"},
+				{MaterialID: 127, MaterialName: "小菠萝-半成品", Unit: "g", RequiredG: int64(qty * 454), WIPAvailableG: qty * 454, SourceWarehouse: "wip"},
 				{MaterialID: 100, MaterialName: "454g银色袋", Unit: "pic", RequiredUnits: int64(qty), SourceWarehouse: "packaging"},
 			},
 		})

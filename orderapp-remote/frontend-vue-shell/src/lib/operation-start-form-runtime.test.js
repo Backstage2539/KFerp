@@ -73,3 +73,13 @@ test('zero WIP omitted by the API still shows replenishment and the full reserve
  state.draft.materials[0].available_qty='invalid'
  assert.doesNotMatch(await html(),/补齐物料/)
 })
+
+test('switching tasks retains edited start inputs and the uncertain idempotency key',async()=>{
+ const preview={input_qty:10,input_unit:'kg',output_unit:'kg',recipe_ratio_pct:100,version:'v1',materials:[{key:'cache-bean',name:'生豆',unit:'kg',qty:10,ratio_pct:100,warehouse:'wip',available_qty:12}]}
+ const calls=[];const Component=await loadForm({apiGet:async()=>structuredClone(preview),apiSend:async(_path,{body})=>{calls.push(structuredClone(body));throw new Error('network')}})
+ async function createState(){let state;await renderToString(createSSRApp({setup(){state=Component.setup(reactive({jobCardId:98765}),{expose(){},emit(){}});return()=>h('div')}}));await state.load();return state}
+ const first=await createState();first.draft.actual_input_qty=9;first.draft.materials[0].qty=9;first.draft.difference_reason='实称'
+ await first.submit();assert.equal(first.retry.uncertain,true)
+ const reopened=await createState();assert.equal(reopened.draft.actual_input_qty,9);assert.equal(reopened.draft.materials[0].qty,9);assert.equal(reopened.draft.difference_reason,'实称');assert.equal(reopened.retry.uncertain,true)
+ await reopened.submit();assert.deepEqual(calls[0],calls[1])
+})

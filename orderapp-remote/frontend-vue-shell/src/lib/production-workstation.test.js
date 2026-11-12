@@ -110,7 +110,7 @@ test('group completion blocks output beyond available stock and material edits b
   assert.equal(workstationGroupCompletionValidation({ outputQty: 15, maxOutputQty: 15, remainingQty: 21, materials: [{ ...materials[0], qty: 15 }] }), '')
 })
 
-test('workstation exposes selected start and retains compatible group completion', () => {
+test('workstation exposes selected start and uses individual completion', () => {
   const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
   const form = readFileSync(new URL('../components/WorkstationPackagingCompletionForm.vue', import.meta.url), 'utf8')
   assert.match(source, /workstationPackagingGroups\(section\.tasks\)/)
@@ -119,7 +119,7 @@ test('workstation exposes selected start and retains compatible group completion
   assert.match(source, /completionGroups\(section\)/)
   assert.match(source,/OperationStartGroupForm/)
   assert.match(source, /全选当前工位可开工工单/)
-  assert.match(source, /WorkstationPackagingCompletionForm[\s\S]*:task-ids="completionGroup\.ids"/)
+  assert.doesNotMatch(source, /WorkstationPackagingCompletionForm[\s\S]*:task-ids="completionGroup\.ids"/)
   assert.doesNotMatch(source, /撤回并重新安排/)
   assert.doesNotMatch(source, /@click="openStockAction\(task, 'issue'\)"/)
   assert.match(form, /\/api\/production\/workstation\/completion\/preview/)
@@ -327,7 +327,7 @@ test('workstation view lets wide task rows scroll and single-station filters fil
   assert.match(source, /:class="\{\s*'single-station-grid': singleStationLayout\s*\}"/)
   assert.match(source, /const singleStationLayout = computed\(\(\) => visibleSections\.value\.length === 1\)/)
   assert.match(source, /\.station-grid\.single-station-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/s)
-  assert.match(source, /\.task-table\s*\{[^}]*overflow-x:\s*auto;[^}]*overflow-y:\s*hidden;[^}]*-webkit-overflow-scrolling:\s*touch;[^}]*overscroll-behavior-inline:\s*contain;/s)
+  assert.match(source, /\.task-table\s*\{[^}]*overflow-x:\s*auto;[^}]*overflow-y:\s*visible;[^}]*-webkit-overflow-scrolling:\s*touch;[^}]*overscroll-behavior-inline:\s*contain;/s)
   assert.match(source, /\.task-row\s*\{[^}]*min-width:\s*610px;/s)
   assert.match(source, /@media \(max-width:\s*760px\)\s*\{[\s\S]*\.task-row\s*\{[^}]*grid-template-columns:\s*1fr;[^}]*min-width:\s*0;/)
 })

@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { clearWorkstationFormCache } from './workstation-form-cache.js'
+test.afterEach(() => clearWorkstationFormCache('completion', 1))
 import { parse, compileScript } from '@vue/compiler-sfc'
 import { JSDOM } from 'jsdom'
 const dom=new JSDOM('<html><body></body></html>',{url:'http://127.0.0.1/'})
@@ -122,4 +124,12 @@ test('an uncertain batch completion retries the identical request even after reo
  const first=await mount('../components/OperationCompletionForm.vue',{jobCardId:74},api);button(first.el,'批次完成').click();await settle();assert.match(first.el.textContent,/重试原次操作/);first.close()
  const reopened=await mount('../components/OperationCompletionForm.vue',{jobCardId:74},api)
  try{button(reopened.el,'重试本次完成').click();await settle();assert.deepEqual(calls[0],calls[1])}finally{reopened.close()}
+})
+
+test('switching tasks restores the unsubmitted completion quantity',async()=>{
+ const id=98766,api={apiGet:async()=>structuredClone(preview),apiSend:async()=>{throw new Error('unexpected write')}}
+ let view=await mount('../components/OperationCompletionForm.vue',{jobCardId:id},api)
+ try {await input(view.el.querySelector('.completion-form input'),7)} finally {view.close()}
+ view=await mount('../components/OperationCompletionForm.vue',{jobCardId:id},api)
+ try {assert.equal(view.el.querySelector('.completion-form input').value,'7')} finally {view.close()}
 })

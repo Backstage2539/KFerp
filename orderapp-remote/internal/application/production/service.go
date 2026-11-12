@@ -969,6 +969,8 @@ type WorkOrderDependencyRow struct {
 }
 
 type WorkOrderRow struct {
+	FrozenBomVersionID        int64                    `json:"-"`
+	MaterialSnapshot          string                   `json:"-"`
 	RelatedOrders             []ProductionDemandOrder  `json:"related_orders"`
 	RelatedOrdersSnapshotJSON string                   `json:"-"`
 	PlannedCostUnavailable    bool                     `json:"planned_cost_unavailable"`
@@ -1271,23 +1273,29 @@ type ProductionTask struct {
 }
 
 type ProductionTaskMaterialReadiness struct {
-	ReservationID     int64  `json:"reservation_id"`
-	MaterialID        int64  `json:"material_id"`
-	ItemType          string `json:"item_type,omitempty"`
-	ItemID            int64  `json:"item_id,omitempty"`
-	BomSpecID         int64  `json:"bom_spec_id,omitempty"`
-	BomVariantID      int64  `json:"bom_variant_id,omitempty"`
-	SpecG             int64  `json:"spec_g,omitempty"`
-	MaterialName      string `json:"material_name"`
-	OwnerCustomerID   int64  `json:"owner_customer_id,omitempty"`
-	SourceWarehouse   string `json:"source_warehouse,omitempty"`
-	Unit              string `json:"unit"`
-	RequiredG         int64  `json:"required_g"`
-	WIPAvailableG     int64  `json:"wip_available_g"`
-	ShortageG         int64  `json:"shortage_g"`
-	RequiredUnits     int64  `json:"required_units"`
-	WIPAvailableUnits int64  `json:"wip_available_units"`
-	ShortageUnits     int64  `json:"shortage_units"`
+	IssuedG                float64 `json:"issued_g"`
+	IssuedUnits            float64 `json:"issued_units"`
+	InProcessG             float64 `json:"in_process_g"`
+	InProcessUnits         float64 `json:"in_process_units"`
+	RemainingRequiredG     float64 `json:"remaining_required_g"`
+	RemainingRequiredUnits float64 `json:"remaining_required_units"`
+	ReservationID          int64   `json:"reservation_id"`
+	MaterialID             int64   `json:"material_id"`
+	ItemType               string  `json:"item_type,omitempty"`
+	ItemID                 int64   `json:"item_id,omitempty"`
+	BomSpecID              int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID           int64   `json:"bom_variant_id,omitempty"`
+	SpecG                  int64   `json:"spec_g,omitempty"`
+	MaterialName           string  `json:"material_name"`
+	OwnerCustomerID        int64   `json:"owner_customer_id,omitempty"`
+	SourceWarehouse        string  `json:"source_warehouse,omitempty"`
+	Unit                   string  `json:"unit"`
+	RequiredG              int64   `json:"required_g"`
+	WIPAvailableG          float64 `json:"wip_available_g"`
+	ShortageG              float64 `json:"shortage_g"`
+	RequiredUnits          int64   `json:"required_units"`
+	WIPAvailableUnits      float64 `json:"wip_available_units"`
+	ShortageUnits          float64 `json:"shortage_units"`
 }
 
 type ProductionRelatedLink struct {
@@ -1382,20 +1390,37 @@ type ProductionWorkstationAssignment struct {
 	UnassignedCount int    `json:"unassigned_count"`
 }
 
+// TaskMaterialIssued records posted material input for one specific job card.
+type TaskMaterialIssued struct {
+	JobCardID       int64
+	ItemType        string
+	ItemID          int64
+	BomSpecID       int64
+	BomVariantID    int64
+	SpecG           int64
+	OwnerCustomerID int64
+	Warehouse       string
+	Unit            string
+	IssuedQty       float64
+	InProcessQty    float64
+}
+
 type ProductionWIPStatus struct {
-	RequiredG      int64               `json:"required_g"`
-	ReservedG      int64               `json:"reserved_g"`
-	ConsumedG      int64               `json:"consumed_g"`
-	RemainingG     int64               `json:"remaining_g"`
-	AvailableG     int64               `json:"available_g"`
-	ShortageG      int64               `json:"shortage_g"`
-	RequiredUnits  int64               `json:"required_units"`
-	AvailableUnits int64               `json:"available_units"`
-	ShortageUnits  int64               `json:"shortage_units"`
-	DataComplete   bool                `json:"data_complete"`
-	Status         string              `json:"status"`
-	BlockingReason string              `json:"blocking_reason"`
-	Materials      []WIPReservationRow `json:"materials"`
+	StartedInputsKnown bool                 `json:"-"`
+	StartedInputs      []TaskMaterialIssued `json:"-"`
+	RequiredG          int64                `json:"required_g"`
+	ReservedG          int64                `json:"reserved_g"`
+	ConsumedG          int64                `json:"consumed_g"`
+	RemainingG         int64                `json:"remaining_g"`
+	AvailableG         int64                `json:"available_g"`
+	ShortageG          int64                `json:"shortage_g"`
+	RequiredUnits      int64                `json:"required_units"`
+	AvailableUnits     int64                `json:"available_units"`
+	ShortageUnits      int64                `json:"shortage_units"`
+	DataComplete       bool                 `json:"data_complete"`
+	Status             string               `json:"status"`
+	BlockingReason     string               `json:"blocking_reason"`
+	Materials          []WIPReservationRow  `json:"materials"`
 }
 
 type ProductionQualityStatus struct {
@@ -1839,16 +1864,23 @@ type WorkOrderLedgerEntryRow struct {
 	CreatedAt       string `json:"created_at"`
 }
 
+type FrozenWorkOrderBOM struct {
+	VersionID        int64  `json:"frozen_bom_version_id,omitempty"`
+	MaterialSnapshot string `json:"material_snapshot,omitempty"`
+}
+
 type WorkOrderDetail struct {
-	WorkOrder      WorkOrderRow              `json:"work_order"`
-	Materials      []WIPReservationRow       `json:"materials"`
-	JobCards       []JobCardRow              `json:"job_cards"`
-	StockDocuments []StockEntryRow           `json:"stock_documents"`
-	StockEntries   []StockEntryRow           `json:"stock_entries"`
-	LedgerEntries  []WorkOrderLedgerEntryRow `json:"ledger_entries"`
-	ProductionLogs ProductionLogsResult      `json:"production_logs"`
-	CostSummary    BatchCostRow              `json:"cost_summary"`
-	ExecutionHub   WorkOrderExecutionHub     `json:"execution_hub"`
+	StartedMaterialCost *float64                  `json:"started_material_cost"`
+	FrozenBOM           FrozenWorkOrderBOM        `json:"frozen_bom"`
+	WorkOrder           WorkOrderRow              `json:"work_order"`
+	Materials           []WIPReservationRow       `json:"materials"`
+	JobCards            []JobCardRow              `json:"job_cards"`
+	StockDocuments      []StockEntryRow           `json:"stock_documents"`
+	StockEntries        []StockEntryRow           `json:"stock_entries"`
+	LedgerEntries       []WorkOrderLedgerEntryRow `json:"ledger_entries"`
+	ProductionLogs      ProductionLogsResult      `json:"production_logs"`
+	CostSummary         BatchCostRow              `json:"cost_summary"`
+	ExecutionHub        WorkOrderExecutionHub     `json:"execution_hub"`
 }
 
 type JobCardActionCommand struct {
@@ -2987,6 +3019,12 @@ func scaleTaskInteger(value int64, numerator, denominator float64) int64 {
 	if value <= 0 || numerator <= 0 || denominator <= 0 {
 		return 0
 	}
+	// The final boundary must equal the frozen total exactly. Multiplying
+	// before dividing can otherwise turn e.g. 230*0.23/0.23 into 230.000…03
+	// and ceil an extra gram, causing a false shortage after full issue.
+	if numerator == denominator {
+		return value
+	}
 	return int64(math.Ceil(float64(value) * numerator / denominator))
 }
 
@@ -3219,16 +3257,24 @@ func (s *Service) GetWorkOrderDetail(ctx context.Context, id int64) (WorkOrderDe
 	if err != nil {
 		return WorkOrderDetail{}, err
 	}
+	var startedMaterialCost *float64
+	if source, ok := s.repo.(interface {
+		GetWorkOrderStartedMaterialCost(context.Context, int64) (*float64, error)
+	}); ok {
+		startedMaterialCost, _ = source.GetWorkOrderStartedMaterialCost(ctx, wo.ID)
+	}
 	return WorkOrderDetail{
-		WorkOrder:      wo,
-		Materials:      materials,
-		JobCards:       jobCards,
-		StockDocuments: stockEntries,
-		StockEntries:   stockEntries,
-		LedgerEntries:  ledgerEntries,
-		ProductionLogs: logs,
-		CostSummary:    cost,
-		ExecutionHub:   buildWorkOrderExecutionHub(wo, wipStatus, jobCards, stockEntries, ledgerEntries, logs, cost, qualityRows),
+		StartedMaterialCost: startedMaterialCost,
+		FrozenBOM:           FrozenWorkOrderBOM{VersionID: wo.FrozenBomVersionID, MaterialSnapshot: wo.MaterialSnapshot},
+		WorkOrder:           wo,
+		Materials:           materials,
+		JobCards:            jobCards,
+		StockDocuments:      stockEntries,
+		StockEntries:        stockEntries,
+		LedgerEntries:       ledgerEntries,
+		ProductionLogs:      logs,
+		CostSummary:         cost,
+		ExecutionHub:        buildWorkOrderExecutionHub(wo, wipStatus, jobCards, stockEntries, ledgerEntries, logs, cost, qualityRows),
 	}, nil
 }
 
@@ -4403,6 +4449,9 @@ func applyTaskBatchAndMaterialReadiness(tasks []ProductionTask, cards []JobCardR
 		}
 		materialIdentity := func(material WIPReservationRow) string {
 			itemType := strings.ToLower(strings.TrimSpace(material.ItemType))
+			if itemType == "finished_product" {
+				itemType = "product"
+			}
 			if itemType == "" {
 				itemType = "material"
 			}
@@ -4411,18 +4460,45 @@ func applyTaskBatchAndMaterialReadiness(tasks []ProductionTask, cards []JobCardR
 			unit := strings.ToLower(strings.TrimSpace(material.Unit))
 			return fmt.Sprintf("%s:%d:%d:%d:%d:%d:%s:%s", itemType, itemID, material.BomSpecID, material.BomVariantID, material.SpecG, material.OwnerCustomerID, warehouse, unit)
 		}
-		availableG := map[string]int64{}
-		availableUnits := map[string]int64{}
+		availableG := map[string]float64{}
+		availableUnits := map[string]float64{}
 		for _, material := range coverage.Materials {
 			key := materialIdentity(material)
-			availableG[key] += material.AvailableG
-			availableUnits[key] += material.AvailableUnits
+			availableG[key] += float64(material.AvailableG)
+			availableUnits[key] += float64(material.AvailableUnits)
 		}
 		type materialAllocation struct {
 			rows          []ProductionTaskMaterialReadiness
 			shortageCount int
 		}
 		allocations := map[int64]materialAllocation{}
+		// Posted components belong to a specific card and must never be
+		// distributed as generic work-order consumption to other cards.
+		issued := map[int64]map[string]TaskMaterialIssued{}
+		postedCards := map[int64]bool{}
+		for _, in := range coverage.StartedInputs {
+			if in.IssuedQty > 0 {
+				postedCards[in.JobCardID] = true
+			}
+			// The source component uses the inventory unit; normalize weight
+			// to grams so a frozen kg demand matches a g component.
+			identity := materialIdentity(WIPReservationRow{ItemType: in.ItemType, ItemID: in.ItemID, BomSpecID: in.BomSpecID, BomVariantID: in.BomVariantID, SpecG: in.SpecG, OwnerCustomerID: in.OwnerCustomerID, SourceWarehouse: in.Warehouse})
+			if issued[in.JobCardID] == nil {
+				issued[in.JobCardID] = map[string]TaskMaterialIssued{}
+			}
+			prior := issued[in.JobCardID][identity]
+			factor := OperationUnitFactor(in.Unit)
+			if factor > 0 {
+				prior.IssuedQty += in.IssuedQty * factor
+				prior.InProcessQty += in.InProcessQty * factor
+				prior.Unit = "g"
+			} else {
+				prior.IssuedQty += in.IssuedQty
+				prior.InProcessQty += in.InProcessQty
+				prior.Unit = in.Unit
+			}
+			issued[in.JobCardID][identity] = prior
+		}
 		for _, card := range cardGroups[key] {
 			if normalizeProductionTaskStatus(card.Status) == "completed" {
 				continue
@@ -4433,20 +4509,54 @@ func applyTaskBatchAndMaterialReadiness(tasks []ProductionTask, cards []JobCardR
 			}
 			rows := make([]ProductionTaskMaterialReadiness, 0, len(coverage.Materials))
 			shortageCount := 0
+			// Track the last duplicate demand row for each identity so the
+			// preceding rows receive no more than their own requirement and
+			// true excess input remains visible once on the last row.
+			pendingByIdentity := map[string]int{}
+			for _, material := range coverage.Materials {
+				k := materialIdentity(WIPReservationRow{ItemType: material.ItemType, ItemID: firstNonZeroInt64(material.ItemID, material.MaterialID), BomSpecID: material.BomSpecID, BomVariantID: material.BomVariantID, SpecG: material.SpecG, OwnerCustomerID: material.OwnerCustomerID, SourceWarehouse: material.SourceWarehouse})
+				pendingByIdentity[k]++
+			}
 			for _, material := range coverage.Materials {
 				identity := materialIdentity(material)
 				requiredG := scaleTaskIntegerSlice(material.RequiredG, slice.before, slice.input, slice.total)
 				requiredUnits := scaleTaskIntegerSlice(material.RequiredUnits, slice.before, slice.input, slice.total)
-				wipG := minInt64Service(requiredG, availableG[identity])
-				wipUnits := minInt64Service(requiredUnits, availableUnits[identity])
+				issuedKey := materialIdentity(WIPReservationRow{ItemType: material.ItemType, ItemID: firstNonZeroInt64(material.ItemID, material.MaterialID), BomSpecID: material.BomSpecID, BomVariantID: material.BomVariantID, SpecG: material.SpecG, OwnerCustomerID: material.OwnerCustomerID, SourceWarehouse: material.SourceWarehouse})
+				posted := issued[card.ID][issuedKey]
+				issuedG, issuedUnits, inProcessG, inProcessUnits := 0.0, 0.0, 0.0, 0.0
+				if requiredG > 0 && posted.Unit == "g" {
+					issuedG, inProcessG = posted.IssuedQty, posted.InProcessQty
+				} else if requiredUnits > 0 && posted.Unit != "g" {
+					issuedUnits, inProcessUnits = posted.IssuedQty, posted.InProcessQty
+				}
+				// Consume this identity once, even if the frozen demand has
+				// more than one reservation row with identical dimensions.
+				pendingByIdentity[issuedKey]--
+				usedG := math.Min(float64(requiredG), issuedG)
+				usedUnits := math.Min(float64(requiredUnits), issuedUnits)
+				if pendingByIdentity[issuedKey] == 0 {
+					usedG = issuedG
+					usedUnits = issuedUnits
+				}
+				posted.IssuedQty -= usedG + usedUnits
+				posted.InProcessQty -= math.Min(inProcessG, usedG) + math.Min(inProcessUnits, usedUnits)
+				if issued[card.ID] == nil {
+					issued[card.ID] = map[string]TaskMaterialIssued{}
+				}
+				issued[card.ID][issuedKey] = posted
+				remainingG := math.Max(0, float64(requiredG)-usedG)
+				remainingUnits := math.Max(0, float64(requiredUnits)-usedUnits)
+				wipG := math.Min(remainingG, availableG[identity])
+				wipUnits := math.Min(remainingUnits, availableUnits[identity])
 				availableG[identity] -= wipG
 				availableUnits[identity] -= wipUnits
 				row := ProductionTaskMaterialReadiness{
 					ReservationID: material.ID, MaterialID: material.MaterialID, ItemType: material.ItemType, ItemID: material.ItemID,
 					BomSpecID: material.BomSpecID, BomVariantID: material.BomVariantID, SpecG: material.SpecG, MaterialName: material.MaterialName, Unit: material.Unit,
 					OwnerCustomerID: material.OwnerCustomerID, SourceWarehouse: firstNonEmpty(material.SourceWarehouse, "wip"),
-					RequiredG: requiredG, WIPAvailableG: wipG, ShortageG: maxInt64Service(0, requiredG-wipG),
-					RequiredUnits: requiredUnits, WIPAvailableUnits: wipUnits, ShortageUnits: maxInt64Service(0, requiredUnits-wipUnits),
+					IssuedG: usedG, IssuedUnits: usedUnits, InProcessG: math.Min(inProcessG, usedG), InProcessUnits: math.Min(inProcessUnits, usedUnits), RemainingRequiredG: remainingG, RemainingRequiredUnits: remainingUnits,
+					RequiredG: requiredG, WIPAvailableG: wipG, ShortageG: math.Max(0, remainingG-wipG),
+					RequiredUnits: requiredUnits, WIPAvailableUnits: wipUnits, ShortageUnits: math.Max(0, remainingUnits-wipUnits),
 				}
 				if row.ShortageG > 0 || row.ShortageUnits > 0 {
 					shortageCount++
@@ -4458,6 +4568,24 @@ func applyTaskBatchAndMaterialReadiness(tasks []ProductionTask, cards []JobCardR
 		for _, index := range indexes {
 			task := &tasks[index]
 			allocation, ok := allocations[task.JobCardID]
+			ambiguous := false
+			if (!coverage.StartedInputsKnown || !postedCards[task.JobCardID]) && (task.Status == "running" || task.Status == "paused") {
+				if task.MaterialConsumptionPolicy == "bom_start_v1" {
+					ambiguous = true
+				}
+				for _, material := range coverage.Materials {
+					if material.ConsumedG > 0 || material.ConsumedUnits > 0 {
+						ambiguous = true
+						break
+					}
+				}
+			}
+			if ambiguous {
+				task.MaterialReadinessState = "unknown"
+				task.MaterialDataComplete = false
+				task.MaterialReadiness = nil
+				continue
+			}
 			if !ok {
 				task.MaterialReadinessState = "unknown"
 				markTaskWaitingForMaterials(task, nil, "用料待核对")
@@ -4561,8 +4689,13 @@ func markTaskWaitingForMaterials(task *ProductionTask, rows []ProductionTaskMate
 		return
 	}
 	task.MaterialReadiness = rows
+	if task.IsBlocked && strings.TrimSpace(task.BlockingReason) != "" {
+		return
+	}
 	task.IsBlocked = true
-	task.StatusLabel = "待处理"
+	if task.Status != "running" && task.Status != "paused" {
+		task.StatusLabel = "待处理"
+	}
 	task.Readiness = "blocked"
 	task.ReadinessLabel = "待领料"
 	task.NextHandler = "仓库"
