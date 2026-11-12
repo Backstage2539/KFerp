@@ -542,6 +542,88 @@ BEGIN
 				   END
 				) INTO frozen_production_identity_derived;
 			END IF;
+			-- A completed operation may already have delivered physical stock to
+			-- the customer before this dropship existed. Its frozen identity is
+			-- proven by the posted event, work order, submitted receipt and ledger;
+			-- it does not need an earlier supply reservation for the new order.
+			IF NOT frozen_production_identity_derived
+			   AND to_regclass('%[1]s.customer_direct_ship_requests') IS NOT NULL
+			   AND to_regclass('%[1]s.customer_direct_ship_request_orders') IS NOT NULL
+			   AND to_regclass('%[1]s.customer_direct_ship_request_items') IS NOT NULL
+			   AND to_regclass('%[1]s.customer_direct_ship_request_allocations') IS NOT NULL
+			   AND to_regclass('%[1]s.order_stock_batch_allocations') IS NOT NULL
+			   AND to_regclass('%[1]s.order_stock_deductions') IS NOT NULL
+			   AND to_regclass('%[1]s.orders') IS NOT NULL AND to_regclass('%[1]s.order_items') IS NOT NULL
+			   AND to_regclass('%[1]s.stock_batches') IS NOT NULL AND to_regclass('%[1]s.stock_ledger_entries') IS NOT NULL
+			   AND to_regclass('%[1]s.stock_entries') IS NOT NULL AND to_regclass('%[1]s.stock_entry_items') IS NOT NULL
+			   AND to_regclass('%[1]s.warehouses') IS NOT NULL AND to_regclass('%[1]s.work_orders') IS NOT NULL
+			   AND to_regclass('%[1]s.produce_running_items') IS NOT NULL AND to_regclass('%[1]s.job_cards') IS NOT NULL
+			   AND to_regclass('%[1]s.production_operation_events') IS NOT NULL THEN
+				SELECT EXISTS (
+				 SELECT 1 FROM %[1]s.orders destination_order
+				 JOIN %[1]s.order_items destination_item ON destination_item.id=production_source_id AND destination_item.order_id=destination_order.id
+				 JOIN %[1]s.customer_direct_ship_requests request ON request.id=COALESCE(NULLIF(to_jsonb(NEW)->>'request_id','')::bigint,0)
+				   AND request.customer_id=destination_order.customer_id AND request.fulfillment_mode='stock' AND request.status='reserved'
+				 JOIN %[1]s.customer_direct_ship_request_orders request_order ON request_order.request_id=request.id AND request_order.order_id=destination_order.id AND request_order.status='reserved'
+				 JOIN %[1]s.stock_batches batch ON batch.id=COALESCE(NULLIF(to_jsonb(NEW)->>'batch_id','')::bigint,0)
+				   AND batch.batch_code=COALESCE(to_jsonb(NEW)->>'batch_code','') AND batch.item_type='finished_product'
+				   AND batch.item_id=business_product_id AND batch.bom_spec_id=business_bom_spec_id AND batch.bom_variant_id=business_bom_variant_id
+				   AND batch.spec_g=0 AND batch.owner_customer_id=destination_order.customer_id AND batch.source_doc_type='production_operation_event'
+				 JOIN %[1]s.production_operation_events event ON event.id=batch.source_doc_id
+				   AND event.kind='complete' AND event.status='posted' AND event.receipt_enabled AND event.final_output
+				   AND event.output_qty=batch.qty_units AND event.output_qty>0 AND batch.qty_g=0
+				   AND lower(btrim(event.output_unit)) NOT IN ('g','kg','克','千克','公斤','')
+				 JOIN %[1]s.work_orders work_order ON work_order.id=event.work_order_id
+				   AND work_order.product_id=batch.item_id AND work_order.bom_spec_id=batch.bom_spec_id AND work_order.bom_variant_id=batch.bom_variant_id
+				   AND work_order.spec_g=0 AND work_order.batch_id=batch.source_batch_id
+				 JOIN %[1]s.production_bom_version_variants frozen_variant ON frozen_variant.id=batch.bom_variant_id
+				   AND frozen_variant.bom_spec_id=batch.bom_spec_id AND frozen_variant.version_id=work_order.bom_version_id
+				   AND btrim(frozen_variant.inventory_unit)=btrim(event.output_unit)
+				 JOIN %[1]s.production_bom_version_variants destination_variant ON destination_variant.id=destination_item.bom_variant_id
+				   AND destination_variant.bom_spec_id=batch.bom_spec_id AND btrim(destination_variant.inventory_unit)=btrim(frozen_variant.inventory_unit)
+				 JOIN %[1]s.produce_running_items running ON running.id=work_order.running_item_id AND running.batch_id=work_order.batch_id
+				   AND running.product_id=batch.item_id AND running.bom_spec_id=batch.bom_spec_id AND running.bom_variant_id=batch.bom_variant_id AND running.spec_g=0
+				 JOIN %[1]s.job_cards card ON card.id=event.job_card_id AND card.work_order_id=work_order.id
+				 JOIN %[1]s.stock_entries receipt ON receipt.source_type='operation_completion' AND receipt.source_id=event.id
+				   AND receipt.work_order_id=work_order.id AND receipt.running_item_id=running.id AND receipt.job_card_id=card.id
+				   AND receipt.entry_type='finished_receipt' AND receipt.purpose='manufacture' AND receipt.status='submitted'
+				 JOIN %[1]s.stock_entry_items receipt_item ON receipt_item.stock_entry_id=receipt.id AND receipt_item.item_type='finished_product'
+				   AND receipt_item.product_id=batch.item_id AND receipt_item.bom_spec_id=batch.bom_spec_id AND receipt_item.bom_variant_id=batch.bom_variant_id
+				   AND receipt_item.spec_g=0 AND receipt_item.owner_customer_id=batch.owner_customer_id AND receipt_item.batch_code=batch.batch_code
+				   AND receipt_item.qty_units=batch.qty_units AND receipt_item.qty_g=0 AND receipt_item.to_warehouse=event.warehouse
+				 JOIN %[1]s.warehouses warehouse ON warehouse.code=event.warehouse AND warehouse.active=true
+				   AND warehouse.kind IN ('finished','customer_finished','customer_processing','customer') AND warehouse.customer_id=destination_order.customer_id
+				 WHERE destination_order.id=COALESCE(NULLIF(to_jsonb(NEW)->>'order_id','')::bigint,0) AND NOT destination_order.is_void AND destination_order.fulfillment_mode='stock'
+				   AND destination_item.product_id=business_product_id AND destination_item.bom_spec_id=business_bom_spec_id
+				   AND destination_order.source_warehouse=warehouse.code
+				   AND warehouse.code=COALESCE(NULLIF(to_jsonb(NEW)->>'warehouse',''),to_jsonb(NEW)->>'warehouse_code','')
+				   AND EXISTS (SELECT 1 FROM %[1]s.stock_ledger_entries received WHERE received.source_doc_type='production_operation_event' AND received.source_doc_id=event.id
+				     AND received.source_batch_code=batch.batch_code AND received.source_batch_id=running.batch_id AND received.item_type=batch.item_type AND received.item_id=batch.item_id
+				     AND received.bom_spec_id=batch.bom_spec_id AND received.bom_variant_id=batch.bom_variant_id AND received.owner_customer_id=batch.owner_customer_id
+				     AND received.spec_g=0 AND received.warehouse=warehouse.code AND received.qty_change_units=batch.qty_units AND received.qty_change_g=0)
+				   AND COALESCE((SELECT l.warehouse FROM %[1]s.stock_ledger_entries l WHERE l.source_batch_code=batch.batch_code AND l.item_type=batch.item_type AND l.item_id=batch.item_id AND l.bom_spec_id=batch.bom_spec_id AND l.bom_variant_id=batch.bom_variant_id AND l.owner_customer_id=batch.owner_customer_id AND l.spec_g=batch.spec_g ORDER BY l.id DESC LIMIT 1),'')=warehouse.code
+				   AND lower(btrim(COALESCE(batch.quality_status,''))) NOT IN ('hold','held','frozen','blocked','rejected','reject','failed','冻结','冻结批次','不合格','拒收')
+				   AND COALESCE(NULLIF(to_jsonb(NEW)->>'spec_g','')::bigint,0)=0 AND COALESCE(NULLIF(to_jsonb(NEW)->>'allocated_g','')::bigint,0)=0
+				   AND COALESCE(NULLIF(to_jsonb(NEW)->>'allocated_units','')::bigint,0)>0
+				   AND (to_jsonb(NEW)->>'allocated_units')::bigint <= batch.remaining_units - COALESCE((
+				     SELECT SUM(GREATEST(0, reserved.units-COALESCE(deducted.units,0)))
+				     FROM (SELECT a.order_id,SUM(a.allocated_units) AS units FROM %[1]s.order_stock_batch_allocations a
+				       JOIN %[1]s.orders prior_order ON prior_order.id=a.order_id AND NOT prior_order.is_void
+				       WHERE a.batch_id=batch.id GROUP BY a.order_id) reserved
+				     LEFT JOIN LATERAL (SELECT SUM(d.deducted_units) AS units FROM %[1]s.order_stock_deductions d WHERE d.order_id=reserved.order_id AND d.batch_id=batch.id) deducted ON true
+				   ),0)
+				   AND CASE WHEN TG_TABLE_NAME='customer_direct_ship_request_allocations' THEN
+				     request_order.id=COALESCE(NULLIF(to_jsonb(NEW)->>'request_order_id','')::bigint,0)
+				     AND (to_jsonb(NEW)->>'allocated_qty')::bigint=(to_jsonb(NEW)->>'allocated_units')::bigint
+				     AND EXISTS (SELECT 1 FROM %[1]s.customer_direct_ship_request_items request_item WHERE request_item.id=COALESCE(NULLIF(to_jsonb(NEW)->>'request_item_id','')::bigint,0) AND request_item.request_id=request.id AND request_item.product_id=destination_item.product_id AND request_item.bom_spec_id=destination_item.bom_spec_id AND request_item.bom_variant_id=destination_item.bom_variant_id AND request_item.qty=destination_item.qty AND btrim(request_item.inventory_unit)=btrim(frozen_variant.inventory_unit))
+				     AND (to_jsonb(NEW)->>'allocated_units')::bigint + COALESCE((SELECT SUM(a.allocated_units) FROM %[1]s.customer_direct_ship_request_allocations a WHERE a.request_id=request.id AND a.order_item_id=destination_item.id AND a.status='reserved'),0)<=destination_item.qty
+				     AND NOT EXISTS (SELECT 1 FROM %[1]s.customer_direct_ship_request_allocations a WHERE a.request_id=request.id AND a.order_item_id=destination_item.id AND a.batch_id=batch.id AND a.status='reserved')
+				   ELSE
+				     EXISTS (SELECT 1 FROM %[1]s.customer_direct_ship_request_allocations a WHERE a.request_id=request.id AND a.request_order_id=request_order.id AND a.order_id=destination_order.id AND a.order_item_id=destination_item.id AND a.product_id=business_product_id AND a.bom_spec_id=business_bom_spec_id AND a.bom_variant_id=business_bom_variant_id AND a.batch_id=batch.id AND a.batch_code=batch.batch_code AND a.warehouse_code=warehouse.code AND a.status='reserved' AND a.allocated_units=(to_jsonb(NEW)->>'allocated_units')::bigint AND a.allocated_g=0)
+				     AND NOT EXISTS (SELECT 1 FROM %[1]s.order_stock_batch_allocations existing WHERE existing.request_id=request.id AND existing.order_item_id=destination_item.id AND existing.batch_id=batch.id)
+				   END
+				) INTO frozen_production_identity_derived;
+			END IF;
 		ELSIF (TG_TABLE_NAME='stock_ledger_entries' AND to_jsonb(NEW)->>'source_doc_type'='sales_order_shipment')
 		   OR (TG_TABLE_NAME='order_stock_deductions' AND to_jsonb(NEW)->>'source_doc_type'='sales_order_shipment_inventory_sync_v2') THEN
 			-- Shipment consumes an existing allocation, not a newly selected BOM.
