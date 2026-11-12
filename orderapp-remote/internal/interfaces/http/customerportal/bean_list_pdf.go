@@ -41,6 +41,7 @@ func beanListPDFDocument(row customerportalapp.BeanListSummary) pdfinfra.BeanLis
 				RecommendedUse: item.RecommendedUse,
 				Flavor:         item.Flavor,
 				Description:    item.Description,
+				AttributeLines: beanListSummaryAttributeLines(item),
 				QualityLines:   beanListPDFQualityLines(item.BeanListQuality),
 				Prices:         make([]pdfinfra.BeanListPrice, 0, len(item.Prices)),
 			}
@@ -56,6 +57,30 @@ func beanListPDFDocument(row customerportalapp.BeanListSummary) pdfinfra.BeanLis
 		doc.Groups = append(doc.Groups, nextGroup)
 	}
 	return doc
+}
+
+func beanListSummaryAttributeLines(item customerportalapp.BeanListProductSummary) []string {
+	if len(item.AttributeLines) > 0 {
+		return append([]string(nil), item.AttributeLines...)
+	}
+	var lines []string
+	byTemplate := map[int64]int{}
+	for _, attr := range item.ProductAttributes {
+		label, value := strings.TrimSpace(attr.Label), strings.TrimSpace(attr.Value)
+		if label == "" || value == "" {
+			continue
+		}
+		line := label + "：" + value
+		if index, ok := byTemplate[attr.TemplateID]; attr.TemplateID > 0 && ok {
+			lines[index] += "；" + line
+			continue
+		}
+		if attr.TemplateID > 0 {
+			byTemplate[attr.TemplateID] = len(lines)
+		}
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 func beanListPDFQualityLines(quality customerportalapp.BeanListQualitySummary) []pdfinfra.BeanListQualityLine {

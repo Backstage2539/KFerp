@@ -18,6 +18,7 @@ export const priceListRulePricingModeOptions = [
 ]
 
 export const priceTablePricingModeOptions = [
+  { value: 'spec_pricing_group', label: '按规格计价组' },
   { value: 'tier_template', label: '按阶梯模板计算' },
   { value: 'pricing_rule', label: '按价格计算模板计算' },
   { value: 'fixed_price', label: '固定价' },
@@ -1079,6 +1080,7 @@ export function applyPricingRuleTrialToPriceTableRow(row = {}, trial = {}) {
     : trialPrice
   return {
     ...row,
+    ...(trial.pricing_rule_fingerprint ? { pricing_rule_fingerprint: String(trial.pricing_rule_fingerprint) } : {}),
     price_unit: priceUnit,
     final_unit_price: manualFinal,
     original_final_unit_price: trialPrice,
@@ -1305,6 +1307,7 @@ function coalescePriceTableGroupAssignments(groupAssignments = []) {
       pricing_mode: '',
       tier_template_id: 0,
       pricing_rule_id: 0,
+      spec_pricing_group_id: 0,
     }
     // The price-list editor can emit both the configured parent row and an
     // empty structural row for the same category. Coalesce meaningful values
@@ -1314,6 +1317,7 @@ function coalescePriceTableGroupAssignments(groupAssignments = []) {
     if (!current.pricing_mode) current.pricing_mode = normalizePriceTablePricingMode(row.pricing_mode ?? row.pricingMode)
     if (!(current.tier_template_id > 0)) current.tier_template_id = Number(row.tier_template_id || row.tierTemplateID || 0)
     if (!(current.pricing_rule_id > 0)) current.pricing_rule_id = Number(row.pricing_rule_id || row.pricingRuleID || 0)
+    if (!(current.spec_pricing_group_id > 0)) current.spec_pricing_group_id = Number(row.spec_pricing_group_id || row.specPricingGroupID || 0)
     assignmentsByID.set(groupItemID, current)
   })
   return assignmentsByID
@@ -1415,6 +1419,11 @@ export function resolvePriceTableTemplateInheritance({
     )),
     priceTableInheritanceCandidate('default', Number(defaults.pricing_rule_id || defaults.pricingRuleID || 0)),
   ]
+  const specGroupCandidates = [
+    priceTableInheritanceCandidate('parent_product', Number(parentProductOverride?.spec_pricing_group_id || 0)),
+    ...categoryCandidates.map(({ row, depth, source }) => priceTableInheritanceCandidate(source, Number(row.spec_pricing_group_id || 0), row, depth)),
+    priceTableInheritanceCandidate('default', Number(defaults.spec_pricing_group_id || 0)),
+  ]
   // The fixed-price mode may inherit, but the amount is authoritative only at
   // the concrete SKU level. Reusing a category/default amount across package
   // sizes would silently make unlike sales specifications share one price.
@@ -1463,6 +1472,7 @@ export function resolvePriceTableTemplateInheritance({
     tier_template_source: tier.source,
     pricing_rule_id: pricing.value,
     pricing_rule_source: pricing.source,
+    ...(mode.value === 'spec_pricing_group' ? { spec_pricing_group_id: Number(specGroupCandidates.find((item) => priceTableInheritanceCandidateIsSameLevel(mode, item))?.value || 0) } : {}),
     fixed_unit_price: fixed.value,
     fixed_unit_price_source: fixed.source,
   }
@@ -1474,7 +1484,8 @@ export function priceTablePricingResolutionWarning(resolution = {}) {
   if (mode === 'fixed_price' && !(Number(resolution.fixed_unit_price ?? resolution.fixedUnitPrice ?? 0) > 0)) return '未填写固定价'
   if (mode === 'tier_template' && !(Number(resolution.tier_template_id ?? resolution.tierTemplateID ?? 0) > 0)) return '未选择阶梯模板'
   if (mode === 'pricing_rule' && !(Number(resolution.pricing_rule_id ?? resolution.pricingRuleID ?? 0) > 0)) return '未选择价格计算模板'
-  if (!['fixed_price', 'tier_template', 'pricing_rule'].includes(mode)) return '未设置计价方式'
+  if (mode === 'spec_pricing_group' && !(Number(resolution.spec_pricing_group_id || 0) > 0)) return '未选择规格计价组'
+  if (!['fixed_price', 'tier_template', 'pricing_rule', 'spec_pricing_group'].includes(mode)) return '未设置计价方式'
   return ''
 }
 
@@ -1669,6 +1680,7 @@ function productSalesUnitConversion(product = {}, priceUnit = '', inventoryUnit 
 
 function normalizePriceTablePricingMode(value) {
   const raw = String(value ?? '').trim()
+  if (raw === 'spec_pricing_group') return raw
   if (raw === 'tier_template' || raw === 'inherit_gradient_template') return 'tier_template'
   if (raw === 'pricing_rule' || raw === 'cost_plus') return 'pricing_rule'
   if (raw === 'fixed_price' || raw === 'fixed_unit_price') return 'fixed_price'

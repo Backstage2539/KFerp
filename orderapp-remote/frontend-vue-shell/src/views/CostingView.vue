@@ -21,11 +21,13 @@
         </div>
         <div class="price-list-toolbar-actions">
           <button class="secondary" type="button" @click="openTierTemplateDrawer()">管理阶梯模板</button>
+          <button class="secondary" type="button" @click="specPricingGroupManagerOpen = true">管理规格计价组</button>
           <button class="secondary" type="button" @click="priceListRulesDialogOpen = true">计价模式规则</button>
         </div>
       </div>
     </section>
 
+    <div v-if="specPricingGroupManagerOpen" class="drawer-mask" @click.self="specPricingGroupManagerOpen = false"><aside class="drawer" aria-label="管理规格计价组"><button class="secondary" type="button" @click="specPricingGroupManagerOpen = false">关闭</button><SpecPricingGroupManager :view-params="viewParams" return-view="costing" @saved="loadSpecPricingGroups" /></aside></div>
     <section class="panel bean-list-version-panel">
       <div class="section-bar bean-list-version-head">
         <div class="bean-list-version-title-row">
@@ -308,9 +310,11 @@
       <div class="named-price-table-toolbar-details">
         <span>共 {{ namedPriceTableBatch.tables.length }} 张 · 统一版本 {{ pdfTheme.version }} · 发布时整组保存</span>
         <button v-if="activeBeanListCustomerID > 0 && isBeanListAdmin" class="secondary" type="button" :disabled="namedEditorBlocked || beanListPublishing" @click="openPublicationCopy()">复制其他价格表</button>
+        <button v-if="activeBeanListCustomerID > 0" class="secondary" type="button" :disabled="namedEditorBlocked || beanListPublishing" @click="openPublicationProductPicker">从已发布价格表选品</button>
       </div>
     </section>
 
+    <PublicationProductPicker v-if="publicationProductPickerOpen" :customer-id="Number(activeBeanListCustomerID)" :sources="officialPriceSourcePublications" :existing-names="(namedPriceTableBatch?.tables || []).map((table) => table.name)" :create-draft="createDraftFromPublicationProducts" @close="publicationProductPickerOpen = false" @created="publicationProductPickerOpen = false" />
     <fieldset class="price-table-editor-fields" :disabled="namedEditorBlocked">
     <div v-if="unavailableEditorSelections.length" class="panel" role="alert">
       <p>有 {{ unavailableEditorSelections.length }} 个已选规格所属商品已不在当前范围内，已保留原选择。请处理后再发布。</p>
@@ -367,7 +371,10 @@
               <option v-for="mode in priceTablePricingModeOptions" :key="`default-mode-${mode.value}`" :value="mode.value">{{ mode.label }}</option>
             </select>
           </label>
-          <label v-if="priceListTemplateDefaults.pricing_mode === 'tier_template'">
+          <label v-if="priceListTemplateDefaults.pricing_mode === 'spec_pricing_group'">
+            <span>规格计价组</span><select :value="priceListTemplateDefaults.spec_pricing_group_id" @change="setPriceListDefaultTemplate('spec_pricing_group_id', $event.target.value)"><option :value="0">请选择规格计价组</option><option v-for="group in specPricingGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select>
+          </label>
+          <label v-else-if="priceListTemplateDefaults.pricing_mode === 'tier_template'">
             <span>价格表阶梯模板</span>
             <select :value="priceListTemplateDefaults.tier_template_id" @change="setPriceListDefaultTemplate('tier_template_id', $event.target.value)">
               <option :value="0">请选择阶梯模板</option>
@@ -477,7 +484,8 @@
                     </button>
                   </div>
                   <p class="price-list-effective-pricing">当前生效：{{ priceListPricingPopoverEffectiveSummary() }}</p>
-                  <label v-if="priceListActivePricingSelection().pricing_mode === 'tier_template'" class="inline-price-config">
+                  <label v-if="priceListActivePricingSelection().pricing_mode === 'spec_pricing_group'" class="inline-price-config"><span>规格计价组</span><select :value="priceListActivePricingSelection().spec_pricing_group_id" @change="setPriceListPricingPopoverField('spec_pricing_group_id', $event.target.value)"><option :value="0">请选择规格计价组</option><option v-for="group in specPricingGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label>
+                  <label v-else-if="priceListActivePricingSelection().pricing_mode === 'tier_template'" class="inline-price-config">
                     <span>阶梯模板</span>
                     <select :value="priceListActivePricingSelection().tier_template_id" @change="setPriceListPricingPopoverField('tier_template_id', $event.target.value)">
                       <option :value="0">请选择阶梯模板</option>
@@ -547,7 +555,8 @@
                       </button>
                     </div>
                     <p class="price-list-effective-pricing">当前生效：{{ priceListPricingPopoverEffectiveSummary() }}</p>
-                    <label v-if="priceListActivePricingSelection().pricing_mode === 'tier_template'" class="inline-price-config">
+                    <label v-if="priceListActivePricingSelection().pricing_mode === 'spec_pricing_group'" class="inline-price-config"><span>规格计价组</span><select :value="priceListActivePricingSelection().spec_pricing_group_id" @change="setPriceListPricingPopoverField('spec_pricing_group_id', $event.target.value)"><option :value="0">请选择规格计价组</option><option v-for="group in specPricingGroups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label>
+                  <label v-else-if="priceListActivePricingSelection().pricing_mode === 'tier_template'" class="inline-price-config">
                       <span>阶梯模板</span>
                       <select :value="priceListActivePricingSelection().tier_template_id" @change="setPriceListPricingPopoverField('tier_template_id', $event.target.value)">
                         <option :value="0">请选择阶梯模板</option>
@@ -572,6 +581,7 @@
               <p v-if="row.no_quoteable_bom_specs" class="product-spec-selection-warning">
                 无可报价 BOM 规格
               </p>
+              <p v-if="isPdfProductSelected(priceListParentProductID(row)) && specPricingGroupIssue(row)" class="product-spec-selection-warning">{{ specPricingGroupIssue(row) }}</p>
               <div v-if="productSpecSelectionIssueForFamily(row)" class="product-spec-selection-warning">
                 <strong>{{ productSpecSelectionIssueForFamily(row).message }}</strong>
                 <div class="product-spec-selection-warning-actions">
@@ -581,8 +591,9 @@
               <div class="product-spec-options">
                 <div v-for="spec in row.sku_options" :key="`product-spec-${priceListSkuID(spec)}`" :class="['product-spec-option', { selected: isPdfProductSpecSelected(row, spec) }]">
                   <label class="check-line product-spec-check">
-                    <input type="checkbox" :checked="isPdfProductSpecSelected(row, spec)" @change="togglePdfProductSpec(row, spec, $event.target.checked)" />
+                    <input type="checkbox" :checked="isPdfProductSpecSelected(row, spec)" :disabled="priceListResolvedTemplateForItem(row).pricing_mode === 'spec_pricing_group'" @change="togglePdfProductSpec(row, spec, $event.target.checked)" />
                     <span>{{ priceListProductSpecLabel(spec) }}</span>
+                    <small v-if="priceListResolvedTemplateForItem(row).pricing_mode === 'spec_pricing_group'">由计价组选择</small>
                     <small v-if="priceListSkuID(spec) === Number(row.default_sku_id || 0)">默认规格</small>
                   </label>
                   <label
@@ -1435,6 +1446,9 @@ import {
   priceListPricingRuleTrialCacheWithoutRule,
   priceListPricingRuleTrialRequestsForRows as buildPriceListPricingRuleTrialRequests,
 } from '../lib/costing-price-list-workflow.js'
+import { resolveSpecPricingGroup } from '../lib/spec-pricing-group.js'
+import SpecPricingGroupManager from '../components/SpecPricingGroupManager.vue'
+import PublicationProductPicker from '../components/PublicationProductPicker.vue'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 import { productSpecSelectionsForWrite, visibleRowsForProductSpecMigration } from '../lib/product-spec-cutover'
 import {
@@ -1446,6 +1460,7 @@ import {
 } from '../lib/price-list-page-preferences'
 
 const props = defineProps({
+  viewParams: { type: Object, default: () => ({}) },
   workspaceMode: { type: String, default: '' },
   customerContextId: { type: [Number, String], default: 0 },
   customerContextLabel: { type: String, default: '' },
@@ -1617,6 +1632,10 @@ const priceListPricingPopover = ref(defaultPriceListPricingPopover())
 const productPickerCollapsedCategories = ref({})
 const priceListRulesDialogOpen = ref(false)
 const tierTemplateDrawerOpen = ref(false)
+const publicationProductPickerOpen = ref(false)
+const specPricingGroups = ref([])
+const specPricingGroupManagerOpen = ref(false)
+watch(() => props.viewParams?.spec_pricing_group_return_key, (key) => { if (key) specPricingGroupManagerOpen.value = true }, { immediate: true })
 const tierTemplateSaving = ref(false)
 const priceTierTemplateForm = ref(defaultPriceTierTemplateForm())
 let priceListPricingRuleTrialRefreshScheduled = false
@@ -1624,6 +1643,7 @@ let priceListPricingRuleEditorReturnFocus = null
 const priceListPricingRuleTrialGeneration = new Map()
 const priceListPricingPopoverOptions = [
   { value: '', label: '继承分类' },
+  { value: 'spec_pricing_group', label: '按规格计价组' },
   { value: 'tier_template', label: '按阶梯模板价计算' },
   { value: 'pricing_rule', label: '按价格模板计算' },
   { value: 'fixed_price', label: '固定价' },
@@ -1692,6 +1712,23 @@ const selectedProductCatalogGroupItemIDs = computed(() => new Set(
 ))
 const pdfTheme = computed(() => sanitizeBeanListPdfTheme(pdfOptions.value))
 const pdfAvailableItems = computed(() => priceListProductFamiliesForType(pdfTheme.value.listType, activeProductTypeCategoryID.value))
+const specPricingGroupBlockedReason = computed(() => {
+  for (const family of pdfAvailableItems.value) {
+    if (!isPdfProductSelected(priceListParentProductID(family))) continue
+    const issue = specPricingGroupIssue(family)
+    if (issue) return `${family.name || family.product_name || '商品'}：${issue}`
+  }
+  return ''
+})
+function specPricingGroupIssue(family) {
+  const resolved = priceListResolvedTemplateForItem(family)
+  if (resolved.pricing_mode !== 'spec_pricing_group') return ''
+  const group = specPricingGroups.value.find((row) => Number(row.id) === Number(resolved.spec_pricing_group_id))
+  const match = resolveSpecPricingGroup(group, family.sku_options || [])
+  if (match.errors.length) return match.errors.join('；')
+  if (match.items.some(({ item }) => !pricingRules.value.some((rule) => Number(rule.id) === Number(item.pricing_rule_id)))) return '价格模板不存在或已停用'
+  return ''
+}
 const pdfCategoryOptions = computed(() => beanListCategoryOptions(pdfTheme.value.listType, activeProductTypeCategoryID.value))
 const pdfProductSpecSelections = computed(() => productSpecSelectionsByType.value[activePriceListTypeKey.value] || [])
 const pdfSelectedProductIDs = computed(() => pdfProductSpecSelections.value.map((row) => String(row.sku_id || '')).filter(Boolean))
@@ -2007,6 +2044,7 @@ const priceListPublishBlockedReason = computed(() => {
   if (priceListOrderabilityBlockedReason.value) return priceListOrderabilityBlockedReason.value
   if (priceListProductSpecSelectionBlockedReason.value) return priceListProductSpecSelectionBlockedReason.value
   if (priceListLegacyPricingBlockedReason.value) return priceListLegacyPricingBlockedReason.value
+  if (specPricingGroupBlockedReason.value) return specPricingGroupBlockedReason.value
   if (!pdfGroups.value.length) return '暂无可发布的价格表预览'
   if (!String(pdfTheme.value.version || '').trim()) return '请填写价格表版本号'
   if (!customerScopeReady.value) return '请选择客户'
@@ -3177,6 +3215,7 @@ function priceListProductPricingHasOverride(row = {}) {
 function priceListTemplateSummary(selection = {}, fallback = '继承') {
   if (!priceListTemplateHasOverride(selection)) return fallback
   const mode = String(selection.pricing_mode || '').trim()
+  if (mode === 'spec_pricing_group') return specPricingGroups.value.find((row) => Number(row.id) === Number(selection.spec_pricing_group_id))?.name || '请选择规格计价组'
   if (mode === 'tier_template') {
     const templateID = Number(selection.tier_template_id || 0)
     const template = priceTierTemplates.value.find((row) => Number(row.id || 0) === templateID)
@@ -3235,6 +3274,7 @@ function markCustomerPriceConfigured(scope) {
 
 function setPriceListDefaultTemplate(field, value) {
   markCustomerPriceConfigured('default')
+  if ((field === 'pricing_mode' && value === 'spec_pricing_group') || field === 'spec_pricing_group_id') markCustomerPriceConfigured('spec-group:default')
   priceListTemplateDefaults.value = {
     ...priceListTemplateDefaults.value,
     [field]: priceListTemplateFieldValue(field, value),
@@ -3308,6 +3348,7 @@ function clearPriceListCategoryTemplate(group = {}) {
 function setPriceListCategoryTemplate(group = {}, field, value) {
   const target = priceListCategoryTemplateTarget(group)
   markCustomerPriceConfigured(`group:${Number(target.row.group_item_id || 0)}`)
+  if ((field === 'pricing_mode' && value === 'spec_pricing_group') || field === 'spec_pricing_group_id') markCustomerPriceConfigured(`spec-group:group:${Number(target.row.group_item_id || 0)}`)
   if (field === 'pricing_mode' && !String(value || '').trim()) {
     clearPriceListCategoryTemplate(group)
     return
@@ -3338,6 +3379,7 @@ function setPriceListCategoryTemplate(group = {}, field, value) {
 function setPriceListProductTemplate(row = {}, field, value) {
   if (priceListProductTemplateOverrideScope(row) !== 'parent_product') return
   markCustomerPriceConfigured(`product:${Number(row.parent_product_id || row.product_id || 0)}`)
+  if ((field === 'pricing_mode' && value === 'spec_pricing_group') || field === 'spec_pricing_group_id') markCustomerPriceConfigured(`spec-group:product:${Number(row.parent_product_id || row.product_id || 0)}`)
   const key = priceListProductTemplateOverrideKey(row)
   if (!key) return
   if (field === 'pricing_mode' && !String(value || '').trim()) {
@@ -3451,6 +3493,7 @@ function defaultPriceListTemplateSelection(overrides = {}) {
     pricing_mode: String(overrides.pricing_mode ?? overrides.pricingMode ?? '').trim(),
     tier_template_id: Number(overrides.tier_template_id ?? overrides.tierTemplateID ?? 0) || 0,
     pricing_rule_id: Number(overrides.pricing_rule_id ?? overrides.pricingRuleID ?? 0) || 0,
+    spec_pricing_group_id: Number(overrides.spec_pricing_group_id ?? overrides.specPricingGroupID ?? 0) || 0,
     fixed_unit_price: Number(overrides.fixed_unit_price ?? overrides.fixedUnitPrice ?? 0) || 0,
   }
 }
@@ -3465,6 +3508,7 @@ function priceListTemplateHasOverride(selection = {}) {
     String(selection.pricing_mode || '').trim() ||
     Number(selection.tier_template_id || 0) > 0 ||
     Number(selection.pricing_rule_id || 0) > 0 ||
+    Number(selection.spec_pricing_group_id || 0) > 0 ||
     Number(selection.fixed_unit_price || 0) > 0
   )
 }
@@ -3631,6 +3675,21 @@ function priceListFlatRowsFromGroups(groups = []) {
             fixedUnitPrice,
           }))
         })
+      } else if (mode === 'spec_pricing_group') {
+        const group = specPricingGroups.value.find((row) => Number(row.id) === Number(resolved.spec_pricing_group_id))
+        const family = pdfAvailableItems.value.find((row) => priceListParentProductID(row) === product.parent_product_id)
+        const match = resolveSpecPricingGroup(group, family?.sku_options || [])
+        const specID = priceListSkuID(item)
+        const matched = match.items.find(({ spec }) => Number(priceListSkuID(spec)) === Number(specID))
+        const ruleID = Number(matched?.item?.pricing_rule_id || 0)
+        const groupResolved = { ...resolved, pricing_mode: 'pricing_rule', pricing_rule_id: ruleID, pricing_rule_source: resolved.pricing_mode_source }
+        const row = priceListFlatRowFromSource({ item, groupRow, productID, sourceTier: {},
+          rowKey: `${specID || skuID || productID}:group:${group?.id || 0}:${group?.revision || 0}:${ruleID}`,
+          tierLabel: '基础价', minQty: 0, maxQty: null, resolved: groupResolved,
+          pricingRule: pricingRuleByID(ruleID), pricingRuleID: ruleID, pricingRuleSource: resolved.pricing_mode_source })
+        row.spec_pricing_group_id = Number(group?.id || 0)
+        row.spec_pricing_group_revision = Number(group?.revision || 0)
+        rows.push(row)
       } else {
         const sourceTier = firstPriceSourceTier(tiers)
         const pricingRule = mode === 'pricing_rule' ? pricingRuleByID(resolved.pricing_rule_id) : null
@@ -4927,6 +4986,30 @@ function updatePdfProductSpecSelections(next = []) {
   schedulePriceListPricingRuleTrialRefresh()
 }
 
+// A group controls the complete set of specifications of each selected product.
+watch(() => JSON.stringify([namedEditorBlocked.value, pdfProductSpecSelections.value, specPricingGroups.value, pdfAvailableItems.value.map((family) => [priceListParentProductID(family), (family.sku_options || []).map((spec) => [priceListSkuID(spec), spec.source_spec_template_id, spec.source_spec_template_key, spec.inventory_unit])]), priceListTemplateDefaults.value, priceListParentTemplateSelections.value, priceListGroupTemplateSelections.value, priceListProductTemplateOverrides.value]), () => {
+  if (namedEditorBlocked.value) return
+  let next = [...pdfProductSpecSelections.value]
+  let changed = false
+  for (const family of pdfAvailableItems.value) {
+    const parentID = priceListParentProductID(family)
+    const existing = next.filter((row) => Number(row.parent_product_id) === parentID)
+    if (!existing.length) continue
+    const resolved = priceListResolvedTemplateForItem(family)
+    if (resolved.pricing_mode !== 'spec_pricing_group') continue
+    const group = specPricingGroups.value.find((row) => Number(row.id) === Number(resolved.spec_pricing_group_id))
+    const match = resolveSpecPricingGroup(group, family.sku_options || [])
+    if (match.errors.length) continue
+    const expected = match.items.map(({ spec }) => Number(priceListSkuID(spec))).sort((a, b) => a - b)
+    const actual = existing.map((row) => Number(row.sku_id)).sort((a, b) => a - b)
+    if (JSON.stringify(actual) === JSON.stringify(expected)) continue
+    next = next.filter((row) => Number(row.parent_product_id) !== parentID)
+    for (const id of expected) next = togglePriceListProductSpecSelection(next, family, id, true)
+    changed = true
+  }
+  if (changed) updatePdfProductSpecSelections(next)
+}, { flush: 'post' })
+
 function togglePdfProduct(family = {}, checked) {
   const parentProductID = priceListParentProductID(family)
   const current = pdfProductSpecSelections.value
@@ -5287,6 +5370,7 @@ async function refreshPriceListData(kind) {
       const issues = pdfProductSpecSelectionIssues.value.length
       priceListRefresh.value.message = `${kind === 'prices' ? '价格已刷新' : '商品和规格已刷新'}${issues ? `；有 ${issues} 款商品的已选规格需要处理，请查看选品区提示` : ''}${removedCount > 0 ? `；已移除 ${removedCount} 个不在当前商品范围内的规格选择` : ''}。`
     }
+    return true
   } catch (err) {
     if (current()) priceListRefresh.value.error = err?.message || '刷新失败，请重试'
   } finally {
@@ -5410,7 +5494,22 @@ async function loadCustomerProductAliases(required = false) {
 }
 
 let priceListTemplateOptionsRevision = 0
+async function loadSpecPricingGroups() {
+  try {
+    const [data, options] = await Promise.all([apiGet('/api/spec-pricing-groups'), apiGet('/api/spec-pricing-groups/options')])
+    specPricingGroups.value = (data.groups || []).filter((group) => group.active !== false).map((group) => {
+      const template = (options.templates || []).find((row) => Number(row.id) === Number(group.spec_template_id))
+      const version = (template?.versions || []).find((row) => Number(row.id) === Number(group.spec_template_version_id))
+      return { ...group, template_available: Boolean(template && version), items: (group.items || []).map((item) => {
+        const variant = (version?.variants || []).find((row) => String(row.spec_key || '').toLowerCase() === String(item.spec_key || '').toLowerCase() && String(row.inventory_unit || '').toLowerCase() === String(item.inventory_unit || '').toLowerCase())
+        return { ...item, spec_name: variant?.name || item.spec_key }
+      }) }
+    })
+  }
+  catch { specPricingGroups.value = [] }
+}
 async function loadPriceListTemplateOptions() {
+  await loadSpecPricingGroups()
   const revision = ++priceListTemplateOptionsRevision
   try {
     const [tierData, ruleData] = await Promise.all([
@@ -5714,6 +5813,16 @@ async function generateBeanListPdf() {
     error.value = priceListLegacyPricingBlockedReason.value
     return
   }
+  if (specPricingGroupBlockedReason.value) {
+    message.value = ''
+    error.value = specPricingGroupBlockedReason.value
+    return
+  }
+  if (priceListFlatRows.value.some((row) => Number(row.spec_pricing_group_id) > 0) && !priceListFlatRowsReady.value) {
+    message.value = ''
+    error.value = '规格计价组价格尚未计算完成，请按价格行提示处理。'
+    return
+  }
   if (priceListProductSpecSelectionBlockedReason.value) {
     message.value = ''
     error.value = priceListProductSpecSelectionBlockedReason.value
@@ -6008,7 +6117,7 @@ function beanListWithdrawScopeParams(row) {
 
 
 function captureNamedPriceTablePayload() {
-  return clonePriceTable({ ...beanListPublicationPayload(), blocked_reason: priceListPublishBlockedReason.value,
+  const payload = clonePriceTable({ ...beanListPublicationPayload(), blocked_reason: priceListPublishBlockedReason.value,
     draft: { defaults: priceListTemplateDefaults.value, parentSelections: priceListParentTemplateSelections.value,
       groupSelections: priceListGroupTemplateSelections.value, productOverrides: priceListProductTemplateOverrides.value,
       flatRowOverrides: priceListFlatRowOverrides.value, tierFixedPrices: priceListTierFixedPrices.value, customerPriceSeedRows: customerPriceSeedRows.value,
@@ -6018,6 +6127,9 @@ function captureNamedPriceTablePayload() {
     editor: { pdfOptions: pdfOptions.value, customizers: pdfCustomizers.value,
       priceSource: currentPriceSourcePublication.value, styleSource: styleSourcePublicationIDByType.value[activePriceListTypeKey.value] || 0 },
   })
+  const sourceID = Number(activeNamedPriceTable.value?.product_selection_source_publication_id || activeNamedPriceTable.value?.payload?.config?.product_selection_source_publication_id || 0)
+  if (sourceID > 0) payload.config.product_selection_source_publication_id = sourceID
+  return payload
 }
 
 async function persistNamedPriceTableBatch() {
@@ -6186,6 +6298,39 @@ async function openNamedTableConfig() {
   pdfDrawerOpen.value = true
 }
 
+async function openPublicationProductPicker() {
+  await loadBeanListPublications(pdfTheme.value.listType, 'official', activeProductTypeCategoryID.value, 'factory_supply', { pageSize: 100 })
+  publicationProductPickerOpen.value = true
+}
+
+async function createDraftFromPublicationProducts({ source, productIds, tableName }) {
+  const customerID = activeBeanListCustomerID.value
+  const scope = priceListGenerationDraftBaseKey()
+  const typeKey = activePriceListTypeKey.value
+  const current = () => customerID === activeBeanListCustomerID.value && scope === priceListGenerationDraftBaseKey() && typeKey === activePriceListTypeKey.value
+  await loadCustomerProductAliases(true)
+  if (!current()) throw new Error('客户或商品类型已变化，请重试')
+  const refreshed = await refreshPriceListData('products')
+  if (!current() || refreshed !== true || priceListRefresh.value.error) throw new Error(priceListRefresh.value.error || '客户或商品目录刷新未完成，请重试')
+  const wanted = new Set(productIds.map(Number))
+  const families = pdfAvailableItems.value.filter((family) => wanted.has(priceListParentProductID(family)))
+  const found = new Set(families.map(priceListParentProductID))
+  if (found.size !== wanted.size) throw new Error(`有 ${wanted.size - found.size} 款商品缺少当前类型的有效规格，请先处理商品配置`)
+  const selections = defaultPriceListProductSpecSelections(families)
+  const selectable = new Set(selections.map((row) => Number(row.parent_product_id)))
+  if (selectable.size !== wanted.size) throw new Error(`有 ${wanted.size - selectable.size} 款商品缺少默认可用规格，请先处理商品配置`)
+  const previousTableKey = namedPriceTableBatch.value?.active_table_key
+  await addNamedPriceTable(false)
+  if (!current() || !activeNamedPriceTable.value || activeNamedPriceTable.value.key === previousTableKey) throw new Error('无法创建价格表草稿或客户范围已变化')
+  activeNamedPriceTable.value.name = tableName
+  activeNamedPriceTable.value.product_selection_source_publication_id = Number(source.id || 0)
+  updatePdfProductSpecSelections(selections)
+  await nextTick()
+  if (!current() || await persistNamedPriceTableBatch() !== true) throw new Error('本地草稿保存失败或客户范围已变化，请重试')
+  const saved = await saveNamedPriceTableBatch(false)
+  if (!current() || saved !== true || error.value) throw new Error(error.value || '服务器草稿保存未完成，请重试')
+}
+
 async function addNamedPriceTable(copy, key = namedPriceTableBatch.value?.active_table_key) {
   if (beanListPublishing.value || namedEditorBlocked.value) return
   const revision = namedEditorRevision
@@ -6285,6 +6430,7 @@ async function saveNamedPriceTableBatch(publish) {
     await loadBeanListPublications(pdfTheme.value.listType, publicationScope.value, activeProductTypeCategoryID.value, 'factory_supply')
     if (!current()) return
     if (publish) pdfOptions.value.version = defaultBeanListVersionForScope(pdfTheme.value.listType, activeProductTypeCategoryID.value)
+    return true
   } catch (err) {
     if (!current()) return
     error.value = err.message || '保存价格表失败'

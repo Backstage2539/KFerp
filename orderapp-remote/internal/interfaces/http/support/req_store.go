@@ -270,6 +270,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-SPEC-PRICING-GROUPS-20261111", title: "规格计价组与客户多规格价格表", status: "doing", assignee: "Van"},
+		{table: "req_dev", code: "DEV-SPEC-GROUP-NAV", title: "规格模板商品入口及权限兼容", status: "doing", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-SPEC-GROUP-API", title: "规格计价组维护、权限与审计", status: "doing", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-SPEC-GROUP-PRICING", title: "价格表继承、规格匹配及客户选品", status: "doing", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-SPEC-GROUP-DELIVERY", title: "测试、手册与环境交付", status: "doing", assignee: "Codex"},
 		{table: "req_product", code: "PR-PRICE-LIST-COST-AVAILABILITY-20261111", title: "修复商品价格表成本误判及规格展示", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-11-price-list-cost-availability.md；待用户验收"},
 		{table: "req_dev", code: "DEV-PRICE-LIST-COST-QUERY-20261111", title: "修复历史规格工序成本档位读取并区分成本异常", status: "done", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PRICE-LIST-SPEC-IDENTITY-20261111", title: "保留成本异常商品规格信息并修复勾选警告", status: "done", assignee: "Codex"},

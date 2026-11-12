@@ -728,6 +728,11 @@
       </div>
 
       <div v-show="showProductPriceManagementPane" class="panel product-price-management-pane">
+        <nav class="price-management-tabs" role="tablist" aria-label="商品价格管理类型">
+          <button type="button" role="tab" :aria-selected="activePriceManagementTab === 'rules'" :class="{ active: activePriceManagementTab === 'rules' }" @click="activePriceManagementTab = 'rules'">价格计算模板</button>
+          <button type="button" role="tab" :aria-selected="activePriceManagementTab === 'groups'" :class="{ active: activePriceManagementTab === 'groups' }" @click="activePriceManagementTab = 'groups'">规格计价组</button>
+        </nav>
+        <div v-show="activePriceManagementTab === 'rules'">
         <div class="panel-title">
           <span>商品价格管理</span>
           <div class="panel-actions">
@@ -802,6 +807,8 @@
           </section>
         </div>
         <p class="muted price-list-flat-row-note" aria-label="父商品 > 所在分类 > 上级分类逐级向上 > 价格表">商品价格表按分组勾选商品后生成平铺价格行；计价模式继承规则为：父商品 &gt; 所在分类 &gt; 上级分类逐级向上 &gt; 价格表，最近设置优先。阶梯模板在商品价格表维护。</p>
+        </div>
+        <SpecPricingGroupManager v-if="showProductPriceManagementPane && activePriceManagementTab === 'groups'" :view-params="viewParams" />
       </div>
         </div>
       </div>
@@ -1975,6 +1982,7 @@ import { apiGet, apiSend } from '../api/client'
 import BusinessGroupInlineWorkspace from '../components/BusinessGroupInlineWorkspace.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import PricingRuleEditorForm from '../components/PricingRuleEditorForm.vue'
+import SpecPricingGroupManager from '../components/SpecPricingGroupManager.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import {
   businessGroupFeatureSelectionIDs,
@@ -2228,6 +2236,7 @@ const productSectionTitle = computed(() => {
 const showGradientTemplatePane = computed(() => currentSettingsSection.value === 'templates' && effectiveConfigTemplateSection.value === 'gradient')
 const showUnitTemplatePane = computed(() => currentSettingsSection.value === 'templates' && effectiveConfigTemplateSection.value === 'unit-template')
 const showProductPriceManagementPane = computed(() => currentSettingsSection.value === 'templates' && effectiveConfigTemplateSection.value === 'product-price-management')
+const activePriceManagementTab = ref(props.viewParams?.price_management_tab === 'spec-pricing-groups' ? 'groups' : 'rules')
 const productDrawerOpen = ref(false)
 const productProductionConfigDrawerOpen = ref(false)
 let productProductionConfigOpenGeneration = 0
@@ -8792,6 +8801,9 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff6; border: 1px solid #a9d8ba; color: #1f6a3f; }
 .muted { color: #666; font-size: 12px; }
+.price-management-tabs { display: flex; gap: 12px; border-bottom: 1px solid #e2e8ef; margin-bottom: 16px; }
+.price-management-tabs button { padding: 10px 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; cursor: pointer; }
+.price-management-tabs button.active { color: #167641; border-bottom-color: #167641; font-weight: 600; }
 .settings-drawer-mask { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .22); }
 .settings-drawer { width: min(760px, 94vw); height: 100%; overflow: auto; background: #fff; box-shadow: -12px 0 32px rgba(0, 0, 0, .16); padding: 16px; display: grid; grid-template-rows: auto 1fr; gap: 12px; }
     .product-editor-drawer { width: min(820px, 94vw); }

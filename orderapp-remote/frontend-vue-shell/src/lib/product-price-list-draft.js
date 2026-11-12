@@ -20,6 +20,7 @@ function pricingSelection(value = {}) {
     pricing_mode: String(value.pricing_mode ?? value.pricingMode ?? '').trim(),
     tier_template_id: Number(value.tier_template_id ?? value.tierTemplateID ?? 0) || 0,
     pricing_rule_id: Number(value.pricing_rule_id ?? value.pricingRuleID ?? 0) || 0,
+    ...(Number(value.spec_pricing_group_id ?? value.specPricingGroupID ?? 0) > 0 ? { spec_pricing_group_id: Number(value.spec_pricing_group_id ?? value.specPricingGroupID) } : {}),
   }
 }
 

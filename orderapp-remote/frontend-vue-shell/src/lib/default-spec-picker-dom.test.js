@@ -30,6 +30,7 @@ test('real picker markup shows the current default badge while preserving old ch
     updatePdfProductSpecSelections: rows => { pdfProductSpecSelections.value = selection.normalizePriceListProductSpecSelections(rows, [row.value]) } }
   const methods = new Function(...Object.keys(bindings), ['isPdfProductSpecSelected', 'productSpecSelectionIssueForFamily', 'resolveProductSpecSelectionIssue', 'togglePdfProductSpec'].map(viewFunction).join('\n') + '\nreturn {isPdfProductSpecSelected,productSpecSelectionIssueForFamily,resolveProductSpecSelectionIssue,togglePdfProductSpec}')(...Object.values(bindings))
   const app = Vue.createApp({ render, setup: () => ({ row, ...selection, ...methods,
+    priceListResolvedTemplateForItem: () => ({ pricing_mode: 'pricing_rule' }),
     priceListProductSpecPricingResolution: () => ({}), priceListProductFixedTiers: () => [],
     priceListProductSpecPricingWarning: () => '', priceListProductTierTemplateWarning: () => '',
   }) })

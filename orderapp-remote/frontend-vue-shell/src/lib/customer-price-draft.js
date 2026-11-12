@@ -57,7 +57,9 @@ export function applyCustomerPriceRows(generated = [], seeds = [], overrides = {
     const current = currentRows[currentRows.length - 1]
     const sources=seeds.filter(r => identity(r)===key)
     const frozenSources = sources.filter(r => r.frozen_final_price === true)
-    if (usesConfiguredPricing(current, sources, options) && frozenSources.length === 0) {
+    const explicitGroups = Object.fromEntries(Object.entries(options.configuredSources || {}).filter(([key, value]) => key.startsWith('spec-group:') && value).map(([key]) => [key.slice('spec-group:'.length), true]))
+    const groupApplied = Number(current.spec_pricing_group_id || 0) > 0 && (frozenSources.length === 0 || usesConfiguredPricing(current, sources, { configuredSources: explicitGroups }))
+    if (groupApplied || (usesConfiguredPricing(current, sources, options) && frozenSources.length === 0)) {
       out.push(...currentRows.map(row => ({ ...row, product_name: row.customer_reference_snapshot?.customer_display_name || row.product_name })))
       continue
     }

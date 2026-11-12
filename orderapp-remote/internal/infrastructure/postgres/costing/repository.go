@@ -929,10 +929,10 @@ func (r Repository) LoadProductPricingRule(ctx context.Context, id int64) (appco
 	var row appcosting.ProductPricingRule
 	var calculationJSON []byte
 	err := r.readDB(ctx).QueryRow(ctx, fmt.Sprintf(`
-		SELECT id, name, code, cost_source_mode, margin_rate::float8, tax_rate::float8, rounding_mode, calculation_json, formula_version, active, remark
+		SELECT id, name, code, cost_source_mode, margin_rate::float8, tax_rate::float8, rounding_mode, calculation_json, formula_version, active, remark, md5(jsonb_build_array(cost_source_mode,margin_rate,tax_rate,rounding_mode,calculation_json,formula_version)::text)
 		FROM %s.product_pricing_rules
 		WHERE id=$1
-	`, r.schema), id).Scan(&row.ID, &row.Name, &row.Code, &row.CostSourceMode, &row.MarginRate, &row.TaxRate, &row.RoundingMode, &calculationJSON, &row.FormulaVersion, &row.Active, &row.Remark)
+	`, r.schema), id).Scan(&row.ID, &row.Name, &row.Code, &row.CostSourceMode, &row.MarginRate, &row.TaxRate, &row.RoundingMode, &calculationJSON, &row.FormulaVersion, &row.Active, &row.Remark, &row.Fingerprint)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return appcosting.ProductPricingRule{}, appcosting.ErrProductPricingRuleNotFound
@@ -3115,22 +3115,24 @@ func (r Repository) loadProductBOMSpecAuthorities(ctx context.Context, productID
 }
 
 type cutoverProductBOMSpec struct {
-	ParentProductID      int64
-	BomID                int64
-	BomVersionID         int64
-	BomVersionNo         string
-	BomSpecID            int64
-	BomVariantID         int64
-	SpecCode             string
-	Barcode              string
-	SpecKey              string
-	SpecName             string
-	InventoryUnit        string
-	MigrationState       string
-	BomSpecAuthoritative bool
-	ProcessRouteID       int64
-	IsDefault            bool
-	SortOrder            int
+	ParentProductID       int64
+	BomID                 int64
+	BomVersionID          int64
+	BomVersionNo          string
+	BomSpecID             int64
+	BomVariantID          int64
+	SpecCode              string
+	Barcode               string
+	SpecKey               string
+	SourceSpecTemplateID  int64
+	SourceSpecTemplateKey string
+	SpecName              string
+	InventoryUnit         string
+	MigrationState        string
+	BomSpecAuthoritative  bool
+	ProcessRouteID        int64
+	IsDefault             bool
+	SortOrder             int
 }
 
 func (r Repository) loadCutoverProductBOMSpecs(ctx context.Context, productIDs []int64) ([]cutoverProductBOMSpec, error) {
@@ -3159,6 +3161,8 @@ func (r Repository) loadCutoverProductBOMSpecs(ctx context.Context, productIDs [
 		       COALESCE(spec.code,''),
 		       COALESCE(spec.barcode,''),
 		       COALESCE(spec.spec_key,''),
+		       COALESCE(NULLIF(to_jsonb(spec)->>'source_spec_template_id','')::bigint,0),
+		       COALESCE(to_jsonb(spec)->>'source_spec_template_key',''),
 		       COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''),
 		       COALESCE(NULLIF(variant.inventory_unit,''),spec.inventory_unit,''),
 		       migration.state,
@@ -3205,6 +3209,8 @@ func (r Repository) loadCutoverProductBOMSpecs(ctx context.Context, productIDs [
 			&row.SpecCode,
 			&row.Barcode,
 			&row.SpecKey,
+			&row.SourceSpecTemplateID,
+			&row.SourceSpecTemplateKey,
 			&row.SpecName,
 			&row.InventoryUnit,
 			&row.MigrationState,
@@ -3309,6 +3315,8 @@ func applyCutoverProductBOMSpecs(inputs []domain.ProductInput, specs []cutoverPr
 				row.SpecPublished = true
 				row.SKUName = strings.TrimSpace(spec.SpecName)
 				row.SpecKey = strings.TrimSpace(spec.SpecKey)
+				row.SourceSpecTemplateID = spec.SourceSpecTemplateID
+				row.SourceSpecTemplateKey = strings.TrimSpace(spec.SourceSpecTemplateKey)
 				row.SpecLabel = strings.TrimSpace(spec.SpecName)
 				row.IsDefaultSKU = spec.IsDefault
 				row.DefaultSKUID = 0
@@ -3973,6 +3981,9 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 	}
 	if cmd.Config != nil {
 		cmd.Config["version"] = cmd.Version
+	}
+	if err := r.lockAndValidateSpecPricingGroups(ctx, tx, cmd); err != nil {
+		return nil, err
 	}
 	if err := validateBeanListProductScope(ctx, tx, r.schema, cmd); err != nil {
 		return nil, err

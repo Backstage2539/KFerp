@@ -251,6 +251,7 @@ const ProductionLogsView = lazyView(() => import('./views/ProductionLogsView.vue
 const ProductionScheduleView = lazyView(() => import('./views/ProductionScheduleView.vue'))
 const ProductionSystemCheckView = lazyView(() => import('./views/ProductionSystemCheckView.vue'))
 const ProductionSettingsView = lazyView(() => import('./views/ProductionSettingsView.vue'))
+const SpecTemplatesView = lazyView(() => import('./views/SpecTemplatesView.vue'))
 const ProcessTemplatesView = lazyView(() => import('./views/ProcessTemplatesView.vue'))
 const ProductSettingsView = lazyView(() => import('./views/ProductSettingsView.vue'))
 const ProductCreatorView = lazyView(() => import('./views/ProductCreatorView.vue'))
@@ -445,6 +446,7 @@ const internalViews = {
   groupTemplates: GroupTemplatesView,
   productCategoryManagement: ProductSettingsView,
   productPriceManagement: ProductSettingsView,
+  productSpecTemplates: SpecTemplatesView,
   productConfigTemplates: ProductSettingsView,
   pricingGradientTemplates: ProductSettingsView,
   productUnitTemplates: ProductSettingsView,

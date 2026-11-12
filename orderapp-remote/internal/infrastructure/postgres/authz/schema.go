@@ -176,6 +176,7 @@ func defaultViewPermissions() map[string]string {
 		"producePlan":                 "production.run",
 		"productionFlow":              "production.read",
 		"productionConfig":            "bom.read",
+		"productSpecTemplates":        "bom.read",
 		"productionAcceptance":        "production.read",
 		"productionSystemCheck":       "production.read",
 		"produceRunning":              "production.read",

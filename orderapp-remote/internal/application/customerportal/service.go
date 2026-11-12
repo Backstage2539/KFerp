@@ -231,6 +231,7 @@ type ServiceMetric struct {
 }
 
 type BeanListSummary struct {
+	SpecPricingGroup        bool                   `json:"-"`
 	ID                      int64                  `json:"id"`
 	ListType                string                 `json:"list_type"`
 	VersionNo               string                 `json:"version_no"`
@@ -1759,6 +1760,9 @@ func (s *Service) getBeanListPublicationAsset(ctx context.Context, token string,
 	}
 	if s.repo == nil {
 		return BeanListSummary{}, nil, fmt.Errorf("repository required")
+	}
+	if assetType == "png" && row.SpecPricingGroup {
+		assetType = "png-spec-v2"
 	}
 	if asset, err := s.repo.LoadBeanListPublicationAsset(ctx, row.ID, assetType); err == nil && len(asset.Payload) > 0 && (strings.TrimSpace(asset.CacheKey) == "" || strings.TrimSpace(asset.CacheKey) == row.CacheKey) {
 		return row, asset.Payload, nil

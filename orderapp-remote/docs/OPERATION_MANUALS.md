@@ -1,3 +1,5 @@
+规格模板入口、规格计价组和从公共价格表生成客户多规格报价参见[成本核价手册](OP_MANUAL_COSTING.md#规格计价组和客户多规格价格表)；规格模板发布和下发仍遵循生产 BOM 的既有规则。
+
 PR-748：新工单首道工序按批确认并扣料、补退料和误开工撤销，参见[生产手册](OP_MANUAL_PRODUCTION.md#按批开工扣料新工单)、[库存作业手册](OP_MANUAL_STOCK.md#按批开工与领退料)和[商品创建器手册](OP_MANUAL_PRODUCT_CREATOR.md#创建商品后的生产准备)。
 
 履约账单收款、撤销及库存关联订单付款状态，参见[客户履约手册](OP_MANUAL_CUSTOMER_FULFILLMENT.md#履约账单收款与撤销)。指定客户订单的小程序隐藏和恢复见[客户履约手册](OP_MANUAL_CUSTOMER_FULFILLMENT.md#指定订单小程序隐藏与恢复)。

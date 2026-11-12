@@ -69,7 +69,7 @@ test('product menu exposes product archive and price pages while group templates
   assert.equal(groupForView(menuGroups, 'productUnitTemplates'), null)
   assert.equal(groupForView(menuGroups, 'bom'), null)
   assert.equal(groupForView(menuGroups, 'costing')?.id, 'product')
-  assert.equal(menuGroups.find((group) => group.id === 'product')?.items.map((item) => item.label).join(' / '), '商品档案 / 商品创建器 / 创建器手册 / 商品价格管理 / 商品价格表 / 成本核价手册 / 生豆销售手册')
+  assert.equal(menuGroups.find((group) => group.id === 'product')?.items.map((item) => item.label).join(' / '), '商品档案 / 商品创建器 / 创建器手册 / 规格模板 / 商品价格管理 / 商品价格表 / 成本核价手册 / 生豆销售手册')
   assert.equal(menuGroups.find((group) => group.id === 'settings')?.items.find((item) => item.key === 'businessSettings')?.label, '业务设置')
   assert.equal(menuMap.groupManagement?.title, '分组模板')
 })

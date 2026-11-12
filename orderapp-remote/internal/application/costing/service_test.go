@@ -506,6 +506,7 @@ func TestPricingRuleTrialUsesBomCostTemplateFormula(t *testing.T) {
 			10: {
 				ID:             10,
 				Name:           "PR452 加价含税",
+				Fingerprint:    "rule-fingerprint-test",
 				Code:           "PR452-MARKUP",
 				CostSourceMode: "bom_current_cost",
 				MarginRate:     0.25,
@@ -533,6 +534,9 @@ func TestPricingRuleTrialUsesBomCostTemplateFormula(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("PricingRuleTrial() error = %v", err)
+	}
+	if got.PricingRuleFingerprint != "rule-fingerprint-test" {
+		t.Fatalf("trial fingerprint = %q", got.PricingRuleFingerprint)
 	}
 	if got.PricingRuleID != 10 || got.ProductID != 549 || got.BomVersionID != 3315 {
 		t.Fatalf("trial identity = %+v", got)
