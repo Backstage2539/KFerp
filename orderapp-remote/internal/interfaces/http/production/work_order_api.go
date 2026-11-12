@@ -16,6 +16,7 @@ import (
 )
 
 type jobCardActualsRequest struct {
+	RemainderMode              string                                     `json:"remainder_mode"`
 	SelectedUnissuedRemainders []productionapp.PackagingUnissuedRemainder `json:"selected_unissued_remainders"`
 	ActualRemainderG           *float64                                   `json:"actual_remainder_g"`
 	RemainderWarehouse         string                                     `json:"remainder_warehouse"`
@@ -462,6 +463,7 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 		cmd := productionapp.JobCardActionCommand{
 			SelectedUnissuedRemainders: req.SelectedUnissuedRemainders,
 			ActualRemainderG:           req.ActualRemainderG,
+			RemainderMode:              req.RemainderMode,
 			RemainderWarehouse:         strings.TrimSpace(req.RemainderWarehouse),
 			WasteQty:                   req.WasteQty,
 			RequestID:                  req.RequestID, ExpectedVersion: req.ExpectedVersion, InputUnit: req.InputUnit, OutputUnit: req.OutputUnit, DifferenceReason: req.DifferenceReason, FinishOperation: req.FinishOperation, Materials: req.Materials,

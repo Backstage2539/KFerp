@@ -265,6 +265,9 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	if err != nil {
 		return p, wo, err
 	}
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT NULLIF(planned_minutes,0) FROM %s.job_cards WHERE id=$1`, r.schema), id).Scan(&p.PlannedMinutes); err != nil {
+		return p, wo, err
+	}
 	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT completion_draft,GREATEST(0,GREATEST(actual_minutes,CEIL((COALESCE((metrics_json->>'timer_elapsed_seconds')::numeric,0)+CASE WHEN status='running' THEN GREATEST(0,EXTRACT(EPOCH FROM now()-COALESCE(resumed_at,started_at,now()))) ELSE 0 END)/60)::int)-COALESCE((SELECT SUM(COALESCE(NULLIF(e.payload->>'actual_minutes','')::int,NULLIF(e.payload->>'ActualMinutes','')::int,0)) FROM %s.production_operation_events e WHERE e.job_card_id=$1 AND e.kind='complete' AND e.status='posted'),0)) FROM %s.job_cards WHERE id=$1`, r.schema, r.schema), id).Scan(&p.Draft, &p.ActualMinutes); err != nil {
 		return p, wo, err
 	}
@@ -980,6 +983,11 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	if replanRequired {
 		p.BlockedCode = "reporting_replan_required"
 		p.BlockedReason = "工序报工类型已更新，请先重新安排工位产能"
+	}
+	if p.Execution.ReportingType == "piece" && p.MaterialConsumptionPolicy == "bom_start_v1" && wo.ProductionPlanID > 0 && (wo.ParentProductID > 0 || wo.ProductID > 0) {
+		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.work_orders w JOIN %[1]s.production_plans pp ON pp.id=w.production_plan_id JOIN %[1]s.job_cards j ON j.work_order_id=w.id CROSS JOIN LATERAL jsonb_array_elements(COALESCE(w.process_snapshot_json->'operations','[]'::jsonb)) op WHERE w.id=$1 AND j.id=$2 AND w.production_plan_id>0 AND COALESCE(NULLIF(w.parent_product_id,0),w.product_id)>0 AND (op->>'seq')::int=j.sequence_no AND COALESCE(NULLIF(op->>'execution_json','')::jsonb->>'reporting_type','')='piece')`, r.schema), wo.ID, id).Scan(&p.PlanRemainderEligible); err != nil {
+			return p, wo, err
+		}
 	}
 	return p, wo, nil
 }

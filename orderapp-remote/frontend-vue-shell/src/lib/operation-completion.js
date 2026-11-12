@@ -42,9 +42,16 @@ export function suggestedInputQty(preview, batchOutputQty = preview?.max_output_
   }
   return Math.round(input * output / planned * 1e6) / 1e6
 }
+export function suggestedCompletionMinutes(preview, output = preview.planned_qty) {
+  if (preview.planned_minutes == null || preview.planned_minutes === '') return ''
+  const minutes=Number(preview.planned_minutes), total=Number(preview.total_planned_qty), done=Number(preview.completed_output_qty || 0), next=Number(output || 0)
+  if (!Number.isInteger(minutes) || minutes < 0) return ''
+  if (!(total > 0)) return minutes
+  return Math.max(0, Math.round(minutes * Math.min(total, done + next) / total) - Math.round(minutes * Math.min(total, done) / total))
+}
 export function completionDraft(preview) {
-  if(preview.material_consumption_policy==='bom_start_v1' && preview.execution?.reporting_type==='piece')return {actual_output_qty:Number(preview.planned_qty||0),actual_input_qty:Number(preview.planned_qty||0),actual_minutes:0,difference_reason:'',finish_operation:true,actual_remainder_g:packagingExpectedRemainder(preview,preview.planned_qty),remainder_warehouse:'wip',remainder_confirmed:false,selected_unissued_remainders:[]}
-  if(preview.material_consumption_policy==='bom_start_v1')return {actual_output_qty:Number(preview.planned_qty||0),actual_input_qty:Number(preview.input_qty||0),waste_qty:0,actual_minutes:0,difference_reason:'',finish_operation:true}
+  if(preview.material_consumption_policy==='bom_start_v1' && preview.execution?.reporting_type==='piece')return {actual_output_qty:Number(preview.planned_qty||0),actual_input_qty:Number(preview.planned_qty||0),actual_minutes:suggestedCompletionMinutes(preview),difference_reason:'',finish_operation:true,...(preview.plan_remainder_eligible===false?{actual_remainder_g:packagingExpectedRemainder(preview,preview.planned_qty),remainder_warehouse:'wip',remainder_confirmed:false,selected_unissued_remainders:[]}:{})}
+  if(preview.material_consumption_policy==='bom_start_v1')return {actual_output_qty:Number(preview.planned_qty||0),actual_input_qty:Number(preview.input_qty||0),waste_qty:0,actual_minutes:preview.planned_minutes == null ? 0 : suggestedCompletionMinutes(preview),difference_reason:'',finish_operation:true}
   return {actual_output_qty:Number(preview.planned_qty || 0)}
 }
 function quantity(value,unit) {
@@ -55,10 +62,11 @@ function quantity(value,unit) {
 }
 export function completionPayload(preview,draft,id) {
   if(preview.material_consumption_policy==='bom_start_v1'){
-   const minutes=Number(draft.actual_minutes||0);if(!Number.isInteger(minutes)||minutes<0)throw new Error('请填写有效工时')
+   const minutes=Number(draft.actual_minutes);if(draft.actual_minutes==='' || draft.actual_minutes==null || !Number.isInteger(minutes)||minutes<0)throw new Error('请填写有效工时')
    if(preview.execution?.reporting_type==='piece') {
     const output=quantity(draft.actual_output_qty,preview.output_unit)
     if(output<=0 || output>Number(preview.planned_qty))throw new Error('本次完成件数必须大于零且不能超过剩余目标')
+    if(preview.plan_remainder_eligible===false){
     if(!draft.remainder_confirmed)throw new Error('请称重并确认实际余料')
     const remainder=quantity(draft.actual_remainder_g,'g')
     if(!Number.isInteger(remainder)||remainder>Number(preview.packaging_available_g))throw new Error('余料重量必须为不超过可用量的整数克')
@@ -71,7 +79,9 @@ export function completionPayload(preview,draft,id) {
       if(seen.has(key)||!candidate||!Number.isInteger(n)||n<=0||n>Number(candidate.available_g))throw new Error('所选批次转移数量必须为正整数且不超过可用数量')
       seen.add(key);return {batch_code:row.batch_code,warehouse:row.warehouse,owner_customer_id:Number(row.owner_customer_id||0),quantity_g:n}
     })
-    return {request_id:id,expected_version:preview.version,input_unit:preview.input_unit,output_unit:preview.output_unit,actual_input_qty:output,actual_output_qty:output,finish_operation:output===Number(preview.planned_qty),actual_minutes:minutes,difference_reason:draft.difference_reason||'',actual_remainder_g:remainder,remainder_warehouse:draft.remainder_warehouse||'wip',selected_unissued_remainders:selected}
+    return {request_id:id,expected_version:preview.version,input_unit:preview.input_unit,output_unit:preview.output_unit,actual_input_qty:output,actual_output_qty:output,finish_operation:output===Number(preview.planned_qty),actual_minutes:minutes,actual_minutes_explicit:true,difference_reason:draft.difference_reason||'',actual_remainder_g:remainder,remainder_warehouse:draft.remainder_warehouse||'wip',selected_unissued_remainders:selected}
+    }
+    return {request_id:id,expected_version:preview.version,input_unit:preview.input_unit,output_unit:preview.output_unit,actual_input_qty:output,actual_output_qty:output,finish_operation:output===Number(preview.planned_qty),actual_minutes:minutes,actual_minutes_explicit:true,difference_reason:draft.difference_reason||'',remainder_mode:'plan_transfer'}
    }
    const input=quantity(draft.actual_input_qty,preview.input_unit)
    const incoming=preview.execution?.reporting_type==='incoming'
@@ -79,7 +89,7 @@ export function completionPayload(preview,draft,id) {
    if(incoming && waste>input)throw new Error('废料不能超过实际投入')
    if(incoming && waste>0 && !String(draft.difference_reason||'').trim())throw new Error('请填写废料原因')
    const output=incoming ? incomingOutput(input,waste,preview.input_unit,preview.output_unit) : quantity(draft.actual_output_qty,preview.output_unit)
-   return {request_id:id,expected_version:preview.version,input_unit:preview.input_unit,output_unit:preview.output_unit,actual_input_qty:input,actual_output_qty:output,...(incoming?{waste_qty:waste}:{}),finish_operation:draft.finish_operation!==false,actual_minutes:minutes,difference_reason:draft.difference_reason||''}
+   return {request_id:id,expected_version:preview.version,input_unit:preview.input_unit,output_unit:preview.output_unit,actual_input_qty:input,actual_output_qty:output,...(incoming?{waste_qty:waste}:{}),finish_operation:draft.finish_operation!==false,actual_minutes:minutes,actual_minutes_explicit:true,difference_reason:draft.difference_reason||''}
   }
   const output=quantity(draft.actual_output_qty,preview.output_unit)
   return {request_id:id,expected_version:preview.version,output_unit:preview.output_unit,actual_output_qty:output,finish_operation:true}

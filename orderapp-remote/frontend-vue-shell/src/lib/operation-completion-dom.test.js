@@ -86,17 +86,15 @@ test('incoming completion shows waste and calculated output instead of editable 
   assert.equal(calls[0].waste_qty,1);assert.equal(calls[0].actual_output_qty,83)
  }finally{view.close()}
 })
-test('piece completion requests weighed remainder, warehouse and preserves a partial target',async()=>{
+test('piece completion omits remainder fields and keeps entered minutes',async()=>{
  const calls=[]
- const p={...structuredClone(preview),execution:{reporting_type:'piece'},material_consumption_policy:'bom_start_v1',input_qty:100,input_unit:'袋',output_unit:'袋',planned_qty:100,total_planned_qty:100,packaging_available_g:46400,packaging_standard_g_per_piece:454}
- const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:1},{apiGet:async path=>path.includes('warehouses')?{rows:[{code:'wip',name:'WIP'},{code:'finished_goods',name:'成品仓'}]}:p,apiSend:async(path,{body})=>{calls.push(body);return {completion:{message:'完成'}}}})
+ const p={...structuredClone(preview),execution:{reporting_type:'piece'},material_consumption_policy:'bom_start_v1',input_qty:100,input_unit:'袋',output_unit:'袋',planned_qty:100,total_planned_qty:100,planned_minutes:18,packaging_available_g:46400,packaging_standard_g_per_piece:454}
+ const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:1},{apiGet:async()=>p,apiSend:async(path,{body})=>{calls.push(body);return {completion:{message:'完成'}}}})
  try{
-  assert.match(view.el.textContent,/预计余料 1000 g/)
-  const fields=view.el.querySelectorAll('fieldset input');await input(fields[0],50)
-  assert.match(view.el.textContent,/预计余料 23700 g/)
-  button(view.el,'确认工序完成').click();await settle();assert.match(view.el.textContent,/称重/);assert.equal(calls.length,0)
-  const checkbox=view.el.querySelector('input[type=checkbox]');checkbox.click();await nextTick();button(view.el,'确认工序完成').click();await settle()
-  assert.equal(calls[0].actual_remainder_g,23700);assert.equal(calls[0].finish_operation,false);assert.equal(calls[0].remainder_warehouse,'wip')
+  assert.doesNotMatch(view.el.textContent,/实际余料|预计余料|余料去向|已称重|同批次未领/)
+  const fields=view.el.querySelectorAll('fieldset input');assert.equal(fields[1].value,'18');await input(fields[1],19);await input(fields[0],50);assert.equal(fields[1].value,'19')
+  button(view.el,'确认工序完成').click();await settle()
+  assert.equal(calls[0].remainder_mode,'plan_transfer');assert.equal(calls[0].finish_operation,false);assert.equal('actual_remainder_g' in calls[0],false)
  }finally{view.close()}
 })
 
@@ -132,4 +130,84 @@ test('switching tasks restores the unsubmitted completion quantity',async()=>{
  try {await input(view.el.querySelector('.completion-form input'),7)} finally {view.close()}
  view=await mount('../components/OperationCompletionForm.vue',{jobCardId:id},api)
  try {assert.equal(view.el.querySelector('.completion-form input').value,'7')} finally {view.close()}
+})
+
+test('plan packaging remainder remains accessible and submits source quantities only after all tasks finish',async()=>{
+ const calls=[]
+ const api={apiGet:async path=>path==='/api/packaging-remainders'?{groups:[{plan_id:26,product_id:1,product_name:'曲奇',total_tasks:2,completed_tasks:2,can_confirm:true}]}:path==='/api/stock/warehouses'?{rows:[{code:'wip',name:'WIP在制仓'},{code:'raw',name:'原料仓'}]}:{plan_id:26,product_id:1,product_name:'曲奇',version:'v1',can_confirm:true,tasks:[{job_card_id:1,work_order_no:'WO1',status:'completed'}],sources:[{source_id:'issued:1',batch_code:'MP1',warehouse:'wip',owner_customer_id:0,available_g:270}]},apiSend:async(path,{body})=>{calls.push({path,body});return {}}}
+ const view=await mount('../components/PackagingRemainderPanel.vue',{},api)
+ try {button(view.el,'选择').click();await settle();await input(view.el.querySelector('input[type=number]'),270);button(view.el,'确认处理').click();await settle();assert.equal(calls[0].body.expected_version,'v1');assert.deepEqual(calls[0].body.sources,[{source_id:'issued:1',quantity_g:270}]);assert.equal(calls[0].body.target_warehouse,'wip')}finally{view.close()}
+})
+
+test('plan remainder preserves independent inputs across groups and submits explicit zero',async()=>{
+ const calls=[]
+ const api={apiGet:async path=>path==='/api/packaging-remainders'?{groups:[{plan_id:1,product_id:1,product_name:'一',total_tasks:1,completed_tasks:1},{plan_id:2,product_id:1,product_name:'二',total_tasks:1,completed_tasks:1}]}:path==='/api/stock/warehouses'?{rows:[{code:'wip',name:'WIP'}]}:{plan_id:path.includes('/1/')?1:2,product_id:1,product_name:'咖啡',version:'v',can_confirm:true,tasks:[],sources:[{source_id:'shared',batch_code:'MP',warehouse:'wip',available_g:10}]},apiSend:async(path,{body})=>{calls.push(body);return {}}}
+ const view=await mount('../components/PackagingRemainderPanel.vue',{},api)
+ try{let choices=[...view.el.querySelectorAll('button')].filter(x=>x.textContent.trim()==='选择');choices[0].click();await settle();await input(view.el.querySelector('input[type=number]'),5);button(view.el,'返回列表').click();await nextTick();choices=[...view.el.querySelectorAll('button')].filter(x=>x.textContent.trim()==='选择');choices[1].click();await settle();assert.equal(view.el.querySelector('input[type=number]').value,'');await input(view.el.querySelector('input[type=number]'),0);button(view.el,'确认处理').click();await settle();assert.deepEqual(calls[0].sources,[{source_id:'shared',quantity_g:0}]);choices=[...view.el.querySelectorAll('button')].filter(x=>x.textContent.trim()==='选择');choices[0].click();await settle();assert.equal(view.el.querySelector('input[type=number]').value,'5')}finally{view.close()}
+})
+
+test('piece planned minutes track changed quantity until operator overrides',async()=>{
+ const p={...structuredClone(preview),execution:{reporting_type:'piece'},material_consumption_policy:'bom_start_v1',planned_qty:50,total_planned_qty:100,completed_output_qty:50,planned_minutes:21,input_unit:'袋',output_unit:'袋'}
+ const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:108},{apiGet:async()=>p,apiSend:async()=>({})})
+ try{const fields=view.el.querySelectorAll('fieldset input');assert.equal(fields[1].value,'10');await input(fields[0],25);assert.equal(fields[1].value,'5');await input(fields[1],7);await input(fields[0],20);assert.equal(fields[1].value,'7')}finally{view.close();clearWorkstationFormCache('completion',108)}
+})
+
+test('remainder panel empty list and unfinished tasks cannot submit',async()=>{
+ const empty=await mount('../components/PackagingRemainderPanel.vue',{}, {apiGet:async path=>path==='/api/stock/warehouses'?{rows:[]}:{groups:[]},apiSend:async()=>{throw new Error('must not submit')}})
+ try{assert.match(empty.el.textContent,/暂无待处理/)}finally{empty.close()}
+ const api={apiGet:async path=>path==='/api/packaging-remainders'?{groups:[{plan_id:1,product_id:2,product_name:'曲奇',total_tasks:2,completed_tasks:1}]}:path==='/api/stock/warehouses'?{rows:[]}:{plan_id:1,product_id:2,can_confirm:false,version:'v1',tasks:[{job_card_id:1,status:'running',work_order_no:'WO1'}],sources:[{source_id:'s1',available_g:2}]},apiSend:async()=>{throw new Error('must not submit')}}
+ const view=await mount('../components/PackagingRemainderPanel.vue',{},api)
+ try{button(view.el,'选择').click();await settle();assert.match(view.el.textContent,/还有包装任务未完成/);assert.equal(button(view.el,'确认处理').disabled,true);assert.equal(view.el.querySelector('input[type=number]').disabled,true)}finally{view.close()}
+})
+test('remainder conflict preserves input across recheck',async()=>{
+ let rev=1
+ const api={apiGet:async path=>path==='/api/packaging-remainders'?{groups:[{plan_id:1,product_id:2,product_name:'曲奇'}]}:path==='/api/stock/warehouses'?{rows:[]}:{plan_id:1,product_id:2,can_confirm:true,version:`v${rev++}`,tasks:[],sources:[{source_id:'s1',batch_code:'MP',available_g:10}]},apiSend:async()=>{throw Object.assign(new Error('库存变化'),{status:409})}}
+ const view=await mount('../components/PackagingRemainderPanel.vue',{},api)
+ try{button(view.el,'选择').click();await settle();await input(view.el.querySelector('input[type=number]'),5);button(view.el,'确认处理').click();await settle();assert.match(view.el.textContent,/库存变化/);assert.equal(button(view.el,'确认处理').disabled,true);button(view.el,'重新核对').click();await settle();assert.equal(view.el.querySelector('input[type=number]').value,'5');assert.equal(button(view.el,'确认处理').disabled,false)}finally{view.close()}
+})
+
+test('remainder displays the specific shared-batch blocker and disallows confirmation',async()=>{
+ const api={apiGet:async path=>path==='/api/packaging-remainders'?{groups:[{plan_id:1,product_id:2,product_name:'曲奇'}]}:path==='/api/stock/warehouses'?{rows:[]}:{plan_id:1,product_id:2,can_confirm:false,blocked_reason:'该批次还关联其他计划，余料归属待核对',version:'v1',tasks:[],sources:[{source_id:'s1',available_g:2}]},apiSend:async()=>{throw new Error('must not submit')}}
+ const view=await mount('../components/PackagingRemainderPanel.vue',{},api)
+ try{button(view.el,'选择').click();await settle();assert.match(view.el.textContent,/该批次还关联其他计划，余料归属待核对/);assert.doesNotMatch(view.el.textContent,/还有包装任务未完成/);assert.equal(button(view.el,'确认处理').disabled,true)}finally{view.close()}
+})
+
+test('explicit remainder recheck preserves inputs and rereads stock after external movement',async()=>{
+ let stale=false;let checks=0
+ const api={apiGet:async path=>path==='/api/packaging-remainders'?{groups:[{plan_id:1,product_id:2,product_name:'曲奇'}]}:path==='/api/stock/warehouses'?{rows:[]}:{plan_id:1,product_id:2,product_name:'曲奇',can_confirm:!stale,recheck_required:stale,blocked_reason:stale?'来源批次有外部库存变化，请重新核对余料':'',version:stale?'v2':'v1',tasks:[],sources:[{source_id:'s1',batch_code:'MP',available_g:10}]},apiSend:async(path,{body})=>{if(path.endsWith('/recheck')){checks++;assert.equal(body.expected_version,'v2');stale=false;return {plan_id:1,product_id:2,product_name:'曲奇',can_confirm:true,recheck_required:false,reweigh_required:true,version:'v3',tasks:[],sources:[{source_id:'s1',batch_code:'MP',available_g:10}]}};stale=true;throw Object.assign(new Error('库存变化'),{status:409})}}
+ const view=await mount('../components/PackagingRemainderPanel.vue',{},api)
+ try{button(view.el,'选择').click();await settle();await input(view.el.querySelector('input[type=number]'),5);button(view.el,'确认处理').click();await settle();button(view.el,'重新核对').click();await settle();assert.match(view.el.textContent,/外部库存变化/);assert.equal(view.el.querySelector('input[type=number]').value,'5');button(view.el,'重新核对余料').click();await settle();assert.equal(checks,1);assert.match(view.el.textContent,/重新称重/);assert.equal(view.el.querySelector('input[type=number]').value,'5');assert.equal(button(view.el,'确认处理').disabled,true);await input(view.el.querySelector('input[type=number]'),5);assert.equal(button(view.el,'确认处理').disabled,false)}finally{view.close()}
+})
+
+test('failed explicit remainder recheck keeps entered numbers',async()=>{
+ const api={apiGet:async path=>path==='/api/packaging-remainders'?{groups:[{plan_id:1,product_id:2,product_name:'曲奇'}]}:path==='/api/stock/warehouses'?{rows:[]}:{plan_id:1,product_id:2,can_confirm:false,recheck_required:true,blocked_reason:'需要重新核对',version:'v1',tasks:[],sources:[{source_id:'s1',batch_code:'MP',available_g:10}]},apiSend:async()=>{throw Object.assign(new Error('库存再次变化'),{status:409})}}
+ const view=await mount('../components/PackagingRemainderPanel.vue',{},api)
+ try{button(view.el,'选择').click();await settle();const field=view.el.querySelector('input[type=number]');await input(field,6);button(view.el,'重新核对余料').click();await settle();assert.match(view.el.textContent,/库存再次变化/);assert.equal(field.value,'6');assert.ok(button(view.el,'重新核对'))}finally{view.close()}
+})
+
+test('persisted reweigh requirement survives reopening and is explicitly confirmed',async()=>{
+ const calls=[];const api={apiGet:async path=>path==='/api/packaging-remainders'?{groups:[{plan_id:1,product_id:2,product_name:'曲奇'}]}:path==='/api/stock/warehouses'?{rows:[]}:{plan_id:1,product_id:2,can_confirm:true,reweigh_required:true,version:'v1',tasks:[],sources:[{source_id:'s1',batch_code:'MP',available_g:10}]},apiSend:async(path,{body})=>{calls.push(body);return {}}}
+ const view=await mount('../components/PackagingRemainderPanel.vue',{},api)
+ try{button(view.el,'选择').click();await settle();assert.match(view.el.textContent,/重新称重/);assert.equal(button(view.el,'确认处理').disabled,true);await input(view.el.querySelector('input[type=number]'),3);assert.equal(button(view.el,'确认处理').disabled,false);button(view.el,'确认处理').click();await settle();assert.equal(calls[0].reweigh_confirmed,true)}finally{view.close()}
+})
+
+test('rechecked remainder shows batch discrepancy as pending both before and after confirmation',async()=>{
+ const api={apiGet:async path=>path==='/api/packaging-remainders'?{groups:[{plan_id:1,product_id:2,product_name:'曲奇'}]}:path==='/api/stock/warehouses'?{rows:[]}:{plan_id:1,product_id:2,can_confirm:true,version:'v1',tasks:[],sources:[{source_id:'s1',batch_code:'MP1',warehouse:'wip',owner_customer_id:0,available_g:5}],discrepancy_g:5,discrepancies:[{source_id:'s1',batch_code:'MP1',warehouse:'wip',owner_customer_id:0,quantity_g:5}]},apiSend:async()=>({outstanding_g:5,discrepancy_g:5})}
+ const view=await mount('../components/PackagingRemainderPanel.vue',{},api)
+ try{button(view.el,'选择').click();await settle();assert.match(view.el.textContent,/差额待核对/);assert.match(view.el.textContent,/MP1/);assert.match(view.el.textContent,/5 g/);await input(view.el.querySelector('input[type=number]'),5);button(view.el,'确认处理').click();await settle();assert.match(view.el.textContent,/差额.*5 g.*待核对/);assert.doesNotMatch(view.el.textContent,/全部完成/)}finally{view.close()}
+})
+
+test('discrepancy review requires selected source and reason and keeps input on conflict',async()=>{
+ const calls=[];let fail=true
+ const detail={plan_id:1,product_id:2,can_confirm:true,version:'v1',tasks:[],sources:[{source_id:'s1',batch_code:'MP1',warehouse:'wip',available_g:5}],discrepancy_g:3,discrepancies:[{id:42,source_id:'s1',batch_code:'MP1',warehouse:'wip',quantity_g:3}]}
+ const api={apiGet:async path=>path==='/api/packaging-remainders'?{groups:[{plan_id:1,product_id:2,product_name:'曲奇'}]}:path==='/api/stock/warehouses'?{rows:[]}:detail,apiSend:async(path,{body})=>{calls.push({path,body});if(fail)throw Object.assign(new Error('版本变化'),{status:409});return {...detail,version:'v2',discrepancy_g:0,discrepancies:[],reweigh_required:true}}}
+ const view=await mount('../components/PackagingRemainderPanel.vue',{},api)
+ try{button(view.el,'选择').click();await settle();assert.equal(button(view.el,'确认核对差额').disabled,true);view.el.querySelector('input[type=checkbox]').click();await input(view.el.querySelector('textarea'),'仓库已盘点');button(view.el,'确认核对差额').click();await settle();assert.equal(view.el.querySelector('textarea').value,'仓库已盘点');assert.equal(view.el.querySelector('input[type=checkbox]').checked,true);assert.match(view.el.textContent,/版本变化/);button(view.el,'重新核对').click();await settle();fail=false;button(view.el,'确认核对差额').click();await settle();assert.deepEqual(calls.at(-1).body.discrepancy_ids,[42]);assert.equal(calls.at(-1).body.reason,'仓库已盘点');assert.match(view.el.textContent,/重新.*确认|重新称重/);assert.equal(button(view.el,'确认处理').disabled,true)}finally{view.close()}
+})
+
+test('explicitly ineligible historical packaging retains per-order remainder compatibility',async()=>{
+ const calls=[];const p={...structuredClone(preview),execution:{reporting_type:'piece'},material_consumption_policy:'bom_start_v1',plan_remainder_eligible:false,input_qty:10,input_unit:'袋',output_unit:'袋',planned_qty:10,total_planned_qty:10,planned_minutes:18,packaging_available_g:4600,packaging_standard_g_per_piece:454}
+ const api={apiGet:async path=>path==='/api/stock/warehouses'?{rows:[{code:'wip',name:'WIP在制仓'},{code:'raw',name:'原料仓'}]}:p,apiSend:async(path,{body})=>{calls.push(body);return {completion:{message:'完成'}}}}
+ const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:110},api)
+ try{assert.match(view.el.textContent,/历史工单未关联可识别生产计划/);assert.match(view.el.textContent,/实际余料/);assert.match(view.el.textContent,/已称重并确认余料/);view.el.querySelector('input[type=checkbox]').click();await nextTick();button(view.el,'确认工序完成').click();await settle();assert.equal(calls[0].actual_remainder_g,60);assert.equal(calls[0].remainder_warehouse,'wip');assert.equal('remainder_mode' in calls[0],false)}finally{view.close();clearWorkstationFormCache('completion',110)}
 })

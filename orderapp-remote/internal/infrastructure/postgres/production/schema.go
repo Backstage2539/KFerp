@@ -57,6 +57,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureOperationCompletionSchema(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensurePlanRemainderSchema(ctx, pool, schema); err != nil {
+		return err
+	}
 	return backfillQualityStatusesFromInspections(ctx, pool, schema)
 }
 

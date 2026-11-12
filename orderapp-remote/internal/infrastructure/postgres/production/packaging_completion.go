@@ -23,7 +23,7 @@ type packagingReturnedComponent struct {
 // completePackagingFinalInputTx handles each locked input and component batch independently.
 // All allocation, return, transfer and audit operations share the caller's tx.
 func (r Repository) completePackagingFinalInputTx(ctx context.Context, tx pgx.Tx, p app.OperationCompletionPreview, wo app.WorkOrderRow, cmd app.JobCardActionCommand, eventID int64) (float64, error) {
-	if cmd.ActualRemainderG == nil || cmd.FinishOperation == nil || cmd.ActualOutputQty > p.PlannedQty || math.Abs(cmd.ActualInputQty-cmd.ActualOutputQty) > 1e-8 || (*cmd.FinishOperation != (math.Abs(cmd.ActualOutputQty-p.PlannedQty) < 1e-8)) {
+	if (cmd.RemainderMode != "plan_transfer" && cmd.ActualRemainderG == nil) || cmd.FinishOperation == nil || cmd.ActualOutputQty > p.PlannedQty || math.Abs(cmd.ActualInputQty-cmd.ActualOutputQty) > 1e-8 || (*cmd.FinishOperation != (math.Abs(cmd.ActualOutputQty-p.PlannedQty) < 1e-8)) {
 		return 0, fmt.Errorf("请按实际完成件数报工并称重确认余料")
 	}
 	if p.PredecessorRequired || p.MaterialConsumptionPolicy != "bom_start_v1" {
@@ -69,7 +69,15 @@ func (r Repository) completePackagingFinalInputTx(ctx context.Context, tx pgx.Tx
 	if err != nil {
 		return 0, err
 	}
-	settlement, err := app.CalculatePackagingRemainder(app.PackagingRemainderInput{AvailableG: availableG, CompletedQty: cmd.ActualOutputQty, RemainingTargetQty: p.PlannedQty, StandardGPerPiece: bean.TotalQty * app.OperationUnitFactor(bean.Unit) / p.TotalPlannedQty, ActualRemainderG: *cmd.ActualRemainderG, DifferenceReason: cmd.DifferenceReason})
+	settlement := app.PackagingRemainderResult{}
+	if cmd.RemainderMode == "plan_transfer" {
+		if cmd.ActualRemainderG != nil || len(cmd.SelectedUnissuedRemainders) > 0 || cmd.RemainderWarehouse != "" {
+			return 0, fmt.Errorf("统一处理模式不能提交工单余料")
+		}
+		settlement.UsedG, err = app.DeferredPackagingUsage(bean.TotalQty*app.OperationUnitFactor(bean.Unit), p.CompletedOutputQty, cmd.ActualOutputQty, p.TotalPlannedQty, availableG)
+	} else {
+		settlement, err = app.CalculatePackagingRemainder(app.PackagingRemainderInput{AvailableG: availableG, CompletedQty: cmd.ActualOutputQty, RemainingTargetQty: p.PlannedQty, StandardGPerPiece: bean.TotalQty * app.OperationUnitFactor(bean.Unit) / p.TotalPlannedQty, ActualRemainderG: *cmd.ActualRemainderG, DifferenceReason: cmd.DifferenceReason})
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -141,6 +149,9 @@ func (r Repository) completePackagingFinalInputTx(ctx context.Context, tx pgx.Tx
 	cost, err := r.allocatePackagingComponentsTx(ctx, tx, cmd.ID, eventID, requests)
 	if err != nil {
 		return 0, err
+	}
+	if cmd.RemainderMode == "plan_transfer" {
+		return cost, nil
 	}
 	if !*cmd.FinishOperation {
 		if len(cmd.SelectedUnissuedRemainders) > 0 {

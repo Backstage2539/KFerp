@@ -1,3 +1,11 @@
+### PR-PACKAGING-REMAINDER-20261113
+- Branch: `codex/packaging-remainder-plan-20261113`；base: `origin/main`。
+- Scope: 包装逐单报工，按生产计划和产品统一处理余料；冻结工时默认值；保留来源批次、货主及成本。
+- DEV: `DEV-PACKAGING-REMAINDER-COMPLETION`、`DEV-PACKAGING-REMAINDER-GROUP`、`DEV-PACKAGING-REMAINDER-UI`、`DEV-PACKAGING-REMAINDER-VERIFY`。
+- Status: 实现及隔离验证通过，等待集成发布和用户验收；正式环境现有工单不操作。
+- Verifier: 前端全量 2040 项、Vue 构建、无业务数据库 Go 全包、隔离 PostgreSQL/API（逐单、库存、成本、并发、重核及差额）通过；桌面与窄屏模拟 API 验证及生产手册见 `orderapp-remote/docs/acceptance/2026-11-13-packaging-remainder.md`。
+- Delivery: 通过验证后按用户要求先集成 main 并部署正式 ERP，再集成 develop；保留现有小程序包和回滚备份。
+
 ### 简单 BUG：小程序首页库存代发已接单统计
 - Branch: `codex/dropship-home-count-20261112`; base: `origin/develop`.
 - Scope: 修复首页“已接单”统计与对应订单筛选遗漏库存待发货代发订单；订单状态、库存和其他业务规则保持不变。

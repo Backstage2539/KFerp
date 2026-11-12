@@ -129,7 +129,18 @@ func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 
 func operationCompletionStockPermission(method, path string) string {
 	path = strings.TrimPrefix(path, "/app")
+	if path == "/api/packaging-remainders" && method == http.MethodGet {
+		return "stock.read"
+	}
 	if strings.HasPrefix(path, "/api/production-plans/") {
+		if strings.HasSuffix(path, "/packaging-remainders") || strings.HasSuffix(path, "/packaging-remainders/recheck") || strings.HasSuffix(path, "/packaging-remainders/resolve-discrepancies") {
+			if method == http.MethodGet {
+				return "stock.read"
+			}
+			if method == http.MethodPost {
+				return "stock.write"
+			}
+		}
 		if method == http.MethodGet && strings.HasSuffix(path, "/material-transfer-options") || method == http.MethodPost && strings.HasSuffix(path, "/material-transfers/preview") {
 			return "stock.read"
 		}
@@ -277,10 +288,13 @@ func authorizeCustomerFinanceRead(c echo.Context, authz AuthzService) error {
 }
 
 func requiredPermissionForRequest(method, path string) string {
-	if strings.HasPrefix(path, "/app/api/production-plans/") {
+	if strings.HasPrefix(path, "/app/api/production-plans/") || path == "/app/api/packaging-remainders" {
 		path = strings.TrimPrefix(path, "/app")
 	}
 	if method == http.MethodPost && strings.HasPrefix(path, "/api/production-plans/") && strings.HasSuffix(path, "/material-transfers/preview") {
+		return "production.read"
+	}
+	if path == "/api/packaging-remainders" && method == http.MethodGet {
 		return "production.read"
 	}
 	if strings.HasPrefix(path, "/api/order/freight/") || path == "/api/order/shipping-destination/resolve" {

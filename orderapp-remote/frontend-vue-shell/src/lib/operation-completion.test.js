@@ -81,24 +81,38 @@ test('incoming weight is converted between kg and g and requires a reason for wa
  d.difference_reason='色选废料'
  assert.equal(completionPayload(p,d,'sort').actual_output_qty,49400)
 })
-test('piece completion requires actual weighed remainder and never closes a partial target',()=>{
- const p={...preview,execution:{reporting_type:'piece'},material_consumption_policy:'bom_start_v1',input_qty:100,input_unit:'袋',output_unit:'袋',planned_qty:100,packaging_available_g:46400,packaging_standard_g_per_piece:454}
- const d=completionDraft(p);assert.equal(d.actual_remainder_g,1000);assert.equal(d.remainder_warehouse,'wip')
- assert.throws(()=>completionPayload(p,d,'piece'),/称重/)
- d.remainder_confirmed=true;d.actual_output_qty=50;d.actual_remainder_g=23700
- const payload=completionPayload(p,d,'piece');assert.equal(payload.actual_input_qty,50);assert.equal(payload.finish_operation,false);assert.equal(payload.actual_remainder_g,23700);assert.equal(payload.remainder_warehouse,'wip')
+test('piece completion sends partial target without a per-order remainder',()=>{
+ const p={...preview,execution:{reporting_type:'piece'},material_consumption_policy:'bom_start_v1',input_qty:100,input_unit:'袋',output_unit:'袋',planned_qty:100,planned_minutes:18}
+ const d=completionDraft(p);d.actual_output_qty=50
+ const payload=completionPayload(p,d,'piece');assert.equal(payload.actual_input_qty,50);assert.equal(payload.finish_operation,false);assert.equal('actual_remainder_g' in payload,false)
  d.actual_output_qty=101;assert.throws(()=>completionPayload(p,d,'piece'),/超过/)
 })
 test('packaging estimate rounds consumed grams before subtracting',async()=>{
  const {packagingExpectedRemainder}=await import('./operation-completion.js')
  assert.equal(packagingExpectedRemainder({packaging_available_g:1000,packaging_standard_g_per_piece:454.5},1),545)
 })
-test('unissued shared stock is never selected automatically and is bounded by available batch quantity',()=>{
- const p={...preview,execution:{reporting_type:'piece'},material_consumption_policy:'bom_start_v1',input_qty:100,input_unit:'袋',output_unit:'袋',planned_qty:100,packaging_available_g:45400,packaging_standard_g_per_piece:454,packaging_unissued_candidates:[{batch_code:'MP-1',warehouse:'wip',owner_customer_id:4,available_g:1280}]}
- const d=completionDraft(p);d.remainder_confirmed=true
- assert.deepEqual(completionPayload(p,d,'x').selected_unissued_remainders,[])
- d.selected_unissued_remainders=[{batch_code:'MP-1',warehouse:'wip',owner_customer_id:4,quantity_g:1281}]
- assert.throws(()=>completionPayload(p,d,'x'),/可用/)
- d.selected_unissued_remainders[0].quantity_g=1280
- assert.equal(completionPayload(p,d,'x').selected_unissued_remainders[0].quantity_g,1280)
+test('piece completion requires missing frozen minutes to be filled',()=>{
+ const p={...preview,execution:{reporting_type:'piece'},material_consumption_policy:'bom_start_v1'}
+ const d=completionDraft(p);assert.equal(d.actual_minutes,'');assert.throws(()=>completionPayload(p,d,'x'),/工时/)
+})
+test('piece completion uses frozen planned minutes and defers remainder to plan',()=>{
+ const p={...preview,execution:{reporting_type:'piece'},material_consumption_policy:'bom_start_v1',planned_qty:50,total_planned_qty:100,completed_output_qty:50,planned_minutes:21}
+ const d=completionDraft(p)
+ assert.equal(d.actual_minutes,10)
+ d.actual_minutes=0
+ const payload=completionPayload(p,d,'plan')
+ assert.equal(payload.actual_minutes_explicit,true)
+ assert.equal(payload.actual_minutes,0)
+ assert.equal(payload.remainder_mode,'plan_transfer')
+ assert.equal('actual_remainder_g' in payload,false)
+})
+
+test('partial planned minutes preserve rounded total across final partial reports',async()=>{
+ const {suggestedCompletionMinutes}=await import('./operation-completion.js')
+ const p={planned_minutes:21,total_planned_qty:100,completed_output_qty:50,planned_qty:50}
+ assert.equal(suggestedCompletionMinutes(p,25),5)
+ assert.equal(suggestedCompletionMinutes({...p,completed_output_qty:75,planned_qty:25}),5)
+ assert.equal(suggestedCompletionMinutes({planned_minutes:20,total_planned_qty:3,completed_output_qty:0},1),7)
+ assert.equal(suggestedCompletionMinutes({planned_minutes:20,total_planned_qty:3,completed_output_qty:1},1),6)
+ assert.equal(suggestedCompletionMinutes({planned_minutes:20,total_planned_qty:3,completed_output_qty:2},1),7)
 })

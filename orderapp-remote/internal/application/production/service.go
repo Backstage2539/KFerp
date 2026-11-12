@@ -1884,6 +1884,7 @@ type WorkOrderDetail struct {
 }
 
 type JobCardActionCommand struct {
+	RemainderMode              string                       `json:"remainder_mode,omitempty"`
 	ExecutionBatchID           int64                        `json:"execution_batch_id,omitempty"`
 	ActualOutputPresent        bool                         `json:"actual_output_present,omitempty"`
 	ActualMinutesExplicit      bool                         `json:"actual_minutes_explicit,omitempty"`

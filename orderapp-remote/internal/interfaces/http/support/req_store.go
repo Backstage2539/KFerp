@@ -270,6 +270,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-PACKAGING-REMAINDER-20261113", title: "包装逐单报工与计划级余料处理", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-13-packaging-remainder.md；待用户验收"},
+		{table: "req_dev", code: "DEV-PACKAGING-REMAINDER-COMPLETION", title: "逐单按冻结配方结转及冻结工时", status: "done", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PACKAGING-REMAINDER-GROUP", title: "计划产品级余料转仓和来源追溯", status: "done", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PACKAGING-REMAINDER-UI", title: "工位完工精简与统一余料入口", status: "done", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PACKAGING-REMAINDER-VERIFY", title: "隔离验证、生产手册及发布", status: "doing", assignee: "Codex"},
 		{table: "req_product", code: "PR-767-WORKSTATION-CARDS-READINESS", title: "工位卡片、投入齐套与工单详情", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-12-workstation-cards-readiness.md；待用户业务验收"},
 		{table: "req_dev", code: "DEV-PR767-READINESS", title: "任务已投入物料与真实缺口计算", status: "done", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PR767-CARDS", title: "精简工位卡片及操作入口", status: "done", assignee: "Codex"},

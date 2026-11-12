@@ -18,10 +18,12 @@
             <option v-for="section in sections" :key="section.workstation" :value="section.workstation">{{ section.workstation }}</option>
           </select>
         </label>
+        <button class="secondary" type="button" @click="showPackagingRemainder = true">包装余料</button>
         <button class="secondary" type="button" @click="openScheduling">查看生产排班</button>
       </div>
     </section>
 
+    <PackagingRemainderPanel v-if="showPackagingRemainder" @close="showPackagingRemainder = false" @posted="load" />
     <div v-if="message" class="notice">{{ message }}</div>
     <div v-if="error" class="error">{{ error }}</div>
     <section v-if="requestedTaskNotice" class="requested-task-notice" role="status">
@@ -176,6 +178,7 @@
 
 <script setup>
 import OperationCompletionForm from '../components/OperationCompletionForm.vue'
+import PackagingRemainderPanel from '../components/PackagingRemainderPanel.vue'
 import ExecutionBatchPreview from '../components/ExecutionBatchPreview.vue'
 import OperationStartForm from '../components/OperationStartForm.vue'
 import OperationStartGroupForm from '../components/OperationStartGroupForm.vue'
@@ -210,6 +213,7 @@ const props = defineProps({
   actor: { type: Object, default: null },
 })
 
+const showPackagingRemainder=ref(false)
 const startGroup=reactive({open:false,key:'',ids:[],tasks:[],locked:false})
 async function groupStarted(_result,submittedIDs=startGroup.ids){selectedStartTasks.value=selectedStartTasks.value.filter(id=>!submittedIDs.includes(id));startGroup.open=false;await load()}
 const startPanel=reactive({open:false,task:null,revision:0})

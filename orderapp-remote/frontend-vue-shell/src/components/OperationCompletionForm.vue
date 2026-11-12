@@ -31,13 +31,14 @@
       <p v-else-if="batchState?.reason?.includes('历史汇总')" class="hint">{{ batchState.reason }}</p>
       <fieldset v-if="!batches.length" :disabled="busy || retry.uncertain || !!success || !!preview.blocked_reason || !!batchState?.can_initialize || (batches.length>0 && !selectedBatch) || batchLoadFailed">
         <label v-if="preview.execution?.reporting_type !== 'incoming'">{{ completionQuantityLabel(preview.output_unit) }}
-          <input v-model="draft.actual_output_qty" type="number" min="0" :step="weightUnit(preview.output_unit) ? 'any' : '1'" @input="updatePackagingSuggestion" />
+          <input v-model="draft.actual_output_qty" type="number" min="0" :step="weightUnit(preview.output_unit) ? 'any' : '1'" @input="updateSuggestedMinutes" />
           <small>{{ selectedBatch ? `第 ${selectedBatch.batch_no} 批请填写实际产出` : `本批参考 ${preview.planned_qty} ${preview.output_unit} · 已完成 ${preview.completed_output_qty || 0} ${preview.output_unit}` }}</small>
         </label>
         <template v-if="preview.material_consumption_policy === 'bom_start_v1'">
           <label v-if="preview.execution?.reporting_type !== 'piece'">本次实际处理投入（{{ preview.input_unit }}）<input v-model="draft.actual_input_qty" type="number" min="0" :step="weightUnit(preview.input_unit) ? 'any' : '1'" /><small>本批剩余可处理 {{ preview.input_qty }} {{ preview.input_unit }}</small></label>
           <template v-if="preview.execution?.reporting_type === 'piece'">
             <p>目标 {{ preview.total_planned_qty }} {{ preview.output_unit }} · 已完成 {{ preview.completed_output_qty || 0 }} · 尚需 {{ preview.planned_qty }}</p>
+            <div v-if="preview.plan_remainder_eligible === false"><p class="hint">该历史工单未关联可识别生产计划，沿用原余料流程。</p>
             <p>预计余料 {{ packagingExpectedRemainder(preview,draft.actual_output_qty) }} g；请称重后确认。</p>
             <label>实际余料（g）<input v-model="draft.actual_remainder_g" type="number" min="0" step="1" @input="remainderTouched=true;draft.remainder_confirmed=false" /></label>
             <label>余料去向<select v-model="draft.remainder_warehouse"><option value="wip">WIP在制仓</option><option v-for="w in warehouses.filter(row => row.code !== 'wip')" :key="w.code" :value="w.code">{{ w.name }}</option></select></label>
@@ -49,18 +50,19 @@
                 <label v-if="selectedCandidate(candidate)">确认数量（g）<input v-model.number="selectedCandidate(candidate).quantity_g" type="number" min="1" :max="candidate.available_g" step="1" /></label>
               </div>
             </div>
+            </div>
           </template>
           <template v-if="preview.execution?.reporting_type === 'incoming'">
             <label>废料重量（{{ preview.input_unit }}）<input v-model="draft.waste_qty" type="number" min="0" step="any" /></label>
             <p>合格产出：{{ goodOutput }} {{ preview.output_unit }}</p>
           </template>
-          <label>实际工时（分钟）<input v-model="draft.actual_minutes" type="number" min="0" step="1" /></label>
+          <label>实际工时（分钟）<input v-model="draft.actual_minutes" type="number" min="0" step="1" @input="formCache.minutesTouched=true" /></label>
           <label v-if="preview.execution?.reporting_type !== 'piece' && !selectedBatch"><span><input v-model="draft.finish_operation" type="checkbox" /> 本批全部处理结束</span></label>
           <label>备注<textarea v-model.trim="draft.difference_reason" rows="2" /></label>
           <details v-if="preview.started_materials?.length"><summary>已扣用料</summary><p v-for="m in preview.started_materials" :key="m.key">{{ m.name }}：{{ m.qty }} {{ m.unit }} · {{ m.warehouse_name || m.warehouse }}</p></details>
         </template>
       </fieldset>
-      <p v-if="preview.material_consumption_policy === 'bom_start_v1'" class="hint">本次报工结转已确认投入的成本，不再扣原料。结束批次前须处理剩余投入。</p>
+      <p v-if="preview.material_consumption_policy === 'bom_start_v1'" class="hint">本次报工结转已确认投入的成本，不再扣原料。{{ preview.execution?.reporting_type === 'piece' && preview.plan_remainder_eligible !== false ? '包装余料在本次计划全部包装完成后统一处理。' : '结束批次前须处理剩余投入。' }}</p>
       <p v-else class="hint">系统按冻结的本批投料和 BOM 自动计算用料，完成后自动扣料并{{ preview.execution?.receipt_enabled ? '入库' : '交接' }}。</p>
       <div v-if="!batches.length" class="actions"><button v-if="!success && !batchState?.can_initialize" class="primary" type="button" :disabled="busy || !!preview.blocked_reason || batchLoadFailed || refreshNeeded || (batches.length>0 && !selectedBatch)" @click="complete">{{ busy ? '处理中…' : retry.uncertain ? '重试本次完成' : selectedBatch ? '完成本批' : '确认工序完成' }}</button></div>
       <details v-if="result?.stock_entry_ids?.length"><summary>关联单据</summary><p v-for="id in result.stock_entry_ids" :key="id">库存单据 #{{ id }}</p></details>
@@ -72,7 +74,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { workstationFormCache, clearWorkstationFormCache } from '../lib/workstation-form-cache.js'
-import { completionDraft, completionPayload, completionQuantityLabel, completionRetry, incomingOutput, packagingExpectedRemainder, weightUnit, executionBatchInputQty, executionBatchDraftCache, executionBatchRetryCache } from '../lib/operation-completion.js'
+import { completionDraft, completionPayload, suggestedCompletionMinutes, completionQuantityLabel, completionRetry, incomingOutput, packagingExpectedRemainder, weightUnit, executionBatchInputQty, executionBatchDraftCache, executionBatchRetryCache } from '../lib/operation-completion.js'
 const props=defineProps({jobCardId:{type:Number,required:true},returnParams:{type:Object,default:()=>({})},externalBulk:{type:Boolean,default:false},canComplete:{type:Boolean,default:true}})
 const emit=defineEmits(['close','posted','batch-state'])
 const formCache=workstationFormCache('completion',props.jobCardId)
@@ -82,11 +84,11 @@ const batchDrafts=reactive(executionBatchDraftCache(props.jobCardId))
 const batches=computed(()=>Array.isArray(batchState.value?.batches)?batchState.value.batches:[])
 const pendingBatches=computed(()=>batches.value.filter(b=>b.status==='pending'))
 const warehouses=ref([]),remainderTouched=ref(false)
-const goodOutput=computed(()=>{try{const input=Number(draft.actual_input_qty),waste=Number(draft.waste_qty);return input>=0&&waste>=0&&waste<=input?incomingOutput(input,waste,preview.value?.input_unit,preview.value?.output_unit):'—'}catch{return '—'}})
-function updatePackagingSuggestion(){if(preview.value?.execution?.reporting_type!=='piece')return;draft.remainder_confirmed=false;if(!remainderTouched.value)draft.actual_remainder_g=packagingExpectedRemainder(preview.value,draft.actual_output_qty)}
 function candidateKey(c){return `${c.batch_code}\u0000${c.warehouse}\u0000${Number(c.owner_customer_id||0)}`}
 function selectedCandidate(c){return (draft.selected_unissued_remainders||[]).find(row=>candidateKey(row)===candidateKey(c))}
 function toggleCandidate(c,checked){draft.selected_unissued_remainders=(draft.selected_unissued_remainders||[]).filter(row=>candidateKey(row)!==candidateKey(c));if(checked)draft.selected_unissued_remainders.push({batch_code:c.batch_code,warehouse:c.warehouse,owner_customer_id:Number(c.owner_customer_id||0),quantity_g:0})}
+const goodOutput=computed(()=>{try{const input=Number(draft.actual_input_qty),waste=Number(draft.waste_qty);return input>=0&&waste>=0&&waste<=input?incomingOutput(input,waste,preview.value?.input_unit,preview.value?.output_unit):'—'}catch{return '—'}})
+function updateSuggestedMinutes(){if(preview.value?.execution?.reporting_type==='piece'){if(!formCache.minutesTouched)draft.actual_minutes=suggestedCompletionMinutes(preview.value,draft.actual_output_qty);if(preview.value.plan_remainder_eligible===false){draft.remainder_confirmed=false;if(!remainderTouched.value)draft.actual_remainder_g=packagingExpectedRemainder(preview.value,draft.actual_output_qty)}}}
 const retryState=reactive(executionBatchRetryCache(props.jobCardId))
 const retry=retryState.retry
 const initRetry=reactive(completionRetry())
@@ -94,7 +96,7 @@ function syncBatchDrafts(){for(const batch of batches.value){if(batch.status==='
 async function loadBatches(){batchState.value=await apiGet(`/api/job-cards/${props.jobCardId}/execution-batches`);syncBatchDrafts();emit('batch-state',batchState.value)}
 async function initializeBatches(){busy.value=true;error.value='';try{const body=initRetry.begin({expected_version:batchState.value.version},()=>crypto.randomUUID());batchState.value=await apiSend(`/api/job-cards/${props.jobCardId}/execution-batches`,{body});initRetry.clear();syncBatchDrafts()}catch(e){initRetry.fail(e);error.value=initRetry.uncertain?'未收到启用结果，请刷新后核对，避免重复操作。':e.message}finally{busy.value=false}}
 async function recheckKeepingDraft(){busy.value=true;error.value='';try{const [p,state]=await Promise.all([apiGet(`/api/job-cards/${props.jobCardId}/completion-preview`),apiGet(`/api/job-cards/${props.jobCardId}/execution-batches`)]);preview.value=p;batchState.value=state;syncBatchDrafts();refreshNeeded.value=false;retry.clear()}catch(e){error.value=`核对失败：${e.message}`}finally{busy.value=false}}
-async function refresh(){busy.value=true;error.value='';try{const p=await apiGet(`/api/job-cards/${props.jobCardId}/completion-preview`);preview.value=p;if(!formCache.initialized){Object.assign(draft,completionDraft(p));formCache.initialized=true}if(!retry.uncertain)retry.clear();if(p.material_consumption_policy==='bom_start_v1'&&!['piece','incoming'].includes(p.execution?.reporting_type)){try{await loadBatches();batchLoadFailed.value=false}catch(e){batchLoadFailed.value=true;error.value=`读取批次失败：${e.message}`}}if(p.execution?.reporting_type==='piece'){try{const data=await apiGet('/api/stock/warehouses');warehouses.value=(data.rows||[]).filter(w=>w.active!==false&&w.code)}catch{warehouses.value=[]}}}catch(e){error.value=e.message}finally{busy.value=false}}
+async function refresh(){busy.value=true;error.value='';try{const p=await apiGet(`/api/job-cards/${props.jobCardId}/completion-preview`);preview.value=p;if(!formCache.initialized){Object.assign(draft,completionDraft(p));formCache.initialized=true}if(!retry.uncertain)retry.clear();if(p.execution?.reporting_type==='piece' && p.plan_remainder_eligible===false){try{const data=await apiGet('/api/stock/warehouses');warehouses.value=(data.rows||[]).filter(w=>w.active!==false&&w.code)}catch{warehouses.value=[]}}if(p.material_consumption_policy==='bom_start_v1'&&!['piece','incoming'].includes(p.execution?.reporting_type)){try{await loadBatches();batchLoadFailed.value=false}catch(e){batchLoadFailed.value=true;error.value=`读取批次失败：${e.message}`}}}catch(e){error.value=e.message}finally{busy.value=false}}
 function batchPayload(batch){const d=batchDrafts[batch.id];for(const [key,label] of [['actual_input_qty','投入数量'],['actual_minutes','实际工时'],['actual_output_qty','产出数量']]){if(d[key]===''||d[key]===null||d[key]===undefined||!Number.isFinite(Number(d[key]))||Number(d[key])<0)throw new Error(`第 ${batch.batch_no} 批请填写有效的${label}`)}if(!Number.isInteger(Number(d.actual_minutes)))throw new Error(`第 ${batch.batch_no} 批请填写有效工时`);if(Number(d.actual_output_qty)===0&&!String(d.difference_reason||'').trim())throw new Error(`第 ${batch.batch_no} 批产出为零，请填写备注`);return {execution_batch_id:batch.id,actual_input_qty:Number(d.actual_input_qty),actual_output_qty:Number(d.actual_output_qty),actual_minutes:Number(d.actual_minutes),difference_reason:d.difference_reason||'',input_unit:batch.input_unit||preview.value.input_unit,output_unit:batch.output_unit||preview.value.output_unit}}
 async function submitBatches(rows,all){if(busy.value||!rows.length||!props.canComplete)return;busy.value=true;error.value='';let posted=false;try{const entries=retry.uncertain?[]:rows.map(batchPayload);const body=retry.uncertain?{}:(all?{expected_version:batchState.value.version,batches:entries}:{...entries[0],actual_minutes_explicit:true,expected_version:batchState.value.version});const payload=retry.begin(body,()=>crypto.randomUUID());retryState.rows=rows;retryState.all=all;const data=await apiSend(`/api/job-cards/${props.jobCardId}/${all?'execution-batches/complete-all':'complete'}`,{body:payload});posted=true;retry.clear();success.value='批次记录已保存';try{await loadBatches();if(pendingBatches.value.length)preview.value=await apiGet(`/api/job-cards/${props.jobCardId}/completion-preview`)}catch(e){error.value=`报工已保存，刷新状态失败：${e.message}`;refreshNeeded.value=true}emit('posted',{...data,batchPartial:pendingBatches.value.length>0})}catch(e){if(!posted){retry.fail(e);error.value=retry.uncertain?'尚未收到完成结果，请重试原次操作，系统不会重复扣料。':e.message;if(!retry.uncertain&&(e.status===409||/变化|刷新/.test(e.message||'')))refreshNeeded.value=true}}finally{busy.value=false}}
 function completeBatch(batch){submitBatches([batch],false)}

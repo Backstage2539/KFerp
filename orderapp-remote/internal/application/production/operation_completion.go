@@ -234,6 +234,8 @@ type IncomingAllocation struct {
 }
 
 type OperationCompletionPreview struct {
+	PlanRemainderEligible       bool                         `json:"plan_remainder_eligible"`
+	PlannedMinutes              *int                         `json:"planned_minutes"`
 	PackagingUnissuedCandidates []PackagingUnissuedRemainder `json:"packaging_unissued_candidates,omitempty"`
 	PackagingAvailableG         float64                      `json:"packaging_available_g,omitempty"`
 	PackagingStandardGPerPiece  float64                      `json:"packaging_standard_g_per_piece,omitempty"`

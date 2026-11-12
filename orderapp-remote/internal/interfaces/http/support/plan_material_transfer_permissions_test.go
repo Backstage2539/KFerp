@@ -60,3 +60,21 @@ func TestPlanMaterialTransferHTTPEnforcesBothPermissions(t *testing.T) {
 		})
 	}
 }
+
+func TestPlanPackagingRemainderPermissions(t *testing.T) {
+	for _, path := range []string{"/api/packaging-remainders", "/app/api/packaging-remainders"} {
+		if got := requiredPermissionForRequest("GET", path); got != "production.read" {
+			t.Errorf("%s requires production.read, got %s", path, got)
+		}
+	}
+	for _, row := range []struct{ method, path, stock string }{
+		{"GET", "/api/packaging-remainders", "stock.read"},
+		{"GET", "/api/production-plans/25/packaging-remainders", "stock.read"},
+		{"POST", "/api/production-plans/25/packaging-remainders", "stock.write"},
+		{"POST", "/api/production-plans/25/packaging-remainders/recheck", "stock.write"},
+	} {
+		if got := operationCompletionStockPermission(row.method, row.path); got != row.stock {
+			t.Errorf("%s %s = %s, want %s", row.method, row.path, got, row.stock)
+		}
+	}
+}

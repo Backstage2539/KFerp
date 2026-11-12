@@ -91,6 +91,9 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 		return out, err
 	}
 	startPolicy := p.MaterialConsumptionPolicy == "bom_start_v1"
+	if p.Execution.ReportingType == "piece" && startPolicy && cmd.RemainderMode == "plan_transfer" && !p.PlanRemainderEligible {
+		return out, fmt.Errorf("此工单缺少可识别的生产计划或产品，无法统一处理余料；请先核对工单来源")
+	}
 	if p.Execution.ReportingType == "piece" && !startPolicy {
 		return out, fmt.Errorf("按件完工要求确认开工用料，请重新核对未开工工单")
 	}
@@ -310,7 +313,7 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 			actualSeconds = actualMinutes * 60
 		}
 	}
-	estimated := actualSeconds == 0 && !timed && costMethod != "piece"
+	estimated := actualSeconds == 0 && !timed && !cmd.ActualMinutesExplicit && costMethod != "piece"
 	costUnavailable := false
 	opCost := float64(actualSeconds) * rate / 3600
 	if costMethod == "piece" {
@@ -555,6 +558,11 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 		if e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(material_cost+operation_cost),0)::float8 FROM %s.production_operation_events WHERE work_order_id=$1 AND kind IN('complete','start','material_add','material_return','start_reversal') AND status IN('posting','posted')`, r.schema), wo.ID).Scan(&currentCost); e != nil {
 			return out, e
 		}
+		pendingCost, e := r.deferredPackagingRemainderCostTx(ctx, tx, wo.ID)
+		if e != nil {
+			return out, e
+		}
+		currentCost -= pendingCost
 		if _, e = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET status='partially_completed',actual_cost=$2,operation_summary_json=$3::jsonb WHERE id=$1`, r.schema), wo.ID, currentCost, summary); e != nil {
 			return out, e
 		}
@@ -979,6 +987,11 @@ func (r Repository) finishOperationWorkOrderTx(ctx context.Context, tx pgx.Tx, w
 	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(material_cost),0)::float8,COALESCE(SUM(operation_cost),0)::float8 FROM %s.production_operation_events WHERE work_order_id=$1`, r.schema), wo.ID).Scan(&materialCost, &operationCost); err != nil {
 		return err
 	}
+	pendingCost, err := r.deferredPackagingRemainderCostTx(ctx, tx, wo.ID)
+	if err != nil {
+		return err
+	}
+	materialCost -= pendingCost
 	state := "partially_completed"
 	if remaining == 0 {
 		state = "completed"
