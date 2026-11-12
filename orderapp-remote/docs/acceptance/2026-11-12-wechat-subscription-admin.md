@@ -10,8 +10,9 @@
 
 ## 验收状态
 
-- 需求和开发任务已登记，功能开发中。Go 全量、隔离 PostgreSQL/HTTP 定向、Vue 1990 项及生产构建、`scripts/verify_kferp.sh changed` 通过；后台页面实机、开发环境和 Van 业务验收待完成。生产发布及微信正式发布不包含在本次开发验收内。
+- 需求和开发任务已登记，功能开发中。Go 全量、隔离 PostgreSQL/HTTP 定向、Vue 1990 项及生产构建、`scripts/verify_kferp.sh changed` 通过；Van 业务验收待完成。生产发布及微信正式发布不包含在本次开发验收内。
 - 新接口测试先因缺少逐人重选方法失败，随后在隔离数据库验证多账号、多微信聚合、手机号检索、撤销身份、管理员权限、旧客户端、全局和个人重选交错及操作日志。前端交互先 RED 后 GREEN，覆盖身份失效、选择与绑定状态分离及提醒确认。
-- 开发环境首次现场检查发现搜索后通用分页仍显示原来的总数；该列表改为独立分页，新增翻页后搜索与无结果 RED/GREEN 验证，修复版仍须重新部署和现场检查。
+- 开发环境首次现场检查发现搜索后通用分页仍显示原来的总数；该列表改为独立分页，新增翻页后搜索与无结果 RED/GREEN 验证。修复版部署后，现场搜索隔离测试客户显示“共 1 条 / 1 页”，无账号、未绑定和关注未知状态正确，未执行个人提醒写入。
+- 开发环境 ERP-only 部署 `1e541e90e728fc0d1f495cee2c25c15c5b46b73c`：服务器前端及 Go 测试和镜像内测试通过，应用运行、数据库 healthy、登录页 HTTP 200、未登录查询 HTTP 401，保留原小程序包。回滚源码 `/opt/stacks/erp/orderapp.backup.deploy-20261112204444-1e541e90e728`，镜像 `kferp-orderapp-rollback:development-20261112204444-1e541e90e728`。
 - 需求种子验证：`TestWechatSubscriptionAdminRequirementSeedPreservesProgress` 初始失败，原因是重启重新写入 `doing`；加入 PR/DEV 专项保留后，在隔离 PostgreSQL 与 `TestPR748RequirementSeedPreservesVerifiedProgress` 一起通过。
 - 须覆盖无绑定与取消关注、单账号多微信的关联与有效数量、用户选择与绑定通知开关不一致、未选择与关闭、模板或事件及总开关未启用、同客户多账号、手机号重复、无权查询、指定身份重选、用户选择和后台提醒并发、幂等及审计；不对真实客户开启或修改订阅进行测试。

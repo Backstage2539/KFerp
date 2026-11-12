@@ -6648,11 +6648,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - GREEN: frontend tests 1681/1681, frontend build, full backend, stock API, and local browser fixture. Production observed read-only; no production stock document or business data changed. Development/production deployment not performed.
 
 ### PR-WECHAT-SUBSCRIPTION-ADMIN-20261112
-- Branch: `codex/wechat-subscription-admin-20261112`；状态：开发中，隔离验证、开发部署和 Van 验收待完成。
+- Branch: `codex/wechat-subscription-admin-20261112`；状态：开发中，已部署开发环境，Van 验收待完成。
 - 范围：后台按客户、员工和手机号检索并逐小程序身份查看服务号绑定、关注和通知选择；指定账号下次进入小程序时提醒重新选择，不代替用户打开通知。
 - DEV：`DEV-WECHAT-SUBSCRIPTION-ADMIN-01` 受权查询、单人提醒及审计；`DEV-WECHAT-SUBSCRIPTION-ADMIN-02` Vue 页面；`DEV-WECHAT-SUBSCRIPTION-ADMIN-03` 验证、手册与交付。
 - 安全约束：手机号不能自动证明微信身份；同客户多个账号分别显示；用户关注、绑定及主动选择均须本人完成。全体提醒继续保留，单人提醒不发送微信、不改变原订阅。
-- 待验证：隔离 PostgreSQL 和 API、手机号歧义、身份及权限隔离、用户与后台并发选择、审计、前端和构建、开发环境界面。生产发布和微信正式发布另行处理。
+- 验证：隔离 PostgreSQL/HTTP、Go 全量、Vue 1990 项及构建通过；开发环境部署 `1e541e90e728fc0d1f495cee2c25c15c5b46b73c`，现场搜索测试客户显示 1 条、1 页及未绑定状态，服务与数据库健康。生产发布和微信正式发布另行处理。
 
 ### PR-NOTIFICATION-CHOICE-20261111
 - Branch: `codex/order-wechat-notifications-20261108`; status doing. 首次/后台请求重选时提示；明确拒绝和稍后处理；服务号绑定与选择分开，不自动授权。DEV-NOTICE-CHOICE-01/02/03 分别覆盖后端、小程序、后台及验收。验收：状态隔离、重选并发、授权与日志、登录/深链、错误、前端与小程序构建。生产部署未授权。
