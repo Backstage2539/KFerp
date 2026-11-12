@@ -724,6 +724,15 @@ Purpose: short-lived coordination for Codex workflows. Keep active requirement i
 
 This is not long-term memory. Move durable product/deployment decisions to `MEMORY.md` or source docs, then remove stale entries from this file.
 
+### Simple BUG：财务首页空入账日期报错
+- Branch: `codex/finance-dashboard-empty-date-20261112`; base: `origin/develop`.
+- Scope: 空白的历史订单处理入账日期按缺失值处理，避免其文本转日期时令财务首页加载失败；不修写业务数据。
+- Reproduction: 生产财务首页返回 `SQLSTATE 22007`；生产只读 SQL 重放确认空日期文本触发相同数据库错误。
+- Status: 回归测试 RED/GREEN；财务 API handler tests、finance PostgreSQL package tests 和 Go 全量通过；待推送并合入 `develop`、`main`，随后按用户要求发布生产。
+- Verifier: `TestMonthlySourceTotalsIgnoresAppliedRequestsWithBlankPostingDates`; `go test ./internal/interfaces/http/finance -count=1`; `scripts/verify_kferp.sh backend`; `scripts/verify_kferp.sh changed`。
+- Manual: 没有新增入口、字段或操作步骤；财务手册无需更新。
+- Deployment: production pending.
+
 ## Active
 
 ### PR-737-WAREHOUSE-BATCH-STOCK-ADJUSTMENT

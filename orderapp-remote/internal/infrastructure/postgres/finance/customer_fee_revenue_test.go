@@ -49,3 +49,26 @@ func TestIndependentFeeRevenueAndCreditUseTheirOwnPostingPeriods(t *testing.T) {
 		}
 	}
 }
+
+func TestMonthlySourceTotalsIgnoresAppliedRequestsWithBlankPostingDates(t *testing.T) {
+	pool, schema := newFinancePostgresTestDB(t)
+	ctx := context.Background()
+	mustExecFinanceSQL(t, ctx, pool, fmt.Sprintf(`
+ INSERT INTO %[1]s.customers(id,name,company_name)VALUES(1,'fee customer','');
+ CREATE TABLE %[1]s.customer_fee_items(id bigint PRIMARY KEY,customer_id bigint,source_type text,source_id bigint,fee_type text,amount numeric,status text,occurred_at timestamptz);
+ INSERT INTO %[1]s.customer_fee_items VALUES(1,1,'manual',0,'processing',10,'reversed','2026-11-07');
+ CREATE TABLE %[1]s.order_resolution_requests(id bigint PRIMARY KEY,applied boolean,command_json jsonb);
+ INSERT INTO %[1]s.order_resolution_requests VALUES(1,true,'{"posting_date":""}');
+ CREATE TABLE %[1]s.order_resolution_fee_events(request_id bigint,source_id bigint,credit_cents bigint);
+ INSERT INTO %[1]s.order_resolution_fee_events VALUES(1,1,500);
+ `, schema))
+
+	repo := NewRepository(pool, schema)
+	totals, _, err := repo.MonthlySourceTotals(ctx, app.ReportFilter{Month: "2026-11"})
+	if err != nil {
+		t.Fatalf("MonthlySourceTotals with a blank posting_date: %v", err)
+	}
+	if totals.RevenueTaxInclusive != 0 {
+		t.Fatalf("RevenueTaxInclusive = %.2f, want 0.00", totals.RevenueTaxInclusive)
+	}
+}
