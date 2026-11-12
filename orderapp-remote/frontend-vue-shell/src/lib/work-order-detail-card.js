@@ -3,6 +3,13 @@ function parseObject(value, fallback) {
   try { return JSON.parse(value || '') } catch { return fallback }
 }
 
+export function operationExecutionStatus(row = {}) {
+  const status = String(row.status || '').trim().toLowerCase()
+  if (status === 'paused') return '已暂停'
+  if (status === 'running') return '执行中'
+  return row.status_label || ({ pending: '待处理', ready: '可开始', released: '待执行', completed: '已完成', cancelled: '已取消' }[status]) || row.status || '待处理'
+}
+
 export function frozenWorkOrderDetails(row = {}) {
   const route = parseObject(row.process_snapshot_json, {})
   const materials = parseObject(row.material_snapshot, [])

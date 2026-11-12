@@ -104,7 +104,7 @@
               </div>
               <div v-else-if="!task.has_predecessor && materialReadinessState(task) === 'unknown'" class="material-readiness material-state-unknown">用料待核对</div>
             </div>
-            <span class="pill" :class="statusClass(task)">{{ task.status_label || task.status || '-' }}</span>
+            <span class="task-state"><span class="pill" :class="statusClass(task)">{{ displayTaskStatus(task) }}</span><small v-if="task.is_blocked && task.blocking_reason && task.blocking_reason !== displayTaskStatus(task)" class="task-blocking-reason">{{ task.blocking_reason }}</small></span>
             <span class="task-staff">{{ task.assigned_to || task.roster_employee_name || '无人值班' }}<small v-if="task.pending_handover">排班已换人，待接手工位</small></span>
             <div class="actions">
               <template v-if="isSimplifiedTask(task)">
@@ -367,7 +367,7 @@ async function focusRequestedTask(options = {}) {
     const rosterStatus = isTaskUnattended(matchedTask) ? 'unattended' : matchedTask.roster_status
     const disposition = workstationFocusDisposition({ task: matchedTask, rosterStatus, canViewAll: canViewAll.value })
     const workOrderNo = matchedTask.work_order_no || `工单 #${matchedTask.work_order_id || props.viewParams?.work_order_id || ''}`
-    const base = { ...matchedTask, work_order_no: workOrderNo, status_label: matchedTask.status_label || taskStatusLabels[matchedTask.status] || matchedTask.status || '状态未知', disposition }
+    const base = { ...matchedTask, work_order_no: workOrderNo, status_label: displayTaskStatus(matchedTask), disposition }
     if (disposition === 'record') {
       openExecutionHub(matchedTask, 'job_card')
       requestedTaskNotice.value = { ...base, message: '该工序已结束，已打开工单记录。' }
@@ -479,9 +479,16 @@ function stationLoad(section) {
 }
 
 function statusClass(task) {
-  if (task.status_label === '异常') return 'danger'
-  if (task.status_label === '执行中') return 'running'
+  if (displayTaskStatus(task) === '异常') return 'danger'
+  if (displayTaskStatus(task) === '执行中') return 'running'
   return ''
+}
+
+function displayTaskStatus(task) {
+  const status = String(task?.status || '').trim().toLowerCase()
+  if (status === 'paused') return '已暂停'
+  if (status === 'running') return '执行中'
+  return task?.status_label || taskStatusLabels[status] || task?.status || '-'
 }
 
 function actionLabel(action) {
@@ -842,7 +849,7 @@ textarea { resize: vertical; }
   border-radius: 10px;
   background: #fff;
 }
-.task-staff{display:grid;gap:5px;align-content:start;min-width:0}.task-staff small{display:block;font-size:12px;color:#657269;line-height:1.6}
+.task-state,.task-staff{display:grid;gap:5px;align-content:start;min-width:0}.task-state small,.task-staff small{display:block;font-size:12px;color:#657269;line-height:1.6}
 .task-row.header {
   border-top: 0;
   background: #faf9f7;
