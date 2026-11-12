@@ -73,7 +73,7 @@
               <article v-for="row in operations" :key="row.job_card_id" class="operation-card" :class="statusTone(row.status)">
                 <div class="operation-sequence">{{ row.sequence_no || '-' }}</div>
                 <div class="operation-main">
-                  <div class="operation-title"><strong>{{ row.operation || '工序' }}</strong><span>{{ batchLabel(row) }}</span><em>{{ row.status_label || statusLabel(row.status) }}</em></div>
+                  <div class="operation-title"><strong>{{ row.operation || '工序' }}</strong><span>{{ batchLabel(row) }}</span><em>{{ operationExecutionStatus(row) }}</em></div>
                   <p>{{ row.workstation || '未分配工位' }} · 负责人：{{ row.assigned_to || '按当天工位排班自动确定' }}</p>
                   <details v-if="isOperationRecorded(row)" class="record-details">
                     <summary>工序记录</summary>
@@ -121,7 +121,7 @@
 import { computed, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { executionHubOutputLabel } from '../lib/production-execution-hub'
-import { frozenWorkOrderDetails, workstationTodoTarget, executionBatchProgress, workOrderCostDetails, snapshotMaterialQuantity } from '../lib/work-order-detail-card'
+import { frozenWorkOrderDetails, workstationTodoTarget, executionBatchProgress, workOrderCostDetails, snapshotMaterialQuantity, operationExecutionStatus } from '../lib/work-order-detail-card'
 import { customerProcessingProgress, customerProcessingTimeline } from '../lib/customer-processing-trace'
 
 const props = defineProps({ open: { type: Boolean, default: false }, workOrderId: { type: Number, default: 0 }, focus: { type: String, default: '' }, viewParams: { type: Object, default: () => ({}) } })

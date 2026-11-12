@@ -138,6 +138,16 @@ test('started packaging cards show recorded inputs and preserve resume without o
  assert.ok(findNode(node,n=>n.props?.class?.includes?.('task-card')))
 })
 
+test('paused and running cards show their execution state independently from blockers', async () => {
+ const {state,tree}=await harness()
+ const rows=packagingTasks().slice(0,2).map((row,index)=>({...row,status:index?'running':'paused',status_label:index?'待处理':'异常',blocking_reason:index?'前序未完成':'已暂停',is_blocked:true,material_readiness_state:'ready'}))
+ state.overview.value={tasks:rows}
+ const node=await tree(), content=textContent(node)
+ assert.ok(content.includes('已暂停'),'paused state must not become 异常')
+ assert.ok(content.includes('执行中'),'running state must not become 待处理')
+ assert.ok(content.includes('前序未完成'),'independent blocker must remain visible')
+})
+
 test('split packaging task target reflects its own share rather than the full order',async()=>{
  const {state,tree}=await harness()
  state.overview.value={tasks:[{...packagingTasks()[0],job_card_id:901,status:'running',planned_output_inventory_qty:100,operation_total_input_qty:100,planned_input_qty:25,actual_output_qty:7}]}

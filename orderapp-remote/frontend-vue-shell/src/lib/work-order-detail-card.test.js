@@ -1,6 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { frozenWorkOrderDetails, workstationTodoTarget, executionBatchProgress, workOrderCostDetails, snapshotMaterialQuantity } from './work-order-detail-card.js'
+import { frozenWorkOrderDetails, workstationTodoTarget, executionBatchProgress, workOrderCostDetails, snapshotMaterialQuantity, operationExecutionStatus } from './work-order-detail-card.js'
+
+test('detail displays actual paused and running status even with legacy blocker label', () => {
+  assert.equal(operationExecutionStatus({status:'paused', status_label:'异常'}), '已暂停')
+  assert.equal(operationExecutionStatus({status:'running', status_label:'待处理'}), '执行中')
+  assert.equal(operationExecutionStatus({status:'pending', status_label:'待处理'}), '待处理')
+})
 
 test('detail uses frozen snapshot, never current BOM defaults, and preserves notes', () => {
   const detail = frozenWorkOrderDetails({ frozen_bom_version_id: 461, material_snapshot: '[{"material_name":"半成品","qty_per_unit":1,"consume_unit":"kg"}]', process_snapshot_json: '{"yield_rate":0.8}', related_orders:[{order_no:'SO-1',original_order_note:'2.5kg袋装'}] })
