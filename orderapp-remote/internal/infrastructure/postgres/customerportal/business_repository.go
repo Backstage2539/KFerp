@@ -1973,7 +1973,10 @@ func orderProgressSQL(schema string, hasShipments bool) string {
 	if hasShipments {
 		shipped = fmt.Sprintf("(%s OR EXISTS (SELECT 1 FROM %s.order_shipment_orders shipment WHERE shipment.order_id=o.id AND shipment.shipped_at IS NOT NULL))", shipped, schema)
 	}
-	return `CASE WHEN ` + shipped + ` THEN 'shipped' WHEN COALESCE(ops.name,'') IN ('生产中','正在生产') AND (` + orderKindSQL + `)='purchase' THEN 'in_production' WHEN COALESCE(NULLIF(to_jsonb(o)->>'confirmation_status',''),'accepted') IN ('accepted','confirmed') AND COALESCE(ops.name,'') IN ('','待处理','待生产','未生产') AND COALESCE(to_jsonb(o)->>'delivery_status','') NOT IN ('received','partially_received') THEN 'accepted' ELSE '' END`
+	// Stock dropships are accepted orders while their reserved physical stock
+	// waits for shipment; they do not need a production phase to appear at home.
+	acceptedProcess := `(COALESCE(ops.name,'') IN ('','待处理','待生产','未生产') OR (COALESCE(to_jsonb(o)->>'fulfillment_mode','')='stock' AND (` + orderKindSQL + `)='dropship' AND COALESCE(ops.name,'')='库存待发货'))`
+	return `CASE WHEN ` + shipped + ` THEN 'shipped' WHEN COALESCE(ops.name,'') IN ('生产中','正在生产') AND (` + orderKindSQL + `)='purchase' THEN 'in_production' WHEN COALESCE(NULLIF(to_jsonb(o)->>'confirmation_status',''),'accepted') IN ('accepted','confirmed') AND ` + acceptedProcess + ` AND COALESCE(to_jsonb(o)->>'delivery_status','') NOT IN ('received','partially_received') THEN 'accepted' ELSE '' END`
 }
 
 func (r Repository) customerOrderProgressCounts(ctx context.Context, customerID int64) (*customerportalapp.OrderProgressCounts, error) {
