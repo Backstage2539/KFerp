@@ -270,6 +270,9 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-765-DROPSHIP-PRODUCED-BATCH", title: "修复客户历史生产库存提交代发失败", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-12-dropship-produced-batch.md；定向 RED/GREEN 通过，未部署，用户验收待完成"},
+		{table: "req_dev", code: "DEV-PR765-01", title: "按真实生产入库来源校验历史客户批次代发分配", status: "done", assignee: "Codex", evidence: "真实小程序 HTTP 与数据库身份触发器 RED/GREEN，历史身份及来源保护"},
+		{table: "req_dev", code: "DEV-PR765-02", title: "隔离数据库接口回归、负例及交付证据", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-11-12-dropship-produced-batch.md；定向 HTTP 回归及无业务数据库 Go 全包通过，数据库身份全包存在同基线夹具失败"},
 		{table: "req_product", code: "PR-SPEC-PRICING-GROUPS-20261111", title: "规格计价组与客户多规格价格表", status: "doing", assignee: "Van"},
 		{table: "req_dev", code: "DEV-SPEC-GROUP-NAV", title: "规格模板商品入口及权限兼容", status: "doing", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-SPEC-GROUP-API", title: "规格计价组维护、权限与审计", status: "doing", assignee: "Codex"},

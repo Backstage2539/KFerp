@@ -1,3 +1,12 @@
+### PR-765-DROPSHIP-PRODUCED-BATCH
+- Branch: `codex/dropship-submit-fix-20261112`; base: `origin/develop`.
+- Scope: 修复客户自有历史生产批次用于同规格新代发时，被当前配方版本保护误拦截的问题；保留原批次配方、货权及数量。
+- DEV: `DEV-PR765-01` 精确生产入库来源及分配保护；`DEV-PR765-02` 隔离数据库 HTTP 回归、反例与交付证据。
+- Status: 生产只读现场确认；真实小程序 HTTP 与数据库触发器 RED/GREEN、50 个负例、历史转仓/发货回归及无业务数据库 Go 全包通过；最终三项 HTTP 23.122s 通过，独立静态审查通过。数据库身份全包及已预留生产入库测试存在缺表夹具失败，两项在原 develop 基线亦失败；不记为全绿。最新 develop 集成验证待完成，未提交真实订单、未部署，用户验收待完成。
+- Verifier: `TestMiniDirectShipProducedHistoricalBatchWithCurrentOrderVariantHTTP` 与 `TestDirectShipHistoricalOwnedBatchesWithCurrentOrderVariantHTTP`；`env -u DATABASE_URL -u ORDERAPP_TEST_DATABASE_URL go test ./...`。覆盖当前版本订单与历史自有批次、客户及仓库隔离、数量/来源校验、幂等与事务回滚；命令与结果见验收记录。
+- Manual: 操作入口、字段、价格、计费及提交步骤不变，修复恢复现有库存代发行为；无手册修改。
+- Evidence: `orderapp-remote/docs/acceptance/2026-11-12-dropship-produced-batch.md`。
+
 ### PR-764-PLAN-MATERIAL-FLEXIBLE-TRANSFER
 - Branch: `codex/plan-transfer-flexible-20261112`；Status: 已发布开发及正式环境，用户验收待完成。
 - Scope: 生产计划物料可按实际可用库存超需求调拨，排查仓库提交 WIP 异常；历史单据不代用户处理。
