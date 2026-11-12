@@ -86,6 +86,7 @@ type CreateOrderRequest struct {
 	UnitPrice                          []string `form:"unit_price[]"`
 	ItemName                           []string `form:"item_name[]"`
 	ItemNote                           []string `form:"item_note[]"`
+	ItemOperationNotes                 []string `form:"item_operation_notes[]"`
 	Qty                                []string `form:"qty[]"`
 	Unit                               []string `form:"unit[]"`
 	Spec                               []string `form:"spec[]"`

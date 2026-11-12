@@ -2049,6 +2049,7 @@ export function buildOrderPayload({ form, rows }) {
     unit_price: [],
     item_name: [],
     item_note: [],
+    item_operation_notes: [],
     qty: [],
     unit: [],
     spec: [],
@@ -2096,6 +2097,7 @@ export function buildOrderPayload({ form, rows }) {
     payload.unit_price.push(String(row.unit_price ?? ''))
     payload.item_name.push(row.product_name || row.item_name || '')
     payload.item_note.push(String(row.item_note || '').trim())
+    payload.item_operation_notes.push(Array.isArray(row.operation_notes) ? JSON.stringify(row.operation_notes) : '')
     payload.qty.push(String(qty))
     payload.unit.push(productKind === 'drip_bag' ? dripSpec.unitLabel : (row.unit || '件'))
     payload.spec.push(String(trimNumber(specG)))

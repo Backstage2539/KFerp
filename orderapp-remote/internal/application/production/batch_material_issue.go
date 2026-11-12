@@ -21,6 +21,7 @@ type ReplenishmentStartInput struct {
 	DifferenceReason string                 `json:"difference_reason"`
 }
 type BatchMaterialIssueCommand struct {
+	Workflow       string                        `json:"workflow,omitempty"`
 	StartInput     *ReplenishmentStartInput      `json:"start_input,omitempty"`
 	JobCardIDs     []int64                       `json:"job_card_ids"`
 	PreviewVersion string                        `json:"preview_version"`
@@ -116,6 +117,9 @@ type batchMaterialIssueRepository interface {
 }
 
 func normalizeBatchMaterialIssue(cmd BatchMaterialIssueCommand, submit bool) (BatchMaterialIssueCommand, error) {
+	if cmd.Workflow != "" && cmd.Workflow != "replenishment" {
+		return cmd, fmt.Errorf("不支持的领料流程")
+	}
 	if len(cmd.JobCardIDs) == 0 || len(cmd.JobCardIDs) > 500 {
 		return cmd, fmt.Errorf("请选择 1 至 500 个工位任务")
 	}
@@ -160,6 +164,9 @@ func (s *Service) PreviewBatchMaterialIssue(ctx context.Context, cmd BatchMateri
 	return repo.PreviewBatchMaterialIssue(ctx, cmd)
 }
 func (s *Service) SubmitBatchMaterialIssue(ctx context.Context, cmd BatchMaterialIssueCommand) (BatchMaterialIssueResult, error) {
+	if cmd.Workflow == "replenishment" {
+		return BatchMaterialIssueResult{}, fmt.Errorf("补料请先生成转仓单，再确认调入 WIP")
+	}
 	cmd, err := normalizeBatchMaterialIssue(cmd, true)
 	if err != nil {
 		return BatchMaterialIssueResult{}, err

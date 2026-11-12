@@ -12,7 +12,27 @@ import (
 	salesapp "orderapp/internal/application/sales"
 )
 
+func parseOrderOperationNotes(index int, raw []string) (*[]salesapp.OrderOperationNote, error) {
+	if index >= len(raw) || strings.TrimSpace(raw[index]) == "" || strings.TrimSpace(raw[index]) == "null" {
+		return nil, nil
+	}
+	var notes []salesapp.OrderOperationNote
+	if err := json.Unmarshal([]byte(raw[index]), &notes); err != nil || notes == nil {
+		return nil, fmt.Errorf("工序备注格式无效")
+	}
+	notes, err := salesapp.NormalizeOrderOperationNotes(notes)
+	if err != nil {
+		return nil, err
+	}
+	return &notes, nil
+}
+
 func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, actor string) (salesapp.SaveOrderCommand, error) {
+	for i := range req.ItemOperationNotes {
+		if _, err := parseOrderOperationNotes(i, req.ItemOperationNotes); err != nil {
+			return salesapp.SaveOrderCommand{}, err
+		}
+	}
 	var prepayment *float64
 	if req.PrepaymentAmount != nil {
 		amount, err := parseCreateOrderAmount(*req.PrepaymentAmount, "prepayment_amount")
@@ -184,6 +204,7 @@ func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.Order
 			ProductKind:                        strings.TrimSpace(getStr(req.ProductKind, i)),
 			SalesUnit:                          strings.TrimSpace(getStr(req.SalesUnit, i)),
 		}
+		it.OperationNotes, _ = parseOrderOperationNotes(i, req.ItemOperationNotes)
 
 		it.ItemID, _ = strconv.ParseInt(getStr(req.ItemID, i), 10, 64)
 		if raw := strings.TrimSpace(getStr(req.SpecConversion, i)); raw != "" && raw != "null" {

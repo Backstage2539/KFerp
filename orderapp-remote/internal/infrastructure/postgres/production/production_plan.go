@@ -2411,6 +2411,9 @@ func (r Repository) SubmitProductionPlan(ctx context.Context, cmd productionapp.
 	if err := validateInflightSupplyAtSubmitTx(ctx, tx, r.schema, cmd.ID); err != nil {
 		return productionapp.ProductionPlanSubmitResult{}, err
 	}
+	if err := validateInflightOrderNotesTx(ctx, tx, r.schema, cmd.ID); err != nil {
+		return productionapp.ProductionPlanSubmitResult{}, err
+	}
 	if err := validateProductionPlanComponentSourcesAtSubmitTx(ctx, tx, r.schema, cmd.ID, items); err != nil {
 		return productionapp.ProductionPlanSubmitResult{}, err
 	}
@@ -2488,6 +2491,23 @@ func (r Repository) SubmitProductionPlan(ctx context.Context, cmd productionapp.
 		if err := createMultilevelWorkOrderReservationsTx(ctx, tx, r.schema, items, workOrderByPlanItem); err != nil {
 			return productionapp.ProductionPlanSubmitResult{}, err
 		}
+	}
+	itemsByID := make(map[int64]productionapp.ProductionPlanItem, len(items))
+	for _, item := range items {
+		itemsByID[item.ID] = item
+	}
+	for i := range workOrders {
+		item := itemsByID[workOrders[i].ProductionPlanItemID]
+		outputType := firstNonEmpty(item.OutputType, "product")
+		outputID := item.OutputMaterialID
+		if outputType == "product" {
+			outputID = firstPositiveInt64(item.OutputProductID, item.ProductID)
+		}
+		orders, err := freezeWorkOrderRelatedOrdersTx(ctx, tx, r.schema, workOrders[i].ID, outputType, outputID, item.BomSpecID, item.BomVariantID, item.ProcessRouteID)
+		if err != nil {
+			return productionapp.ProductionPlanSubmitResult{}, err
+		}
+		workOrders[i].RelatedOrders = orders
 	}
 	for _, wo := range workOrders {
 		if err := validateFrozenOperationBindingsTx(ctx, tx, r.schema, wo.ID); err != nil {

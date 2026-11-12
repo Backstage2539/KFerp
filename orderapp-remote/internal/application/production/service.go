@@ -969,6 +969,8 @@ type WorkOrderDependencyRow struct {
 }
 
 type WorkOrderRow struct {
+	RelatedOrders             []ProductionDemandOrder  `json:"related_orders"`
+	RelatedOrdersSnapshotJSON string                   `json:"-"`
 	PlannedCostUnavailable    bool                     `json:"planned_cost_unavailable"`
 	ActualCostUnavailable     bool                     `json:"actual_cost_unavailable"`
 	ID                        int64                    `json:"id"`
@@ -1175,23 +1177,28 @@ type ProductionWorkstationLoad struct {
 }
 
 type ProductionTask struct {
-	PredecessorOutputUnit      string  `json:"predecessor_output_unit,omitempty"`
-	PredecessorOutputUnitState string  `json:"predecessor_output_unit_state,omitempty"`
-	ReportingType              string  `json:"reporting_type,omitempty"`
-	MaterialConsumptionPolicy  string  `json:"material_consumption_policy"`
-	AutomaticCompletion        bool    `json:"automatic_completion"`
-	HasPredecessor             bool    `json:"has_predecessor"`
-	PredecessorCompleted       bool    `json:"predecessor_completed"`
-	PredecessorOutputQty       float64 `json:"predecessor_output_qty"`
-	ProductionPlanID           int64   `json:"production_plan_id"`
-	ProductionPlanItemID       int64   `json:"production_plan_item_id"`
-	OperationID                int64   `json:"operation_id"`
-	WorkstationID              int64   `json:"workstation_id"`
-	RosterEmployeeID           int64   `json:"roster_employee_id"`
-	RosterEmployeeName         string  `json:"roster_employee_name"`
-	RosterSource               string  `json:"roster_source"`
-	RosterStatus               string  `json:"roster_status"`
-	PendingHandover            bool    `json:"pending_handover"`
+	ProductID                  int64                   `json:"product_id"`
+	BomSpecID                  int64                   `json:"bom_spec_id"`
+	BomVariantID               int64                   `json:"bom_variant_id"`
+	RelatedOrders              []ProductionDemandOrder `json:"related_orders"`
+	SpecLabel                  string                  `json:"spec_label"`
+	PredecessorOutputUnit      string                  `json:"predecessor_output_unit,omitempty"`
+	PredecessorOutputUnitState string                  `json:"predecessor_output_unit_state,omitempty"`
+	ReportingType              string                  `json:"reporting_type,omitempty"`
+	MaterialConsumptionPolicy  string                  `json:"material_consumption_policy"`
+	AutomaticCompletion        bool                    `json:"automatic_completion"`
+	HasPredecessor             bool                    `json:"has_predecessor"`
+	PredecessorCompleted       bool                    `json:"predecessor_completed"`
+	PredecessorOutputQty       float64                 `json:"predecessor_output_qty"`
+	ProductionPlanID           int64                   `json:"production_plan_id"`
+	ProductionPlanItemID       int64                   `json:"production_plan_item_id"`
+	OperationID                int64                   `json:"operation_id"`
+	WorkstationID              int64                   `json:"workstation_id"`
+	RosterEmployeeID           int64                   `json:"roster_employee_id"`
+	RosterEmployeeName         string                  `json:"roster_employee_name"`
+	RosterSource               string                  `json:"roster_source"`
+	RosterStatus               string                  `json:"roster_status"`
+	PendingHandover            bool                    `json:"pending_handover"`
 
 	AssignedEmployeeID      int64              `json:"assigned_employee_id"`
 	CollaboratorEmployeeIDs []int64            `json:"collaborator_employee_ids"`
@@ -4124,6 +4131,33 @@ func stringListValue(value any) []string {
 	return out
 }
 
+func frozenWorkstationSpecLabel(snapshot string) string {
+	var value struct {
+		SpecLabel string `json:"spec_label"`
+	}
+	if json.Unmarshal([]byte(snapshot), &value) != nil {
+		return ""
+	}
+	return strings.TrimSpace(value.SpecLabel)
+}
+
+func workstationOperationOrders(orders []ProductionDemandOrder, operationID int64, sequence int) []ProductionDemandOrder {
+	if orders == nil {
+		return nil
+	}
+	out := make([]ProductionDemandOrder, len(orders))
+	copy(out, orders)
+	for i := range out {
+		out[i].OperationNotes = nil
+		for _, note := range orders[i].OperationNotes {
+			if operationID > 0 && note.OperationID == operationID && note.SequenceNo == sequence {
+				out[i].OperationNotes = append(out[i].OperationNotes, note)
+			}
+		}
+	}
+	return out
+}
+
 func productionTaskFromJobCard(card JobCardRow, workOrder WorkOrderRow) ProductionTask {
 	assignedTo := card.AssignedTo
 	workCenter := firstNonEmpty(card.WorkCenter, card.Workstation, workOrder.WorkCenter)
@@ -4131,6 +4165,11 @@ func productionTaskFromJobCard(card JobCardRow, workOrder WorkOrderRow) Producti
 	status := normalizeProductionTaskStatus(card.Status)
 	blockingReason := productionBlockingReason(status, card.ExceptionReason, workCenter, assignedTo)
 	task := ProductionTask{
+		ProductID:        firstNonZeroInt64(workOrder.OutputProductID, workOrder.ProductID),
+		BomSpecID:        workOrder.BomSpecID,
+		BomVariantID:     workOrder.BomVariantID,
+		SpecLabel:        frozenWorkstationSpecLabel(workOrder.SalesSpecSnapshotJSON),
+		RelatedOrders:    workstationOperationOrders(workOrder.RelatedOrders, card.OperationID, card.SequenceNo),
 		ReportingType:    frozenOperationReportingType(workOrder, card.SequenceNo),
 		ProductionPlanID: workOrder.ProductionPlanID, ProductionPlanItemID: workOrder.ProductionPlanItemID,
 		JobCardID: card.ID, OperationID: card.OperationID, WorkstationID: card.WorkstationID, AssignedEmployeeID: card.AssignedEmployeeID, CollaboratorEmployeeIDs: []int64{}, Collaborators: []ScheduleEmployee{}, ScheduleVersion: card.ScheduleVersion,
@@ -4188,6 +4227,11 @@ func productionTaskFromWorkOrder(workOrder WorkOrderRow) ProductionTask {
 	status := normalizeProductionTaskStatus(workOrder.Status)
 	blockingReason := productionBlockingReason(status, "", workCenter, workOrder.AssignedTo)
 	task := ProductionTask{
+		ProductID:                 firstNonZeroInt64(workOrder.OutputProductID, workOrder.ProductID),
+		BomSpecID:                 workOrder.BomSpecID,
+		BomVariantID:              workOrder.BomVariantID,
+		SpecLabel:                 frozenWorkstationSpecLabel(workOrder.SalesSpecSnapshotJSON),
+		RelatedOrders:             workOrder.RelatedOrders,
 		ProductionPlanID:          workOrder.ProductionPlanID,
 		ProductionPlanItemID:      workOrder.ProductionPlanItemID,
 		WorkOrderID:               workOrder.ID,

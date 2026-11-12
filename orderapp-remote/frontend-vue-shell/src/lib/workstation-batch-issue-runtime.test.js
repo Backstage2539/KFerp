@@ -5,7 +5,7 @@ import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import { createSSRApp, h, reactive } from 'vue'
 import { renderToString } from '@vue/server-renderer'
 let sequence = 0
-async function harness(startShortages = [], overrideGroup = null, savedStorage = null) {
+async function harness(startShortages = [], overrideGroup = null, savedStorage = null, startInput = null) {
   const file = new URL('../components/WorkstationBatchIssueDrawer.vue', import.meta.url)
   const { descriptor } = parse(readFileSync(file, 'utf8'), { filename: file.pathname })
   const id = `batch-issue-test-${++sequence}`
@@ -32,7 +32,7 @@ async function harness(startShortages = [], overrideGroup = null, savedStorage =
   code = code.replace(/from (['"])([^'"]+)\1/g, (_, quote, path) => `from ${JSON.stringify(path.startsWith('.') ? new URL(path, file).href : import.meta.resolve(path))}`)
   const View = (await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)).default
   delete globalThis[id]
-  const props = reactive({ taskIds: [1], workstation: '包装台', returnParams: { scope: 'all' }, startShortages })
+  const props = reactive({ taskIds: [1], workstation: '包装台', returnParams: { scope: 'all' }, startShortages, startInput })
   let state
   await renderToString(createSSRApp({ setup() { state = View.setup(props, { expose() {}, emit: (...args) => events.push(args) }); return () => h('div') } }))
   const html = () => renderToString(createSSRApp({ ...View, setup: () => state }, props))
@@ -82,6 +82,20 @@ test('replenishment shows start deficit separately from reservation and permits 
   await state.submit()
   assert.match(writes.at(-1).url,/\/confirm$/)
   assert.equal(writes.at(-1).body.request_id,writes.at(-2).body.request_id)
+})
+test('replenishment preview includes edited start input and allows extra free WIP beyond the suggested shortage', async () => {
+ const group={key:'g',version:'gv',item_type:'material',item_id:7,bom_spec_id:0,spec_g:0,owner_customer_id:0,name:'乌干达',unit:'kg',quantity_basis:'weight',from_warehouse:'raw_materials',required:241,wip:0,remaining:241,available:241,max_quantity:10000,allocations:[{job_card_id:1,work_order_no:'WO-1',remaining:241,available:241,extra_available:9759}]}
+ const input={expected_version:'start-v1',actual_input_qty:262.5,input_unit:'kg',materials:[]}
+ const {state,writes}=await harness([{key:'material:7:0:0',name:'乌干达',unit:'kg',shortage_qty:.241}],group,null,input)
+ assert.equal(writes[0].body.workflow,'replenishment')
+ assert.deepEqual(writes[0].body.start_input,input)
+ assert.equal(state.quantities.value.g,.241)
+ state.quantities.value.g=1
+ assert.equal(state.invalid.value,false)
+ await state.submit()
+ assert.equal(writes.at(-1).body.workflow,'replenishment')
+ assert.equal(writes.at(-1).body.groups[0].quantity,1)
+ assert.deepEqual(writes.at(-1).body.start_input,input)
 })
 test('failed replenishment confirmation retains the original draft and retries the same request',async()=>{
  const group={key:'g',version:'gv',item_type:'material',item_id:7,bom_spec_id:0,spec_g:0,owner_customer_id:0,name:'水洗 A',unit:'kg',quantity_basis:'weight',from_warehouse:'raw_materials',required:5302,wip:0,remaining:5302,available:5302,max_quantity:5302,allocations:[{job_card_id:1,work_order_no:'WO-1',remaining:5302,available:5302,extra_available:0}]}

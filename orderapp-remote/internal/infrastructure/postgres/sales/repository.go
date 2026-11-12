@@ -10,6 +10,7 @@ import (
 	pdfinfra "orderapp/internal/infrastructure/pdf"
 	freightpg "orderapp/internal/infrastructure/postgres/freight"
 	"orderapp/internal/infrastructure/postgres/orderweight"
+	productionpg "orderapp/internal/infrastructure/postgres/production"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -1303,6 +1304,31 @@ func orderItemsInsertSQL(schema string) string {
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34::jsonb)`, schema)
 }
 
+func (r Repository) saveOrderOperationNotesTx(ctx context.Context, tx pgx.Tx, orderID, itemID int64, actor string, productID, bomSpecID, bomVariantID int64, validate bool, notes *[]salesapp.OrderOperationNote) error {
+	if notes == nil {
+		return nil
+	}
+	if validate && len(*notes) > 0 {
+		options, err := productionpg.OrderOperationOptionsTx(ctx, tx, r.schema, productID, bomSpecID, bomVariantID)
+		if err != nil {
+			return err
+		}
+		validated, err := salesapp.MatchOrderOperationNotes(*notes, options)
+		if err != nil {
+			return err
+		}
+		notes = &validated
+	}
+	raw, err := json.Marshal(*notes)
+	if err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.order_items SET operation_notes_json=$3::jsonb WHERE order_id=$1 AND id=$2`, r.schema), orderID, itemID, string(raw)); err != nil {
+		return err
+	}
+	return postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "order", &orderID, "update", postgresinfra.StrPtr("operation_notes"), nil, postgresinfra.StrPtr(string(raw)), postgresinfra.AuditMeta{"order_item_id": itemID})
+}
+
 // WithOrderTransaction joins a caller-owned business transaction. The caller commits.
 func (r Repository) WithOrderTransaction(tx pgx.Tx) Repository { r.orderTx = tx; return r }
 
@@ -1369,6 +1395,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		baseLineTotal                      float64
 		name                               string
 		note                               string
+		operationNotes                     *[]salesapp.OrderOperationNote
+		operationNotesSubmitted            bool
 		units                              int64
 		specG                              int64
 		unit                               *string
@@ -1418,6 +1446,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			discountValue:                      maxFloat(src.DiscountValue, 0),
 			name:                               name,
 			note:                               strings.TrimSpace(src.Note),
+			operationNotes:                     src.OperationNotes,
+			operationNotesSubmitted:            src.OperationNotes != nil,
 			units:                              src.Units,
 			specG:                              src.SpecG,
 			productKind:                        normalizeOrderItemProductKind(src.ProductKind),
@@ -1427,6 +1457,13 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			priceSourceJSON:                    strings.TrimSpace(src.PriceSourceJSON),
 			priceListType:                      orderBeanListTypeFromPriceSource(src.PriceSourceJSON),
 			quantityBasis:                      orderQuantityBasisFromPriceSource(src.PriceSourceJSON),
+		}
+		if it.operationNotes != nil {
+			normalized, err := salesapp.NormalizeOrderOperationNotes(*it.operationNotes)
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+			it.operationNotes = &normalized
 		}
 		if it.productKind == "drip_bag" {
 			if it.unitBeanG <= 0 && it.specG > 0 {
@@ -3068,6 +3105,34 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
+		// Order editing can rebuild rows. Carry omitted notes by the exact old
+		// item identity before deletion; an explicit empty array clears them.
+		for idx := range items {
+			it := &items[idx]
+			if it.itemID <= 0 || it.operationNotes != nil {
+				continue
+			}
+			var raw string
+			var oldProduct, oldSpec, oldVariant int64
+			err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(product_id,0),COALESCE(bom_spec_id,0),COALESCE(bom_variant_id,0),COALESCE(to_jsonb(oi)->'operation_notes_json','[]'::jsonb)::text FROM %s.order_items oi WHERE order_id=$1 AND id=$2 FOR UPDATE`, r.schema), orderID, it.itemID).Scan(&oldProduct, &oldSpec, &oldVariant, &raw)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return salesapp.SaveOrderResult{}, salesapp.NewOrderEditConflictError("原商品明细已变化，请重新打开订单后再编辑")
+			}
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+			var saved []salesapp.OrderOperationNote
+			if err = json.Unmarshal([]byte(raw), &saved); err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+			if len(saved) == 0 {
+				continue
+			}
+			if it.productID == nil || *it.productID != oldProduct || it.bomSpecID != oldSpec || it.bomVariantID != oldVariant {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("商品规格已变化，请重新核对工序备注")
+			}
+			it.operationNotes = &saved
+		}
 		// Preserve validated historical rows in place: the BOM identity guard allows
 		// unchanged archived variants on UPDATE, while INSERT correctly requires current identity.
 		frozenItemIDs := []int64{}
@@ -3294,9 +3359,16 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.order_items SET line_no=$3,item_note=$4,qty=$5,line_total_before_discount=$6,discount_type=$7,discount_value=$8,discount_amount=$9,line_total=$10,matched_price_qty=$11 WHERE order_id=$1 AND id=$2`, r.schema), orderID, it.itemID, idx+1, it.note, qtyAny, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal, it.matchedPriceQty); err != nil {
 				return salesapp.SaveOrderResult{}, err
 			}
+			if err := r.saveOrderOperationNotesTx(ctx, tx, orderID, it.itemID, cmd.Actor, productID, it.bomSpecID, it.bomVariantID, it.operationNotesSubmitted, it.operationNotes); err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
 			continue
 		}
-		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.bomSpecID, it.bomVariantID, it.customerProductAliasID, it.customerProductReferenceID, nil, it.customerProductDisplayNameSnapshot, it.customerItemCodeSnapshot, it.brandNameSnapshot, it.productCodeSnapshot, it.productNameSnapshot, it.tierID, it.priceOverride, it.productKind, usage.PublicationID, usage.VersionNo, it.name, it.note, qtyAny, notNullTextPtr(it.unit), notNullTextPtr(it.spec), it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal, it.salesUnit, it.unitBagCount, it.unitBeanG, it.matchedPriceQty, priceSourceJSON); err != nil {
+		var insertedItemID int64
+		if err := tx.QueryRow(ctx, insertItemSQL+" RETURNING id", orderID, idx+1, it.productID, it.bomSpecID, it.bomVariantID, it.customerProductAliasID, it.customerProductReferenceID, nil, it.customerProductDisplayNameSnapshot, it.customerItemCodeSnapshot, it.brandNameSnapshot, it.productCodeSnapshot, it.productNameSnapshot, it.tierID, it.priceOverride, it.productKind, usage.PublicationID, usage.VersionNo, it.name, it.note, qtyAny, notNullTextPtr(it.unit), notNullTextPtr(it.spec), it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal, it.salesUnit, it.unitBagCount, it.unitBeanG, it.matchedPriceQty, priceSourceJSON).Scan(&insertedItemID); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+		if err := r.saveOrderOperationNotesTx(ctx, tx, orderID, insertedItemID, cmd.Actor, productID, it.bomSpecID, it.bomVariantID, it.operationNotesSubmitted, it.operationNotes); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
 	}

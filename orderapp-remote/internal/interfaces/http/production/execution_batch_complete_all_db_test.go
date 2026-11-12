@@ -27,6 +27,16 @@ func TestExecutionBatchesCompleteAllAtomicReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	prefix := fmt.Sprintf("/api/job-cards/%d", card)
+	// Opening a legacy task previews its frozen batch arrangement without
+	// creating execution records or posting any stock movement.
+	prestart := serveMultilevelProductionJSON(t, e, "GET", prefix+"/execution-batches", nil)
+	if prestart.Code != 200 { t.Fatal(prestart.Body.String()) }
+	var prestartList app.ExecutionBatchList
+	if err := json.Unmarshal(prestart.Body.Bytes(), &prestartList); err != nil || len(prestartList.PreviewBatches) != 4 || prestartList.PreviewBatches[3].PlannedInputQty != 14.962 {
+		t.Fatalf("pre-start preview: %s %v", prestart.Body.String(), err)
+	}
+	assertProductionFlowCount(t, pool, schema, "production_execution_batches", fmt.Sprintf("job_card_id=%d", card), 0)
+	assertProductionFlowCount(t, pool, schema, "production_operation_events", fmt.Sprintf("job_card_id=%d", card), 0)
 	preview := func(kind string) app.OperationCompletionPreview {
 		t.Helper()
 		res := serveMultilevelProductionJSON(t, e, "GET", prefix+"/"+kind+"-preview", nil)

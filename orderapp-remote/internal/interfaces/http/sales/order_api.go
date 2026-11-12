@@ -158,6 +158,7 @@ type orderSaveAPIRequest struct {
 	UnitPrice                          []string `json:"unit_price"`
 	ItemName                           []string `json:"item_name"`
 	ItemNote                           []string `json:"item_note"`
+	ItemOperationNotes                 []string `json:"item_operation_notes"`
 	Qty                                []string `json:"qty"`
 	Unit                               []string `json:"unit"`
 	Spec                               []string `json:"spec"`
@@ -222,6 +223,8 @@ func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages Message
 	e.GET("/api/orders/:id/receipts", h.orderReceipts)
 	e.GET("/api/orders/:id/combined-payments", h.orderCombinedPayments)
 	e.GET("/api/order/form", h.form)
+	e.GET("/api/order-operation-options", h.operationOptions)
+	e.GET("/api/customer-processing/portal/order/operation-options", h.customerOperationOptions)
 	e.GET("/api/order/catalog", h.catalog)
 	e.GET("/api/product-settings/spec-conversion-groups", h.conversionSettings)
 	e.POST("/api/product-settings/spec-conversion-groups", h.saveConversionGroup)
@@ -771,6 +774,7 @@ func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 		UnitPrice:                          r.UnitPrice,
 		ItemName:                           r.ItemName,
 		ItemNote:                           r.ItemNote,
+		ItemOperationNotes:                 r.ItemOperationNotes,
 		Qty:                                r.Qty,
 		Unit:                               r.Unit,
 		Spec:                               r.Spec,
@@ -1139,6 +1143,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		ProductCodeSnapshot                string                            `json:"product_code_snapshot"`
 		ProductNameSnapshot                string                            `json:"product_name_snapshot"`
 		Note                               string                            `json:"note"`
+		OperationNotes                     []salesapp.OrderOperationNote     `json:"operation_notes"`
 		TierID                             string                            `json:"tier_id"`
 		PriceOverride                      bool                              `json:"price_override"`
 		PriceSelectionMode                 string                            `json:"price_selection_mode"`
@@ -1207,6 +1212,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 			ProductCodeSnapshot:                it.ProductCodeSnapshot,
 			ProductNameSnapshot:                it.ProductNameSnapshot,
 			Note:                               it.Note,
+			OperationNotes:                     it.OperationNotes,
 			TierID:                             tierID,
 			PriceOverride:                      it.PriceOverride,
 			UnitPrice:                          it.UnitPrice,

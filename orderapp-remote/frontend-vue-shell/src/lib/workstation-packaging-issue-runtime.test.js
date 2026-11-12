@@ -52,12 +52,13 @@ function packagingTasks() {
   }))
 }
 
-test('packaging refill opens the drawer for all simplified group tasks despite empty stock actions', async () => {
+test('selected packaging refill opens the drawer for all selected tasks despite empty stock actions', async () => {
   const { state, tree } = await harness()
   const tasks = packagingTasks()
   state.overview.value = { tasks }
-  const button = findNode(await tree(), node => node.type === 'button' && node.children === '补齐物料')
-  assert.ok(button, 'the grouped card renders its refill button')
+  state.toggleStartSelection({tasks})
+  const button = findNode(await tree(), node => node.type === 'button' && node.children === '补齐所选物料')
+  assert.ok(button, 'selected orders expose their refill button')
   assert.equal(button.props.disabled, false)
   button.props.onClick()
   assert.equal(state.batchIssue.open, true, 'clicking refill must open the existing drawer')
@@ -85,10 +86,11 @@ test('ordinary merged issue keeps its existing stock-action eligibility filter',
   assert.deepEqual(state.batchIssue.ids, [1])
 })
 
-test('non-Chinese piece tasks render the packaging group and open all sources', async () => {
+test('non-Chinese piece tasks remain selectable and open all selected sources', async () => {
   const { state, tree } = await harness()
   state.overview.value = { tasks: packagingTasks().map(task => ({...task,operation:'assembly',reporting_type:'piece'})) }
-  const button = findNode(await tree(), node => node.type === 'button' && node.children === '补齐物料')
+  state.toggleStartSelection({tasks:state.overview.value.tasks})
+  const button = findNode(await tree(), node => node.type === 'button' && node.children === '补齐所选物料')
   assert.ok(button);button.props.onClick();assert.deepEqual(state.batchIssue.ids,[101,102,103])
 })
 
@@ -117,8 +119,8 @@ test('single or multiple weight batches expand through the task title without st
   assert.equal(state.isInlineBatchTask({...base,planned_batch_count:4}),true)
   assert.equal(state.isInlineBatchTask({...base,reporting_type:'piece'}),false)
   assert.equal(state.isInlineBatchTask({...base,reporting_type:'incoming'}),false)
-  state.toggleFinishPanel(base);assert.equal(state.finishPanel.open,true)
-  state.toggleFinishPanel(base);assert.equal(state.finishPanel.open,false)
+  state.toggleFinishPanel(base);assert.equal(state.startPanel.open,true);assert.equal(state.finishPanel.open,false)
+  state.toggleFinishPanel(base);assert.equal(state.startPanel.open,false)
 })
 
 test('task header completes the expanded batch form',async()=>{

@@ -1223,6 +1223,12 @@ test('buildOrderPayload carries per-item notes with order detail rows', () => {
   assert.deepEqual(payload.item_name, ['橘皮乌龙', '榛巧拼配'])
 })
 
+test('order payload preserves per-item operation notes and omission', () => {
+  const note = {output_type:'product',output_id:4,route_id:1,step_id:2,operation_id:3,operation_name:'包装',note:'贴标 A'}
+  const payload = buildOrderPayload({form:{},rows:[{product_id:7,product_name:'豆',spec_mode:'454',qty:1,operation_notes:[note]},{product_id:8,product_name:'豆',spec_mode:'454',qty:1}]})
+  assert.deepEqual(payload.item_operation_notes,[JSON.stringify([note]),''])
+})
+
 test('buildOrderPayload includes selected bean list publication', () => {
   const payload = buildOrderPayload({
     form: {

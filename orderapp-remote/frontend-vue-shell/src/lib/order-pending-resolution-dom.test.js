@@ -12,7 +12,7 @@ const {createApp,nextTick}=await import('vue')
 const filename=new URL('../views/OrderEntryView.vue',import.meta.url)
 const {descriptor}=parse(fs.readFileSync(filename,'utf8'),{filename:filename.pathname})
 let code=compileScript(descriptor,{id:'pending-resolution-dom',inlineTemplate:true}).content
-code=code.replace(/import (\w+) from ['"][^'"]+\.vue['"]/g,(_,name)=>`const ${name}={render:()=>null}`)
+code=code.replace(/import (\w+) from ['"][^'"]+\.vue['"]/g,(_,name)=>name==='OrderOperationNotes' ? `const ${name}={setup(_,ctx){ctx.expose({validate:async()=>true});return ()=>null}}` : `const ${name}={render:()=>null}`)
 code=code.replace(/from (['"])([^'"]+)\1/g,(_,q,path)=>`from ${JSON.stringify(path.startsWith('.')?new URL(/\.[a-z]+$/.test(path)?path:`${path}.js`,filename).href:import.meta.resolve(path))}`)
 const {default:View}=await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
 const response=(value,status=200)=>({ok:status<400,status,json:async()=>value})
@@ -21,7 +21,7 @@ const button=text=>[...document.querySelectorAll('button')].find(node=>node.text
 
 test('预付款页面可编辑分项，合计不符不提交，修正后发送',async()=>{
  const script=compileScript(descriptor,{id:'receipt-editor-dom'})
- let js=script.content.replace(/import (\w+) from ['"][^'"]+\.vue['"]/g,(_,name)=>name==='OrderFreightEstimate' ? `const ${name}={setup(_,ctx){ctx.expose({preview:async()=>({token:'freight-1'}),payload:()=>({expected_freight_token:'freight-1',shipping_amount:String(globalThis.receiptDomShippingAmount ?? '20')})});return ()=>null}}` : `const ${name}={render:()=>null}`)
+ let js=script.content.replace(/import (\w+) from ['"][^'"]+\.vue['"]/g,(_,name)=>name==='OrderFreightEstimate' ? `const ${name}={setup(_,ctx){ctx.expose({preview:async()=>({token:'freight-1'}),payload:()=>({expected_freight_token:'freight-1',shipping_amount:String(globalThis.receiptDomShippingAmount ?? '20')})});return ()=>null}}` : name==='OrderOperationNotes' ? `const ${name}={setup(_,ctx){ctx.expose({validate:async()=>true});return ()=>null}}` : `const ${name}={render:()=>null}`)
  js=js.replace(/from (['"])([^'"]+)\1/g,(_,q,path)=>`from ${JSON.stringify(path.startsWith('.')?new URL(/\.[a-z]+$/.test(path)?path:`${path}.js`,filename).href:import.meta.resolve(path))}`)
  const {default:Editor}=await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`)
  let renderCode=compileTemplate({source:descriptor.template.content,filename:filename.pathname,id:'receipt-editor-dom',compilerOptions:{bindingMetadata:script.bindings}}).code

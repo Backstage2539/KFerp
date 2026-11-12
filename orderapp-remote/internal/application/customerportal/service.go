@@ -698,14 +698,15 @@ type UpdateMallProductImageCommand struct {
 }
 
 type MallOrderItemCommand struct {
-	MallProductID int64   `json:"mall_product_id"`
-	ProductID     int64   `json:"product_id,omitempty"`
-	BomSpecID     int64   `json:"bom_spec_id,omitempty"`
-	BomVariantID  int64   `json:"bom_variant_id,omitempty"`
-	Qty           int64   `json:"qty"`
-	SalesUnit     string  `json:"sales_unit"`
-	UnitBagCount  int64   `json:"unit_bag_count"`
-	UnitBeanG     float64 `json:"unit_bean_g"`
+	OperationNotes *[]salesapp.OrderOperationNote `json:"operation_notes,omitempty"`
+	MallProductID  int64                          `json:"mall_product_id"`
+	ProductID      int64                          `json:"product_id,omitempty"`
+	BomSpecID      int64                          `json:"bom_spec_id,omitempty"`
+	BomVariantID   int64                          `json:"bom_variant_id,omitempty"`
+	Qty            int64                          `json:"qty"`
+	SalesUnit      string                         `json:"sales_unit"`
+	UnitBagCount   int64                          `json:"unit_bag_count"`
+	UnitBeanG      float64                        `json:"unit_bean_g"`
 }
 
 type CreateMallOrderCommand struct {

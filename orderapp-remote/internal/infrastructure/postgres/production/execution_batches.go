@@ -89,6 +89,27 @@ func (r Repository) executionBatchListTx(ctx context.Context, tx pgx.Tx, id int6
 		return out, nil
 	}
 	out.CanInitialize = true
+	// Legacy tasks may lack persisted batches. A preview must not initialize or
+	// mutate them; only use the task's frozen planned values.
+	var unit string
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(batch_size_unit,'') FROM %s.job_cards WHERE id=$1`, r.schema), id).Scan(&unit)
+	if err != nil {
+		return out, err
+	}
+	if unit != p.InputUnit {
+		a, b := app.OperationUnitFactor(unit), app.OperationUnitFactor(p.InputUnit)
+		if a <= 0 || b <= 0 {
+			out.Reason = "批次单位与投入单位不一致，请核对原计划"
+			return out, nil
+		}
+		size = size * a / b
+	}
+	priorInput := priorInputG / app.OperationUnitFactor(p.InputUnit)
+	out.PreviewBatches, err = app.ExecutionBatchPreviewPlan(p.InputQty, size, count, p.InputUnit, p.OutputUnit, minutes, sourceInput, sourceOutput, sourceOK && !p.PredecessorRequired, priorInput)
+	if err != nil {
+		out.Reason = "原计划批次资料不完整，请核对安排"
+		out.PreviewBatches = nil
+	}
 	return out, nil
 }
 func (r Repository) ListExecutionBatches(ctx context.Context, id int64) (app.ExecutionBatchList, error) {

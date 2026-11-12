@@ -110,16 +110,15 @@ test('group completion blocks output beyond available stock and material edits b
   assert.equal(workstationGroupCompletionValidation({ outputQty: 15, maxOutputQty: 15, remainingQty: 21, materials: [{ ...materials[0], qty: 15 }] }), '')
 })
 
-test('workstation exposes one material action and one completion form per compatible packaging group', () => {
+test('workstation exposes selected start and retains compatible group completion', () => {
   const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
   const form = readFileSync(new URL('../components/WorkstationPackagingCompletionForm.vue', import.meta.url), 'utf8')
   assert.match(source, /workstationPackagingGroups\(section\.tasks\)/)
-  assert.match(source, /@click="openPackagingGroupIssue\(group\)"\>补齐物料/)
-  assert.match(source, /!groupHasShortage\(group\)/)
-  assert.match(source, /openGroupStart\(group\).*openGroupCompletion\(group\)/)
+  assert.match(source, /补齐所选物料/)
+  assert.match(source, /selectedStartRows\(section\)/)
+  assert.match(source, /completionGroups\(section\)/)
   assert.match(source,/OperationStartGroupForm/)
-  assert.match(source, /来源仓可补/)
-  assert.match(source, /apiSend\('\/api\/production\/workstation\/material-issue\/preview'/)
+  assert.match(source, /全选当前工位可开工工单/)
   assert.match(source, /WorkstationPackagingCompletionForm[\s\S]*:task-ids="completionGroup\.ids"/)
   assert.doesNotMatch(source, /撤回并重新安排/)
   assert.doesNotMatch(source, /@click="openStockAction\(task, 'issue'\)"/)

@@ -7,7 +7,7 @@
       </header>
       <p class="intro">{{ isReplenishment ? '先生成待确认转仓单，核对来源和批次后在此确认调入 WIP。' : '核对实际数量后，一次领到 WIP 并过账。多领部分留在 WIP，生产消耗另行记录。' }}</p>
       <p v-if="uncertain" class="warning">存在未确认的领料，请使用原账号重试同一次请求；不要重新领料。</p>
-      <div v-if="startShortages.length" class="warning"><p v-for="item in startShortages" :key="item.key">本批开工缺口：{{ item.name }} {{ item.shortage_qty }} {{ item.unit }}</p><p>待领数量按冻结预留计算；如开工缺口更大，可在可领范围内修改实际领用量。</p></div>
+      <div v-if="startShortages.length" class="warning"><p v-for="item in startShortages" :key="item.key">本批开工缺口：{{ item.name }} {{ item.shortage_qty }} {{ item.unit }}</p><p>缺口为建议调入量，可在可调库存内增加数量，多调部分留在 WIP。</p></div>
       <p v-if="loading" role="status">正在汇总物料与可领库存…</p>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
       <section v-if="draftReceipt" class="result" role="status"><strong>待确认转仓单</strong><div v-for="row in draftReceipt.groups" :key="row.key" class="result-row"><strong>{{ row.name }}</strong><span>数量 {{ format(row, row.quantity) }}</span><span v-for="doc in row.documents" :key="doc.id">{{ doc.entry_no }}</span></div><p>确认后才调入 WIP。</p></section>
@@ -26,7 +26,7 @@
           <span>已选 {{ selected.length }} 组</span>
           <button type="button" :disabled="saving || uncertain || !!draftReceipt" @click="refresh">刷新领料建议</button>
         </div>
-        <p v-if="!preview.groups.length && !preview.blocked.length" class="empty">所选任务当前没有待领物料。</p>
+        <p v-if="!preview.groups.length && !preview.blocked.length" class="empty">{{ isReplenishment ? '当前没有可生成的补料单。请刷新核对 WIP 是否已补齐，或检查来源仓库存。' : '所选任务当前没有待领物料。' }}</p>
         <article v-for="group in preview.groups" :key="group.key" class="material-group" :class="{ unavailable: !groupCanIssue(group) }">
           <div class="group-title">
             <label><input v-model="selected" type="checkbox" :value="group.key" :disabled="locked || !groupCanIssue(group)" :aria-label="`选择 ${group.name}`" /><strong>{{ group.name }}</strong></label>
@@ -44,15 +44,15 @@
           </div>
           <p v-if="selected.includes(group.key) && groupIssueValidation(group, quantities[group.key])" class="error">{{ groupIssueValidation(group, quantities[group.key]) }}</p>
           <p v-if="group.reason" class="warning">{{ group.reason }}；未领部分继续保留待办。</p>
-          <details><summary>查看 {{ group.allocations.length }} 条工单及批次分配</summary>
+          <details :open="isReplenishment"><summary>查看 {{ group.allocations.length }} 条工单及批次分配</summary>
             <div v-for="(row, index) in batchIssueAllocations(group, quantities[group.key])" :key="`${row.job_card_id}:${row.binding_id}:${index}`" class="allocation">
-              <span>{{ row.work_order_no }} · 任务 #{{ row.job_card_id }}</span><span>{{ warehouse(row.from_warehouse || group.from_warehouse) }} · 批次 {{ row.batch_code || '待前道产出' }}</span>
+              <span>{{ row.work_order_no }} · 任务 #{{ row.job_card_id }}</span><span>{{ warehouse(row.from_warehouse || group.from_warehouse) }} · 批次 {{ row.batch_code || '待前道产出' }} · 可调 {{ format(group, Number(row.available || 0) + Number(row.extra_available || 0)) }}</span>
               <span>本次 {{ format(group, selected.includes(group.key) ? row.actual : 0) }}<template v-if="row.extra && selected.includes(group.key)">（额外 WIP {{ format(group, row.extra) }}）</template></span>
             </div>
           </details>
         </article>
         <section v-if="preview.blocked.length" class="blocked"><h3>需单独处理</h3>
-          <div v-for="row in preview.blocked" :key="row.job_card_id"><span>{{ row.work_order_no }} · {{ row.reason }}</span><button v-if="row.draft_id" type="button" :disabled="saving || uncertain || !!draftReceipt" @click="restoreDraft(row)">恢复补料草稿</button><button v-if="row.draft_id" type="button" :disabled="saving || uncertain || !!draftReceipt" @click="openDocument({id: row.draft_id, work_order_id: 0, job_card_id: row.job_card_id})">查看原草稿</button></div>
+          <div v-for="row in preview.blocked" :key="`${row.job_card_id}:${row.draft_id || 0}:${row.reason}`"><span>{{ row.work_order_no }} · {{ row.reason }}</span><button v-if="row.draft_id" type="button" :disabled="saving || uncertain || !!draftReceipt" @click="restoreDraft(row)">恢复补料草稿</button><button v-if="row.draft_id" type="button" :disabled="saving || uncertain || !!draftReceipt" @click="openDocument({id: row.draft_id, work_order_id: 0, job_card_id: row.job_card_id})">查看原草稿</button></div>
         </section>
       </template>
       <footer>
@@ -70,20 +70,20 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client.js'
 import { batchIssueAllocations, batchIssueFactor, batchIssuePayload, batchIssueQuantity, batchIssueValidation, mergeBatchIssueGroups, shortageIssueDefaults } from '../lib/workstation-batch-issue.js'
 import { issueSessionStorage, readPendingIssue, savePendingIssue, clearPendingIssue, validIssueResult } from '../lib/workstation-issue-recovery.js'
-const props = defineProps({ taskIds: { type: Array, required: true }, workstation: String, returnParams: Object, startShortages: { type: Array, default: () => [] }, startInput: { type: Object, default: null } })
+const props = defineProps({ taskIds: { type: Array, required: true }, workstation: String, returnParams: Object, replenishment:{type:Boolean,default:false}, startShortages: { type: Array, default: () => [] }, startInput: { type: Object, default: null } })
 const emit = defineEmits(['close', 'posted', 'cancelled'])
 const loading = ref(false), saving = ref(false), error = ref(''), preview = ref(null), result = ref(null), draftReceipt = ref(null), pendingWorkflow = ref('')
 const selected = ref([]), quantities = ref({}), uncertain = ref(false), cancelUncertain = ref(false)
 const warehouseNames = ref(new Map())
 let retryPayload = null
-const isReplenishment = computed(() => props.startShortages.length > 0 || pendingWorkflow.value === 'replenishment')
+const isReplenishment = computed(() => props.replenishment || props.startShortages.length > 0 || pendingWorkflow.value === 'replenishment')
 const locked = computed(() => saving.value || uncertain.value || !!result.value || !!draftReceipt.value)
 const shortageLimit = group => shortageIssueDefaults([group], props.startShortages).quantities[group.key] || 0
 const groupCanIssue = group => props.startShortages.length ? shortageLimit(group) > 0 : Number(group.available) > 0
 const groupIssueValidation = (group, quantity) => {
   const error = batchIssueValidation(group, quantity)
   if (error) return error
-  return props.startShortages.length && Number(quantity) > shortageLimit(group) + 1e-8 ? '数量不能超过本批实际缺口' : ''
+  return ''
 }
 const eligibleGroups = computed(() => (preview.value?.groups || []).filter(groupCanIssue))
 const allGroupsSelected = computed(() => eligibleGroups.value.length > 0 && eligibleGroups.value.every(group => selected.value.includes(group.key)))
@@ -96,7 +96,7 @@ function toggleGroups() { selected.value = allGroupsSelected.value ? [] : eligib
 async function refresh() {
   loading.value = true; error.value = ''; result.value = null; retryPayload = null
   try {
-    preview.value = await apiSend('/api/production/workstation/material-issue/preview', { body: { job_card_ids: props.taskIds } })
+    preview.value = await apiSend('/api/production/workstation/material-issue/preview', { body: { job_card_ids: props.taskIds, ...(isReplenishment.value ? {workflow:'replenishment', ...(props.startInput ? {start_input:props.startInput} : {})} : {}) } })
     preview.value.groups = mergeBatchIssueGroups(preview.value.groups)
     if (props.startShortages.length) {
       const defaults = shortageIssueDefaults(preview.value.groups, props.startShortages)
@@ -121,8 +121,7 @@ async function submit() {
     }
     sent = true
     if (retryPayload.workflow === 'replenishment' && !draftReceipt.value) {
-      const {workflow, ...body} = retryPayload
-      const draft = await apiSend('/api/production/workstation/material-issue/draft', { body })
+      const draft = await apiSend('/api/production/workstation/material-issue/draft', { body: retryPayload })
       if (draft.request_id !== retryPayload.request_id || !Array.isArray(draft.groups) || draft.groups.length !== retryPayload.groups.length || draft.groups.some(row => row.status !== 'draft' || !row.documents?.length)) throw new Error('转仓单结果不完整')
       draftReceipt.value = draft; uncertain.value = false; pendingWorkflow.value = 'replenishment'; return
     }

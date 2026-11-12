@@ -87,13 +87,13 @@ func (r Repository) draftBatchMaterialIssueOnce(ctx context.Context, cmd app.Bat
 		if e != nil {
 			return result, e
 		}
-		if limits != nil {
+		if cmd.Workflow != "replenishment" && limits != nil {
 			key := replenishmentGroupKey(g)
 			if qty > limits[key] {
 				return result, fmt.Errorf("补料数量超过实际缺口")
 			}
 			limits[key] -= qty
-		} else if qty > g.Remaining {
+		} else if cmd.Workflow != "replenishment" && qty > g.Remaining {
 			return result, fmt.Errorf("补料数量超过当前缺口")
 		}
 		allocations, e := app.AllocateBatchMaterialIssue(g, qty)
@@ -205,7 +205,7 @@ func (r Repository) confirmBatchMaterialIssueOnce(ctx context.Context, requestID
 	if err != nil {
 		return result, err
 	}
-	if limits != nil {
+	if receipt.Command.Workflow != "replenishment" && limits != nil {
 		groups := map[string]app.BatchMaterialIssueGroup{}
 		for _, g := range preview.Groups {
 			groups[g.Key] = g
@@ -228,7 +228,7 @@ func (r Repository) confirmBatchMaterialIssueOnce(ctx context.Context, requestID
 	}
 	repo := postgresstock.NewRepository(r.pool, r.schema)
 	for _, id := range ids {
-		if _, err = repo.SubmitWorkstationReplenishmentTx(ctx, tx, id, actor); err != nil {
+		if _, err = repo.SubmitWorkstationReplenishmentTx(ctx, tx, id, actor, receipt.Command.Workflow == "replenishment"); err != nil {
 			return result, err
 		}
 	}
@@ -254,7 +254,7 @@ func (r Repository) replenishmentActualLimitsTx(ctx context.Context, tx pgx.Tx, 
 		productUsed := map[int64]int64{}
 		productFreeUsed := map[int64]int64{}
 		for _, id := range cmd.JobCardIDs {
-			p, _, err := r.operationCompletionContextTx(ctx, tx, id, true)
+			p, _, err := r.operationCompletionContextTx(ctx, tx, id, false)
 			if err != nil {
 				return nil, err
 			}
@@ -327,7 +327,7 @@ func (r Repository) replenishmentActualLimitsTx(ctx context.Context, tx pgx.Tx, 
 		return nil, fmt.Errorf("按实际投入补料只支持单个任务")
 	}
 	in := cmd.StartInput
-	p, _, err := r.operationCompletionContextTx(ctx, tx, cmd.JobCardIDs[0], true)
+	p, _, err := r.operationCompletionContextTx(ctx, tx, cmd.JobCardIDs[0], false)
 	if err != nil {
 		return nil, err
 	}

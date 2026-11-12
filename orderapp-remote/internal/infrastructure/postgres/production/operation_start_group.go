@@ -2,6 +2,7 @@ package production
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"github.com/jackc/pgx/v5"
@@ -26,29 +27,56 @@ func (r Repository) PreviewOperationStartGroup(ctx context.Context, ids []int64)
 }
 func (r Repository) startGroupContextTx(ctx context.Context, tx pgx.Tx, ids []int64) (app.OperationStartGroupPreview, error) {
 	var out app.OperationStartGroupPreview
-	group, sources, err := r.operationCompletionGroupContextTx(ctx, tx, ids, false)
-	if err != nil {
-		return out, err
+	if len(ids) < 2 || len(ids) > 100 {
+		return out, fmt.Errorf("请选择 2 至 100 张同工位待开工工单")
 	}
-	out.Version = group.Version
+	sortedIDs := append([]int64(nil), ids...)
+	sort.Slice(sortedIDs, func(i, j int) bool { return sortedIDs[i] < sortedIDs[j] })
 	seen := map[int64]bool{}
-	for _, s := range sources {
-		if seen[s.cardID] {
-			return out, fmt.Errorf("合并任务重复")
+	seenOrders := map[int64]bool{}
+	stationKey := ""
+	versionParts := make([]any, 0, len(ids))
+	for _, id := range sortedIDs {
+		if id <= 0 || seen[id] {
+			return out, fmt.Errorf("所选任务无效或重复")
 		}
-		seen[s.cardID] = true
-		if s.p.MaterialConsumptionPolicy != "bom_start_v1" {
-			return out, fmt.Errorf("请选择使用按批开工扣料的同组任务")
-		}
-		var status string
-		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT status FROM %s.job_cards WHERE id=$1`, r.schema), s.cardID).Scan(&status); err != nil {
+		seen[id] = true
+		var status, station, no string
+		var stationID, workID int64
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT j.status,j.workstation,COALESCE(j.workstation_id,0),w.id,w.work_order_no FROM %[1]s.job_cards j JOIN %[1]s.work_orders w ON w.id=j.work_order_id WHERE j.id=$1`, r.schema), id).Scan(&status, &station, &stationID, &workID, &no); err != nil {
 			return out, err
 		}
-		if !validJobCardTransition(status, "start") {
-			return out, fmt.Errorf("任务已开工或结束，请刷新")
+		if seenOrders[workID] {
+			return out, fmt.Errorf("%s：同一工单包含多个包装任务，请逐卡处理", no)
 		}
-		out.Tasks = append(out.Tasks, s.p)
+		seenOrders[workID] = true
+		currentStation := fmt.Sprintf("%d:%s", stationID, strings.TrimSpace(station))
+		if len(out.Tasks) > 0 && currentStation != stationKey {
+			return out, fmt.Errorf("%s：请选择同一工位的待开工工单", no)
+		}
+		stationKey = currentStation
+		if !validJobCardTransition(status, "start") {
+			return out, fmt.Errorf("%s：任务已开工或结束，请刷新", no)
+		}
+		p, wo, err := r.operationCompletionContextTx(ctx, tx, id, false)
+		if err != nil {
+			return out, fmt.Errorf("%s：%w", no, err)
+		}
+		if p.BlockedReason != "" {
+			return out, fmt.Errorf("%s：%s", no, p.BlockedReason)
+		}
+		legacy := p.Execution.ReportingType == "" || p.Execution.ReportingType == "legacy"
+		if p.MaterialConsumptionPolicy != "bom_start_v1" || !p.Enabled || !p.Final || !p.Execution.ReceiptEnabled || (p.Execution.ReportingType != "piece" && !(legacy && isPackagingOperationName(taskOperationForCard(ctx, tx, r.schema, id)))) {
+			return out, fmt.Errorf("%s：请选择按开工扣料的包装任务", no)
+		}
+		if wo.Status == "completed" || wo.Status == "cancelled" {
+			return out, fmt.Errorf("%s：工单已结束", no)
+		}
+		out.Tasks = append(out.Tasks, p)
+		versionParts = append(versionParts, []any{id, p.Version, stationID, station})
 	}
+	raw, _ := json.Marshal(versionParts)
+	out.Version = fmt.Sprintf("%x", sha256.Sum256(raw))
 	return out, nil
 }
 func (r Repository) StartOperationGroup(ctx context.Context, c app.OperationStartGroupCommand) (app.OperationStartGroupResult, error) {
@@ -73,8 +101,16 @@ func (r Repository) StartOperationGroup(ctx context.Context, c app.OperationStar
 		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, r.schema+":production_roster:"+week); err != nil {
 			return unused, err
 		}
+		if len(c.Items) < 2 || len(c.Items) > 100 {
+			return unused, fmt.Errorf("请选择 2 至 100 张同工位待开工工单")
+		}
 		ids := []int64{}
+		seenIDs := map[int64]bool{}
 		for _, item := range c.Items {
+			if item.ID <= 0 || seenIDs[item.ID] {
+				return unused, fmt.Errorf("所选任务无效或重复")
+			}
+			seenIDs[item.ID] = true
 			ids = append(ids, item.ID)
 		}
 		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
@@ -121,12 +157,14 @@ func (r Repository) StartOperationGroup(ctx context.Context, c app.OperationStar
 		for _, task := range p.Tasks {
 			versions[task.JobCardID] = task.Version
 		}
+		for _, requested := range c.Items {
+			if requested.ExpectedVersion != versions[requested.ID] {
+				return unused, fmt.Errorf("工序卡 %d：来源任务版本已变化，请刷新", requested.ID)
+			}
+		}
 		result.Items = nil
 		for _, requested := range c.Items {
 			item := requested.Command()
-			if item.ExpectedVersion != versions[item.ID] {
-				return unused, fmt.Errorf("来源任务版本已变化，请刷新")
-			}
 			// All client versions were checked before any writes; prior tasks in this
 			// same transaction may legitimately change shared inventory's version.
 			current, _, e := r.operationCompletionContextTx(ctx, tx, item.ID, true)
@@ -140,7 +178,7 @@ func (r Repository) StartOperationGroup(ctx context.Context, c app.OperationStar
 			item.RequestID = fmt.Sprintf("%s:%d", c.RequestID, item.ID)
 			row, e := r.startOperationLockedTx(ctx, tx, item)
 			if e != nil {
-				return unused, e
+				return unused, fmt.Errorf("工序卡 %d：%w", item.ID, e)
 			}
 			result.Items = append(result.Items, row)
 		}

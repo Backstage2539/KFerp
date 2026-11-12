@@ -380,6 +380,7 @@ CREATE INDEX IF NOT EXISTS work_center_capacity_calendar_lookup_idx ON %s.work_c
 		fmt.Sprintf(`ALTER TABLE %s.work_orders DROP CONSTRAINT IF EXISTS work_orders_running_item_id_key`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ALTER COLUMN running_item_id SET DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS parent_product_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS related_orders_snapshot_json JSONB`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS bom_source_product_id BIGINT NOT NULL DEFAULT 0`, schema),

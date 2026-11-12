@@ -150,14 +150,31 @@ func (s *Service) CreateLinkedReplenishment(ctx context.Context, cmd LinkedReple
 }
 
 type ProductionDemandOrder struct {
-	OrderItemID  int64   `json:"order_item_id"`
-	OrderID      int64   `json:"order_id"`
-	OrderNo      string  `json:"order_no"`
-	CustomerID   int64   `json:"customer_id"`
-	CustomerName string  `json:"customer_name"`
-	Quantity     float64 `json:"quantity"`
-	SalesUnit    string  `json:"sales_unit"`
-	ForceProduce bool    `json:"force_produce"`
+	LateAssociation   bool                           `json:"late_association,omitempty"`
+	OperationNotes    []ProductionOrderOperationNote `json:"operation_notes,omitempty"`
+	OriginalOrderNote string                         `json:"original_order_note,omitempty"`
+	OriginalItemNote  string                         `json:"original_item_note,omitempty"`
+	OrderItemID       int64                          `json:"order_item_id"`
+	OrderID           int64                          `json:"order_id"`
+	OrderNo           string                         `json:"order_no"`
+	CustomerID        int64                          `json:"customer_id"`
+	CustomerName      string                         `json:"customer_name"`
+	Quantity          float64                        `json:"quantity"`
+	SalesUnit         string                         `json:"sales_unit"`
+	ForceProduce      bool                           `json:"force_produce"`
+}
+
+type ProductionOrderOperationNote struct {
+	OutputType    string `json:"output_type"`
+	OutputID      int64  `json:"output_id"`
+	BomSpecID     int64  `json:"bom_spec_id,omitempty"`
+	BomVariantID  int64  `json:"bom_variant_id,omitempty"`
+	RouteID       int64  `json:"route_id"`
+	StepID        int64  `json:"step_id"`
+	OperationID   int64  `json:"operation_id"`
+	SequenceNo    int    `json:"sequence_no"`
+	OperationName string `json:"operation_name"`
+	Note          string `json:"note"`
 }
 type ProductionDemandSpecGroup struct {
 	Key               string          `json:"key"`

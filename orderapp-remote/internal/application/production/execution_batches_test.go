@@ -16,6 +16,20 @@ func TestExecutionBatchPlanPreservesTail(t *testing.T) {
 	}
 }
 
+func TestExecutionBatchPreviewUsesFrozenPlanAndKeepsTail(t *testing.T) {
+	rows, err := ExecutionBatchPreviewPlan(59.962, 15, 4, "kg", "kg", 72, 60000, 48000, true, 0)
+	if err != nil || len(rows) != 4 {
+		t.Fatalf("preview %v: %v", rows, err)
+	}
+	if rows[3].PlannedInputQty != 14.962 || rows[0].PlannedOutputQty == nil || *rows[0].PlannedOutputQty != 12 || rows[3].PlannedMinutes == nil || *rows[3].PlannedMinutes != 18 {
+		t.Fatalf("wrong frozen preview: %+v", rows)
+	}
+	missing, err := ExecutionBatchPreviewPlan(15, 15, 1, "kg", "kg", 0, 0, 0, false, 0)
+	if err != nil || missing[0].PlannedOutputQty != nil || missing[0].DefaultUnavailableReason == "" {
+		t.Fatalf("missing frozen data guessed: %+v %v", missing, err)
+	}
+}
+
 func TestExecutionBatchCompletionValidation(t *testing.T) {
 	zero := 0.0
 	if err := ValidateExecutionBatchCompletion(nil, ""); err == nil {

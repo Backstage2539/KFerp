@@ -95,6 +95,7 @@ type SaveOrderCommand struct {
 }
 
 type OrderItemCommand struct {
+	OperationNotes                     *[]OrderOperationNote
 	SpecConversion                     *SpecConversionSelection
 	PreserveExistingSnapshot           bool `json:"-"`
 	ItemID                             int64
@@ -500,6 +501,7 @@ type OrderFormData struct {
 }
 
 type OrderEditItem struct {
+	OperationNotes                     []OrderOperationNote
 	ItemID                             int64
 	LineNo                             int
 	ProductID                          int64
