@@ -84,3 +84,42 @@ test('服务号未就绪时不能对个人发起无法出现的提醒', async ()
     assert.equal(document.querySelector('[data-testid="subscriber-row"] button').disabled,true)
   } finally {app.unmount();globalThis.fetch=originalFetch}
 })
+
+test('翻页后搜索重新计算总数并回到第一页，无结果时显示空状态', async () => {
+  const originalFetch=globalThis.fetch
+  const makeRow=(id,name)=>({mini_user_id:id,customer_id:id,employee_id:0,name,identity_type:'customer',identity_active:true,events:[]})
+  globalThis.fetch=async url=>{
+    const parsed=new URL(String(url),window.location.origin)
+    if(parsed.pathname.endsWith('/subscribers')){
+      const q=parsed.searchParams.get('q')
+      return response({items:q==='CodexE2ETest'?[makeRow(200,'CodexE2ETest')]:q==='无此客户'?[]:Array.from({length:317},(_,i)=>makeRow(i+1,`客户${i+1}`))})
+    }
+    return response({config:{},devices:[],deliveries:[],official_ready:true})
+  }
+  const app=createApp(Component)
+  try {
+    app.mount(document.querySelector('#app'));await flush()
+    const pager=()=>document.querySelector('[aria-label="通知账号分页"]')
+    assert.ok(pager())
+    assert.match(pager().textContent,/共 317 条/)
+    assert.match(pager().textContent,/32 页/)
+    assert.equal(document.querySelectorAll('[data-testid="subscriber-row"]').length,10)
+    const next=()=>[...pager().querySelectorAll('button')].find(b=>b.textContent.trim()==='下一页')
+    next().click();await flush()
+    assert.match(pager().textContent,/第 2 页/)
+    const field=document.querySelector('[aria-label="搜索客户、员工或手机号"]')
+    field.value='CodexE2ETest';field.dispatchEvent(new Event('input',{bubbles:true}))
+    document.querySelector('[data-testid="subscriber-search"]').click();await flush()
+    assert.match(pager().textContent,/共 1 条/)
+    assert.match(pager().textContent,/1 页/)
+    assert.match(pager().textContent,/第 1 页/)
+    assert.equal(document.querySelectorAll('[data-testid="subscriber-row"]').length,1)
+    assert.match(document.querySelector('[data-testid="subscriber-row"]').textContent,/CodexE2ETest/)
+    field.value='无此客户';field.dispatchEvent(new Event('input',{bubbles:true}))
+    document.querySelector('[data-testid="subscriber-search"]').click();await flush()
+    assert.match(pager().textContent,/共 0 条/)
+    assert.match(pager().textContent,/第 1 页/)
+    assert.equal(document.querySelectorAll('[data-testid="subscriber-row"]').length,0)
+    assert.match(document.querySelector('.subscribers').textContent,/暂无符合条件的账号/)
+  } finally {app.unmount();globalThis.fetch=originalFetch}
+})
