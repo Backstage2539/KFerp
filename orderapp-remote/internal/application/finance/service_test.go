@@ -288,7 +288,7 @@ func TestDraftReportKeepsSavedClosedOrAdjustedStatus(t *testing.T) {
 
 func TestCustomerScopedDraftReportUsesCustomerFilterAndSkipsGlobalAdjustments(t *testing.T) {
 	repo := newFakeRepo()
-	repo.reportStatus = domain.MonthStatusClosed
+	repo.reportStatus = domain.MonthStatusDraft
 	repo.totals = domain.MonthlySourceTotals{Month: "2026-05", RevenueTaxInclusive: 1030, PeriodExpenses: 120}
 	repo.adjustments = []AdjustmentRecord{{Type: domain.AdjustmentExpense, Amount: 999, Reason: "全局调整"}}
 	svc := NewService(repo)
@@ -303,8 +303,8 @@ func TestCustomerScopedDraftReportUsesCustomerFilterAndSkipsGlobalAdjustments(t 
 	if got := report.AppliedAdjustments[domain.AdjustmentExpense]; got != 0 {
 		t.Fatalf("customer report adjustment = %.2f, want 0", got)
 	}
-	if report.Status != domain.MonthStatusClosed {
-		t.Fatalf("status = %q, want closed", report.Status)
+	if report.Status != domain.MonthStatusDraft {
+		t.Fatalf("status = %q, want draft", report.Status)
 	}
 }
 

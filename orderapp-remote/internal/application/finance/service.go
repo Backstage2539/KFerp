@@ -106,6 +106,10 @@ type ClosingCheckItem struct {
 }
 
 type SourceDetail struct {
+	Quantity               float64      `json:"quantity,omitempty"`
+	Unit                   string       `json:"unit,omitempty"`
+	CostSource             string       `json:"cost_source,omitempty"`
+	PendingReason          string       `json:"pending_reason,omitempty"`
 	CostUnavailable        bool         `json:"cost_unavailable"`
 	Section                string       `json:"section"`
 	SourceType             string       `json:"source_type"`
@@ -157,8 +161,9 @@ func (r DrilldownSection) MarshalJSON() ([]byte, error) {
 }
 
 type ReportDrilldown struct {
-	Month    string             `json:"month"`
-	Sections []DrilldownSection `json:"sections"`
+	Month               string             `json:"month"`
+	Sections            []DrilldownSection `json:"sections"`
+	SnapshotUnavailable bool               `json:"snapshot_unavailable,omitempty"`
 }
 
 func (d ReportDrilldown) SectionTotal(section string) domain.Money {
@@ -217,6 +222,7 @@ type Dashboard struct {
 	Settings   SettingsSnapshot     `json:"settings"`
 	Report     domain.MonthlyReport `json:"report"`
 	Exceptions []Exception          `json:"exceptions"`
+	Daily      DailySummary         `json:"daily"`
 }
 
 type CloseMonthCommand struct {
@@ -329,6 +335,29 @@ func (s *Service) Dashboard(ctx context.Context, month string) (Dashboard, error
 	if err != nil {
 		return Dashboard{}, err
 	}
+	if report, found, err := s.closedReportSnapshot(ctx, ReportFilter{Month: month}); err != nil {
+		return Dashboard{}, err
+	} else if found {
+		daily, err := s.dailyData(ctx, ReportFilter{Month: month}, report)
+		if err != nil {
+			return Dashboard{}, err
+		}
+		// The report itself must remain readable if current source records
+		// become unavailable. Preserve live late-cost warnings when possible.
+		_, exceptions, sourceErr := s.loadTotals(ctx, ReportFilter{Month: month})
+		if sourceErr != nil {
+			exceptions = []Exception{{Code: "closed_source_check_unavailable", Message: "已结账快照可查看，但当前来源异常检查暂不可用"}}
+		} else if !report.CostUnavailable {
+			filtered := exceptions[:0]
+			for _, item := range exceptions {
+				if item.Code != "production_cost_unavailable" {
+					filtered = append(filtered, item)
+				}
+			}
+			exceptions = filtered
+		}
+		return Dashboard{Settings: settings, Report: report, Exceptions: exceptions, Daily: daily.Summary}, nil
+	}
 	totals, exceptions, err := s.loadTotals(ctx, ReportFilter{Month: month})
 	if err != nil {
 		return Dashboard{}, err
@@ -346,13 +375,20 @@ func (s *Service) Dashboard(ctx context.Context, month string) (Dashboard, error
 		}
 		exceptions = filtered
 	}
-	return Dashboard{Settings: settings, Report: report, Exceptions: exceptions}, nil
+	daily, err := s.dailyData(ctx, ReportFilter{Month: month}, report)
+	if err != nil {
+		return Dashboard{}, err
+	}
+	return Dashboard{Settings: settings, Report: report, Exceptions: exceptions, Daily: daily.Summary}, nil
 }
 
 func (s *Service) DraftReport(ctx context.Context, filter ReportFilter) (domain.MonthlyReport, error) {
 	normalized, err := normalizeReportFilter(filter)
 	if err != nil {
 		return domain.MonthlyReport{}, err
+	}
+	if report, found, err := s.closedReportSnapshot(ctx, normalized); err != nil || found {
+		return report, err
 	}
 	settings, err := s.loadSettings(ctx)
 	if err != nil {
@@ -363,6 +399,59 @@ func (s *Service) DraftReport(ctx context.Context, filter ReportFilter) (domain.
 		return domain.MonthlyReport{}, err
 	}
 	return s.reportFromTotals(ctx, settings.Settings, totals, normalized)
+}
+
+// Closed factory reports use the saved accounting snapshot, not live source
+// rows which may have changed or become unavailable after the month was closed.
+func (s *Service) closedReportSnapshot(ctx context.Context, filter ReportFilter) (domain.MonthlyReport, bool, error) {
+	if s.repo == nil {
+		return domain.MonthlyReport{}, false, nil
+	}
+	status, err := s.repo.MonthlyReportStatus(ctx, filter.Month)
+	if err != nil {
+		return domain.MonthlyReport{}, false, err
+	}
+	if status != domain.MonthStatusClosed && status != domain.MonthStatusAdjusted {
+		return domain.MonthlyReport{}, false, nil
+	}
+	if filter.CustomerID != 0 {
+		if loader, ok := s.repo.(customerSnapshotLoader); ok {
+			customer, found, err := loader.LoadCustomerSnapshot(ctx, filter.Month, filter.CustomerID)
+			if err != nil {
+				return domain.MonthlyReport{}, false, err
+			}
+			if found {
+				customer.Report.Status = status
+				return customer.Report, true, nil
+			}
+		}
+		return domain.MonthlyReport{}, false, fmt.Errorf("客户已结账快照不可用，无法可靠查看该客户历史报表")
+	}
+	loader, ok := s.repo.(interface {
+		LoadMonthlyReportSnapshot(context.Context, string) (domain.MonthlyReport, bool, error)
+	})
+	if !ok {
+		return domain.MonthlyReport{}, false, nil
+	}
+	snapshot, found, err := loader.LoadMonthlyReportSnapshot(ctx, filter.Month)
+	if err != nil || !found {
+		return domain.MonthlyReport{}, false, err
+	}
+	rows, err := s.repo.ListAdjustments(ctx, filter.Month)
+	if err != nil {
+		return domain.MonthlyReport{}, false, err
+	}
+	adjustments := make([]domain.Adjustment, 0, len(rows))
+	for _, row := range rows {
+		adjustments = append(adjustments, domain.Adjustment{Type: row.Type, Amount: row.Amount})
+	}
+	snapshot.AppliedAdjustments = nil
+	snapshot.AdjustedTaxExclusiveRevenue = snapshot.TaxExclusiveRevenue
+	snapshot.AdjustedMainBusinessCost = snapshot.MainBusinessCost
+	snapshot.AdjustedPeriodExpenses = snapshot.PeriodExpenses
+	snapshot.AdjustedTaxTotal = snapshot.Tax.TotalTax
+	snapshot.Status = status
+	return domain.ApplyAdjustments(snapshot, adjustments), true, nil
 }
 
 func (s *Service) CloseMonth(ctx context.Context, cmd CloseMonthCommand) (domain.MonthlyReport, error) {
@@ -556,6 +645,36 @@ func (s *Service) ReportDrilldown(ctx context.Context, filter ReportFilter) (Rep
 	if s.repo == nil {
 		return ReportDrilldown{Month: normalized.Month}, nil
 	}
+	status, err := s.repo.MonthlyReportStatus(ctx, normalized.Month)
+	if err != nil {
+		return ReportDrilldown{}, err
+	}
+	if normalized.CustomerID > 0 && (status == domain.MonthStatusClosed || status == domain.MonthStatusAdjusted) {
+		if loader, ok := s.repo.(customerSnapshotLoader); ok {
+			customer, found, err := loader.LoadCustomerSnapshot(ctx, normalized.Month, normalized.CustomerID)
+			if err != nil {
+				return ReportDrilldown{}, err
+			}
+			if found {
+				return drilldownFromDetails(normalized.Month, customer.Daily.SourceRows), nil
+			}
+		}
+		return ReportDrilldown{}, fmt.Errorf("客户已结账快照不可用，无法可靠查看该客户历史明细")
+	}
+	if normalized.CustomerID == 0 && (status == domain.MonthStatusClosed || status == domain.MonthStatusAdjusted) {
+		if loader, ok := s.repo.(interface {
+			LoadDailySnapshot(context.Context, string) (DailySnapshot, bool, error)
+		}); ok {
+			snapshot, found, err := loader.LoadDailySnapshot(ctx, normalized.Month)
+			if err != nil {
+				return ReportDrilldown{}, err
+			}
+			if found {
+				return drilldownFromDetails(normalized.Month, snapshot.SourceRows), nil
+			}
+			return ReportDrilldown{Month: normalized.Month, Sections: []DrilldownSection{}, SnapshotUnavailable: true}, nil
+		}
+	}
 	rows, err := s.repo.FinanceSourceDetails(ctx, normalized)
 	if err != nil {
 		return ReportDrilldown{}, err
@@ -641,6 +760,9 @@ func (s *Service) AccountantHandoff(ctx context.Context, filter ReportFilter) (A
 	if err != nil {
 		return AccountantHandoff{}, err
 	}
+	if drilldown.SnapshotUnavailable {
+		return AccountantHandoff{}, fmt.Errorf("已结账历史来源明细不可用，暂不能生成会计交接")
+	}
 	ledger := []TaxLedgerEntry{}
 	if normalized.CustomerID == 0 {
 		ledger, err = s.ListTaxLedger(ctx, normalized.Month)
@@ -702,6 +824,7 @@ func (s *Service) loadTotals(ctx context.Context, filter ReportFilter) (domain.M
 
 func (s *Service) reportFromTotals(ctx context.Context, settings domain.Settings, totals domain.MonthlySourceTotals, filter ReportFilter) (domain.MonthlyReport, error) {
 	report := domain.BuildMonthlyReport(settings, totals)
+	adjustments := []domain.Adjustment{}
 	if s.repo == nil {
 		return report, nil
 	}
@@ -710,7 +833,7 @@ func (s *Service) reportFromTotals(ctx context.Context, settings domain.Settings
 		if err != nil {
 			return domain.MonthlyReport{}, err
 		}
-		adjustments := make([]domain.Adjustment, 0, len(rows))
+		adjustments = make([]domain.Adjustment, 0, len(rows))
 		for _, row := range rows {
 			adjustments = append(adjustments, domain.Adjustment{Type: row.Type, Amount: row.Amount})
 		}
@@ -730,7 +853,15 @@ func (s *Service) reportFromTotals(ctx context.Context, settings domain.Settings
 				return domain.MonthlyReport{}, err
 			}
 			if found {
-				return snapshot, nil
+				// The snapshot owns the frozen base; adjustments may be added
+				// after it was saved, so always apply the current list exactly once.
+				snapshot.AppliedAdjustments = nil
+				snapshot.AdjustedTaxExclusiveRevenue = snapshot.TaxExclusiveRevenue
+				snapshot.AdjustedMainBusinessCost = snapshot.MainBusinessCost
+				snapshot.AdjustedPeriodExpenses = snapshot.PeriodExpenses
+				snapshot.AdjustedTaxTotal = snapshot.Tax.TotalTax
+				snapshot.Status = status
+				return domain.ApplyAdjustments(snapshot, adjustments), nil
 			}
 		}
 	}

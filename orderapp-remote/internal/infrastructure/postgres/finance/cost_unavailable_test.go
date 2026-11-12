@@ -15,7 +15,10 @@ func TestMonthlyReportUnknownCostAndHistoricalSnapshot(t *testing.T) {
 	pool, schema := newFinancePostgresTestDB(t)
 	ctx := context.Background()
 	mustExecFinanceSQL(t, ctx, pool, fmt.Sprintf(`ALTER TABLE %[1]s.production_batch_costs ADD COLUMN cost_unavailable boolean NOT NULL DEFAULT false; ALTER TABLE %[1]s.production_batch_costs ADD COLUMN cost_updated_at timestamptz;
- INSERT INTO %[1]s.production_batch_costs(product_name,total_cost,created_at,cost_unavailable) VALUES('unknown',12,'2026-11-03',true),('known',30,'2026-12-03',false);`, schema))
+ INSERT INTO %[1]s.production_batch_costs(product_name,total_cost,created_at,cost_unavailable) VALUES('unknown',12,'2026-11-03',true),('known',30,'2026-12-03',false);
+ CREATE TABLE %[1]s.order_items(id bigint PRIMARY KEY,order_id bigint,product_id bigint,bom_spec_id bigint,bom_variant_id bigint,spec text,qty numeric,item_name text,unit text);
+ INSERT INTO %[1]s.orders(id,order_date,customer_id) VALUES(1,'2026-11-03',1);
+ INSERT INTO %[1]s.order_items VALUES(1,1,42,1,1,'',1,'未核算订单商品','件');`, schema))
 	repo := NewRepository(pool, schema)
 	svc := app.NewService(repo)
 	report, err := svc.DraftReport(ctx, app.ReportFilter{Month: "2026-11"})
@@ -57,7 +60,8 @@ func TestMonthlyReportUnknownCostAndHistoricalSnapshot(t *testing.T) {
 func TestMonthCloseSerializesWithCostWritesAndWarnsForLateCost(t *testing.T) {
 	pool, schema := newFinancePostgresTestDB(t)
 	ctx := context.Background()
-	mustExecFinanceSQL(t, ctx, pool, fmt.Sprintf(`ALTER TABLE %[1]s.production_batch_costs ADD COLUMN cost_unavailable boolean NOT NULL DEFAULT false;ALTER TABLE %[1]s.production_batch_costs ADD COLUMN cost_updated_at timestamptz`, schema))
+	mustExecFinanceSQL(t, ctx, pool, fmt.Sprintf(`ALTER TABLE %[1]s.production_batch_costs ADD COLUMN cost_unavailable boolean NOT NULL DEFAULT false;ALTER TABLE %[1]s.production_batch_costs ADD COLUMN cost_updated_at timestamptz;
+ CREATE TABLE %[1]s.order_items(id bigint PRIMARY KEY,order_id bigint,product_id bigint,bom_spec_id bigint,bom_variant_id bigint,spec text,qty numeric,item_name text,unit text)`, schema))
 	svc := app.NewService(NewRepository(pool, schema))
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -67,7 +71,9 @@ func TestMonthCloseSerializesWithCostWritesAndWarnsForLateCost(t *testing.T) {
 	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, schema+":finance-period"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.production_batch_costs(product_name,total_cost,created_at,cost_unavailable,cost_updated_at) VALUES('pending',5,'2026-11-03',true,now())`, schema)); err != nil {
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.production_batch_costs(product_name,total_cost,created_at,cost_unavailable,cost_updated_at) VALUES('pending',5,'2026-11-03',true,now());
+ INSERT INTO %[1]s.orders(id,order_date,customer_id) VALUES(1,'2026-11-03',1);
+ INSERT INTO %[1]s.order_items VALUES(1,1,42,1,1,'',1,'未核算订单商品','件')`, schema)); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
@@ -132,15 +138,12 @@ func TestPartialProductionEventsBlockEachMonthWithoutDuplicatingBatchCost(t *tes
  INSERT INTO %[1]s.production_operation_events(work_order_id,kind,status,payload,created_at) VALUES(123,'complete','posted','{"cost_unavailable":true}','2026-11-06'),(123,'complete','posted','{"cost_unavailable":true}','2026-11-07'),(123,'complete','posting','{"cost_unavailable":true}','2026-10-07');`, schema))
 	svc := app.NewService(NewRepository(pool, schema))
 	first, err := svc.DraftReport(ctx, app.ReportFilter{Month: "2026-11"})
-	if err != nil || !first.CostUnavailable {
-		t.Fatalf("partial not unknown: %+v %v", first, err)
+	if err != nil || first.CostUnavailable {
+		t.Fatalf("unsold partial production should not affect cost: %+v %v", first, err)
 	}
 	filtered, _, err := NewRepository(pool, schema).MonthlySourceTotals(ctx, app.ReportFilter{Month: "2026-11", CustomerID: 42})
-	if err != nil || !filtered.CostUnavailable || filtered.MainBusinessCost != 0 {
-		t.Fatalf("customer-filtered partial should retain unknown status without allocating arbitrary cost: %+v %v", filtered, err)
-	}
-	if _, err = svc.CloseMonth(ctx, app.CloseMonthCommand{Month: "2026-11", Actor: "test"}); err == nil || !strings.Contains(err.Error(), "成本待核算") {
-		t.Fatalf("partial should block close: %v", err)
+	if err != nil || filtered.CostUnavailable || filtered.MainBusinessCost != 0 {
+		t.Fatalf("unsold partial production should not affect customer cost: %+v %v", filtered, err)
 	}
 	old, err := svc.DraftReport(ctx, app.ReportFilter{Month: "2026-10"})
 	if err != nil || old.CostUnavailable {
@@ -148,12 +151,12 @@ func TestPartialProductionEventsBlockEachMonthWithoutDuplicatingBatchCost(t *tes
 	}
 	mustExecFinanceSQL(t, ctx, pool, fmt.Sprintf(`INSERT INTO %[1]s.production_batch_costs(running_item_id,product_name,total_cost,created_at,cost_unavailable) VALUES(456,'finished',42,'2026-12-01',true); INSERT INTO %[1]s.production_operation_events(work_order_id,kind,status,payload,created_at) VALUES(123,'complete','posted','{"cost_unavailable":true}','2026-12-01');`, schema))
 	first, err = svc.DraftReport(ctx, app.ReportFilter{Month: "2026-11"})
-	if err != nil || !first.CostUnavailable {
-		t.Fatalf("earlier month lost unknown: %+v %v", first, err)
+	if err != nil || first.CostUnavailable {
+		t.Fatalf("unsold later output affected earlier month: %+v %v", first, err)
 	}
 	last, err := svc.DraftReport(ctx, app.ReportFilter{Month: "2026-12"})
-	if err != nil || !last.CostUnavailable || last.MainBusinessCost != 42 {
-		t.Fatalf("final month incorrect or duplicated: %+v %v", last, err)
+	if err != nil || last.CostUnavailable || last.MainBusinessCost != 0 {
+		t.Fatalf("unsold output must not be expensed: %+v %v", last, err)
 	}
 	_, exceptions, err := NewRepository(pool, schema).MonthlySourceTotals(ctx, app.ReportFilter{Month: "2026-12"})
 	if err != nil {

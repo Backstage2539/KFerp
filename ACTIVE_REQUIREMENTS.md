@@ -6737,6 +6737,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - DEV: `DEV-SPEC-GROUP-NAV`、`DEV-SPEC-GROUP-API`、`DEV-SPEC-GROUP-PRICING`、`DEV-SPEC-GROUP-DELIVERY`。
 - Verifier: 定向单元/API RED/GREEN、前端测试和构建、隔离数据库完整代发 HTTP 及浏览器模拟验证；成本与生产手册已更新。最终合并及部署验证待完成。
 - Deployment: 未部署。
+
+
+### PR-767-FINANCE-DAILY-LEDGER
+- Branch: `codex/finance-daily-ledger-20261112`；Owner: Codex；Status: 开发环境已部署，Van 验收待完成。
+- Scope: 财务订单实际成本归集、每日流水曲线、月结快照和来源追溯。
+- DEV: `DEV-PR767-COST`、`DEV-PR767-API`、`DEV-PR767-UI`、`DEV-PR767-DELIVERY`。
+- Verifier: 隔离 PostgreSQL 财务应用/仓储/HTTP/权限通过；无数据库 Go 全套、Vue 2022 项与构建通过；隔离数据桌面 Chrome 页面核对通过，开发环境核验待完成。
+- Deployment: ERP-only development `3d752542b5ee40eb5df43b15d825932552f069c1`；登录 200、财务首页和流水 API 200、匿名流水 401、PR-767 为 review、DEV 已完成，10 月流水 39 条（待核算 13 条）；回滚源码 `/opt/stacks/erp/orderapp.backup.deploy-20261113001349-3d752542b5ee`。生产未部署。
+
 ### PR-767-WORKSTATION-CARDS-READINESS
 - Branch: `codex/workstation-card-readiness-20261112`；Status: 正式环境已部署，用户验收待完成。
 - Scope: 工位卡片精简、已投入物料齐套、工单冻结信息和工位导航。

@@ -1,5 +1,6 @@
 <template>
   <div class="page">
+    <ProductionReturnLink :source="viewParams.return_navigation" />
     <section class="panel head">
       <div>
         <h2>{{ isCustomerFinanceReadOnly ? '费用明细' : '费用管理' }}</h2>
@@ -123,9 +124,9 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in rows" :key="row.id">
+          <tr v-for="row in rows" :key="row.id" :class="{ 'source-expense': sourceExpenseId && Number(row.id) === sourceExpenseId }">
             <td>{{ row.date }}</td>
-            <td>{{ row.category }}</td>
+            <td>{{ row.category }}<strong v-if="sourceExpenseId && Number(row.id) === sourceExpenseId">（来源费用）</strong></td>
             <td>{{ money(row.amount) }}</td>
             <td>{{ allocationLabel(row.allocation) }}</td>
             <td>
@@ -162,6 +163,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import ProductionReturnLink from '../components/ProductionReturnLink.vue'
 import { apiGet } from '../api/client.js'
 import { createFinanceExpense, fetchFinanceExpenses } from '../api/finance.js'
 import { expenseCategoryOptions, expensePaymentOptions, filterExpenseOptions } from '../lib/finance-expense-options.js'
@@ -169,13 +171,16 @@ import { currentMonth, money, monthFromDate } from '../lib/finance.js'
 import { CUSTOMER_WORKSPACE_MODE } from '../lib/workspace-mode.js'
 
 const props = defineProps({
+  viewParams: { type: Object, default: () => ({}) },
   workspaceMode: { type: String, default: '' },
   customerContextId: { type: [Number, String], default: 0 },
   customerContextLabel: { type: String, default: '' },
   customerAccountActor: { type: Boolean, default: false },
 })
 
-const month = ref(currentMonth())
+const initialMonth = String(props.viewParams?.month || '')
+const month = ref(/^\d{4}-(0[1-9]|1[0-2])$/.test(initialMonth) ? initialMonth : currentMonth())
+const sourceExpenseId = computed(() => month.value === initialMonth ? Number(props.viewParams?.expense_id || 0) : 0)
 const rows = ref([])
 const employees = ref([])
 const employeeFilter = ref(0)
@@ -341,6 +346,8 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .table-wrap { overflow: auto; }
 table { width: 100%; min-width: 1040px; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #eee; padding: 9px 8px; text-align: left; font-size: 14px; }
+.source-expense { background: #fff7dc; }
+.source-expense strong { margin-left: 6px; color: #7b5710; font-size: 12px; }
 th { background: #fbfbfb; }
 .empty { text-align: center; color: #666; }
 .muted { color: #777; }

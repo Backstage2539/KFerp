@@ -68,3 +68,11 @@ export function closeFinanceMonth(month) {
 export function createFinanceAdjustment(payload) {
   return apiSend('/api/finance/adjustments', { body: payload })
 }
+
+export function fetchFinanceDailyLedger({ month, date = '', section = '', unavailable = false, page = 1, pageSize = 20 } = {}) {
+  const params = new URLSearchParams({ month: month || currentMonth(), page: String(page), page_size: String(pageSize) })
+  if (date) params.set('date', date)
+  if (section) params.set('section', section)
+  if (unavailable) params.set('unavailable', 'true')
+  return apiGet(`/api/finance/daily-ledger?${params.toString()}`)
+}

@@ -61,6 +61,55 @@ func registerFinanceAPI(e *echo.Echo, svc Service, customerAccounts CustomerAcco
 		return c.JSON(http.StatusOK, resp)
 	})
 
+	e.GET("/api/finance/daily-ledger", func(c echo.Context) error {
+		filter := appfinance.DailyFilter{Month: strings.TrimSpace(c.QueryParam("month")), Date: strings.TrimSpace(c.QueryParam("date")), Section: strings.TrimSpace(c.QueryParam("section"))}
+		if value := strings.TrimSpace(c.QueryParam("customer_id")); value != "" {
+			id, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || id < 0 {
+				return jsonError(c, http.StatusBadRequest, fmt.Errorf("invalid customer_id"))
+			}
+			filter.CustomerID = id
+		}
+		customerID, err := resolveFinanceCustomerScope(c, customerAccounts, filter.CustomerID)
+		if err != nil {
+			return jsonError(c, financeFilterErrorStatus(err), err)
+		}
+		filter.CustomerID = customerID
+		if value := strings.TrimSpace(c.QueryParam("unavailable")); value != "" {
+			filter.Unavailable, err = strconv.ParseBool(value)
+			if err != nil {
+				return jsonError(c, http.StatusBadRequest, fmt.Errorf("invalid unavailable"))
+			}
+		}
+		if value := strings.TrimSpace(c.QueryParam("page")); value != "" {
+			filter.Page, err = strconv.Atoi(value)
+			if err != nil || filter.Page < 1 {
+				return jsonError(c, http.StatusBadRequest, fmt.Errorf("invalid page"))
+			}
+		} else {
+			filter.Page = 1
+		}
+		if value := strings.TrimSpace(c.QueryParam("page_size")); value != "" {
+			filter.PageSize, err = strconv.Atoi(value)
+			if err != nil || filter.PageSize < 1 || filter.PageSize > 100 {
+				return jsonError(c, http.StatusBadRequest, fmt.Errorf("invalid page_size"))
+			}
+		} else {
+			filter.PageSize = 20
+		}
+		service, ok := svc.(interface {
+			DailyLedger(context.Context, appfinance.DailyFilter) (appfinance.DailyLedgerResult, error)
+		})
+		if !ok {
+			return jsonError(c, http.StatusNotImplemented, fmt.Errorf("daily ledger unavailable"))
+		}
+		result, err := service.DailyLedger(c.Request().Context(), filter)
+		if err != nil {
+			return jsonError(c, http.StatusBadRequest, err)
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
 	e.GET("/api/finance/employees", func(c echo.Context) error {
 		rows, err := svc.ListExpenseEmployees(c.Request().Context())
 		if err != nil {

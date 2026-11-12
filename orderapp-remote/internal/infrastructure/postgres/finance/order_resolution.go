@@ -42,7 +42,7 @@ func (r Repository) resolutionDetails(ctx context.Context, filter app.ReportFilt
 	if err != nil || !exists {
 		return out, err
 	}
-	rows, err := r.query().Query(ctx, fmt.Sprintf(`SELECT 'revenue','order_resolution',f.request_id,to_char(f.posting_date,'YYYY-MM-DD'),'订单处理 · '||o.order_no,'订单冲减',COALESCE(c.name,''),'','','',-f.amount_cents::float8/100,'/app/vue-shell?view=orders' FROM %[1]s.order_resolution_financial_entries f JOIN %[1]s.orders o ON o.id=f.order_id LEFT JOIN %[1]s.customers c ON c.id=f.customer_id WHERE f.kind='receivable_credit' AND f.posting_date >= $1::date AND f.posting_date < $1::date+interval '1 month' AND ($2::bigint=0 OR f.customer_id=$2) ORDER BY f.id`, r.schema), filter.Month+"-01", filter.CustomerID)
+	rows, err := r.query().Query(ctx, fmt.Sprintf(`SELECT 'revenue','order_resolution',f.request_id,to_char(f.posting_date,'YYYY-MM-DD'),'订单处理 · '||o.order_no,'订单冲减',COALESCE(c.name,''),'','','',-f.amount_cents::float8/100,'/app/vue-shell?view=orders&order_id='||o.id::text FROM %[1]s.order_resolution_financial_entries f JOIN %[1]s.orders o ON o.id=f.order_id LEFT JOIN %[1]s.customers c ON c.id=f.customer_id WHERE f.kind='receivable_credit' AND f.posting_date >= $1::date AND f.posting_date < $1::date+interval '1 month' AND ($2::bigint=0 OR f.customer_id=$2) ORDER BY f.id`, r.schema), filter.Month+"-01", filter.CustomerID)
 	if err != nil {
 		return out, err
 	}
@@ -71,19 +71,40 @@ func (r Repository) CloseMonthAtomic(ctx context.Context, cmd app.CloseMonthComm
 		return domain.MonthlyReport{}, fmt.Errorf("生产成本待核算，暂不能结账")
 	}
 	if report.Status == domain.MonthStatusClosed || report.Status == domain.MonthStatusAdjusted {
-		snapshot, found, err := bound.LoadMonthlyReportSnapshot(ctx, cmd.Month)
+		_, found, err := bound.LoadMonthlyReportSnapshot(ctx, cmd.Month)
 		if err != nil {
 			return domain.MonthlyReport{}, err
 		}
 		if found {
-			return snapshot, nil
+			return report, nil
 		}
 	}
 	if report.Status != domain.MonthStatusAdjusted {
 		report.Status = domain.MonthStatusClosed
 	}
+	daily, err := app.NewService(bound).DailySnapshotDraft(ctx, app.ReportFilter{Month: cmd.Month})
+	if err != nil {
+		return report, err
+	}
+	if err = app.ValidateDailySnapshot(report, daily); err != nil {
+		return report, err
+	}
+	settings, err := bound.LoadSettings(ctx)
+	if err != nil {
+		return report, err
+	}
+	customers, err := bound.buildCustomerSnapshots(ctx, cmd.Month, report.Status, settings.Settings)
+	if err != nil {
+		return report, err
+	}
 	report, err = bound.SaveMonthlyReport(ctx, report, cmd.Actor)
 	if err != nil {
+		return report, err
+	}
+	if err = bound.saveDailySnapshot(ctx, cmd.Month, daily); err != nil {
+		return report, err
+	}
+	if err = bound.saveCustomerSnapshots(ctx, cmd.Month, customers); err != nil {
 		return report, err
 	}
 	if err = infra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "finance_monthly_report", nil, "close", nil, nil, infra.StrPtr(cmd.Month), infra.AuditMeta{"month": cmd.Month}); err != nil {
@@ -104,11 +125,38 @@ func (r Repository) RebuildClosedMonthTx(ctx context.Context, tx pgx.Tx, month, 
 	if totals.CostUnavailable {
 		return fmt.Errorf("生产成本待核算，暂不能重算已结月份")
 	}
-	report, err := app.NewService(bound).DraftReport(ctx, app.ReportFilter{Month: month})
+	settings, err := bound.LoadSettings(ctx)
 	if err != nil {
 		return err
 	}
+	report := domain.BuildMonthlyReport(settings.Settings, totals)
+	rows, err := bound.ListAdjustments(ctx, month)
+	if err != nil {
+		return err
+	}
+	adjustments := make([]domain.Adjustment, 0, len(rows))
+	for _, row := range rows {
+		adjustments = append(adjustments, domain.Adjustment{Type: row.Type, Amount: row.Amount})
+	}
+	report = domain.ApplyAdjustments(report, adjustments)
 	report.Status = domain.MonthStatusAdjusted
+	daily, err := app.NewService(bound).DailySnapshotDraft(ctx, app.ReportFilter{Month: month})
+	if err != nil {
+		return err
+	}
+	if err = app.ValidateDailySnapshot(report, daily); err != nil {
+		return err
+	}
+	customers, err := bound.buildCustomerSnapshots(ctx, month, report.Status, settings.Settings)
+	if err != nil {
+		return err
+	}
 	_, err = bound.SaveMonthlyReport(ctx, report, actor)
-	return err
+	if err != nil {
+		return err
+	}
+	if err = bound.saveDailySnapshot(ctx, month, daily); err != nil {
+		return err
+	}
+	return bound.saveCustomerSnapshots(ctx, month, customers)
 }

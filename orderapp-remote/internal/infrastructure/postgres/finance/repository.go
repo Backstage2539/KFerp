@@ -160,22 +160,16 @@ func (r Repository) MonthlySourceTotals(ctx context.Context, filter appfinance.R
 	}
 	var productionCost, mainCostExpense, periodExpense, inputVAT, nonDeductibleVAT domain.Money
 	var unknownCosts int
-	if err := r.query().QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(SUM(total_cost) FILTER (WHERE $2::bigint=0),0)::float8,COUNT(*) FILTER (WHERE COALESCE((to_jsonb(production_batch_costs)->>'cost_unavailable')::boolean,false))::int
-		FROM %s.production_batch_costs
-		WHERE created_at >= $1::date
-		  AND created_at < ($1::date + INTERVAL '1 month')
-	`, r.schema), start, customerID).Scan(&productionCost, &unknownCosts); err != nil {
-		return out, nil, err
-	}
-	// Completion events are posted immediately, while the work-order batch cost
-	// row is only created or updated when an operation ends. A partially
-	// completed job can therefore already have unknown-cost output in stock.
-	partialUnknown, err := r.partialUnknownProductionCosts(ctx, start)
+	costRows, err := r.orderSalesCostDetails(ctx, filter)
 	if err != nil {
 		return out, nil, err
 	}
-	unknownCosts += partialUnknown
+	for _, row := range costRows {
+		productionCost += row.Amount
+		if row.CostUnavailable {
+			unknownCosts++
+		}
+	}
 	out.CostUnavailable = unknownCosts > 0
 	if err := r.query().QueryRow(ctx, fmt.Sprintf(`
 		SELECT
@@ -370,7 +364,7 @@ func (r Repository) FinanceSourceDetails(ctx context.Context, filter appfinance.
 				       COALESCE(a.filename,'') AS payment_voucher_filename,
 				       CASE WHEN COALESCE(a.object_key,'') <> '' THEN '/assets/' || a.object_key ELSE '' END AS payment_voucher_url,
 				       %s::float8 AS amount,
-				       '/app/vue-shell?view=orders' AS link
+				       '/app/vue-shell?view=orders&order_id=' || o.id::text AS link
 				FROM %s.orders o
 				LEFT JOIN %s.customers c ON c.id=o.customer_id
 				LEFT JOIN %s.sales_order_assets a ON a.id=o.payment_voucher_asset_id AND a.kind='payment_voucher'
@@ -380,22 +374,6 @@ func (r Repository) FinanceSourceDetails(ctx context.Context, filter appfinance.
 				  AND ($2::bigint=0 OR o.customer_id=$2::bigint)
 				ORDER BY o.order_date,o.id
 			`, financeOrderRevenueSQL("o"), r.schema, r.schema, r.schema),
-			args: []any{start, customerID},
-		},
-		{
-			sql: fmt.Sprintf(`
-				SELECT 'main_cost' AS section,'production_cost' AS source_type,id AS source_id,
-				       to_char(created_at,'YYYY-MM-DD') AS source_date,
-				       COALESCE(NULLIF(product_name,''),'生产批次成本') AS name,
-				       '生产批次成本' AS category,'' AS counterparty,'' AS payment_method,
-				       '' AS payment_voucher_filename,'' AS payment_voucher_url,total_cost::float8 AS amount,
-				       '/app/vue-shell?view=productionCosts' AS link
-				FROM %s.production_batch_costs
-				WHERE created_at >= $1::date
-				  AND created_at < ($1::date + INTERVAL '1 month')
-				  AND $2::bigint=0
-				ORDER BY created_at,id
-			`, r.schema),
 			args: []any{start, customerID},
 		},
 		{
@@ -440,6 +418,11 @@ func (r Repository) FinanceSourceDetails(ctx context.Context, filter appfinance.
 			return nil, err
 		}
 	}
+	costRows, err := r.orderSalesCostDetails(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, costRows...)
 	adjustment, err := r.resolutionDetails(ctx, filter)
 	if err != nil {
 		return nil, err
