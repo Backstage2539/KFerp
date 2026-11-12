@@ -4,7 +4,7 @@
 - 分支：`codex/dropship-submit-fix-20261112`
 - 产品需求：`PR-765-DROPSHIP-PRODUCED-BATCH`
 - 开发任务：`DEV-PR765-01` / `DEV-PR765-02`
-- 当前状态：修复、50 个负例及定向 RED/GREEN 已完成，独立静态审查通过；历史转仓和发货 HTTP 回归通过。数据库身份全包与已预留生产入库测试存在已确认的同基线夹具失败。最新 develop 同步验证通过，未部署，用户业务验收待完成。
+- 当前状态：修复、50 个负例及定向 RED/GREEN、独立审查、历史转仓和发货 HTTP 回归通过；两项同基线数据库缺表夹具失败仍记录。已合入 main 并发布生产，服务和数据库规则只读核验通过，用户真实提交验收待完成。
 
 ## 问题与现场证据
 
@@ -57,6 +57,20 @@
 
 ## 交付状态
 
-PR/DEV 已通过现有需求 API 登记并读回，开发环境当前状态为 `doing`。本分支启动种子已更新产品为 `review`、两个开发任务为 `done`，保留技术验证和用户验收的区别；现有 API 仅提供创建/读取 PR/DEV 和更新 REV 状态，没有 PR/DEV 的状态修改接口，本次不直接改库。后续运行新版本启动种子时再同步界面状态。不新增旧 UT/API/REV 表条目。
+PR/DEV 已通过现有需求 API 登记。生产发布后，以认证只读 API 读回产品为 `review`、两个开发任务为 `done`，保留技术验证和用户验收的区别。开发环境本次未部署，仍保留原登记状态。不新增旧 UT/API/REV 表条目。
 
-代码和验证结果已提交并推送，develop 整合状态以 GitHub PR #337 为准。开发和生产均未部署；生产发布需另行确认。真实订单重提及用户验收未执行。
+用户明确授权“合并 main 并部署生产环境”后，已将验证过的 `origin/develop` fast-forward 合入 main 并推送。真实订单重提及用户验收未执行。
+
+## 2026-11-12 生产发布
+
+- 运行提交：`48b2dacec0244a32c965f9976606aead70bbe04f`；命令 `KFERP_ERP_ONLY=1 ./deploy_orderapp.sh production`。
+- 发布范围还包含已完成技术验证、开发部署及分页现场检查的通知接收人管理更新（`5c64d6fbe`、`1e541e90e`）；该工作流的开发回执为 `c68924f3a`，不代表用户业务验收通过。
+- 服务器 1991 项前端测试、Vue 构建、服务器 Go 全包和镜像内 Go 全包通过。服务器 Go 测试未连接业务数据库，不替代上文真实数据库结果。
+- 数据库备份 `/opt/stacks/erp-production/backups/pre-pr765-20261112210418.dump`，`pg_restore --list` 验证通过。
+- 回滚源码 `/opt/stacks/erp-production/orderapp.backup.deploy-20261112210458-48b2dacec024`；回滚镜像 `kferp-orderapp-rollback:production-20261112210458-48b2dacec024`。
+- 小程序沿用原产物，保留脚本的文件 SHA-256 比对通过；未重新构建、导出或微信发布。
+- 生产应用 running、重启计数 0，PostgreSQL healthy；登录页面 HTTP 200、未认证接口 HTTP 401、认证 PR/DEV 接口 HTTP 200。
+- 生产需求的发布证据文字已同步，并写入 `req_product/deploy` 操作日志；只更新发布跟踪元数据，未修改订单、库存、费用或发货。后续种子证据文字同步，support 包测试通过。
+- 2026-11-12 21:16（上海）只读核验确认：实际数据库函数已安装制造批次分支和单位校验，两个分配表触发器启用；所报两类批次的完整来源、货权、规格、仓库和可用量检查均通过。原库存及历史变体保持不变，未产生新订单或代发申请。该检查没有真实提交订单。
+- 部署源文件与已验证本地 `productspecmigration/schema.go` SHA-256 一致：`c22fca1da4a620d1346fe6c424ccfe6558f55404e028182ce5243043fd4cda4c`。
+- 本地完整日志 `/tmp/dropship-production-deploy.log`、私有只读现场结果 `/tmp/pr765-production-readonly-result.log`。后续发布回执只更新文档及需求证据文字，不改变上述运行版本。
