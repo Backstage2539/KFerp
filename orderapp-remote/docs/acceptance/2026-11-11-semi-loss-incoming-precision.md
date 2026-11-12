@@ -10,4 +10,13 @@
 - 隔离数据库：亚克精度单/多工位分配、冻结重读、整数克历史分配及八位小数通过；HTTP 流程覆盖前序四批到色选开工与完成、下游交接、成本守恒及不重复生成库存单。
 - 隔离数据库：60.112 kg 目标按 19.5% 损耗得 74.674 kg 投入；选择 10 kg 或 15 kg 现货后对应投入 62.251 kg 或 56.040 kg；取消选择恢复，预览不写入、确认与重复刷新一致。总投入按损耗向上取整至克，按配方比例分摊且与备料、供应及执行一致。
 - 不同历史损耗模式、全覆盖及冻结配方恢复回归通过。生产工单和实际库存仅只读核对，未改写、开工或完成。
-- 手册：`OP_MANUAL_PRODUCTION.md`。用户验收和环境发布状态待更新。
+- 新的总投料守恒分摊仅适用于完整 100% 重量比例、相同非零损耗及算法、原料 ID 唯一的配方；其他混合配方维持原有计算。旧工单快照不自动变更。
+- 手册：`OP_MANUAL_PRODUCTION.md`。用户验收待完成。
+
+## 发布及只读核验
+
+- 开发环境 ERP-only：`c81fbee3218e0cf1815c7cc83f7bf2421376a162`，应用 running、重启 0、数据库 healthy、登录 200、匿名需求 API 401、认证 200、PR-763 可见；保留小程序包。数据库备份 `/opt/stacks/erp/backups/pre-pr763-20261111231154.dump`；回滚源码 `/opt/stacks/erp/orderapp.backup.deploy-20261111231248-c81fbee3218e`，回滚镜像 `kferp-orderapp-rollback:development-20261111231248-c81fbee3218e`。
+- 正式环境 ERP-only：`3a2f16be55aa6e19149fa0b78b9dcb0bfd4bb9f6`，服务器端 1944 项前端测试、Vue 构建、主机与镜像内 Go 全量测试通过。应用 running、重启 0、数据库 healthy；登录 200、匿名色选预览 401。
+- 生产色选工序卡 101 的 GET 开工预览返回 59.961751 kg、四个前序批次且无阻断原因；只读核对工序卡 100 完成、101 待开工，前序余额 59.961751 kg，工单计划投入/产出保持 60.113/60.112 kg，未代为开工或更正历史。
+- 页面资源 `WorkstationView-DOZ5bsFv.js` 的服务器、容器与公网 SHA-256 一致：`29887d92c9d46d3142aaf794a4f64b12918e9ea26c769f373a7223b20ef384ec`；小程序包目录哈希前后一致 `5ae9ea1f239b4396438ea3d860b7922daf7e164fec78e8a2ce81250b3f425955`。
+- 生产数据库备份 `/opt/stacks/erp-production/backups/pre-pr763-20261111232456.dump`，校验可读取；回滚源码 `/opt/stacks/erp-production/orderapp.backup.deploy-20261111232530-3a2f16be55aa`，回滚镜像 `kferp-orderapp-rollback:production-20261111232530-3a2f16be55aa`。
