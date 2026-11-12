@@ -6743,4 +6743,4 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Scope: 工位卡片精简、已投入物料齐套、工单冻结信息和工位导航。
 - DEV: `DEV-PR767-READINESS`、`DEV-PR767-CARDS`、`DEV-PR767-DETAIL`、`DEV-PR767-VERIFY`。
 - Verifier: RED/GREEN、隔离数据库及 API、桌面窄屏、构建和手册；生产业务只读。
-- Deployment: ERP-only production `577cff15bbef289eb1b3aad69fd1bf94d2af68a2`，正式页面只读核对任务状态和已投入数量；小程序包保留。
+- Deployment: ERP-only production `577cff15bbef289eb1b3aad69fd1bf94d2af68a2`；正式页面只读核对任务状态和投入数量，小程序包保留。已合并 develop。

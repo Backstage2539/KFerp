@@ -12,4 +12,5 @@
 - Go 全包无业务数据库测试通过；隔离仓储全包一项历史夹具缺 `jc.scheduling_mode`，原始 main 同一命令可复现。
 - 前端全量 2024 项及构建通过；桌面及窄屏使用隔离模拟页面检查。完整应用路由加模拟接口中，同页及跨页“进入工位”均定位并高亮目标任务，返回入口可见；输入保留由组件测试验证，未在路由浏览器中重测。
 - 正式环境首次发布 `5b5dda2610b9abb1cf520548a9f3430b26d5259e`；服务运行、数据库健康、登录 200，工位页面只读核对 8 单已投入不再统一报缺，小程序文件校验不变。数据库备份 `/opt/stacks/erp-production/backups/pre-pr767-20261112233619.dump` 可列出；旧源码及镜像回滚点分别为 `/opt/stacks/erp-production/orderapp.backup.deploy-20261112233650-5b5dda2610b9`、`kferp-orderapp-rollback:production-20261112233650-5b5dda2610b9`。
-- 首次发布后只读检查发现暂停任务仍显示“异常”，追加真实状态展示修复及测试，最终上线与用户验收待完成。
+- 首次发布后只读检查发现暂停任务仍显示“异常”，追加真实状态展示修复。最终正式运行 `577cff15bbef289eb1b3aad69fd1bf94d2af68a2`：服务器及数据库健康、登录 200；只读页面核对 148 显示“已暂停”、149 显示“执行中”，均显示已投入；没有执行工单操作。原小程序文件哈希不变。最终数据库备份 `/opt/stacks/erp-production/backups/pre-pr767-status-20261112235406.dump` 可列出；回滚源码 `/opt/stacks/erp-production/orderapp.backup.deploy-20261113000140-577cff15bbef`，回滚镜像 `kferp-orderapp-rollback:production-20261113000140-577cff15bbef`。
+- 合并后的 develop 前端全量 2036 项及构建通过；隔离支持需求种子及生产 API 通过。用户业务验收待完成。
