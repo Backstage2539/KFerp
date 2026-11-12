@@ -65,3 +65,40 @@ func TestPR767RequirementSeedsPreserveVanAcceptanceAfterRestart(t *testing.T) {
 		}
 	}
 }
+
+func TestPR767FinanceGuardDoesNotChangeWorkstationSeedUpdates(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
+	if dsn == "" {
+		t.Skip("isolated PostgreSQL required")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	schema := fmt.Sprintf("test_pr767_workstation_%d", time.Now().UnixNano())
+	if _, err = pool.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP SCHEMA "+schema+" CASCADE") })
+	if err = ensureReqTables(ctx, pool, schema); err != nil {
+		t.Fatal(err)
+	}
+	row := reqSeedRow{table: "req_dev", code: "DEV-PR767-READINESS", title: "工位检查", status: "doing", assignee: "Codex", evidence: "初始证据"}
+	if err = seedReqRow(ctx, pool, schema, row); err != nil {
+		t.Fatal(err)
+	}
+	row.status = "done"
+	row.evidence = "工位进度已更新"
+	if err = seedReqRow(ctx, pool, schema, row); err != nil {
+		t.Fatal(err)
+	}
+	var status, evidence string
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT status,evidence FROM %s.req_dev WHERE code=$1`, schema), row.code).Scan(&status, &evidence); err != nil {
+		t.Fatal(err)
+	}
+	if status != "done" || evidence != "工位进度已更新" {
+		t.Fatalf("unrelated workstation seed was incorrectly protected: status=%q evidence=%q", status, evidence)
+	}
+}
