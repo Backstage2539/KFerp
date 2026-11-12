@@ -33,10 +33,20 @@ type PlanMaterialTransferPending struct {
 	QtyG     int64  `json:"qty_g"`
 	QtyUnits int64  `json:"qty_units"`
 }
+
+// PlanMaterialTransferOption keeps stock availability distinct from draft
+// quantities already promised by this plan, which do not reserve inventory.
+type PlanMaterialTransferOption struct {
+	stockapp.TransferOptionRow
+	PendingPlanG      int64 `json:"pending_plan_g"`
+	PendingPlanUnits  int64 `json:"pending_plan_units"`
+	TransferableG     int64 `json:"transferable_g"`
+	TransferableUnits int64 `json:"transferable_units"`
+}
 type PlanMaterialTransferOptions struct {
 	Source           ProductionPlanComponentSource         `json:"source"`
 	Warehouses       []ProductionPlanComponentSourceOption `json:"warehouses"`
-	Options          []stockapp.TransferOptionRow          `json:"options"`
+	Options          []PlanMaterialTransferOption          `json:"options"`
 	PendingDocuments []PlanMaterialTransferPending         `json:"pending_documents"`
 }
 type PlanMaterialTransferGroup struct {

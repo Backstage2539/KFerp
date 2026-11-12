@@ -60,6 +60,13 @@ func validatePlanWIPNoMixedVariants(sources []planWIPSource) error {
 // all manual allocations first, then WIP-first automatic allocations. A shared
 // budget prevents two tasks from counting the same stock.
 func (r Repository) planCurrentWIPCoverageTx(ctx context.Context, tx pgx.Tx, planID int64) (map[int64]planWIPQty, error) {
+	return r.planCurrentWIPCoverageForSourcesTx(ctx, tx, planID, nil)
+}
+
+// Limit checks to identities present in the document, while retaining every
+// source of the same item/owner/specification in plan order. This keeps the
+// shared WIP budget intact and prevents unrelated items from blocking a move.
+func (r Repository) planCurrentWIPCoverageForSourcesTx(ctx context.Context, tx pgx.Tx, planID int64, requested map[int64]bool) (map[int64]planWIPQty, error) {
 	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT s.id,s.component_type,s.component_id,s.component_bom_spec_id,s.component_bom_variant_id,s.component_spec_g,
   CASE WHEN s.component_type='material' THEN COALESCE(m.owner_customer_id,0) ELSE 0 END,
   s.required_g,s.required_units,s.allocation_mode,s.allocations_json
@@ -89,6 +96,35 @@ func (r Repository) planCurrentWIPCoverageTx(ctx context.Context, tx pgx.Tx, pla
 		return nil, err
 	}
 	rows.Close()
+	if requested != nil {
+		groups := map[string]bool{}
+		groupKey := func(s planWIPSource) string {
+			kind := s.Kind
+			if kind == "product" {
+				kind = "finished_product"
+			}
+			// Variant is deliberately excluded here: the mixed-variant guard
+			// must still see incompatible historical/frozen rows together.
+			return fmt.Sprintf("%s:%d:%d:%d:%d", kind, s.ItemID, s.SpecID, s.SpecG, s.Owner)
+		}
+		found := map[int64]bool{}
+		for _, source := range sources {
+			if requested[source.ID] {
+				groups[groupKey(source)] = true
+				found[source.ID] = true
+			}
+		}
+		if len(found) != len(requested) {
+			return nil, fmt.Errorf("生产计划物料关联已变化，请重新核对")
+		}
+		filtered := make([]planWIPSource, 0, len(sources))
+		for _, source := range sources {
+			if groups[groupKey(source)] {
+				filtered = append(filtered, source)
+			}
+		}
+		sources = filtered
+	}
 	if err := validatePlanWIPNoMixedVariants(sources); err != nil {
 		return nil, err
 	}
@@ -221,34 +257,33 @@ func (r Repository) validatePlanMaterialTransferWIPTx(ctx context.Context, tx pg
 	if detail.SourceType != planMaterialTransferSource {
 		return nil
 	}
-	coverage, err := r.planCurrentWIPCoverageTx(ctx, tx, detail.SourceID)
-	if err != nil {
-		return err
-	}
-	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT l.component_source_id,s.required_g,s.required_units,SUM(COALESCE(NULLIF(l.equivalent_qty_g,0),NULLIF(l.qty_g,0),CASE WHEN s.component_type IN ('product','finished_product') AND s.component_spec_g>0 THEN l.qty_units*s.component_spec_g ELSE 0 END)),SUM(l.qty_units)
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT DISTINCT l.component_source_id
  FROM %[1]s.production_plan_material_transfer_links l JOIN %[1]s.production_plan_component_sources s ON s.id=l.component_source_id AND s.production_plan_id=l.production_plan_id
- WHERE l.stock_entry_id=$1 AND l.production_plan_id=$2 GROUP BY l.component_source_id,s.required_g,s.required_units`, r.schema), detail.ID, detail.SourceID)
+ WHERE l.stock_entry_id=$1 AND l.production_plan_id=$2`, r.schema), detail.ID, detail.SourceID)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
-	count := 0
+	requested := map[int64]bool{}
 	for rows.Next() {
-		var id, requiredG, requiredN, g, n int64
-		if err := rows.Scan(&id, &requiredG, &requiredN, &g, &n); err != nil {
+		var id int64
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
 			return err
 		}
-		wip := coverage[id]
-		if g > requiredG-wip.g || n > requiredN-wip.n {
-			return fmt.Errorf("WIP库存已变化，调拨数量超过当前缺料，请取消单据并重新核对")
-		}
-		count++
+		requested[id] = true
 	}
-	if err := rows.Err(); err != nil {
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
 		return err
 	}
-	if count == 0 {
+	if len(requested) == 0 {
 		return fmt.Errorf("生产计划物料关联已变化，请重新核对")
 	}
-	return nil
+	// A material transfer is an inventory movement, not a production
+	// consumption. The current shortage is a suggestion, not an upper bound.
+	// Exact batch/source/quality/owner/availability and selected semi-finished
+	// coverage remain independently checked by stock posting and plan reads.
+	_, err = r.planCurrentWIPCoverageForSourcesTx(ctx, tx, detail.SourceID, requested)
+	return err
 }

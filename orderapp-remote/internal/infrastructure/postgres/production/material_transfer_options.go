@@ -32,7 +32,7 @@ func filterPlanTransferRows(source app.ProductionPlanComponentSource, rows []sto
 // PlanMaterialTransferOptions reads one plan source in a consistent snapshot.
 // A requested warehouse must be available to that task's customer and owner.
 func (r Repository) PlanMaterialTransferOptions(ctx context.Context, planID, sourceID int64, warehouse string) (app.PlanMaterialTransferOptions, error) {
-	out := app.PlanMaterialTransferOptions{Warehouses: []app.ProductionPlanComponentSourceOption{}, Options: []stockapp.TransferOptionRow{}, PendingDocuments: []app.PlanMaterialTransferPending{}}
+	out := app.PlanMaterialTransferOptions{Warehouses: []app.ProductionPlanComponentSourceOption{}, Options: []app.PlanMaterialTransferOption{}, PendingDocuments: []app.PlanMaterialTransferPending{}}
 	if planID <= 0 || sourceID <= 0 {
 		return out, fmt.Errorf("生产计划和物料来源编号无效")
 	}
@@ -84,6 +84,38 @@ func (r Repository) PlanMaterialTransferOptions(ctx context.Context, planID, sou
 	if kind != "material" && kind != "finished_product" {
 		return out, fmt.Errorf("该物料类型不支持调拨")
 	}
+	// Drafts do not reserve physical stock, but within this plan must count
+	// against the same batch across all component sources, just as creation does.
+	type batchKey struct {
+		warehouse string
+		owner     int64
+		code      string
+	}
+	pendingByBatch := map[batchKey][2]int64{}
+	pendingRows, err := tx.Query(ctx, fmt.Sprintf(`SELECT i.from_warehouse,i.owner_customer_id,i.batch_code,COALESCE(SUM(i.qty_g),0),COALESCE(SUM(i.qty_units),0)
+		FROM %[1]s.production_plan_material_transfer_links l
+		JOIN %[1]s.stock_entries e ON e.id=l.stock_entry_id AND e.status='draft'
+		JOIN %[1]s.stock_entry_items i ON i.id=l.stock_entry_item_id AND i.stock_entry_id=e.id
+		WHERE l.production_plan_id=$1 AND i.item_type=$2
+		AND (($2='material' AND i.material_id=$3) OR ($2='finished_product' AND i.product_id=$3 AND i.bom_spec_id=$4 AND i.bom_variant_id=$5 AND i.spec_g=$6))
+		GROUP BY i.from_warehouse,i.owner_customer_id,i.batch_code`, r.schema), planID, kind, out.Source.ComponentID, out.Source.ComponentBOMSpecID, out.Source.ComponentBOMVariantID, out.Source.ComponentSpecG)
+	if err != nil {
+		return out, err
+	}
+	for pendingRows.Next() {
+		var key batchKey
+		var qty [2]int64
+		if err := pendingRows.Scan(&key.warehouse, &key.owner, &key.code, &qty[0], &qty[1]); err != nil {
+			pendingRows.Close()
+			return out, err
+		}
+		pendingByBatch[key] = qty
+	}
+	err = pendingRows.Err()
+	pendingRows.Close()
+	if err != nil {
+		return out, err
+	}
 	stockRepo := stockpg.NewRepository(r.pool, r.schema)
 	for _, location := range selected {
 		query := stockapp.TransferOptionsQuery{Warehouse: location, ItemType: kind, ItemID: out.Source.ComponentID, BomSpecID: out.Source.ComponentBOMSpecID, SpecG: out.Source.ComponentSpecG, Limit: 500}
@@ -92,7 +124,10 @@ func (r Repository) PlanMaterialTransferOptions(ctx context.Context, planID, sou
 			if err != nil {
 				return out, err
 			}
-			out.Options = append(out.Options, filterPlanTransferRows(out.Source, page.Rows)...)
+			for _, row := range filterPlanTransferRows(out.Source, page.Rows) {
+				pending := pendingByBatch[batchKey{row.Warehouse, row.OwnerCustomerID, row.BatchCode}]
+				out.Options = append(out.Options, app.PlanMaterialTransferOption{TransferOptionRow: row, PendingPlanG: pending[0], PendingPlanUnits: pending[1], TransferableG: max(0, row.AvailableG-pending[0]), TransferableUnits: max(0, row.AvailableUnits-pending[1])})
+			}
 			if !page.HasNext {
 				break
 			}

@@ -241,7 +241,7 @@ test('single drawer distinguishes WIP shortage from actual transferable need whe
   try {
     await settle()
     assert.match(document.body.textContent, /43\.584 kg/)
-    assert.match(document.body.textContent, /本次最多生成：14 kg/)
+    assert.match(document.body.textContent, /建议本次调拨：14 kg/)
     assert.match(document.body.textContent, /本计划上游供应 28\.584 kg/)
   } finally { app.unmount(); document.body.innerHTML = '<div id="app"></div>' }
 })
@@ -293,7 +293,7 @@ test('product batches with mixed gram and piece snapshots are entered in pieces'
   app.mount('#app')
   try {
     await settle()
-    assert.match(document.body.textContent, /本次最多生成：7 件/)
+    assert.match(document.body.textContent, /建议本次调拨：7 件/)
     assert.match(document.body.textContent, /该批次只有散装库存，不能按件调拨/)
     assert.equal(document.querySelector('input[aria-label="LOOSE调拨数量"]').disabled, true)
     const input = document.querySelector('input[aria-label="PIECE调拨数量"]')
@@ -302,4 +302,106 @@ test('product batches with mixed gram and piece snapshots are entered in pieces'
     button('生成调拨单').click(); await settle()
     assert.deepEqual(created.items[0].batches, [{ batch_code: 'PIECE', qty_g: 0, qty_units: 4 }])
   } finally { app.unmount(); document.body.innerHTML = '<div id="app"></div>' }
+})
+
+test('single transfer permits 120 kg above demand and existing drafts, preserving input after a rejected preview', async () => {
+  const source = { id: 5, component_type: 'material', component_name: '生豆', unit: 'kg', demand_g: 65384, required_g: 65384, wip_covered_g: 0 }
+  let creates = 0
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url)
+    if (path.includes('material-transfer-options')) return new Response(JSON.stringify({ source, warehouses: [{ warehouse:'raw', warehouse_name:'原料仓' }], pending_documents: [{ id:250, entry_no:'SE-250', source_id:5, status:'draft', qty_g:60000 },{ id:251, entry_no:'SE-251',source_id:5,status:'draft',qty_g:5384 }], options:[{batch_id:1,batch_code:'B1',owner_customer_id:0,qty_g:200000,available_g:180000}]}), {status:200,headers:{'content-type':'application/json'}})
+    if (path.includes('/preview')) { assert.equal(JSON.parse(options.body).items[0].batches[0].qty_g,120000); return new Response(JSON.stringify({error:'库存已变化，请重新核对'}),{status:409,headers:{'content-type':'application/json'}}) }
+    if (path.endsWith('/material-transfers')) { creates++; return new Response('{}',{status:200,headers:{'content-type':'application/json'}}) }
+    throw new Error(`unexpected request ${path}`)
+  }
+  const Component = await component()
+  const app = Vue.createApp(Component, { mode:'single', source, detail:{id:26,draft_token:'draft'} })
+  app.mount('#app')
+  try {
+    await settle()
+    assert.match(document.body.textContent,/SE-250/)
+    assert.match(document.body.textContent,/SE-251/)
+    assert.match(document.body.textContent,/建议本次调拨：0 kg/)
+    assert.doesNotMatch(document.body.textContent,/本次最多生成/)
+    const input=document.querySelector('input[aria-label="B1调拨数量"]')
+    input.value='120'; input.dispatchEvent(new Event('input',{bubbles:true})); await Vue.nextTick()
+    button('生成调拨单').click(); await settle()
+    assert.match(document.body.textContent,/库存已变化，请重新核对/)
+    assert.equal(input.value,'120')
+    assert.equal(creates,0)
+  } finally { app.unmount(); document.body.innerHTML='<div id="app"></div>' }
+})
+
+test('single transfer suggests the unmet quantity, while keeping it editable up to available batch stock', async () => {
+ const source={id:5,component_type:'material',component_name:'生豆',unit:'kg',demand_g:65384,required_g:65384,wip_covered_g:0}
+ globalThis.fetch=async () => new Response(JSON.stringify({source,warehouses:[{warehouse:'raw',warehouse_name:'原料仓'}],pending_documents:[],options:[{batch_id:1,batch_code:'B1',owner_customer_id:0,qty_g:200000,available_g:180000}]}),{status:200,headers:{'content-type':'application/json'}})
+ const Component=await component(); const app=Vue.createApp(Component,{mode:'single',source,detail:{id:26,draft_token:'draft'}});app.mount('#app')
+ try { await settle(); assert.match(document.body.textContent,/建议本次调拨：65\.384 kg/); assert.equal(document.querySelector('input[aria-label="B1调拨数量"]').value,'65.384') } finally { app.unmount(); document.body.innerHTML='<div id="app"></div>' }
+})
+
+test('single transfer creates user-entered 120 kg above 65.384 kg requirement using the selected batch', async () => {
+ const source={id:5,component_type:'material',component_name:'生豆',unit:'kg',demand_g:65384,required_g:65384,wip_covered_g:0}
+ const requests=[]
+ globalThis.fetch=async(url,options={})=>{
+  const path=String(url)
+  if(path.includes('material-transfer-options')) return new Response(JSON.stringify({source,warehouses:[{warehouse:'raw',warehouse_name:'原料仓'}],pending_documents:[],options:[{batch_id:1,batch_code:'B1',owner_customer_id:0,qty_g:200000,available_g:180000}]}),{status:200,headers:{'content-type':'application/json'}})
+  const body=JSON.parse(options.body);requests.push({path,body})
+  if(path.includes('/preview')) return new Response(JSON.stringify({groups:[{items:body.items}],unavailable:[]}),{status:200,headers:{'content-type':'application/json'}})
+  if(path.endsWith('/material-transfers')) return new Response(JSON.stringify({documents:[{id:11}]}),{status:200,headers:{'content-type':'application/json'}})
+  throw new Error(`unexpected request ${path}`)
+ }
+ const Component=await component();let updated=0
+ const app=Vue.createApp(Component,{mode:'single',source,detail:{id:26,draft_token:'draft'},onUpdated:()=>updated++});app.mount('#app')
+ try {
+  await settle();const input=document.querySelector('input[aria-label="B1调拨数量"]')
+  input.value='120';input.dispatchEvent(new Event('input',{bubbles:true}));await Vue.nextTick()
+  button('生成调拨单').click();await settle()
+  assert.equal(requests.length,2);assert.equal(requests[0].body.items[0].batches[0].qty_g,120000)
+  assert.equal(requests[1].body.items[0].batches[0].qty_g,120000)
+  assert.equal(requests[0].body.idempotency_key,requests[1].body.idempotency_key);assert.equal(updated,1)
+ } finally {app.unmount();document.body.innerHTML='<div id="app"></div>'}
+})
+
+test('bulk transfer accepts a larger manually adjusted batch and uses the changed quantity', async () => {
+ const source={id:5,component_type:'material',component_name:'生豆',unit:'kg',demand_g:65384,required_g:65384,wip_covered_g:0}
+ const item={source_id:5,warehouse:'raw',owner_customer_id:0,batches:[{batch_code:'B1',qty_g:65384,qty_units:0}]};let created
+ globalThis.fetch=async(url,options={})=>{
+  const path=String(url)
+  if(path.includes('material-transfer-options')) return new Response(JSON.stringify({source,pending_documents:[],options:[{batch_id:1,batch_code:'B1',owner_customer_id:0,qty_g:200000,available_g:180000}]}),{status:200,headers:{'content-type':'application/json'}})
+  const body=JSON.parse(options.body)
+  if(path.includes('/preview'))return new Response(JSON.stringify({groups:[{warehouse:'raw',owner_customer_id:0,items:body.items.length?body.items:[item]}],unavailable:[]}),{status:200,headers:{'content-type':'application/json'}})
+  if(path.endsWith('/material-transfers')){created=body;return new Response(JSON.stringify({documents:[]}),{status:200,headers:{'content-type':'application/json'}})}
+  throw new Error(`unexpected request ${path}`)
+ }
+ const Component=await component();const app=Vue.createApp(Component,{mode:'bulk',detail:{id:26,draft_token:'draft',component_sources:[source]},warehouses:[{code:'raw',name:'原料仓'}]});app.mount('#app')
+ try{
+  await settle();button('调整来源').click();await settle();const input=document.querySelector('input[aria-label="B1调拨数量"]')
+  input.value='120';input.dispatchEvent(new Event('input',{bubbles:true}));await Vue.nextTick();button('重新核对').click();await settle()
+  button('生成 1 张调拨单').click();await settle();assert.equal(created.items[0].batches[0].qty_g,120000)
+ }finally{app.unmount();document.body.innerHTML='<div id="app"></div>'}
+})
+
+test('fixed semi-finished stock does not silently select a different batch while opening transfer', async () => {
+ const source={id:5,component_type:'material',component_name:'熟豆',allocation_mode:'semi_finished_selected',unit:'kg',demand_g:10000,required_g:10000,wip_covered_g:0}
+ globalThis.fetch=async()=>new Response(JSON.stringify({source,warehouses:[{warehouse:'raw',warehouse_name:'原料仓'}],pending_documents:[],options:[{batch_id:1,batch_code:'OTHER',owner_customer_id:0,qty_g:30000,available_g:30000}]}),{status:200,headers:{'content-type':'application/json'}})
+ const Component=await component();const app=Vue.createApp(Component,{mode:'single',source,detail:{id:26,draft_token:'draft'}});app.mount('#app')
+ try{await settle();assert.match(document.body.textContent,/建议本次调拨：10 kg/);assert.equal(document.querySelector('input[aria-label="OTHER调拨数量"]').value,'0')}finally{app.unmount();document.body.innerHTML='<div id="app"></div>'}
+})
+
+test('drawer shows and enforces transferable balance after existing pending documents', async () => {
+ const source={id:5,component_type:'material',component_name:'生豆',unit:'kg',demand_g:150000,required_g:150000,wip_covered_g:0}
+ let previews=0
+ globalThis.fetch=async(url)=>{
+  const path=String(url)
+  if(path.includes('material-transfer-options'))return new Response(JSON.stringify({source,warehouses:[{warehouse:'raw',warehouse_name:'原料仓'}],pending_documents:[{id:250,entry_no:'SE-250',source_id:5,status:'draft',qty_g:80000}],options:[{batch_id:1,batch_code:'B1',owner_customer_id:0,qty_g:200000,available_g:200000,pending_plan_g:80000,transferable_g:120000}]}),{status:200,headers:{'content-type':'application/json'}})
+  if(path.includes('/preview')){previews++;return new Response('{}',{status:200,headers:{'content-type':'application/json'}})}
+  throw new Error(`unexpected request ${path}`)
+ }
+ const Component=await component();const app=Vue.createApp(Component,{mode:'single',source,detail:{id:26,draft_token:'draft'}});app.mount('#app')
+ try{
+  await settle();const table=document.querySelector('table');assert.match(table.textContent,/本计划待确认/);assert.match(table.textContent,/可调/);assert.match(table.textContent,/80 kg/);assert.match(table.textContent,/120 kg/)
+  const input=document.querySelector('input[aria-label="B1调拨数量"]');assert.equal(input.value,'70')
+  input.value='121';input.dispatchEvent(new Event('input',{bubbles:true}));await Vue.nextTick();button('生成调拨单').click();await settle()
+  assert.match(document.body.textContent,/超过批次可用库存/);assert.equal(input.value,'121');assert.equal(previews,0)
+ }finally{app.unmount();document.body.innerHTML='<div id="app"></div>'}
 })

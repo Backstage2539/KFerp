@@ -46,6 +46,10 @@ export function transferSelections(source, warehouse, rows) {
   }
 }
 
+export function transferableQuantity(source, row) {
+  return Number(weightUnit(source) ? (row?.transferable_g ?? row?.available_g ?? 0) : (row?.transferable_units ?? row?.available_units ?? 0))
+}
+
 export function validateTransferSelections(source, selection, pending = 0) {
   const rows = selection._rows || []
   if (!selection.warehouse) return '请选择来源仓库'
@@ -55,15 +59,34 @@ export function validateTransferSelections(source, selection, pending = 0) {
   const weight = weightUnit(source)
   for (let i = 0; i < rows.length; i++) {
     const qty = weight ? selection.batches[i].qty_g : selection.batches[i].qty_units
-    const available = Number(weight ? rows[i].available_g || 0 : rows[i].available_units || 0)
+    const available = transferableQuantity(source, rows[i])
     if (!Number.isSafeInteger(qty)) return weight ? '数量须精确到克' : '计件数量必须为整数'
     if (transferRowIssue(source, rows[i])) return transferRowIssue(source, rows[i])
     if (!rows[i].batch_code || qty > available) return '调拨数量超过批次可用库存或批次不可用'
   }
-  const total = selection.batches.reduce((sum, batch) => sum + (weight ? batch.qty_g : batch.qty_units), 0)
-  const remaining = remainingTransfer(source, pending).remaining * (weight ? gramsPerUnit(source) : 1)
-  if (total > remaining + 1e-8) return '调拨数量超过本次可生成数量'
   return ''
+}
+
+// The shortage is only a starting suggestion. A user can transfer more, up to
+// the available quantity of the selected physical batches. Never preselect
+// across owners because one document preserves a single owner.
+export function suggestedTransferRows(source, rows, pending = 0) {
+  const weight = weightUnit(source)
+  const factor = weight ? gramsPerUnit(source) : 1
+  let remaining = Math.round(remainingTransfer(source, pending).remaining * factor)
+  let owner = null
+  return rows.map((row) => {
+    let quantity = 0
+    const available = transferableQuantity(source, row)
+    const rowOwner = Number(row.owner_customer_id || 0)
+    if (remaining > 0 && Number.isSafeInteger(available) && available > 0 && row.batch_code && !transferRowIssue(source, row) && (owner === null || owner === rowOwner)) {
+      owner = rowOwner
+      const allocated = Math.min(remaining, available)
+      quantity = neat(allocated / factor)
+      remaining -= allocated
+    }
+    return { ...row, quantity }
+  })
 }
 
 export function transferUnitAmount(source, g, units) {
