@@ -203,7 +203,7 @@ func seedReqRow(ctx context.Context, pool *pgxpool.Pool, schema string, row reqS
 	}
 	// Delivery and Van's review happen after startup. Preserve their actual
 	// progress when subsequent restarts re-run the built-in requirement seeds.
-	if row.code == "PR-NOTIFICATION-CHOICE-20261111" || strings.HasPrefix(row.code, "DEV-NOTICE-CHOICE-") || row.code == "PR-751-SHIPPING-RETURN-CANDIDATES" || strings.HasPrefix(row.code, "DEV-PR751-") || row.code == "PR-750-ORDER-WECHAT-NOTIFICATIONS" || strings.HasPrefix(row.code, "DEV-PR750-") || row.code == "PR-748-BOM-START-CONSUMPTION" || strings.HasPrefix(row.code, "DEV-PR748-") || row.code == "PR-DIRECTSHIP-REGION-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-REGION-") || row.code == "PR-DIRECTSHIP-HISTORICAL-STOCK-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-HISTORICAL-STOCK-") || row.code == "PR-ORDER-DATE-SAVE-20261104" || strings.HasPrefix(row.code, "DEV-ORDER-DATE-SAVE-") {
+	if row.code == "PR-WECHAT-SUBSCRIPTION-ADMIN-20261112" || strings.HasPrefix(row.code, "DEV-WECHAT-SUBSCRIPTION-ADMIN-") || row.code == "PR-NOTIFICATION-CHOICE-20261111" || strings.HasPrefix(row.code, "DEV-NOTICE-CHOICE-") || row.code == "PR-751-SHIPPING-RETURN-CANDIDATES" || strings.HasPrefix(row.code, "DEV-PR751-") || row.code == "PR-750-ORDER-WECHAT-NOTIFICATIONS" || strings.HasPrefix(row.code, "DEV-PR750-") || row.code == "PR-748-BOM-START-CONSUMPTION" || strings.HasPrefix(row.code, "DEV-PR748-") || row.code == "PR-DIRECTSHIP-REGION-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-REGION-") || row.code == "PR-DIRECTSHIP-HISTORICAL-STOCK-20261104" || strings.HasPrefix(row.code, "DEV-DIRECTSHIP-HISTORICAL-STOCK-") || row.code == "PR-ORDER-DATE-SAVE-20261104" || strings.HasPrefix(row.code, "DEV-ORDER-DATE-SAVE-") {
 		_, err := pool.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.%s(code,title,status,assignee,evidence)
 			VALUES($1,$2,$3,$4,$5) ON CONFLICT(code) DO NOTHING
@@ -371,6 +371,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-PR751-01", title: "候选与发货条件分开并防止误配旧订单", status: "review", assignee: "Codex", evidence: "shipping_return_candidate_inventory_test.go"},
 		{table: "req_dev", code: "DEV-PR751-02", title: "显式现货补足及历史身份事务校验", status: "review", assignee: "Codex", evidence: "shipping_return_candidate_inventory_test.go；隔离 API 和日志回滚"},
 		{table: "req_dev", code: "DEV-PR751-03", title: "Vue 来源预览、手册与交付验证", status: "review", assignee: "Codex", evidence: "OP_MANUAL_SHIPPING_RETURN.md；fulfillment-full-edit-dom.test.js"},
+		{table: "req_product", code: "PR-WECHAT-SUBSCRIPTION-ADMIN-20261112", title: "后台查看和管理客户服务号通知状态", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-11-12-wechat-subscription-admin.md；客户与负责人逐账号查看，用户自主决定通知"},
+		{table: "req_dev", code: "DEV-WECHAT-SUBSCRIPTION-ADMIN-01", title: "订阅绑定状态查询、权限及逐人提醒", status: "doing", assignee: "Codex", evidence: "身份隔离、手机号歧义、重选并发和审计待验证"},
+		{table: "req_dev", code: "DEV-WECHAT-SUBSCRIPTION-ADMIN-02", title: "后台客户与负责人通知管理页面", status: "doing", assignee: "Codex", evidence: "按客户或手机号搜索、按账号显示绑定与选择，用户本人确认"},
+		{table: "req_dev", code: "DEV-WECHAT-SUBSCRIPTION-ADMIN-03", title: "通知管理手册、验证和交付", status: "doing", assignee: "Codex", evidence: "隔离数据库/API、前端页面和权限回归待验证"},
 		{table: "req_product", code: "PR-NOTIFICATION-CHOICE-20261111", title: "进入小程序选择服务号通知", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-11-11-notification-choice.md；首次及后台请求时提示，用户可拒绝或稍后选择"},
 		{table: "req_dev", code: "DEV-NOTICE-CHOICE-01", title: "通知选择状态、版本与后台重选接口", status: "doing", assignee: "Codex", evidence: "授权隔离、版本冲突与操作日志待验证"},
 		{table: "req_dev", code: "DEV-NOTICE-CHOICE-02", title: "小程序进入时提示用户选择通知", status: "doing", assignee: "Codex", evidence: "登录、深链、明确拒绝及关注绑定体验待验证"},

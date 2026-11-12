@@ -118,6 +118,8 @@ func (h *Handler) register(e *echo.Echo) {
 	e.GET(admin, h.overview)
 	e.PUT(admin+"/config", h.saveConfig)
 	e.POST(admin+"/prompt/reselect", h.reselectPrompt)
+	e.GET(admin+"/subscribers", h.subscribers)
+	e.POST(admin+"/subscribers/reselect", h.reselectSubscriber)
 	e.GET(admin+"/templates", h.templates)
 	e.POST(admin+"/tests", h.test)
 	e.POST(admin+"/deliveries/:id/verify-business-test", h.verifyBusinessTest)
@@ -415,6 +417,31 @@ func (h *Handler) reselectPrompt(c echo.Context) error {
 		return e
 	}
 	return respond(c, map[string]bool{"ok": true}, h.Repo.RequireNotificationReselect(c.Request().Context(), actor))
+}
+
+func (h *Handler) subscribers(c echo.Context) error {
+	if _, err := h.admin(c); err != nil {
+		return err
+	}
+	items, err := h.Repo.NotificationSubscribers(c.Request().Context(), h.Client.Config.AppID, c.QueryParam("q"))
+	c.Response().Header().Set("Cache-Control", "no-store")
+	return respond(c, map[string]any{"items": items}, err)
+}
+
+func (h *Handler) reselectSubscriber(c echo.Context) error {
+	actor, err := h.admin(c)
+	if err != nil {
+		return err
+	}
+	var v struct {
+		MiniUserID int64 `json:"mini_user_id"`
+		CustomerID int64 `json:"customer_id"`
+		EmployeeID int64 `json:"employee_id"`
+	}
+	if c.Bind(&v) != nil {
+		return echo.NewHTTPError(400, "通知账号无效")
+	}
+	return respond(c, map[string]bool{"ok": true}, h.Repo.RequireIdentityNotificationReselect(c.Request().Context(), actor, h.Client.Config.AppID, v.MiniUserID, v.CustomerID, v.EmployeeID))
 }
 func (h *Handler) savePreferences(c echo.Context) error {
 	cur, e := h.me(c)

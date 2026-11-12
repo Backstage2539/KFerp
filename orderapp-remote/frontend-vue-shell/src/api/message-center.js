@@ -24,6 +24,8 @@ const external = '/api/message-center/external'
 export const fetchOrderNotifications = () => apiGet(external)
 export const saveOrderNotifications = body => apiSend(external+'/config',{method:'PUT',body})
 export const requestNotificationReselection = () => apiSend(external+'/prompt/reselect',{body:{}})
+export const fetchNotificationSubscribers = q => apiGet(`${external}/subscribers?q=${encodeURIComponent(q || '')}`)
+export const requestSubscriberReselection = body => apiSend(external+'/subscribers/reselect',{body})
 export const fetchOrderNotificationTemplates = () => apiGet(external+'/templates')
 export const testOrderNotification = body => apiSend(external+'/tests',{body})
 export const retryOrderNotification = (id,confirmed_not_sent=false) => apiSend(`${external}/deliveries/${id}/retry`,{body:{confirmed_not_sent}})

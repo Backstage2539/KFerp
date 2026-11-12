@@ -27,7 +27,7 @@ func (r Repository) NotificationPrompt(ctx context.Context, appID string, mini, 
 	var version *int64
 	var enabled *bool
 	var events []byte
-	err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT p.version,c.version,c.enabled,c.events FROM %[1]s.message_notification_prompt_settings p LEFT JOIN %[1]s.message_notification_choices c ON c.app_id=$1 AND c.mini_user_id=$2 AND c.customer_id=$3 AND c.employee_id=$4 WHERE p.id=1`, r.schema), appID, mini, customer, employee).Scan(&s.Version, &version, &enabled, &events)
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT p.version+COALESCE(i.revision,0),c.version,c.enabled,c.events FROM %[1]s.message_notification_prompt_settings p LEFT JOIN %[1]s.message_notification_choices c ON c.app_id=$1 AND c.mini_user_id=$2 AND c.customer_id=$3 AND c.employee_id=$4 LEFT JOIN %[1]s.message_notification_individual_prompts i ON i.app_id=$1 AND i.mini_user_id=$2 AND i.customer_id=$3 AND i.employee_id=$4 WHERE p.id=1`, r.schema), appID, mini, customer, employee).Scan(&s.Version, &version, &enabled, &events)
 	if err != nil {
 		return s, err
 	}
@@ -84,6 +84,11 @@ func (r Repository) SaveNotificationChoice(ctx context.Context, appID string, mi
 	if err = tx.QueryRow(ctx, "SELECT version FROM "+r.schema+".message_notification_prompt_settings WHERE id=1 FOR UPDATE").Scan(&current); err != nil {
 		return err
 	}
+	var individual int64
+	if err = tx.QueryRow(ctx, "SELECT COALESCE((SELECT revision FROM "+r.schema+".message_notification_individual_prompts WHERE app_id=$1 AND mini_user_id=$2 AND customer_id=$3 AND employee_id=$4),0)", appID, mini, customer, employee).Scan(&individual); err != nil {
+		return err
+	}
+	current += individual
 	if current != version {
 		return ErrNotificationChoiceStale
 	}

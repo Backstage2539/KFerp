@@ -172,6 +172,11 @@ func (r Repository) saveNotificationPreference(ctx context.Context, appID string
 	if e = tx.QueryRow(ctx, "SELECT version FROM "+r.schema+".message_notification_prompt_settings WHERE id=1 FOR UPDATE").Scan(&currentVersion); e != nil {
 		return e
 	}
+	var individual int64
+	if e = tx.QueryRow(ctx, "SELECT COALESCE((SELECT revision FROM "+r.schema+".message_notification_individual_prompts WHERE app_id=$1 AND mini_user_id=$2 AND customer_id=$3 AND employee_id=$4),0)", appID, mini, customer, employee).Scan(&individual); e != nil {
+		return e
+	}
+	currentVersion += individual
 	hasVersion := len(expectedVersions) > 0
 	choiceVersion := int64(0)
 	if hasVersion {
