@@ -1,5 +1,5 @@
 ### PR-764-PLAN-MATERIAL-FLEXIBLE-TRANSFER
-- Branch: `codex/plan-transfer-flexible-20261112`；Status: 开发验证中。
+- Branch: `codex/plan-transfer-flexible-20261112`；Status: 已发布开发及正式环境，用户验收待完成。
 - Scope: 生产计划物料可按实际可用库存超需求调拨，排查仓库提交 WIP 异常；历史单据不代用户处理。
 - DEV: `DEV-PR764-01` 调拨库存与预留；`DEV-PR764-02` 数量输入和异常提示；`DEV-PR764-03` 隔离验证和交付。
 - Verifier: 定向 RED/GREEN，超额及不足、草稿、占用、质检、并发与事务，仓库过账和预留分配；生产仅只读。
