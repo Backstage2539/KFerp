@@ -2,8 +2,9 @@
 - Branch: `codex/workstation-wip-component-20261113`；base: `origin/develop`。
 - Scope: 已开工工单在实际组件缺口处直接选择并使用 WIP 可用批次；不增加包装件数，不重复扣料；遵循批次、货主、成本、权限及占用保护。
 - DEV: `DEV-WIP-TOPUP-API`、`DEV-WIP-TOPUP-UI`、`DEV-WIP-TOPUP-VERIFY`。
-- Status: 实现与隔离验证通过，待集成及发布；正式工单仅作只读核查，不代领料或完工。
+- Status: 实现与隔离验证通过，已合入 main/develop 并发布正式 ERP，待用户验收；正式工单仅作只读核查，未代领料或完工。
 - Verifier: RED/GREEN、隔离 PostgreSQL HTTP 验证 0.4 kg 已投与 0.6 kg 追加、选批及占用控制、双权限、幂等和事务回滚；前端 2058 项、构建、后端 Go 全包、手册及桌面/窄屏检查通过。证据见 `orderapp-remote/docs/acceptance/2026-11-13-workstation-wip-component-topup.md`。
+- Delivery: 正式运行 `ed15433e25ac06481fc2ff405caae7bf06e0724d`，保留小程序包及回滚备份；正式工位入口和候选批次只读核对通过。
 
 ### PR-PACKAGING-REMAINDER-20261113
 - Branch: `codex/packaging-remainder-plan-20261113`；base: `origin/main`。
