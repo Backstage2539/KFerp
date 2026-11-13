@@ -129,6 +129,14 @@ func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 
 func operationCompletionStockPermission(method, path string) string {
 	path = strings.TrimPrefix(path, "/app")
+	if strings.HasPrefix(path, "/api/job-cards/") && strings.HasSuffix(path, "/wip-top-up") {
+		if method == http.MethodGet {
+			return "stock.read"
+		}
+		if method == http.MethodPost {
+			return "stock.write"
+		}
+	}
 	if path == "/api/packaging-remainders" && method == http.MethodGet {
 		return "stock.read"
 	}
@@ -288,7 +296,7 @@ func authorizeCustomerFinanceRead(c echo.Context, authz AuthzService) error {
 }
 
 func requiredPermissionForRequest(method, path string) string {
-	if strings.HasPrefix(path, "/app/api/production-plans/") || path == "/app/api/packaging-remainders" {
+	if strings.HasPrefix(path, "/app/api/production-plans/") || path == "/app/api/packaging-remainders" || (strings.HasPrefix(path, "/app/api/job-cards/") && strings.HasSuffix(path, "/wip-top-up")) {
 		path = strings.TrimPrefix(path, "/app")
 	}
 	if method == http.MethodPost && strings.HasPrefix(path, "/api/production-plans/") && strings.HasSuffix(path, "/material-transfers/preview") {

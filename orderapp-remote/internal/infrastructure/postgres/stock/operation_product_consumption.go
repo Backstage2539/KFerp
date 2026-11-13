@@ -34,7 +34,7 @@ func (r Repository) consumeOperationProductTx(ctx context.Context, tx pgx.Tx, de
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT b.id,b.batch_code,b.remaining_g,b.remaining_units,b.unit_cost::float8 FROM %[1]s.stock_batches b
  LEFT JOIN LATERAL(SELECT warehouse FROM %[1]s.stock_ledger_entries WHERE item_type=b.item_type AND item_id=b.item_id AND source_batch_code=b.batch_code AND owner_customer_id=b.owner_customer_id ORDER BY id DESC LIMIT 1) l ON true
- WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=$2 AND b.spec_g=$3 AND ($7='legacy' OR b.bom_variant_id=$6) AND b.owner_customer_id=$4 AND (b.remaining_g>0 OR b.remaining_units>0) AND b.quality_status NOT IN('hold','reject') AND COALESCE(l.warehouse,'finished_goods')=$5 ORDER BY b.created_at,b.id FOR UPDATE OF b`, r.schema), item.ProductID, item.BomSpecID, item.SpecG, item.OwnerCustomerID, item.FromWarehouse, item.BomVariantID, policy)
+ WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=$2 AND b.spec_g=$3 AND ($7='legacy' OR b.bom_variant_id=$6) AND b.owner_customer_id=$4 AND (b.remaining_g>0 OR b.remaining_units>0) AND b.quality_status NOT IN('hold','reject') AND COALESCE(l.warehouse,'finished_goods')=$5 AND ($8='' OR b.batch_code=$8) ORDER BY b.created_at,b.id FOR UPDATE OF b`, r.schema), item.ProductID, item.BomSpecID, item.SpecG, item.OwnerCustomerID, item.FromWarehouse, item.BomVariantID, policy, item.BatchCode)
 	if err != nil {
 		return err
 	}

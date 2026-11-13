@@ -948,6 +948,43 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 			if e != nil {
 				return p, wo, e
 			}
+			// Component-only WIP additions are independent audited events; keep
+			// the original start snapshot immutable while displaying all issues.
+			addRows, e := tx.Query(ctx, fmt.Sprintf(`SELECT payload->'materials' FROM %s.production_operation_events WHERE job_card_id=$1 AND kind='material_add' AND status='posted' AND COALESCE((payload->>'component_only')::boolean,false) ORDER BY id`, r.schema), id)
+			if e != nil {
+				return p, wo, e
+			}
+			for addRows.Next() {
+				var raw []byte
+				if e = addRows.Scan(&raw); e != nil {
+					addRows.Close()
+					return p, wo, e
+				}
+				var materials []app.OperationMaterialUse
+				if e = json.Unmarshal(raw, &materials); e != nil {
+					addRows.Close()
+					return p, wo, e
+				}
+				for _, added := range materials {
+					found := false
+					for i := range p.StartedMaterials {
+						row := &p.StartedMaterials[i]
+						if row.Key == added.Key && row.Unit == added.Unit && row.Warehouse == added.Warehouse && row.OwnerCustomerID == added.OwnerCustomerID && row.BomVariantID == added.BomVariantID {
+							row.Qty = operationLedgerQuantity(row.Qty+added.Qty, row.Unit)
+							found = true
+							break
+						}
+					}
+					if !found {
+						p.StartedMaterials = append(p.StartedMaterials, added)
+					}
+				}
+			}
+			e = addRows.Err()
+			addRows.Close()
+			if e != nil {
+				return p, wo, e
+			}
 		}
 	}
 	if p.MaterialConsumptionPolicy == "bom_start_v1" {

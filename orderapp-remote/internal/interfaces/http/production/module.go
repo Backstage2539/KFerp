@@ -26,6 +26,7 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	registerMachineCapacityPages(e, deps.Production)
 	registerProductionPlanAPI(e, deps.Production)
 	registerPlanRemainderAPI(e, deps.Production)
+	registerWIPComponentTopUpAPI(e, deps.Production)
 	registerProductionScheduleAPI(e, deps.Production)
 	registerProductionRosterAPI(e, deps.Production)
 	registerProductionWorkstationAPI(e, deps.Production)

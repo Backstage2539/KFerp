@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { clearWorkstationFormCache } from './workstation-form-cache.js'
+import { clearWorkstationFormCache, workstationFormCache } from './workstation-form-cache.js'
 test.afterEach(() => clearWorkstationFormCache('completion', 1))
 import { parse, compileScript } from '@vue/compiler-sfc'
 import { JSDOM } from 'jsdom'
@@ -96,6 +96,75 @@ test('piece completion omits remainder fields and keeps entered minutes',async()
   button(view.el,'确认工序完成').click();await settle()
   assert.equal(calls[0].remainder_mode,'plan_transfer');assert.equal(calls[0].finish_operation,false);assert.equal('actual_remainder_g' in calls[0],false)
  }finally{view.close()}
+})
+
+test('started task can explicitly use an available WIP batch without losing completion input',async()=>{
+ const calls=[];let remaining=0.6
+ const p={...structuredClone(preview),execution:{reporting_type:'piece'},material_consumption_policy:'bom_start_v1',plan_remainder_eligible:true,input_qty:1,input_unit:'袋',output_unit:'袋',planned_qty:1,total_planned_qty:1,planned_minutes:1,started_materials:[{key:'bean',name:'熟豆',qty:0.4,unit:'kg',warehouse:'wip'}]}
+ const inventory=()=>({version:'v1',items:[{key:'bean',name:'熟豆',unit:'kg',required_qty:1,issued_qty:1-remaining,shortage_qty:remaining,candidates:[{batch_code:'ADJ-0001',warehouse:'wip',owner_customer_id:0,available_qty:1,quality_status:'unchecked',unit_cost:0,cost_unavailable:false}]}]})
+ const api={apiGet:async path=>path.endsWith('/wip-top-up')?inventory():p,apiSend:async(path,{body})=>{calls.push({path,body:structuredClone(body)});remaining=0;return {}}}
+ const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:170},api)
+ try{const fields=view.el.querySelectorAll('fieldset input');await input(fields[1],9);await input(view.el.querySelector('textarea'),'现场说明');assert.match(view.el.textContent,/待补.*0\.6/);button(view.el,'使用 WIP 库存').click();await settle();assert.match(view.el.textContent,/ADJ-0001/);assert.match(view.el.textContent,/未检/);assert.match(view.el.textContent,/单价.*0/);const row=view.el.querySelector('.wip-top-up-candidate');await input(row.querySelector('input[type=number]'),0.6);button(view.el,'确认使用').click();await settle();assert.match(calls[0].path,/\/wip-top-up$/);assert.deepEqual(calls[0].body.materials,[{key:'bean',batch_code:'ADJ-0001',warehouse:'wip',owner_customer_id:0,qty:0.6}]);assert.equal(calls[0].body.expected_version,'v1');assert.equal(view.el.querySelectorAll('fieldset input')[1].value,'9');assert.equal(view.el.querySelector('textarea').value,'现场说明');assert.match(view.el.textContent,/已追加/)}finally{view.close();clearWorkstationFormCache('completion',170)}
+})
+
+test('WIP use rejects over-allocation, preserves quantities on conflict, and blocks stale resubmission',async()=>{
+ let writes=0
+ const p={...structuredClone(preview),execution:{reporting_type:'piece'},material_consumption_policy:'bom_start_v1',input_qty:1,input_unit:'袋',output_unit:'袋',planned_qty:1,total_planned_qty:1,planned_minutes:1}
+ const candidate={version:'v1',items:[{key:'bean',name:'熟豆',unit:'kg',required_qty:1,issued_qty:0.4,shortage_qty:0.6,candidates:[{batch_code:'A',warehouse:'wip',owner_customer_id:0,available_qty:1,quality_status:'pass',unit_cost:10}]}]}
+ const api={apiGet:async path=>path.endsWith('/wip-top-up')?candidate:p,apiSend:async()=>{writes++;throw Object.assign(new Error('库存已变化'),{status:409})}}
+ const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:171},api)
+ try{button(view.el,'使用 WIP 库存').click();await settle();const field=view.el.querySelector('.wip-top-up-candidate input[type=number]');await input(field,0.7);button(view.el,'确认使用').click();await settle();assert.equal(writes,0);assert.match(view.el.textContent,/不能超过.*缺口/);await input(field,0.5);button(view.el,'确认使用').click();await settle();assert.equal(writes,1);assert.match(view.el.textContent,/库存已变化/);assert.equal(field.value,'0.5');assert.equal(button(view.el,'确认使用').disabled,true);assert.ok(button(view.el,'重新核对 WIP 库存'))}finally{view.close();clearWorkstationFormCache('completion',171)}
+})
+
+test('an uncertain WIP use retries the original request even after reopening and prevents completing meanwhile',async()=>{
+ const calls=[];let posted=false
+ const p={...structuredClone(preview),execution:{reporting_type:'piece'},material_consumption_policy:'bom_start_v1',input_qty:1,input_unit:'袋',output_unit:'袋',planned_qty:1,total_planned_qty:1,planned_minutes:1}
+ const api={apiGet:async path=>path.endsWith('/wip-top-up')?{version:posted?'v2':'v1',supported:true,items:[{key:'bean',name:'熟豆',unit:'kg',required_qty:1,issued_qty:posted?1:0.4,shortage_qty:posted?0:0.6,candidates:[{batch_code:'A',warehouse:'wip',owner_customer_id:0,available_qty:1,quality_status:'pass',unit_cost:10}]}]}:p,apiSend:async(path,{body})=>{calls.push(structuredClone(body));if(!posted){posted=true;throw new Error('response lost')};return {}}}
+ let view=await mount('../components/OperationCompletionForm.vue',{jobCardId:172},api)
+ try{button(view.el,'使用 WIP 库存').click();await settle();await input(view.el.querySelector('.wip-top-up-candidate input'),0.6);button(view.el,'确认使用').click();await settle();assert.match(view.el.textContent,/尚未收到使用结果/);assert.equal(button(view.el,'确认工序完成').disabled,true);assert.equal(button(view.el,'关闭').disabled,true);view.close();view=await mount('../components/OperationCompletionForm.vue',{jobCardId:172},api);assert.equal(button(view.el,'确认工序完成').disabled,true);button(view.el,'重试本次使用').click();await settle();assert.deepEqual(calls[0],calls[1]);assert.match(view.el.textContent,/已追加/)}finally{view.close();clearWorkstationFormCache('completion',172);clearWorkstationFormCache('wip-top-up',172)}
+})
+
+test('unsupported WIP use is explicit and never exposes a write button',async()=>{
+ const p={...structuredClone(preview),execution:{reporting_type:'incoming'},material_consumption_policy:'bom_start_v1',input_qty:1,input_unit:'kg',output_unit:'kg',planned_qty:1}
+ const api={apiGet:async path=>path.endsWith('/wip-top-up')?{supported:false,blocked_reason:'本工序承接前序产出，请核对前序物料',items:[]}:p,apiSend:async()=>{throw new Error('must not write')}}
+ const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:173},api)
+ try{assert.match(view.el.textContent,/本工序承接前序产出/);assert.equal(button(view.el,'使用 WIP 库存'),undefined)}finally{view.close();clearWorkstationFormCache('completion',173);clearWorkstationFormCache('wip-top-up',173)}
+})
+
+test('started batch work can add missing component without changing planned execution input',async()=>{
+ const calls=[];const p={...structuredClone(preview),execution:{reporting_type:'batch'},material_consumption_policy:'bom_start_v1',input_qty:15,input_unit:'kg',output_unit:'kg',started_input_qty:15,planned_qty:12}
+ const state={version:'bv1',batches:[{id:22,batch_no:1,planned_input_qty:15,planned_output_qty:12,planned_minutes:18,status:'pending'}]}
+ const api={apiGet:async path=>path.endsWith('/execution-batches')?state:path.endsWith('/wip-top-up')?{version:'v1',supported:true,items:[{key:'raw',name:'生豆',unit:'kg',required_qty:15,issued_qty:14,shortage_qty:1,candidates:[{batch_code:'B',warehouse:'wip',owner_customer_id:0,available_qty:1,quality_status:'pass',cost_unavailable:true}]}]}:p,apiSend:async(path,{body})=>{calls.push(body);return {}}}
+ const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:174},api)
+ try{const inputBefore=view.el.querySelector('.batch-row input[type=number]').value;button(view.el,'使用 WIP 库存').click();await settle();assert.match(view.el.textContent,/成本未记录/);await input(view.el.querySelector('.wip-top-up-candidate input'),1);button(view.el,'确认使用').click();await settle();assert.deepEqual(calls[0].materials,[{key:'raw',batch_code:'B',warehouse:'wip',owner_customer_id:0,qty:1}]);assert.equal('actual_input_qty' in calls[0],false);assert.equal(view.el.querySelector('.batch-row input[type=number]').value,inputBefore)}finally{view.close();clearWorkstationFormCache('completion',174);clearWorkstationFormCache('wip-top-up',174)}
+})
+
+test('after WIP use succeeds a failed preview reload blocks completion until rechecked',async()=>{
+ let failRefresh=false,writes=0
+ const p={...structuredClone(preview),execution:{reporting_type:'piece'},material_consumption_policy:'bom_start_v1',input_qty:1,input_unit:'袋',output_unit:'袋',planned_qty:1,total_planned_qty:1,planned_minutes:1}
+ const topup={version:'v1',supported:true,items:[{key:'bean',name:'熟豆',unit:'kg',required_qty:1,issued_qty:0.4,shortage_qty:0.6,candidates:[{batch_code:'A',warehouse:'wip',owner_customer_id:0,available_qty:1,quality_status:'pass',unit_cost:10}]}]}
+ const api={apiGet:async path=>{if(path.endsWith('/wip-top-up'))return topup;if(failRefresh){failRefresh=false;throw new Error('读取失败')}return p},apiSend:async()=>{writes++;failRefresh=true;return {}}}
+ const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:175},api)
+ try{button(view.el,'使用 WIP 库存').click();await settle();await input(view.el.querySelector('.wip-top-up-candidate input'),0.6);button(view.el,'确认使用').click();await settle();assert.equal(writes,1);assert.match(view.el.textContent,/物料已追加，但工单状态刷新失败/);assert.equal(button(view.el,'确认工序完成').disabled,true);button(view.el,'重新核对 WIP 库存').click();await settle();assert.equal(button(view.el,'确认工序完成').disabled,false);assert.equal(writes,1)}finally{view.close();clearWorkstationFormCache('completion',175);clearWorkstationFormCache('wip-top-up',175)}
+})
+
+test('a supported WIP top-up stays actionable outside blocked completion fields and restores the saved draft',async()=>{
+ let blocked=true
+ const p=()=>({...structuredClone(preview),execution:{reporting_type:'piece'},material_consumption_policy:'bom_start_v1',input_qty:1,input_unit:'袋',output_unit:'袋',planned_qty:1,total_planned_qty:1,planned_minutes:1,blocked_reason:blocked?'请先核对本批材料':''})
+ const topup=()=>({version:'v1',supported:true,items:[{key:'bean',name:'熟豆',unit:'kg',required_qty:1,issued_qty:blocked?0.4:1,shortage_qty:blocked?0.6:0,candidates:[{batch_code:'A',warehouse:'wip',owner_customer_id:0,available_qty:1,quality_status:'pass',unit_cost:10}]}]})
+ const saved=workstationFormCache('completion',176);Object.assign(saved.draft,{actual_output_qty:1,actual_minutes:9,difference_reason:'现场说明'});saved.initialized=true
+ const api={apiGet:async path=>path.endsWith('/wip-top-up')?topup():p(),apiSend:async()=>{blocked=false;return {}}}
+ const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:176},api)
+ try{assert.equal(view.el.querySelector('fieldset').disabled,true);button(view.el,'使用 WIP 库存').click();await settle();const field=view.el.querySelector('.wip-top-up-candidate input');assert.equal(field.disabled,false);await input(field,0.6);button(view.el,'确认使用').click();await settle();assert.equal(view.el.querySelector('fieldset').disabled,false);assert.equal(view.el.querySelectorAll('fieldset input')[1].value,'9');assert.equal(view.el.querySelector('textarea').value,'现场说明')}finally{view.close();clearWorkstationFormCache('completion',176);clearWorkstationFormCache('wip-top-up',176)}
+})
+
+test('WIP top-up explains missing permission and preserves user choices on denied submission',async()=>{
+ const p={...structuredClone(preview),execution:{reporting_type:'piece'},material_consumption_policy:'bom_start_v1',input_qty:1,input_unit:'袋',output_unit:'袋',planned_qty:1,total_planned_qty:1,planned_minutes:1}
+ const topup={version:'v1',supported:true,items:[{key:'bean',name:'熟豆',unit:'kg',required_qty:1,issued_qty:0.4,shortage_qty:0.6,candidates:[{batch_code:'A',warehouse:'wip',owner_customer_id:0,available_qty:1,quality_status:'pass',unit_cost:10}]}]}
+ const denied=await mount('../components/OperationCompletionForm.vue',{jobCardId:177},{apiGet:async path=>{if(path.endsWith('/wip-top-up'))throw Object.assign(new Error('没有库存查看权限'),{status:403});return p},apiSend:async()=>{throw new Error('must not write')}})
+ try{assert.match(denied.el.textContent,/读取 WIP 库存失败：没有库存查看权限/);assert.ok(button(denied.el,'重新核对 WIP 库存'));assert.equal(button(denied.el,'使用 WIP 库存'),undefined)}finally{denied.close();clearWorkstationFormCache('completion',177);clearWorkstationFormCache('wip-top-up',177)}
+ const deniedWrite=await mount('../components/OperationCompletionForm.vue',{jobCardId:178},{apiGet:async path=>path.endsWith('/wip-top-up')?topup:p,apiSend:async()=>{throw Object.assign(new Error('没有库存写入权限'),{status:403})}})
+ try{button(deniedWrite.el,'使用 WIP 库存').click();await settle();const field=deniedWrite.el.querySelector('.wip-top-up-candidate input');await input(field,0.6);button(deniedWrite.el,'确认使用').click();await settle();assert.match(deniedWrite.el.textContent,/没有库存写入权限/);assert.equal(field.value,'0.6')}finally{deniedWrite.close();clearWorkstationFormCache('completion',178);clearWorkstationFormCache('wip-top-up',178)}
 })
 
 test('unmounting and reopening retains the input for the same task only',async()=>{
