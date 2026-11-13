@@ -9,3 +9,5 @@
 - GREEN：隔离 PostgreSQL/HTTP 覆盖首道工序扣料及逐批结转、零库存补料、库存来源、称量精度、质检、货主、过期版本、并发幂等、日志失败和回滚。Vue 全量测试、生产构建及无业务数据库 Go 测试通过。
 - 1440×900 与 390×844 的隔离模拟页面显示批次预览且不再显示用料表单；窄屏无横向溢出，模拟开工后状态更新。生产手册同步更新。
 - 本次验证没有对正式环境工单、库存或报工作写操作；发布后仍须由现场人员验收。
+- 正式 ERP 发布：2026-11-13 运行代码 `97f9c9dfb1bb3f30eb211fe686df29cb430ede87`；`erp_prod_orderapp` 运行且重启 0、数据库健康、登录 200、匿名开工预览接口 401。工位资源 `WorkstationView-BAscaSYD.js` 的服务器与容器 SHA256 一致；小程序 `RELEASE_INFO` 和 `PAGE_FILE_MANIFEST` 与上一版本相同，未重建或发布。
+- 回滚备份：数据库 `/opt/stacks/erp-production/backups/pre-workstation-direct-start-20261113140844.dump`（`pg_restore -l` 校验通过）；源码 `/opt/stacks/erp-production/orderapp.backup.deploy-20261113140934-97f9c9dfb1bb`；镜像 `kferp-orderapp-rollback:production-20261113140934-97f9c9dfb1bb`。正式环境仅核对服务和资源，未代操作现有工单。

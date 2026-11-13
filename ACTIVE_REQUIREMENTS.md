@@ -2,8 +2,9 @@
 - Branch: `codex/workstation-streamline-start-20261113`；base: `origin/main`。
 - Scope: 删除工位中“确认本批开工用料”区域，保留批次预览及必要的库存校验和缺料入口。
 - DEV: `DEV-WORKSTATION-START-UI-20261113`、`DEV-WORKSTATION-START-VERIFY-20261113`。
-- Status: 实现及隔离验证完成，准备正式 ERP 发布；正式业务工单不作操作。
-- Verifier: TDD；隔离 PostgreSQL/HTTP 验证开工扣料、精度、缺料、并发及回滚；前端全量测试、Vue 构建及桌面/窄屏隔离页面验证。见 `orderapp-remote/docs/acceptance/2026-11-13-workstation-direct-start.md`。
+- Status: 已合入 main、发布正式 ERP 并合入 develop；待用户业务验收。正式业务工单未操作。
+- Verifier: TDD；隔离 PostgreSQL/HTTP 验证开工扣料、精度、缺料、并发及回滚；前端 2070 项、Vue 构建、Go 全包及桌面/窄屏隔离页面验证通过。见 `orderapp-remote/docs/acceptance/2026-11-13-workstation-direct-start.md`。
+- Delivery: 正式运行 `97f9c9dfb1bb3f30eb211fe686df29cb430ede87`；应用运行且重启 0、数据库健康，登录 200、匿名接口 401，页面资源与容器内一致；小程序包保留。数据库备份 `/opt/stacks/erp-production/backups/pre-workstation-direct-start-20261113140844.dump`，源码回滚 `/opt/stacks/erp-production/orderapp.backup.deploy-20261113140934-97f9c9dfb1bb`，镜像回滚 `kferp-orderapp-rollback:production-20261113140934-97f9c9dfb1bb`。
 
 ### PR-WIP-COMPONENT-TOPUP-20261113
 - Branch: `codex/workstation-wip-component-20261113`；base: `origin/develop`。
