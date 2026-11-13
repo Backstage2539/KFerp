@@ -1,3 +1,10 @@
+### PR-WORKSTATION-START-SIMPLIFY-20261113
+- Branch: `codex/workstation-streamline-start-20261113`；base: `origin/main`。
+- Scope: 删除工位中“确认本批开工用料”区域，保留批次预览及必要的库存校验和缺料入口。
+- DEV: `DEV-WORKSTATION-START-UI-20261113`、`DEV-WORKSTATION-START-VERIFY-20261113`。
+- Status: 实现及隔离验证完成，准备正式 ERP 发布；正式业务工单不作操作。
+- Verifier: TDD；隔离 PostgreSQL/HTTP 验证开工扣料、精度、缺料、并发及回滚；前端全量测试、Vue 构建及桌面/窄屏隔离页面验证。见 `orderapp-remote/docs/acceptance/2026-11-13-workstation-direct-start.md`。
+
 ### PR-WIP-COMPONENT-TOPUP-20261113
 - Branch: `codex/workstation-wip-component-20261113`；base: `origin/develop`。
 - Scope: 已开工工单在实际组件缺口处直接选择并使用 WIP 可用批次；不增加包装件数，不重复扣料；遵循批次、货主、成本、权限及占用保护。

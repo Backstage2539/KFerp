@@ -17,7 +17,7 @@
           <small v-if="row.default_unavailable_reason">{{ row.default_unavailable_reason }}</small>
         </div>
       </div>
-      <p class="hint">以上为原计划预览，确认开工后按批次记录实际数据。</p>
+      <p class="hint">以上为原计划预览；点击“开工”后按计划投入扣料，并逐批记录实际数据。</p>
     </template>
   </section>
 </template>

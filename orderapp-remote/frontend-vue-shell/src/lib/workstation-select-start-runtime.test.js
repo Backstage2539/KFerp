@@ -4,21 +4,24 @@ import { readFileSync } from 'node:fs'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import { createSSRApp, h } from 'vue'
 import { renderToString } from '@vue/server-renderer'
+let harnessSequence = 0
 
-async function harness() {
+async function harness(mocks = {}) {
   const file = new URL('../views/WorkstationView.vue', import.meta.url)
   const { descriptor } = parse(readFileSync(file, 'utf8'))
   const script = compileScript(descriptor, { id: 'packaging-issue' })
   const template = compileTemplate({ id: 'packaging-issue', source: descriptor.template.content, filename: file.pathname, compilerOptions: { bindingMetadata: script.bindings } })
   assert.deepEqual(template.errors, [])
-  let code = script.content.replace(/import (\w+) from ['"][^'"]+\.vue['"]/g, "const $1 = { render: () => null }")
-  code = code.replace(/import \{ fetchProductionWorkstationOverview, runProductionTaskAction \} from ['"][^'"]+['"]/, "const fetchProductionWorkstationOverview = async () => ({ tasks: [] }); const runProductionTaskAction = () => { throw new Error('unexpected write') }")
-  code = code.replace(/import \{ apiGet, apiSend \} from ['"][^'"]+['"]/, "const apiGet = async () => ({}); const apiSend = () => { throw new Error('unexpected write') }")
+  let code = script.content.replace(/import (\w+) from ['"][^'"]+\.vue['"]/g, 'const $1 = { name: "$1", render: () => null }')
+  code = code.replace(/import \{ fetchProductionWorkstationOverview, runProductionTaskAction \} from ['"][^'"]+['"]/, 'const { fetchProductionWorkstationOverview, runProductionTaskAction } = globalThis.__workstationStartMocks')
+  globalThis.__workstationStartMocks = { apiGet: mocks.apiGet || (async () => ({})), apiSend: mocks.apiSend || (() => { throw new Error('unexpected write') }), fetchProductionWorkstationOverview: mocks.fetchOverview || (async () => ({ tasks: [] })), runProductionTaskAction: () => { throw new Error('unexpected write') } }
+  code = code.replace(/import \{ apiGet, apiSend \} from ['"][^'"]+['"]/, 'const { apiGet, apiSend } = globalThis.__workstationStartMocks')
   code = code.replace('export default', 'const component =') + '\n' + template.code.replace('export function render', 'function render') + '\ncomponent.render = render; export default component;'
   code = code.replace(/from (['"])([^'"]+)\1/g, (_, quote, path) => `from ${JSON.stringify(path.startsWith('.') ? new URL(/\.[a-z]+$/.test(path) ? path : `${path}.js`, file).href : import.meta.resolve(path))}`)
+  code += `\n// harness ${++harnessSequence}`
   const View = (await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)).default
   let state
-  const props = { viewParams: { scope: 'all' }, actor: null }
+  const props = { viewParams: { scope: 'all' }, actor: mocks.actor || null }
   await renderToString(createSSRApp({ setup() { state = View.setup(props, { expose() {} }); return () => h('div') } }))
   state.selectedWorkstationValue.value = '包装台'
   const tree = async () => {
@@ -53,6 +56,43 @@ function packagingTasks() {
     available_actions: ['start', 'report_exception'],
   }))
 }
+
+test('expanding a pending batch shows its planned batches without a start material form', async () => {
+ const {state,tree}=await harness()
+ const task={...packagingTasks()[0],job_card_id:505,operation:'咖啡烘焙+除石',reporting_type:'batch',planned_batch_count:2}
+ state.overview.value={tasks:[task]}
+ state.toggleFinishPanel(task)
+ const node=await tree()
+ assert.ok(findNode(node,n=>n.type?.name==='ExecutionBatchPreview'),'planned batch preview should remain visible')
+ assert.ok(!findNode(node,n=>n.type?.name==='OperationStartForm'),'obsolete start material section must not render')
+})
+
+test('start button posts the frozen planned materials and opens replenishment when short', async () => {
+ const entries=new Map(), oldWindow=globalThis.window
+ globalThis.window={sessionStorage:{getItem:k=>entries.get(k)??null,setItem:(k,v)=>entries.set(k,v),removeItem:k=>entries.delete(k)}}
+ const preview={version:'v1',input_qty:30,input_unit:'kg',recipe_ratio_pct:100,materials:[{key:'bean',name:'生豆',qty:30,unit:'kg',ratio_pct:100,warehouse:'wip',available_qty:30}]}
+ const posts=[]
+ try {
+  const {state,tree}=await harness({actor:{employee_id:7},apiGet:async()=>structuredClone(preview),apiSend:async(path,{body})=>{posts.push({path,body});return {ok:true}}})
+  const task={...packagingTasks()[0],job_card_id:505,operation:'咖啡烘焙+除石',reporting_type:'batch',planned_batch_count:2}
+  state.overview.value={tasks:[task]};state.toggleFinishPanel(task)
+  const start=findNode(await tree(),n=>n.type==='button'&&n.children==='开工')
+  assert.ok(start);await start.props.onClick();assert.equal(posts.length,1,state.error.value);assert.equal(posts[0].body.actual_input_qty,30)
+  state.overview.value={tasks:[task]};preview.materials[0].available_qty=29.759
+  await state.startTask(task);assert.equal(posts.length,1);assert.equal(state.batchIssue.open,true);assert.equal(state.batchIssue.startShortages[0].shortage_qty,0.241)
+ } finally {globalThis.window=oldWindow}
+})
+
+test('successful start reports a failed state refresh without resubmitting', async () => {
+ const entries=new Map(),oldWindow=globalThis.window
+ globalThis.window={sessionStorage:{getItem:k=>entries.get(k)??null,setItem:(k,v)=>entries.set(k,v),removeItem:k=>entries.delete(k)}}
+ let writes=0
+ try {
+  const {state}=await harness({actor:{employee_id:7},apiGet:async()=>({version:'v',input_qty:1,input_unit:'kg',recipe_ratio_pct:100,materials:[{key:'b',name:'豆',unit:'kg',qty:1,ratio_pct:100,warehouse:'wip',available_qty:1}]}),apiSend:async()=>{writes++;return {ok:true}},fetchOverview:async()=>{throw Error('网络中断')}})
+  await state.startTask({...packagingTasks()[0],job_card_id:506})
+  assert.equal(writes,1);assert.match(state.error.value,/开工已成功.*刷新失败/);assert.equal(entries.size,0)
+ } finally {globalThis.window=oldWindow}
+})
 
 test('all pending packaging orders remain rows with cross-spec selection and frozen labels', async () => {
  const {state,tree}=await harness()

@@ -26,6 +26,7 @@
     <PackagingRemainderPanel v-if="showPackagingRemainder" @close="showPackagingRemainder = false" @posted="load" />
     <div v-if="message" class="notice">{{ message }}</div>
     <div v-if="error" class="error">{{ error }}</div>
+    <div v-if="pendingStart" class="panel" role="alert">上次开工结果尚未确认，请由原操作人员重试。 <button type="button" class="secondary" :disabled="Boolean(busyKey)" @click="retryPendingStart">重试本次开工</button></div>
     <section v-if="requestedTaskNotice" class="requested-task-notice" role="status">
       <strong>{{ requestedTaskNotice.operation }} · {{ requestedTaskNotice.work_order_no }} · {{ requestedTaskNotice.status_label }}</strong>
       <p>{{ requestedTaskNotice.message }}</p>
@@ -101,7 +102,7 @@
                   <summary>{{ materialSummary(task) }}</summary>
                   <div class="material-row material-head"><span>物料名称</span><span>需求</span><span>已投入</span><span>剩余需求</span><span>WIP 可用</span><span>缺口</span></div>
                   <div v-for="material in task.material_readiness" :key="material.reservation_id || material.material_id" class="material-row"><strong>{{ material.material_name }}</strong><span data-label="需求">{{ materialQuantity(material, 'required') }}</span><span data-label="已投入">{{ materialQuantity(material, 'issued') }}</span><span data-label="剩余需求">{{ materialQuantity(material, 'remaining_required') }}</span><span data-label="WIP 可用">{{ materialQuantity(material, 'wip') }}</span><span data-label="缺口" :class="{ shortage: materialHasShortage(material) }">{{ materialQuantity(material, 'shortage') }}</span></div>
-                  <button v-if="task.material_readiness.some(materialHasShortage)" type="button" class="secondary" @click="needsConfirmedStart(task) ? openStartPanel(task) : openPackagingGroupIssue({tasks:[task]})">核对缺口并生成补料单</button>
+                  <button v-if="task.material_readiness.some(materialHasShortage)" type="button" class="secondary" :disabled="Boolean(busyKey)" @click="needsConfirmedStart(task) ? startTask(task, true) : openPackagingGroupIssue({tasks:[task]})">核对缺口并生成补料单</button>
                 </details>
               </div>
               <div v-else-if="!task.has_predecessor && materialReadinessState(task) === 'unknown'" class="material-readiness material-state-unknown">用料待核对</div>
@@ -111,7 +112,7 @@
             <div class="actions">
               <template v-if="isSimplifiedTask(task)">
                 <button v-if="task.status === 'paused'" type="button" class="primary" :disabled="Boolean(busyKey) || loading || isTaskUnattended(task)" @click="handleTaskAction(task, 'resume')">恢复</button>
-                <button v-else-if="needsConfirmedStart(task)" type="button" class="primary" :disabled="Boolean(busyKey) || loading || isTaskUnattended(task)" @click="openStartPanel(task)">开工</button>
+                <button v-else-if="needsConfirmedStart(task)" type="button" class="primary" :disabled="Boolean(busyKey) || loading || isTaskUnattended(task) || batchIssue.open" @click="startTask(task)">开工</button>
                 <button v-else-if="!isInlineBatchTask(task) || isHistoricalBatchTask(task)" type="button" class="primary" :disabled="Boolean(busyKey) || loading || isTaskUnattended(task)" @click="openFinishPanel(task)">工序完成</button><button v-else type="button" class="primary" :disabled="!isFinishPanelForTask(task) || !['running','paused'].includes(task.status) || Boolean(busyKey) || loading || isTaskUnattended(task)" @click="finishForm?.[0]?.completeAll()">完成所有批次</button>
                 <small v-if="isTaskUnattended(task)" class="schedule-required">今日无人值班，请先完成排班</small>
                 <button type="button" class="secondary" @click="openExecutionHub(task, 'job_card')">查看工单</button>
@@ -155,7 +156,6 @@
             </div>
 
             <ExecutionBatchPreview v-if="startPanel.open && sameTask(startPanel.task,task) && isInlineBatchTask(task)" :job-card-id="Number(task.job_card_id)" />
-            <OperationStartForm v-if="startPanel.open && sameTask(startPanel.task,task)" :key="`start-${task.job_card_id}`" :job-card-id="Number(task.job_card_id)" :refresh-token="startPanel.revision" :locked="batchIssue.open || isTaskUnattended(task)" @close="startPanel.open=false" @posted="startPosted" @issue="(shortages, input) => openStartIssue(task, shortages, input)" />
             <OperationCompletionForm v-if="isFinishPanelForTask(task)" ref="finishForm" :external-bulk="isInlineBatchTask(task)" :can-complete="['running','paused'].includes(task.status) && !isTaskUnattended(task)" :key="task.job_card_id" :job-card-id="Number(task.job_card_id)" :return-params="completionReturnParams(task)" @close="closeFinishPanel" @posted="automaticPosted" @top-up-posted="load" @batch-state="state => setBatchState(task,state)" />
           </div>
         </div>
@@ -180,11 +180,11 @@
 import OperationCompletionForm from '../components/OperationCompletionForm.vue'
 import PackagingRemainderPanel from '../components/PackagingRemainderPanel.vue'
 import ExecutionBatchPreview from '../components/ExecutionBatchPreview.vue'
-import OperationStartForm from '../components/OperationStartForm.vue'
 import OperationStartGroupForm from '../components/OperationStartGroupForm.vue'
 import WorkstationBatchIssueDrawer from '../components/WorkstationBatchIssueDrawer.vue'
 import { issueSelectionState, toggleIssueSelection } from '../lib/workstation-batch-issue.js'
 import { issueSessionStorage, readPendingIssue } from '../lib/workstation-issue-recovery.js'
+import { directStart, directStartStorage, readPendingStart } from '../lib/workstation-direct-start.js'
 import ProductionReturnLink from '../components/ProductionReturnLink.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { fetchProductionWorkstationOverview, runProductionTaskAction } from '../api/production.js'
@@ -218,8 +218,30 @@ const startGroup=reactive({open:false,key:'',ids:[],tasks:[],locked:false})
 async function groupStarted(_result,submittedIDs=startGroup.ids){selectedStartTasks.value=selectedStartTasks.value.filter(id=>!submittedIDs.includes(id));startGroup.open=false;await load()}
 const startPanel=reactive({open:false,task:null,revision:0})
 function needsConfirmedStart(task){return task.material_consumption_policy==='bom_start_v1' && ['pending','ready','released'].includes(task.status)}
-function openStartPanel(task){if(isTaskUnattended(task)){message.value='今日该工位无人值班，请先完成排班';return};finishPanel.open=false;startPanel.task=task;startPanel.open=true}
-async function startPosted(){startPanel.open=false;await load()}
+async function startPosted(){startPanel.open=false;return await load()}
+const pendingStart=ref(null)
+function syncPendingStart(){try{pendingStart.value=readPendingStart(directStartStorage())}catch(e){error.value=e.message}}
+async function startTask(task, issueOnly=false){
+ if (busyKey.value || batchIssue.open || isTaskUnattended(task)) return
+ busyKey.value=`${task.job_card_id}:start`;error.value='';message.value='';updateTaskFeedback(task)
+ try {
+  const result=await directStart({jobCardId:Number(task.job_card_id),employeeId:Number(props.actor?.employee_id || 0),storage:directStartStorage(),get:apiGet,post:apiSend,makeID:()=>crypto.randomUUID(),issueOnly,confirmRefresh:p=>window.confirm(`原配方不完整，本次开工将使用 ${p.effective_bom_version_no || '更新的 BOM'}：\n${(p.materials || []).map(m=>`${m.name} ${m.qty} ${m.unit}`).join('\n')}\n确认按以上用料开工？`)})
+  if(result.shortages?.length){openStartIssue(task,result.shortages,result.input);updateTaskFeedback(task,{error:'开工用料不足，请先补齐物料。'})}
+  else if(result.cancelled){updateTaskFeedback(task,{message:'已取消开工'})}
+  else if(issueOnly){updateTaskFeedback(task,{message:'库存已更新，目前没有开工缺口。'});await load()}
+  else if(await startPosted()){updateTaskFeedback(task,{message:'开工成功'})}
+  else {error.value='开工已成功，但工位状态刷新失败，请重新进入工位核对。';updateTaskFeedback(task,{error:error.value})}
+ } catch(e) {error.value=e.message;updateTaskFeedback(task,{error:e.message})}
+ finally {syncPendingStart();busyKey.value=''}
+}
+async function retryPendingStart(){
+ if(!pendingStart.value || busyKey.value)return
+ const id=pendingStart.value.jobCardId
+ busyKey.value=`${id}:start`;error.value=''
+ try{await directStart({jobCardId:id,employeeId:Number(props.actor?.employee_id||0),storage:directStartStorage(),get:apiGet,post:apiSend,makeID:()=>crypto.randomUUID(),requirePending:true});if(await load())message.value='开工结果已确认';else error.value='开工已成功，但工位状态刷新失败，请重新进入工位核对。'}
+ catch(e){error.value=e.message}
+ finally{syncPendingStart();busyKey.value=''}
+}
 const selectedStartTasks=ref([])
 watch(selectedStartTasks,()=>{
   if(!startGroup.open || startGroup.locked)return
@@ -601,7 +623,7 @@ function openExecutionHub(task, focus = 'job_card') {
 }
 
 async function handleTaskAction(task, action) {
- if(action==='start' && needsConfirmedStart(task)){openStartPanel(task);return}
+ if(action==='start' && needsConfirmedStart(task)){await startTask(task);return}
   if (action === 'report_exception' || action === 'material_call') {
     openIssue(task, action)
     return
@@ -711,6 +733,7 @@ async function refocusWorkstationTask(event) {
 onBeforeUnmount(() => window.removeEventListener('kferp:focus-workstation-task', refocusWorkstationTask))
 
 onMounted(async () => {
+  syncPendingStart()
   window.addEventListener('kferp:focus-workstation-task', refocusWorkstationTask)
   try {
     const pending = readPendingIssue(issueSessionStorage())

@@ -63,6 +63,12 @@ func TestBOMStartFailuresAreAtomic(t *testing.T) {
 			if res.Code == 200 {
 				t.Fatalf("%s must reject", kind)
 			}
+			var rejected struct {
+				NotCommitted bool `json:"not_committed"`
+			}
+			if err := json.Unmarshal(res.Body.Bytes(), &rejected); err != nil || !rejected.NotCommitted {
+				t.Fatalf("%s must identify the rolled-back start: %s", kind, res.Body.String())
+			}
 			var after int64
 			if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT SUM(remaining_g+remaining_units) FROM %s.material_batches`, schema)).Scan(&after); err != nil {
 				t.Fatal(err)
@@ -126,5 +132,11 @@ func TestBOMStartConcurrentRequestsConsumeOnce(t *testing.T) {
 	changed := serveMultilevelProductionJSON(t, e, "POST", fmt.Sprintf("/api/job-cards/%d/start", card), body)
 	if changed.Code == 200 {
 		t.Fatal("same key accepted changed payload")
+	}
+	var conflict struct {
+		NotCommitted bool `json:"not_committed"`
+	}
+	if err := json.Unmarshal(changed.Body.Bytes(), &conflict); err != nil || conflict.NotCommitted {
+		t.Fatalf("a conflicting key can refer to an earlier committed start: %s", changed.Body.String())
 	}
 }

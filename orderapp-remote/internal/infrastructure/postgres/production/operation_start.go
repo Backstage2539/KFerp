@@ -19,8 +19,13 @@ func (r Repository) PreviewOperationStart(ctx context.Context, id int64) (app.Op
 }
 
 func (r Repository) startOperation(ctx context.Context, cmd app.JobCardActionCommand) (app.JobCardActionResult, error) {
-	return retryOperationTransaction(ctx, func() (app.JobCardActionResult, error) {
-		var out app.JobCardActionResult
+	return retryOperationTransaction(ctx, func() (out app.JobCardActionResult, err error) {
+		commitAttempted := false
+		defer func() {
+			if err != nil && !commitAttempted {
+				err = &app.OperationStartNotCommittedError{Cause: err}
+			}
+		}()
 		if cmd.EmployeeID <= 0 {
 			return out, fmt.Errorf("请先绑定员工")
 		}
@@ -54,14 +59,20 @@ func (r Repository) startOperation(ctx context.Context, cmd app.JobCardActionCom
 		if err = lockReceiptWorkOrderTx(ctx, tx, r.schema, workID); err != nil {
 			return out, err
 		}
+		// An idempotency-key conflict may refer to an earlier committed start.
+		commitAttempted = true
 		replayID, replay, err := requestProductionKeyTx(ctx, tx, r.schema, "operation_start", cmd.Operator, cmd.RequestID, cmd)
 		if err != nil {
 			return out, err
 		}
 		if replayID > 0 {
+			// This request may already have committed; a corrupt replay is not
+			// proof that a fresh request would be safe.
+			commitAttempted = true
 			err = json.Unmarshal(replay, &out)
 			return out, err
 		}
+		commitAttempted = false
 		out, err = r.startOperationLockedTx(ctx, tx, cmd)
 		if err != nil {
 			return out, err
@@ -69,6 +80,7 @@ func (r Repository) startOperation(ctx context.Context, cmd app.JobCardActionCom
 		if err = finishProductionKeyTx(ctx, tx, r.schema, "operation_start", cmd.Operator, cmd.RequestID, cmd.ID, out); err != nil {
 			return out, err
 		}
+		commitAttempted = true
 		return out, tx.Commit(ctx)
 	})
 }

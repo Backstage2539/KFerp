@@ -270,6 +270,9 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-WORKSTATION-START-SIMPLIFY-20261113", title: "精简工位开工用料区域", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-13-workstation-direct-start.md；待用户验收"},
+		{table: "req_dev", code: "DEV-WORKSTATION-START-UI-20261113", title: "工位批次预览与开工交互", status: "done", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-WORKSTATION-START-VERIFY-20261113", title: "库存安全、缺料入口及隔离验证", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-11-13-workstation-direct-start.md"},
 		{table: "req_product", code: "PR-WIP-COMPONENT-TOPUP-20261113", title: "已开工工单直接使用 WIP 可用物料", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-13-workstation-wip-component-topup.md；待用户验收"},
 		{table: "req_dev", code: "DEV-WIP-TOPUP-API", title: "缺口、批次可用量与追加投入事务", status: "done", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-WIP-TOPUP-UI", title: "工位直接使用 WIP 可用物料", status: "done", assignee: "Codex"},

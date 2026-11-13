@@ -2,6 +2,7 @@ package production
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -501,7 +502,8 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 		if err != nil {
 			failureCode := fmt.Sprintf("JC-%s-%d-%d", strings.ToUpper(action), id, time.Now().UnixMilli())
 			log.Printf("production job card action failed code=%s action=%s job_card_id=%d actor=%s err=%v", failureCode, action, id, cmd.Operator, err)
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error(), Code: failureCode})
+			var rejected *productionapp.OperationStartNotCommittedError
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error(), Code: failureCode, NotCommitted: action == "start" && errors.As(err, &rejected)})
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true, "job_card": res.JobCard, "work_order": res.WorkOrder, "completion": res.Completion})
 	}
