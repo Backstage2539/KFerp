@@ -6770,8 +6770,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: ERP-only production `577cff15bbef289eb1b3aad69fd1bf94d2af68a2`；正式页面只读核对任务状态和投入数量，小程序包保留。已合并 develop。
 
 ### PR-768-ORDER-OTHER-FEE
-- Branch: `codex/order-other-fee`；Status: review（待 Van 业务验收及开发部署核验）。
+- Branch: `codex/order-other-fee`；Status: review（开发环境已部署，待 Van 业务验收）。
 - Scope: 员工销售录单增加每单一笔其他费用；应收、实收、销售单与客户账单一致。
 - DEV: `DEV-PR768-ORDER`（保存与金额保护）、`DEV-PR768-ENTRY`（网页与员工小程序）、`DEV-PR768-DOCUMENTS`（销售单及客户账单）、`DEV-PR768-VERIFY`（验证与交付）。
 - Verifier: Go 后端、Vue 2074 项、员工小程序 542 项、两端构建、PostgreSQL 定向订单/确认/账单、销售单 PDF/PNG 核对通过。另行运行既有确认用例遇到缺失 stock_entries 的夹具错误。证据 `orderapp-remote/docs/acceptance/2026-11-20-order-other-fee.md`。
-- Deployment: 待验证。
+- Deployment: `./deploy_orderapp.sh development` 完成，部署代码 `1a09c4d620036a97d8e55ac9d49603283777fc1a`；登录、认证后的录单页面/API 200、匿名 API 401、真实订单编辑数据两个新字段及数据库迁移核对通过。上一版源码保留于 `/opt/stacks/erp/orderapp.backup.deploy-20261120213530-1a09c4d62003`；小程序开发包已导出至 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，待微信开发者工具预览/上传。
