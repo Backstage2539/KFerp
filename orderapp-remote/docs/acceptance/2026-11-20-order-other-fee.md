@@ -26,3 +26,11 @@
 - 开发包固定目录 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，发布信息匹配部署提交，108 个清单文件校验通过。未上传微信。
 - 上一版源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20261120213530-1a09c4d62003`。
 - PR/DEV 需求表已可查询，技术交付完成，待 Van 业务验收。
+
+## 正式环境部署
+
+- 2026-11-21：已将开发分支快进合入 main，执行 `./deploy_orderapp.sh production`，正式部署提交 `d915284d20a3227ce73b5e0d3fb69b9ff19a46e0`。服务器 Vue 2074 项、小程序 542 项、Go 全套及镜像构建成功。
+- 生产服务与数据库正常，外部登录 200，匿名录单 API 401，认证录单接口 200。实际历史订单编辑接口返回 `other_fee` 和 `other_fee_note`；生产数据库新增列分别为必填数值默认 0 与必填文本默认空，不修改历史订单金额。验证仅使用已有订单只读查询。
+- 正式小程序包 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，`RELEASE_INFO` 对应上述提交、production 和正式 API，108 个文件校验通过。旧包备份 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin.backup-20261121003218-d915284d20a3`。尚未上传微信。
+- 回滚源码 `/opt/stacks/erp-production/orderapp.backup.deploy-20261121001921-d915284d20a3`，回滚镜像 `kferp-orderapp-rollback:production-20261121001921-d915284d20a3`。
+- 正式需求表 PR-768 为 review、四项 DEV 均完成；待 Van 正式业务验收及小程序正式版发布。
