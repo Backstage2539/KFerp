@@ -369,6 +369,8 @@ export type CustomerOrderSummary = {
   ship_tracking_no: string
   grand_total: string
   shipping_amount: string
+  other_fee?: string
+  other_fee_note?: string
   sales_order_url?: string
   delivery_note_url?: string
   items?: CustomerOrderItemSummary[]
@@ -961,6 +963,7 @@ export type CustomerAccountSummary = {
   count: number
   goods_cents: number
   shipping_cents: number
+  other_fee_cents?: number
   discount_cents: number
   total_cents: number
   paid_cents: number
@@ -975,6 +978,7 @@ export type CustomerAccountSummary = {
 }
 
 export type CustomerAccountOrder = {
+  other_fee_note?: string
  freight?:FreightSnapshot
   id: number
   order_no: string
@@ -990,6 +994,7 @@ export type CustomerAccountOrder = {
   process_status: string
   goods_cents: number
   shipping_cents: number
+  other_fee_cents?: number
   discount_cents: number
   total_cents: number
   paid_cents: number
@@ -1223,6 +1228,7 @@ export function logoutEmployee(token: string): Promise<unknown> {
 }
 
 export type EmployeeOrderForm = {
+  delivery_warehouses?: Array<{ code: string; name: string }>
   catalog_updated?: boolean
   price_table_options?: PriceTableOption[]
   selected_price_table_ids?: number[]
@@ -1359,6 +1365,8 @@ export type EmployeeOrderDraftItem = {
 }
 
 export type EmployeeOrderDraftPayload = {
+  delivery_mode?: 'ship' | 'customer_stock'
+  delivery_warehouse_code?: string
  freight_state?:import("../utils/orderFreight").FreightState
  expected_freight_token?:string
  freight_destination?:string[]
@@ -1385,6 +1393,8 @@ export type EmployeeOrderDraftPayload = {
   receiver_company: string
   shipping_amount: number
   discount_amount: number
+  other_fee?: number
+  other_fee_note?: string
   notes: string
   items: EmployeeOrderDraftItem[]
 }
@@ -1614,6 +1624,7 @@ export type EmployeeOrderAsset = {
 }
 
 export type EmployeeOrderDetail = EmployeeOrder & {
+  delivery_warehouse_code?: string
  freight?:FreightSnapshot
   is_sample_order?: boolean
   edit_revision?: string
@@ -1643,6 +1654,8 @@ export type EmployeeOrderDetail = EmployeeOrder & {
   sender_name?: string
   payment_goods_amount?: string
   payment_shipping_amount?: string
+  other_fee?: string
+  other_fee_note?: string
   payment_voucher_asset_id?: number
   payment_voucher?: EmployeeOrderAsset
   responsible_type?: string
@@ -2444,7 +2457,7 @@ export function fetchEmployeeFreightTemplates(token:string){return miniRequest<{
 
 export type IssuedBillLine = {
   id: number; description: string; charge_type: string; source_no?: string; amount_cents: number
-  detail?: { order_no?: string; receiver_address?: string; items?: Array<{ item_name: string; spec: string; qty: string; unit: string; unit_price: string; line_total: string }>; shipments?: Array<{ tracking_no: string; shipped_at: string }> }
+  detail?: { order_no?: string; receiver_address?: string; other_fee_cents?: number; other_fee_note?: string; items?: Array<{ item_name: string; spec: string; qty: string; unit: string; unit_price: string; line_total: string }>; shipments?: Array<{ tracking_no: string; shipped_at: string }> }
 }
 export type CustomerIssuedBill = { batch_id: number; settlement_no: string; issued_at: string; period_from: string; period_to: string; total_amount_cents: number; current_received_cents: number; current_due_amount_cents: number; adjustment_cents: number; lines?: IssuedBillLine[] }
 export type CustomerIssuedBillSummary = { count: number; unpaid_count: number; total_amount_cents: number; received_cents: number; due_amount_cents: number; adjustment_cents: number }

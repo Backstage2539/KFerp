@@ -35,3 +35,29 @@ func TestBillingDetailTextShowsMissingFieldsWithoutInventingThem(t *testing.T) {
 		}
 	}
 }
+
+func TestOtherFeeAppearsOnlyInBilledOrderDetail(t *testing.T) {
+	order := AccountOrder{ID: 9, OtherFeeCents: 2350, OtherFeeNote: "定制标签"}
+	for _, tt := range []struct {
+		charge  string
+		amount  int64
+		wantFee int64
+	}{{"order_goods", 12350, 2350}, {"shipping", 2000, 0}} {
+		detail := BuildBillingLineDetail(SettlementLineSummary{ChargeType: tt.charge, AmountCents: tt.amount}, order, AccountFee{}, nil, "出账快照")
+		if detail.AmountCents != tt.amount || detail.OtherFeeCents != tt.wantFee {
+			t.Fatalf("%s detail: %+v", tt.charge, detail)
+		}
+		shown := strings.Contains(strings.Join(BillingDetailText(detail), "\n"), "其他费用：¥23.50（定制标签）")
+		if shown != (tt.wantFee != 0) {
+			t.Fatalf("%s detail text: %v", tt.charge, BillingDetailText(detail))
+		}
+	}
+}
+
+func TestOrderFeeGroupIncludesOtherFeeInOrderAmountOnce(t *testing.T) {
+	order := AccountOrder{ID: 1, TotalCents: 15200, ShippingCents: 1200, OtherFeeCents: 4000, OtherFeeNote: "贴标", PaidCents: 5000, InPeriod: true}
+	groups, summary := BuildOrderFeeGroups([]AccountOrder{order}, nil)
+	if summary.PayableCents != 15200 || summary.DueCents != 10200 || len(groups[0].FeeLines) != 2 || !strings.Contains(groups[0].FeeLines[0].FeeName, "其他费用：¥40.00（贴标）") {
+		t.Fatalf("customer order charges: %+v, %+v", groups, summary)
+	}
+}

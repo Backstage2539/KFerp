@@ -20,17 +20,17 @@ func RenderCustomerAccount(d app.AccountData) ([]byte, error) {
 			{d.CustomerName, "ERP 统一客户账单", d.DateFrom, d.DateTo, "查询时间", d.AsOf},
 			{"商品货款", m(d.Summary.GoodsCents), "加工费", m(d.Summary.ProcessingCents), "代发服务费", m(d.Summary.DirectShipServiceCents), "运费", m(d.Summary.ShippingCents + d.Summary.FeeShippingCents)},
 			{"应付", m(d.Summary.PayableCents), "已付", m(d.Summary.PaidCents), "未付", m(d.Summary.DueCents), "退款", m(d.Summary.RefundCents), "调整", m(d.Summary.AdjustmentCents)},
-			{"订单号", "下单日期", "商品金额", "运费", "优惠", "订单总额", "已付", "待付", "付款状态", "发货状态"},
+			{"订单号", "下单日期", "商品金额", "运费", "优惠", "订单总额", "已付", "待付", "付款状态", "发货状态", "其他费用", "费用说明"},
 		}},
 		{"费用明细", [][]any{{"同一 ERP 来源只保留一项；已计入订单的费用仅展示，不重复计费"}, {"费用ID", "关联订单", "发生日期", "费用名称", "费用类型", "金额", "币种", "来源类型", "来源ID", "已计入订单", "结算单", "结算状态", "付款状态"}}},
 		{"正式结算单", [][]any{{"客户确认对账不会改变 ERP 付款状态；账单金额调整后需要重新确认"}, {"结算单号", "开始日期", "结束日期", "金额", "ERP状态", "ERP确认时间", "付款时间", "客户对账状态", "客户确认时间", "账单版本"}}},
 		{"账单异议", [][]any{{"结算单号", "费用ID", "提出时间", "异议原因", "状态", "ERP回复", "回复人", "回复时间"}}},
 	}
 	for _, o := range d.Rows {
-		sheets[0].rows = append(sheets[0].rows, []any{o.OrderNo, o.OrderDate, m(o.GoodsCents), m(o.ShippingCents), m(o.DiscountCents), m(o.TotalCents), m(o.PaidCents), m(o.DueCents), accountStatus(o.PaymentStatus), o.ShipStatus})
+		sheets[0].rows = append(sheets[0].rows, []any{o.OrderNo, o.OrderDate, m(o.GoodsCents), m(o.ShippingCents), m(o.DiscountCents), m(o.TotalCents), m(o.PaidCents), m(o.DueCents), accountStatus(o.PaymentStatus), o.ShipStatus, m(o.OtherFeeCents), o.OtherFeeNote})
 	}
 	s := d.Summary
-	sheets[0].rows = append(sheets[0].rows, []any{"有效订单合计", "", m(s.GoodsCents), m(s.ShippingCents), m(s.DiscountCents), m(s.TotalCents), m(s.PaidCents), m(s.DueCents)})
+	sheets[0].rows = append(sheets[0].rows, []any{"有效订单合计", "", m(s.GoodsCents), m(s.ShippingCents), m(s.DiscountCents), m(s.TotalCents), m(s.PaidCents), m(s.DueCents), "", "", m(s.OtherFeeCents)})
 	for _, v := range d.Fees {
 		name := v.FeeName
 		if name == "" {

@@ -1936,7 +1936,7 @@ func TestMiniEmployeeCustomerMaintenanceContractsAndPrincipal(t *testing.T) {
 			ResponsibleEmployeeName: "销售甲", Active: true,
 		}},
 	}
-	registerMiniEmployeeAPI(e, employeePortalService(), &miniEmployeeSalesFake{}, customers)
+	registerMiniEmployeeAPI(e, employeePortalService(), &miniEmployeeSalesFake{}, Dependencies{CustomerMaintenance: customers})
 
 	for _, request := range []struct {
 		method string
@@ -1981,7 +1981,7 @@ func TestMiniEmployeeCustomerMaintenanceMapsForbiddenAndNotFound(t *testing.T) {
 	} {
 		e := echo.New()
 		customers := &miniEmployeeCustomersFake{error: tc.err}
-		registerMiniEmployeeAPI(e, employeePortalService(), &miniEmployeeSalesFake{}, customers)
+		registerMiniEmployeeAPI(e, employeePortalService(), &miniEmployeeSalesFake{}, Dependencies{CustomerMaintenance: customers})
 		req := httptest.NewRequest(http.MethodGet, "/api/mini/employee/customers/88", nil)
 		req.Header.Set(echo.HeaderAuthorization, "Bearer token")
 		rec := httptest.NewRecorder()
@@ -2003,7 +2003,7 @@ func TestMiniEmployeeCustomerWritesRequireReadAndWritePermissions(t *testing.T) 
 			Roles: []string{"sales"}, Permissions: permissions,
 		}}
 		customers := &miniEmployeeCustomersFake{}
-		registerMiniEmployeeAPI(e, portal, &miniEmployeeSalesFake{}, customers)
+		registerMiniEmployeeAPI(e, portal, &miniEmployeeSalesFake{}, Dependencies{CustomerMaintenance: customers})
 		req := httptest.NewRequest(http.MethodPost, "/api/mini/employee/customers", strings.NewReader(`{"name":"客户A","customer_type":"retail","default_source_id":1,"default_order_type_id":2}`))
 		req.Header.Set(echo.HeaderAuthorization, "Bearer token")
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -2029,7 +2029,7 @@ func TestMiniEmployeeCustomerWritesExposeOnlySafeValidationErrors(t *testing.T) 
 		t.Run(tc.name, func(t *testing.T) {
 			e := echo.New()
 			customers := &miniEmployeeCustomersFake{error: tc.err}
-			registerMiniEmployeeAPI(e, employeePortalService(), &miniEmployeeSalesFake{}, customers)
+			registerMiniEmployeeAPI(e, employeePortalService(), &miniEmployeeSalesFake{}, Dependencies{CustomerMaintenance: customers})
 			req := httptest.NewRequest(http.MethodPost, "/api/mini/employee/customers", strings.NewReader(`{"name":"客户A","customer_type":"retail","default_source_id":1,"default_order_type_id":2}`))
 			req.Header.Set(echo.HeaderAuthorization, "Bearer token")
 			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -2045,7 +2045,7 @@ func TestMiniEmployeeCustomerWritesExposeOnlySafeValidationErrors(t *testing.T) 
 func TestMiniEmployeeCustomerCreateDoesNotReportFailureAfterCommittedPostReadRace(t *testing.T) {
 	e := echo.New()
 	customers := &miniEmployeeCustomersFake{afterUpsertError: customerapp.ErrCustomerMaintenanceForbidden}
-	registerMiniEmployeeAPI(e, employeePortalService(), &miniEmployeeSalesFake{}, customers)
+	registerMiniEmployeeAPI(e, employeePortalService(), &miniEmployeeSalesFake{}, Dependencies{CustomerMaintenance: customers})
 	body := `{"name":"客户A","customer_type":"retail","company_name":"客户A公司","contact":"收货人A","phone":"021-12345678-801","address":"上海市测试路1号","default_source_id":1,"default_order_type_id":2,"responsible_employee_id":999,"active":false,"portal_enabled":true}`
 	req := httptest.NewRequest(http.MethodPost, "/api/mini/employee/customers", strings.NewReader(body))
 	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
@@ -2178,5 +2178,29 @@ func TestMiniEmployeeOrderFormSelectsNamedSiblingAndRejectsCrossTableIDs(t *test
 				t.Fatalf("result=%+v", result)
 			}
 		}
+	}
+}
+
+func TestMiniEmployeeSalesOrderRegeneratesChangedOtherFee(t *testing.T) {
+	for _, kind := range []string{"sales-order.pdf", "sales-order.png"} {
+		t.Run(kind, func(t *testing.T) {
+			e := echo.New()
+			result := salesapp.OrderListResult{Rows: []salesapp.OrderRow{{ID: 42, OrderNo: "SO-42", OtherFee: "8.00", OtherFeeNote: "包装"}}}
+			old := salesdomain.SalesOrderSnapshot{RenderVersion: salesdomain.SalesOrderRenderVersion, OtherFee: "5.00", OtherFeeNote: "包装"}
+			file := miniEmployeeDocumentTestFile(t, kind, "旧单据")
+			sales := &miniEmployeeSalesFake{
+				listResult:    &result,
+				salesOrderPDF: salesapp.SalesOrderDocumentFile{OtherFeeChanged: true, Document: salesapp.SalesOrderDocument{VersionNo: 3, Snapshot: old}, Path: file},
+				salesOrderPNG: salesapp.SalesOrderImageFile{OtherFeeChanged: true, Document: salesapp.SalesOrderImageDocument{VersionNo: 3, Snapshot: old}, Path: file},
+			}
+			registerMiniEmployeeAPI(e, employeePortalService(), sales)
+			req := httptest.NewRequest(http.MethodPost, "/api/mini/employee/orders/42/documents/"+kind, nil)
+			req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK || sales.generateCalls != 1 {
+				t.Fatalf("status=%d generate=%d body=%s", rec.Code, sales.generateCalls, rec.Body.String())
+			}
+		})
 	}
 }

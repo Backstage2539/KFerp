@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 	"net/http"
 	"net/http/httptest"
@@ -63,9 +64,8 @@ func TestOrderAPIReceivesStructuredOperationNotes(t *testing.T) {
 	}
 }
 
-func TestERPOrderOldClientPreservesOperationNotesAcrossRebuild(t *testing.T) {
-	pool, schema := newOrderAPITestDB(t)
-	ctx := context.Background()
+func seedEditableOrderAPIFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
+	t.Helper()
 	seedOrderAPITestData(t, ctx, pool, schema)
 	seedOrderAPIBOMSpecIdentity(t, ctx, pool, schema)
 	if err := materialspg.EnsureSchema(ctx, pool, schema); err != nil {
@@ -89,6 +89,12 @@ func TestERPOrderOldClientPreservesOperationNotesAcrossRebuild(t *testing.T) {
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`CREATE TABLE %s.order_resolution_stock_returns(id bigint PRIMARY KEY, source_kind text);`, schema))
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN delivery_mode text NOT NULL DEFAULT 'ship', ADD COLUMN delivery_warehouse_code text NOT NULL DEFAULT '', ADD COLUMN delivery_status text NOT NULL DEFAULT '', ADD COLUMN fulfillment_mode text NOT NULL DEFAULT '';`, schema))
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`ALTER TABLE %[1]s.order_items ADD COLUMN operation_notes_json jsonb NOT NULL DEFAULT '[]', ADD COLUMN customer_product_reference_id bigint, ADD COLUMN material_source_mode text;`, schema))
+}
+
+func TestERPOrderOldClientPreservesOperationNotesAcrossRebuild(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedEditableOrderAPIFixture(t, ctx, pool, schema)
 	e := newOrderAPITestEcho(pool, schema)
 	payload := map[string]any{"order_date": "2026-08-17", "customer_id": 3, "pay_status_id": 1, "ship_status_id": 1, "product_id": []string{"7"}, "parent_product_id": []string{"7"}, "bom_spec_id": []string{"9001"}, "bom_variant_id": []string{"9101"}, "item_name": []string{"橘皮乌龙 227g 袋装"}, "tier_id": []string{"manual"}, "unit_price": []string{"88"}, "qty": []string{"2"}, "unit": []string{"袋"}, "spec": []string{"227g 袋装"}}
 	post := func() *httptest.ResponseRecorder {

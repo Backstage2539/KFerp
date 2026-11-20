@@ -487,7 +487,7 @@ func (r Repository) buildCombinedSalesOrderSnapshotTx(ctx context.Context, tx pg
 		OrderNos:       combinedOrderNosFromInfos(orders),
 	}
 	snapshot.CombinedNo = combinedDocumentNo("CSO", snapshot.OrderNos)
-	var total, shipping, discount, grand float64
+	var total, shipping, discount, otherFee, grand float64
 	for _, order := range orders {
 		single, err := r.buildSalesOrderSnapshotTx(ctx, tx, order.OrderID, settings)
 		if err != nil {
@@ -513,6 +513,7 @@ func (r Repository) buildCombinedSalesOrderSnapshotTx(ctx context.Context, tx pg
 		total += parseDocumentMoney(single.TotalAmount)
 		shipping += parseDocumentMoney(single.Shipping)
 		discount += parseDocumentMoney(single.Discount)
+		otherFee += parseDocumentMoney(single.OtherFee)
 		grand += parseDocumentMoney(single.GrandTotal)
 		snapshot.Groups = append(snapshot.Groups, salesdomain.CombinedSalesOrderGroup{
 			ReceiverName: single.ReceiverName, ReceiverPhone: single.ReceiverPhone, ReceiverAddress: single.ReceiverAddress,
@@ -524,6 +525,8 @@ func (r Repository) buildCombinedSalesOrderSnapshotTx(ctx context.Context, tx pg
 			Items:              single.Items,
 			TotalAmount:        single.TotalAmount,
 			Shipping:           single.Shipping,
+			OtherFee:           single.OtherFee,
+			OtherFeeNote:       single.OtherFeeNote,
 			Discount:           single.Discount,
 			ExpressFee:         single.ExpressFee,
 			SalesOrderNote:     single.SalesOrderNote,
@@ -535,6 +538,7 @@ func (r Repository) buildCombinedSalesOrderSnapshotTx(ctx context.Context, tx pg
 	snapshot.TotalAmount = salesdomain.FormatSalesOrderMoney(total)
 	snapshot.Shipping = salesdomain.FormatSalesOrderMoney(shipping)
 	snapshot.Discount = salesdomain.FormatSalesOrderMoney(discount)
+	snapshot.OtherFee = salesdomain.FormatSalesOrderMoney(otherFee)
 	snapshot.GrandTotal = salesdomain.FormatSalesOrderMoney(grand)
 	if err := snapshot.Validate(); err != nil {
 		return salesdomain.CombinedSalesOrderSnapshot{}, err

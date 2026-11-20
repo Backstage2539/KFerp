@@ -1053,14 +1053,16 @@ function roundToCents(value) {
   return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100
 }
 
-export function orderTotalPreview({ itemsTotal = 0, shippingAmount = 0, discountAmount = 0, roundToInt = false } = {}) {
+export function orderTotalPreview({ itemsTotal = 0, shippingAmount = 0, discountAmount = 0, otherFee = 0, roundToInt = false } = {}) {
   const goodsAmount = Math.max(0, roundToCents(toNumber(itemsTotal) - toNumber(discountAmount)))
   const logisticsAmount = Math.max(0, roundToCents(toNumber(shippingAmount)))
-  const rawTotal = goodsAmount + logisticsAmount
+  const otherFeeAmount = Math.max(0, roundToCents(toNumber(otherFee)))
+  const rawTotal = roundToCents(goodsAmount + logisticsAmount + otherFeeAmount)
   return {
     goodsAmount,
     logisticsAmount,
-    grandTotal: roundToInt ? Math.round(rawTotal) : roundToCents(rawTotal),
+    otherFeeAmount,
+    grandTotal: roundToInt ? Math.trunc(rawTotal) : rawTotal,
   }
 }
 
@@ -2019,6 +2021,10 @@ export function buildOrderPayload({ form, rows }) {
     notes: form.notes || '',
     shipping_amount: String(form.shipping_amount ?? ''),
     discount_amount: String(form.discount_amount || ''),
+    ...(form.other_fee !== undefined ? {
+      other_fee: String(form.other_fee || '0'),
+      other_fee_note: Number(form.other_fee) > 0 ? String(form.other_fee_note || '').trim() : '',
+    } : {}),
     round_to_int: form.round_to_int ? 'on' : '',
     express_fee: String(form.express_fee || ''),
     outsource_material_fee: String(form.outsource_material_fee || ''),

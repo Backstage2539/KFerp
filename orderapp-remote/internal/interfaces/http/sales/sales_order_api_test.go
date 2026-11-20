@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	salesapp "orderapp/internal/application/sales"
+	salesdomain "orderapp/internal/domain/sales"
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
 	"os"
 	"path/filepath"
@@ -987,7 +988,7 @@ func TestSalesOrderPreviewAPIDoesNotCreateDocumentVersion(t *testing.T) {
 		`"next_version_no":1`,
 		`"order_no":"SO-20260430-0008"`,
 		`"customer_name":"测试客户"`,
-		`"render_version":"sales-order-last-page-notes-v5"`,
+		`"render_version":"` + salesdomain.SalesOrderRenderVersion + `"`,
 		`"paid_amount":"0.00"`,
 		`"unpaid_amount":"134.00"`,
 		`"items":[`,
@@ -1021,7 +1022,7 @@ func TestSalesOrderPreviewAPIDoesNotCreateDocumentVersion(t *testing.T) {
 	generateRec := httptest.NewRecorder()
 	e.ServeHTTP(generateRec, generateReq)
 	if generateRec.Code != http.StatusOK || !strings.Contains(generateRec.Body.String(), `"version_no":1`) ||
-		!strings.Contains(generateRec.Body.String(), `"render_version":"sales-order-last-page-notes-v5"`) ||
+		!strings.Contains(generateRec.Body.String(), `"render_version":"`+salesdomain.SalesOrderRenderVersion+`"`) ||
 		!strings.Contains(generateRec.Body.String(), `"unpaid_amount":"134.00"`) {
 		t.Fatalf("generate after preview status=%d body=%s", generateRec.Code, generateRec.Body.String())
 	}

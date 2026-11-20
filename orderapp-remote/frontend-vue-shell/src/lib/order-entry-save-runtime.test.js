@@ -66,6 +66,26 @@ test('successful ordinary edit refreshes payment, receipt and both revision toke
   assert.equal(writes[1].prepayment_amount, '120')
 })
 
+test('other fee contributes to displayed total, survives edit refresh and can be cleared', async t => {
+  const { editor, writes, saved } = await fixture(t)
+  const before = editor.orderTotalPreviewValue.value.grandTotal
+  editor.form.other_fee = '20'
+  editor.form.other_fee_note = '定制包装'
+  assert.equal(editor.orderTotalPreviewValue.value.grandTotal, before + 20)
+  saved.other_fee = '20.00'
+  saved.other_fee_note = '定制包装'
+  await editor.save()
+  assert.equal(writes[0].other_fee, '20')
+  assert.equal(writes[0].other_fee_note, '定制包装')
+  assert.equal(editor.form.other_fee, '20.00')
+  editor.form.other_fee = ''
+  delete saved.other_fee
+  delete saved.other_fee_note
+  await editor.save()
+  assert.equal(writes[1].other_fee, '0')
+  assert.equal(writes[1].other_fee_note, '')
+})
+
 test('rejected save keeps the editable draft and does not reload or emit success', async t => {
   const { editor, events, reads } = await fixture(t, { rejectSave: true })
   const before = JSON.stringify({ form: editor.form, rows: editor.rows.value })

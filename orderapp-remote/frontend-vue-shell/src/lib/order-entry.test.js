@@ -2365,7 +2365,7 @@ test('order entry save validation scrolls to invalid fields and marks them until
 test('order entry shows clickable realtime payment amount suggestions without locking edits', () => {
   const source = orderEntryViewSource()
 
-  assert.match(source, /const paymentGoodsAmountSuggestion = computed\(\(\) => money\(itemsTotal\.value\)\)/)
+  assert.match(source, /const paymentGoodsAmountSuggestion = computed\(\(\) => money\(Math\.max\(0, orderTotalPreviewValue\.value\.grandTotal - orderTotalPreviewValue\.value\.logisticsAmount\)\)\)/)
   assert.match(source, /const paymentShippingAmountSuggestion = computed\(\(\) => money\(toNumber\(form\.shipping_amount\)\)\)/)
   assert.match(source, /const showPaymentGoodsAmountSuggestion = computed/)
   assert.match(source, /const showPaymentShippingAmountSuggestion = computed/)
@@ -2377,6 +2377,7 @@ test('order entry shows clickable realtime payment amount suggestions without lo
   assert.match(source, /@click="applyPaymentGoodsAmountSuggestion"/)
   assert.match(source, /@click="applyPaymentShippingAmountSuggestion"/)
   assert.match(source, /实时价格提示\s*货款\s*\{\{ paymentGoodsAmountSuggestion \}\}/)
+  assert.match(source, /实时价格提示 货款及其他费用 \{\{ paymentGoodsAmountSuggestion \}\}/)
   assert.match(source, /实时价格提示\s*运费\s*\{\{ paymentShippingAmountSuggestion \}\}/)
   assert.doesNotMatch(source, /form\.payment_goods_amount = money\(itemsTotal\.value\)/)
 
@@ -2415,11 +2416,13 @@ test('order entry total preview includes shipping and exposes goods/logistics hi
     itemsTotal: 2340,
     shippingAmount: '18.5',
     discountAmount: '10',
+    otherFee: '20.25',
     roundToInt: false,
   }), {
     goodsAmount: 2330,
     logisticsAmount: 18.5,
-    grandTotal: 2348.5,
+    otherFeeAmount: 20.25,
+    grandTotal: 2368.75,
   })
 
   const source = orderEntryViewSource()
@@ -2427,6 +2430,14 @@ test('order entry total preview includes shipping and exposes goods/logistics hi
   assert.match(source, /orderTotalHintText/)
   assert.match(source, /货款/)
   assert.match(source, /物流/)
+})
+
+test('other fee payload distinguishes an explicit zero from omission', () => {
+  const form = { other_fee: '', other_fee_note: '定制包装' }
+  const payload = orderEntry.buildOrderPayload({ form, rows: [] })
+  assert.equal(payload.other_fee, '0')
+  assert.equal(payload.other_fee_note, '')
+  assert.equal(orderEntry.buildOrderPayload({ form: {}, rows: [] }).other_fee, undefined)
 })
 
 test('order entry payment voucher collapses after upload and can open a large preview', () => {

@@ -123,7 +123,7 @@ function emptyShippingSnapshot(): EmployeeOrderShippingSnapshot {
 const shippingBaseline = ref<EmployeeOrderShippingSnapshot>(emptyShippingSnapshot())
 
 const receiptMethods = ['微信支付', '支付宝', '银行转账', '对公银行', '现金', 'POS刷卡', '其他']
-const freeSampleSettlement = computed(() => isFreeSampleOrder(editingSampleOrder.value,form.value.items.map(item=>Number(item.unit_price)),Number(form.value.shipping_amount || 0),preservedOutsourceTotal.value,orderGrandTotal.value))
+const freeSampleSettlement = computed(() => isFreeSampleOrder(editingSampleOrder.value,form.value.items.map(item=>Number(item.unit_price)),Number(form.value.shipping_amount || 0),preservedOutsourceTotal.value + Number(form.value.other_fee || 0),orderGrandTotal.value))
 const selectedPaymentStatus = computed(() => freeSampleSettlement.value ? '无需收款' : formData.value?.pay_statuses.find(s => s.id === form.value.pay_status_id)?.name || '')
 function selectPaymentStatus(event: { detail: { value: string | number } }) {
   form.value.pay_status_id = formData.value?.pay_statuses[Number(event.detail.value)]?.id || 0
@@ -134,6 +134,8 @@ function createOrderForm(): EmployeeOrderDraftPayload {
     selected_price_table_ids: [],
     order_date: shanghaiToday(),
     customer_id: 0,
+    delivery_mode: 'ship',
+    delivery_warehouse_code: '',
     source_id: 0,
     order_type_id: 0,
     pay_status_id: 0,
@@ -147,12 +149,34 @@ function createOrderForm(): EmployeeOrderDraftPayload {
     freight_state:emptyFreightState(),
     shipping_amount: 0,
     discount_amount: 0,
+    other_fee: 0,
+    other_fee_note: '',
     notes: '',
     items: [createEmployeeOrderItem()],
   }
 }
 
 const form = ref<EmployeeOrderDraftPayload>(createOrderForm())
+const retainedOrder = computed(() => form.value.delivery_mode === 'customer_stock')
+const newRetainedOrder = computed(() => retainedOrder.value && !isEditMode.value)
+const deliveryWarehouses = computed(() => formData.value?.delivery_warehouses || [])
+const deliveryWarehouseIndex = computed(() => deliveryWarehouses.value.findIndex(row => row.code === form.value.delivery_warehouse_code))
+function selectDeliveryMode(event: { detail: { value: string | number } }) {
+  const retained = Number(event.detail.value) === 1
+  form.value.delivery_mode = retained ? 'customer_stock' : 'ship'
+  form.value.delivery_warehouse_code = ''
+  if (retained) {
+    prepaymentRate.value = 0
+    form.value.shipping_amount = 0
+    form.value.freight_state = emptyFreightState()
+    form.value.prepayment_amount = 0
+    form.value.pay_status_id = 0
+    form.value.payment_method = ''
+  } else applyDefaultOptions()
+}
+function selectDeliveryWarehouse(event: { detail: { value: string | number } }) {
+  form.value.delivery_warehouse_code = deliveryWarehouses.value[Number(event.detail.value)]?.code || ''
+}
 const orderFreight=ref<FreightSnapshot|undefined>()
 const freightEstimator=ref<InstanceType<typeof EmployeeFreightEstimate>|null>(null)
 const freightItems=computed(()=>form.value.items.filter(i=>Number(i.product_id)>0&&Number(i.qty)>0).map(i=>({product_id:Number(i.product_id),bom_spec_id:Number(i.bom_spec_id||0),bom_variant_id:Number(i.bom_variant_id||0),qty:Number(i.qty),name:String(i.product_name||'')})))
@@ -189,10 +213,11 @@ function onManualPrepayment() {
 const orderItemsTotal = computed(() => employeeOrderItemsTotal(form.value.items))
 const orderGrandTotal = computed(() => employeeOrderGrandTotal(
   form.value.items,
-  Number(form.value.shipping_amount || 0),
+  retainedOrder.value ? 0 : Number(form.value.shipping_amount || 0),
   Number(form.value.discount_amount || 0),
   preservedOutsourceTotal.value,
   preservedRoundToInt.value,
+  Number(form.value.other_fee || 0),
 ))
 watch(orderGrandTotal, () => { if (prepaymentRate.value) applyPrepaymentPreset(prepaymentRate.value) })
 watch(freeSampleSettlement,(free,previous)=>{
@@ -379,6 +404,8 @@ async function chooseCustomer(customer: EmployeeOrderCustomer) {
   const customerChanged = Number(form.value.customer_id || 0) !== Number(customer.id)
   form.value.customer_id = Number(customer.id)
   if (customerChanged) {
+    form.value.delivery_warehouse_code = ''
+    if (formData.value) formData.value.delivery_warehouses = []
     form.value.selected_price_table_ids = []
     form.value.items = [createEmployeeOrderItem()]
     quantityInputs.value = {}
@@ -708,6 +735,8 @@ async function loadForm() {
           edit_revision: String(detail.edit_revision || ''),
           order_date: String(detail.order_date || detail.document_date || shanghaiToday()),
           customer_id: targetCustomerID,
+          delivery_mode: detail.delivery_mode === 'customer_stock' ? 'customer_stock' : 'ship',
+          delivery_warehouse_code: detail.delivery_warehouse_code || '',
           source_id: Number(detail.source_id || 0),
           order_type_id: Number(detail.order_type_id || 0),
           pay_status_id: Number(detail.pay_status_id || 0),
@@ -718,12 +747,14 @@ async function loadForm() {
           receiver_phone: String(detail.receiver_phone || ''),
           receiver_address: String(detail.receiver_address || ''),
           receiver_company: String(detail.receiver_company || ''),
-          shipping_amount: Number(detail.shipping_amount || detail.payment_shipping_amount || 0),
+          shipping_amount: detail.delivery_mode === 'customer_stock' ? 0 : Number(detail.shipping_amount || detail.payment_shipping_amount || 0),
           discount_amount: employeeOrderEditableOrderDiscount(
             detail.discount_amount,
             detail.items || [],
             detail.order_discount_amount,
           ),
+          other_fee: Number(detail.other_fee || 0),
+          other_fee_note: String(detail.other_fee_note || ''),
           notes: String(detail.notes || ''),
           items: hydrateEmployeeOrderEditItems(detail.items || [], formData.value.product_families, targetCustomerID, editRetailOrder, editingSampleOrder.value),
         }
@@ -795,6 +826,10 @@ function validateOrder(): boolean {
     uni.showToast({ title: '请选择客户', icon: 'none' })
     return false
   }
+  if (newRetainedOrder.value && !deliveryWarehouses.value.some(row => row.code === form.value.delivery_warehouse_code)) {
+    uni.showToast({ title: '请选择客户成品仓', icon: 'none' })
+    return false
+  }
   let completeCount = 0
   for (let index = 0; index < form.value.items.length; index += 1) {
     const item = form.value.items[index]
@@ -829,6 +864,10 @@ function validateOrder(): boolean {
   if (!isEmployeeOrderNonNegativeMoney(form.value.shipping_amount)
     || !isEmployeeOrderNonNegativeMoney(form.value.discount_amount)) {
     uni.showToast({ title: '运费和优惠必须是大于或等于 0 的有效数字', icon: 'none' })
+    return false
+  }
+  if (String(form.value.other_fee ?? '').trim() !== '' && !/^\d+(\.\d{1,2})?$/.test(String(form.value.other_fee))) {
+    uni.showToast({ title: '其他费用必须是非负金额，最多两位小数', icon: 'none' })
     return false
   }
   return true
@@ -868,22 +907,26 @@ async function submit() {
       selected_price_table_ids: [...new Set([...(form.value.selected_price_table_ids || []), ...form.value.items.filter(isFrozenConversion).map(item => Number(item.bean_list_publication_id))])],
       order_date: form.value.order_date,
       customer_id: form.value.customer_id,
+      delivery_mode: form.value.delivery_mode || 'ship',
+      delivery_warehouse_code: retainedOrder.value ? form.value.delivery_warehouse_code || '' : '',
       source_id: form.value.source_id,
       order_type_id: form.value.order_type_id,
-      pay_status_id: form.value.pay_status_id,
-      prepayment_amount: Number(form.value.prepayment_amount || 0),
-      payment_method: form.value.payment_method || '',
+      pay_status_id: newRetainedOrder.value ? 0 : form.value.pay_status_id,
+      prepayment_amount: newRetainedOrder.value ? 0 : Number(form.value.prepayment_amount || 0),
+      payment_method: newRetainedOrder.value ? '' : form.value.payment_method || '',
       ship_status_id: form.value.ship_status_id,
       receiver_name: form.value.receiver_name,
       receiver_phone: form.value.receiver_phone,
       receiver_address: form.value.receiver_address,
       receiver_company: form.value.receiver_company,
-      shipping_amount: Number(form.value.shipping_amount || 0),
+      shipping_amount: retainedOrder.value ? 0 : Number(form.value.shipping_amount || 0),
       discount_amount: Number(form.value.discount_amount || 0),
+      other_fee: Number(form.value.other_fee || 0),
+      other_fee_note: Number(form.value.other_fee || 0) > 0 ? String(form.value.other_fee_note || '').trim() : '',
       notes: form.value.notes,
       items: buildEmployeeOrderItemsPayload(form.value.items),
     }
-    if (!orderFreight.value?.edit_locked) {const q=await freightEstimator.value?.preview();if(!q&&!form.value.freight_state?.preserveExisting)throw new Error('请完善收件地区和运费配置后重试');Object.assign(payload,freightEstimator.value?.payload())}
+    if (!retainedOrder.value && !orderFreight.value?.edit_locked) {const q=await freightEstimator.value?.preview();if(!q&&!form.value.freight_state?.preserveExisting)throw new Error('请完善收件地区和运费配置后重试');Object.assign(payload,freightEstimator.value?.payload())}
     if (isEditMode.value) {
       await updateEmployeeOrder(session.token, editOrderID.value, {
         ...payload,
@@ -1020,6 +1063,20 @@ onShow(() => { void refreshMiniappShareMenu() })
       <text class="hint">商品、规格和价格随所选表切换。</text>
     </view>
 
+      <text class="label">交付方式</text>
+      <view v-if="isEditMode" class="field">{{ retainedOrder ? '购货留厂' : '普通发货' }}</view>
+      <picker v-else :range="['普通发货', '购货留厂']" :value="retainedOrder ? 1 : 0" @change="selectDeliveryMode">
+        <view class="field selector-field">{{ retainedOrder ? '购货留厂' : '普通发货' }}<text>⌄</text></view>
+      </picker>
+      <view v-if="retainedOrder">
+        <text class="label">目标客户成品仓</text>
+        <view v-if="isEditMode" class="field">{{ deliveryWarehouses[deliveryWarehouseIndex]?.name || form.delivery_warehouse_code || '原订单客户仓' }}</view>
+        <picker v-else :range="deliveryWarehouses.map(row => row.name)" :value="Math.max(0, deliveryWarehouseIndex)" :disabled="productCatalogLoading || !deliveryWarehouses.length" @change="selectDeliveryWarehouse">
+          <view class="field selector-field">{{ deliveryWarehouses[deliveryWarehouseIndex]?.name || '请选择客户成品仓' }}<text>⌄</text></view>
+        </picker>
+        <text class="hint">本单留厂，不收运费。新单保存后从订单详情登记实际收款。</text>
+      </view>
+
     <view class="section-head">
         <text class="section-title">商品明细</text>
       </view>
@@ -1082,13 +1139,19 @@ onShow(() => { void refreshMiniappShareMenu() })
         <text class="order-total-value">¥{{ orderItemsTotal.toFixed(2) }}</text>
       </view>
 
-      <EmployeeFreightEstimate v-model="form.freight_state" ref="freightEstimator" :token="session.token" :customer-id="form.customer_id" :items="freightItems" :address="form.receiver_address" :order-id="isEditMode?editOrderID:0" :expected-token="orderFreight?.edit_token??orderFreight?.token??''" :locked="!!orderFreight?.edit_locked" :stored-quote="orderFreight" @amount-change="form.shipping_amount=$event" />
+      <EmployeeFreightEstimate v-if="!retainedOrder" v-model="form.freight_state" ref="freightEstimator" :token="session.token" :customer-id="form.customer_id" :items="freightItems" :address="form.receiver_address" :order-id="isEditMode?editOrderID:0" :expected-token="orderFreight?.edit_token??orderFreight?.token??''" :locked="!!orderFreight?.edit_locked" :stored-quote="orderFreight" @amount-change="form.shipping_amount=$event" />
       <view class="fee-editor-grid">
         <view>
           <text class="label">优惠（元）</text>
           <input v-model="form.discount_amount" type="digit" class="field" placeholder="0.00" />
         </view>
+        <view>
+          <text class="label">其他费用（元）</text>
+          <input v-model="form.other_fee" type="digit" class="field" placeholder="0.00" />
+        </view>
       </view>
+      <text class="label">其他费用说明（选填，客户可见）</text>
+      <input v-model="form.other_fee_note" :disabled="Number(form.other_fee || 0) <= 0" class="field" placeholder="例如定制包装" />
       <view v-if="isEditMode && (preservedOutsourceTotal > 0 || preservedRoundToInt)" class="preserved-pricing-hint">
         <text v-if="preservedOutsourceTotal > 0">原订单代加工费用（保留）：¥{{ preservedOutsourceTotal.toFixed(2) }}</text>
         <text v-if="preservedRoundToInt">原订单应收按原设置向下取整</text>
@@ -1099,6 +1162,8 @@ onShow(() => { void refreshMiniappShareMenu() })
       </view>
 
       <view class="section-title standalone">付款</view>
+      <text v-if="newRetainedOrder" class="hint">保存订单后登记实际收款。</text>
+      <view v-else>
       <text class="label">付款状态</text>
       <view v-if="freeSampleSettlement" class="field">无需收款 · 已结清</view>
       <picker v-else :range="formData?.pay_statuses || []" range-key="name" :value="Math.max(0, (formData?.pay_statuses || []).findIndex(s => s.id === form.pay_status_id))" @change="selectPaymentStatus">
@@ -1119,7 +1184,9 @@ onShow(() => { void refreshMiniappShareMenu() })
         </picker>
       </view>
       <PaymentSummary :order="{ pay_status: selectedPaymentStatus, prepayment_amount: String(form.prepayment_amount || 0), grand_total: String(orderGrandTotal) }" />
+      </view>
 
+      <view v-if="!retainedOrder">
       <view class="section-title standalone">收货信息</view>
       <text class="hint">选择客户后自动带入，可按本次订单修改</text>
       <text class="label">收货人</text>
@@ -1130,6 +1197,7 @@ onShow(() => { void refreshMiniappShareMenu() })
       <input v-model="form.receiver_company" class="field" placeholder="收货单位" />
       <text class="label">收货地址</text>
       <textarea v-model="form.receiver_address" class="field area" placeholder="收货地址" />
+      </view>
 
       <text class="label">备注</text>
       <textarea v-model="form.notes" class="field area" placeholder="备注" />

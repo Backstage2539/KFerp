@@ -22,6 +22,7 @@ type CombinedSalesOrderSnapshot struct {
 	TotalAmount            string                    `json:"total_amount"`
 	Shipping               string                    `json:"shipping"`
 	Discount               string                    `json:"discount"`
+	OtherFee               string                    `json:"other_fee,omitempty"`
 	GrandTotal             string                    `json:"grand_total"`
 	PaymentText            string                    `json:"payment_text"`
 	TaxpayerID             string                    `json:"taxpayer_id"`
@@ -55,6 +56,8 @@ type CombinedSalesOrderGroup struct {
 	ExpressFee         string                        `json:"express_fee"`
 	OrderNote          string                        `json:"order_note"`
 	SalesOrderNote     string                        `json:"sales_order_note"`
+	OtherFee           string                        `json:"other_fee,omitempty"`
+	OtherFeeNote       string                        `json:"other_fee_note,omitempty"`
 	GrandTotal         string                        `json:"grand_total"`
 	DiscountBreakdowns []SalesOrderDiscountBreakdown `json:"discount_breakdowns"`
 }

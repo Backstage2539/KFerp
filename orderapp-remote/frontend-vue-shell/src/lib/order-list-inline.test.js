@@ -48,3 +48,9 @@ test('customer snapshot wins over catalogue names and stored numeric specs keep 
  const [item]=inlineOrderItems({items:[{customer_product_display_name_snapshot:'客户约定名称',product_name_snapshot:'工厂旧名',product_name:'现名',bom_spec_name:'454',qty:1,unit:'袋',unit_price:'12.50',line_total:'12.50'}]})
  assert.equal(item.name,'客户约定名称');assert.equal(item.spec,'454g')
 })
+
+test('expanded order includes the other fee and its note inside the recorded total', () => {
+  const lines = inlineOrderTotals({ other_fee: '9.50', other_fee_note: '补印', grand_total: '109.50' })
+  assert.deepEqual(lines.find(row => row.label === '其他费用'), { label: '其他费用', value: '¥9.50（补印）' })
+  assert.equal(lines.at(-1).value, '¥109.50')
+})

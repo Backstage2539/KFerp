@@ -118,6 +118,12 @@ func TestMonthlySourceTotalsUsesLegacyTotalAmountWhenGrandTotalWasDefaultZero(t 
 	`, schema, schema, schema, schema, schema))
 
 	repo := NewRepository(pool, schema)
+	mustExecFinanceSQL(t, ctx, pool, fmt.Sprintf(`
+		ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS rounding_amount numeric(12,2);
+		ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS other_fee numeric(12,2);
+		INSERT INTO %[1]s.orders(id,order_no,order_date,customer_id,total_amount,other_fee,rounding_amount,grand_total,is_void)
+		VALUES (5,'SO-ROUNDED-FEE','2026-05-04',3,0.30,0.20,-0.50,0,false)
+	`, schema))
 	totals, _, err := repo.MonthlySourceTotals(ctx, appfinance.ReportFilter{Month: "2026-05"})
 	if err != nil {
 		t.Fatalf("MonthlySourceTotals: %v", err)

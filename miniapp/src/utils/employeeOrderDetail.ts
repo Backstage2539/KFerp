@@ -159,6 +159,7 @@ export function employeeOrderFeeLines(order: Record<string, unknown> = {}): Empl
     { key: 'total_amount', label: '商品金额', value: money(order.total_amount) },
     { key: 'shipping_amount', label: order.freight?'运费状态':'运费', value: order.freight?freightLabel(order.freight as FreightSnapshot):money(order.shipping_amount) },
     { key: 'discount_amount', label: '优惠', value: money(order.discount_amount) },
+    ...(Number(order.other_fee || 0) > 0 ? [{ key: 'other_fee', label: '其他费用', value: money(order.other_fee) + (String(order.other_fee_note || '').trim() ? `（${String(order.other_fee_note).trim()}）` : '') }] : []),
     { key: 'grand_total', label: '应收', value: money(order.grand_total), emphasized: true },
   ]
   if (String(order.express_fee || '').trim()) {

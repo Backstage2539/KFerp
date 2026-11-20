@@ -226,7 +226,7 @@ func (r Repository) load(ctx context.Context, q querier, id int64) (domain.Conte
 	for _, l := range c.Lines {
 		gross += l.AmountCents
 	}
-	budget := min(gross, max(int64(0), c.TotalCents-cents(num(o, "shipping_amount"))))
+	budget := min(gross, max(int64(0), c.TotalCents-cents(num(o, "shipping_amount"))-cents(num(o, "other_fee"))))
 	if gross > 0 && budget != gross {
 		var cumulative, allocated int64
 		for n := range c.Lines {

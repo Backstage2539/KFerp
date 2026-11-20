@@ -21,6 +21,7 @@ import (
 	customerapp "orderapp/internal/application/customer"
 	customerportalapp "orderapp/internal/application/customerportal"
 	salesapp "orderapp/internal/application/sales"
+	stockapp "orderapp/internal/application/stock"
 	catalogdomain "orderapp/internal/domain/catalog"
 	salesdomain "orderapp/internal/domain/sales"
 
@@ -40,6 +41,7 @@ type miniEmployeeOrderDetailResponse struct {
 }
 
 type miniEmployeeOrderDetailDTO struct {
+	DeliveryWarehouseCode           string                            `json:"delivery_warehouse_code,omitempty"`
 	DeliveryMode                    string                            `json:"delivery_mode,omitempty"`
 	FulfillmentProgress             *progressdomain.Progress          `json:"fulfillment_progress,omitempty"`
 	Freight                         *freightdomain.OrderView          `json:"freight,omitempty"`
@@ -102,6 +104,8 @@ type miniEmployeeOrderDetailDTO struct {
 	OutsourcePackagingFee           string                            `json:"outsource_packaging_fee"`
 	OutsourceManualFee              string                            `json:"outsource_manual_fee"`
 	OutsourceTaxFee                 string                            `json:"outsource_tax_fee"`
+	OtherFee                        string                            `json:"other_fee"`
+	OtherFeeNote                    string                            `json:"other_fee_note"`
 	OutsourceOtherFee               string                            `json:"outsource_other_fee"`
 	OutsourceTotalFee               string                            `json:"outsource_total_fee"`
 	ProductKindSummary              string                            `json:"product_kind_summary"`
@@ -267,6 +271,8 @@ type miniEmployeeOrderItemRequest struct {
 }
 
 type miniEmployeeOrderRequest struct {
+	DeliveryMode          string                         `json:"delivery_mode"`
+	DeliveryWarehouseCode string                         `json:"delivery_warehouse_code"`
 	FreightProtocol       string                         `json:"freight_protocol"`
 	ExpectedFreightToken  string                         `json:"expected_freight_token"`
 	FreightQuoteToken     string                         `json:"freight_quote_token"`
@@ -286,6 +292,8 @@ type miniEmployeeOrderRequest struct {
 	ShipStatusID          int64                          `json:"ship_status_id"`
 	ShipMethod            string                         `json:"ship_method"`
 	ShipTrackingNo        string                         `json:"ship_tracking_no"`
+	OtherFee              *salesapp.OtherFeeInput        `json:"other_fee,omitempty"`
+	OtherFeeNote          *string                        `json:"other_fee_note,omitempty"`
 	ShippingAmount        float64                        `json:"shipping_amount"`
 	DiscountAmount        float64                        `json:"discount_amount"`
 	ReceiverName          string                         `json:"receiver_name"`
@@ -317,12 +325,13 @@ type miniEmployeeOrderDraftRequest struct {
 	Payload json.RawMessage `json:"payload"`
 }
 
-func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, customerServices ...CustomerMaintenance) {
+func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, services ...Dependencies) {
 	registerMiniSpecConversions(e, portal, sales)
-	var customers CustomerMaintenance
-	if len(customerServices) > 0 {
-		customers = customerServices[0]
+	var deps Dependencies
+	if len(services) > 0 {
+		deps = services[0]
 	}
+	customers := deps.CustomerMaintenance
 	orders := miniEmployeeOrderHandler{portal: portal, sales: sales}
 	e.GET("/api/mini/employee/orders/:id/copy-details", orders.copyDetails)
 	e.GET("/api/mini/employee/order-form", func(c echo.Context) error {
@@ -384,8 +393,25 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 			selectedIDs = resolved.SelectedPriceTableIDs
 			priceTableOptions = resolved.PriceTableOptions
 		}
+		warehouses := make([]map[string]string, 0)
+		if customerID > 0 && deps.EmployeeWarehouses != nil {
+			rows, err := deps.EmployeeWarehouses.ListWarehouses(c.Request().Context(), stockapp.WarehouseListQuery{CustomerID: customerID})
+			if err != nil {
+				return miniInternalError(c)
+			}
+			for _, row := range rows {
+				if !row.Active || row.CustomerID != customerID {
+					continue
+				}
+				switch row.Kind {
+				case "finished", "customer_finished", "customer_processing", "customer":
+					warehouses = append(warehouses, map[string]string{"code": row.Code, "name": row.Name})
+				}
+			}
+		}
 		return c.JSON(http.StatusOK, map[string]any{
-			"today": form.Today, "customers": customers, "catalog_updated": catalogUpdated, "sources": form.Sources,
+			"delivery_warehouses": warehouses,
+			"today":               form.Today, "customers": customers, "catalog_updated": catalogUpdated, "sources": form.Sources,
 			"order_types": form.OrderTypes, "pay_statuses": form.PayStatuses,
 			"ship_statuses": form.ShipStatuses, "products": catalog.Products, "product_families": catalog.Families,
 			"product_bom_spec_options": catalog.BOMSpecOptions,
@@ -694,6 +720,8 @@ func miniEmployeeSaveOrderCommand(req miniEmployeeOrderRequest, actor string, ed
 		PayStatusID:      req.PayStatusID, PaymentMethod: strings.TrimSpace(req.PaymentMethod),
 		ShipStatusID: req.ShipStatusID, ShipMethod: strings.TrimSpace(req.ShipMethod), ShipTrackingNo: strings.TrimSpace(req.ShipTrackingNo),
 		ExpectedFreightToken: req.ExpectedFreightToken, FreightProtocol: req.FreightProtocol, FreightQuoteToken: req.FreightQuoteToken, ShippingProvince: req.ShippingProvince, ShippingCity: req.ShippingCity, ShippingDistrict: req.ShippingDistrict, FreightOverride: req.FreightOverride,
+		OtherFee: (*float64)(req.OtherFee), OtherFeeNote: req.OtherFeeNote,
+		DeliveryMode: strings.TrimSpace(req.DeliveryMode), DeliveryWarehouseCode: strings.TrimSpace(req.DeliveryWarehouseCode),
 		ShippingAmount: req.ShippingAmount, DiscountAmount: req.DiscountAmount,
 		ReceiverName: strings.TrimSpace(req.ReceiverName), ReceiverPhone: strings.TrimSpace(req.ReceiverPhone),
 		ReceiverAddress: strings.TrimSpace(req.ReceiverAddress), ReceiverCompany: strings.TrimSpace(req.ReceiverCompany),
@@ -1086,6 +1114,7 @@ func miniEmployeePreserveHiddenOrderFields(cmd *salesapp.SaveOrderCommand, exist
 	cmd.GreenBeanListPublicationID = greenID
 	cmd.DripBeanListPublicationID = dripID
 	cmd.PortalServiceCode = existing.PortalServiceCode
+	cmd.DeliveryMode, cmd.DeliveryWarehouseCode = existing.DeliveryMode, existing.DeliveryWarehouseCode
 	cmd.SourceWarehouse = existing.SourceWarehouse
 	cmd.PreserveResponsibleSnapshot = true
 	cmd.PreserveFulfillmentSnapshot = true
@@ -1592,10 +1621,10 @@ func (h miniEmployeeOrderHandler) latestDocumentMetadata(ctx context.Context, or
 	switch kind {
 	case "sales-order.pdf":
 		file, err := h.sales.LoadSalesOrderDocumentFile(ctx, orderID, 0, true)
-		return miniEmployeeDocumentMetadata{Filename: filepath.Base(strings.TrimSpace(file.Filename)), VersionNo: file.Document.VersionNo}, err == nil && file.Document.Snapshot.RenderVersion == salesdomain.SalesOrderRenderVersion && miniEmployeeDocumentFileExists(file.Path)
+		return miniEmployeeDocumentMetadata{Filename: filepath.Base(strings.TrimSpace(file.Filename)), VersionNo: file.Document.VersionNo}, err == nil && !file.OtherFeeChanged && file.Document.Snapshot.RenderVersion == salesdomain.SalesOrderRenderVersion && miniEmployeeDocumentFileExists(file.Path)
 	case "sales-order.png":
 		file, err := h.sales.LoadSalesOrderImageFile(ctx, orderID, 0, true)
-		return miniEmployeeDocumentMetadata{Filename: filepath.Base(strings.TrimSpace(file.Filename)), VersionNo: file.Document.VersionNo}, err == nil && file.Document.Snapshot.RenderVersion == salesdomain.SalesOrderRenderVersion && miniEmployeeDocumentFileExists(file.Path)
+		return miniEmployeeDocumentMetadata{Filename: filepath.Base(strings.TrimSpace(file.Filename)), VersionNo: file.Document.VersionNo}, err == nil && !file.OtherFeeChanged && file.Document.Snapshot.RenderVersion == salesdomain.SalesOrderRenderVersion && miniEmployeeDocumentFileExists(file.Path)
 	case "delivery-note.pdf":
 		file, err := h.sales.LoadDeliveryNoteDocumentFile(ctx, orderID, 0, true)
 		return miniEmployeeDocumentMetadata{Filename: filepath.Base(strings.TrimSpace(file.Filename)), VersionNo: file.Document.VersionNo}, err == nil && miniEmployeeDocumentFileExists(file.Path)
@@ -1649,7 +1678,7 @@ func miniEmployeeOrderDetail(row salesapp.OrderRow, form salesapp.OrderFormData)
 	}
 	beanListPublicationID, beanListVersionNo, commercialPublicationID, greenPublicationID, dripPublicationID := miniEmployeeOrderPublicationFields(ed)
 	detail := miniEmployeeOrderDetailDTO{
-		FulfillmentProgress: row.FulfillmentProgress, DeliveryMode: row.DeliveryMode,
+		FulfillmentProgress: row.FulfillmentProgress, DeliveryMode: firstMiniOrderValue(ed.DeliveryMode, row.DeliveryMode), DeliveryWarehouseCode: firstMiniOrderValue(ed.DeliveryWarehouseCode, row.DeliveryWarehouseCode),
 		ID: row.ID, IsSampleOrder: ed.IsSampleOrder, SettlementReason: ed.SettlementReason, EditRevision: ed.EditRevision, OrderNo: firstMiniOrderValue(row.OrderNo, ed.OrderNo),
 		DocumentDate: firstMiniOrderValue(ed.DocumentDate, row.DocumentDate), OrderDate: firstMiniOrderValue(ed.OrderDate, row.OrderDate),
 		CustomerID: ed.CustomerID, Customer: row.Customer, SourceID: ed.SourceID, Source: miniEmployeeOptionName(form.Sources, ed.SourceID),
@@ -1677,6 +1706,7 @@ func miniEmployeeOrderDetail(row salesapp.OrderRow, form salesapp.OrderFormData)
 		ExpressFee: firstMiniOrderValue(ed.ExpressFee, row.ExpressFee), OutsourceMaterialFee: firstMiniOrderValue(ed.OutsourceMaterialFee, row.OutsourceMaterialFee),
 		OutsourceRoastFee: firstMiniOrderValue(ed.OutsourceRoastFee, row.OutsourceRoastFee), OutsourcePackagingFee: firstMiniOrderValue(ed.OutsourcePackagingFee, row.OutsourcePackagingFee),
 		OutsourceManualFee: firstMiniOrderValue(ed.OutsourceManualFee, row.OutsourceManualFee), OutsourceTaxFee: firstMiniOrderValue(ed.OutsourceTaxFee, row.OutsourceTaxFee),
+		OtherFee: firstMiniOrderValue(ed.OtherFee, row.OtherFee), OtherFeeNote: ed.OtherFeeNote,
 		OutsourceOtherFee: firstMiniOrderValue(ed.OutsourceOtherFee, row.OutsourceOtherFee), OutsourceTotalFee: firstMiniOrderValue(ed.OutsourceTotalFee, row.OutsourceTotalFee),
 		ProductKindSummary: row.ProductKindSummary, CreatedByEmployee: row.CreatedByEmployee,
 		IsVoid: ed.IsVoid || row.IsVoid, VoidedAt: ed.VoidedAt, VoidReason: ed.VoidReason,
@@ -2203,6 +2233,9 @@ func miniOrderKnownBusinessErrorText(err error) (string, bool) {
 	}
 	if err == nil {
 		return "", false
+	}
+	if errors.Is(err, salesapp.ErrInvalidOtherFee) {
+		return err.Error(), true
 	}
 	if errors.Is(err, salesapp.ErrInvalidShippingAmount) {
 		return "运费金额不能小于 0", true

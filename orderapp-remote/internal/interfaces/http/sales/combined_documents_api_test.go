@@ -54,6 +54,9 @@ func TestCombinedSalesOrderDocumentAPI(t *testing.T) {
 		t.Fatalf("EnsureSchema: %v", err)
 	}
 	seedCombinedDocumentOrders(t, ctx, pool, schema, true)
+	if _, err := pool.Exec(ctx, fmt.Sprintf("UPDATE %s.orders SET other_fee=12.35, other_fee_note='定制包装', grand_total=grand_total+12.35 WHERE id=1", schema)); err != nil {
+		t.Fatal(err)
+	}
 	e := newCombinedDocumentAPITestEcho(pool, schema, t.TempDir())
 
 	previewReq := httptest.NewRequest(http.MethodGet, "/api/orders/combined/sales-order-preview?order_ids=1,2", nil)
@@ -66,7 +69,7 @@ func TestCombinedSalesOrderDocumentAPI(t *testing.T) {
 	if err := json.Unmarshal(previewRec.Body.Bytes(), &preview); err != nil {
 		t.Fatalf("decode preview: %v", err)
 	}
-	if preview.NextVersionNo != 1 || len(preview.Snapshot.Groups) != 2 {
+	if preview.NextVersionNo != 1 || len(preview.Snapshot.Groups) != 2 || preview.Snapshot.OtherFee != "12.35" || preview.Snapshot.Groups[0].OtherFeeNote != "定制包装" || preview.Snapshot.Groups[1].OtherFeeNote != "" {
 		t.Fatalf("preview = %+v", preview)
 	}
 	for _, want := range []string{
@@ -74,7 +77,7 @@ func TestCombinedSalesOrderDocumentAPI(t *testing.T) {
 		`"customer_name":"测试客户"`,
 		`"document_date":"2026-05-24"`,
 		`"order_date":"2026-05-20"`,
-		`"grand_total":"324.00"`,
+		`"grand_total":"336.35"`,
 	} {
 		if !strings.Contains(previewRec.Body.String(), want) {
 			t.Fatalf("sales preview missing %s: %s", want, previewRec.Body.String())

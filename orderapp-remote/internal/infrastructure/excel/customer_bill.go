@@ -76,7 +76,7 @@ func RenderCustomerBill(bill app.BillingBill) ([]byte, error) {
 	if _, err := f.NewSheet("订单明细"); err != nil {
 		return nil, err
 	}
-	if err := f.SetSheetRow("订单明细", "A1", &[]any{"订单号", "费用类型", "本次出账金额", "信息来源", "商品", "规格", "数量", "单位", "单价", "商品金额", "订单优惠", "发货时间", "运单号", "寄件重量（kg）", "订单收货地址", "地址来源"}); err != nil {
+	if err := f.SetSheetRow("订单明细", "A1", &[]any{"订单号", "费用类型", "本次出账金额", "信息来源", "商品", "规格", "数量", "单位", "单价", "商品金额", "订单优惠", "发货时间", "运单号", "寄件重量（kg）", "订单收货地址", "地址来源", "其他费用", "费用说明"}); err != nil {
 		return nil, err
 	}
 	rowNum := 2
@@ -105,7 +105,7 @@ func RenderCustomerBill(bill app.BillingBill) ([]byte, error) {
 		if len(rows[0]) > 10 && (line.ChargeType == "order_goods" || line.ChargeType == "product") {
 			rows[0][10] = money(d.DiscountCents)
 		}
-		for _, row := range rows {
+		for i, row := range rows {
 			for len(row) < 14 {
 				row = append(row, "")
 			}
@@ -118,6 +118,9 @@ func RenderCustomerBill(bill app.BillingBill) ([]byte, error) {
 				addressSource = strings.TrimSpace(d.ReceiverAddressSource)
 			}
 			row = append(row, address, addressSource)
+			if i == 0 && d.OtherFeeCents > 0 {
+				row = append(row, money(d.OtherFeeCents), d.OtherFeeNote)
+			}
 			if err := f.SetSheetRow("订单明细", fmt.Sprintf("A%d", rowNum), &row); err != nil {
 				return nil, err
 			}

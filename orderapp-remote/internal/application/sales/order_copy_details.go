@@ -141,6 +141,11 @@ func BuildOrderDetailsText(snapshot OrderCopySnapshot) string {
 		"付款方式："+copyValue(snapshot.PaymentMethod),
 		"货款："+copyValue(o.TotalAmount)+"元",
 		"运费："+copyValue(o.ShippingAmount)+"元"+freightNote,
+	)
+	if fee := salesdomain.SalesOrderOtherFeeText(o.OtherFee, strings.Join(strings.Fields(o.OtherFeeNote), " ")); fee != "" {
+		lines = append(lines, "其他费用："+fee)
+	}
+	lines = append(lines,
 		"合计付款："+copyPaidAmount(snapshot.PayStatus, o)+"元"+totalNote,
 		"",
 		"订单详情：",

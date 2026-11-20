@@ -830,6 +830,8 @@ describe('employee mini order entry', () => {
     expect(outsourceTotal).toBe(23.7)
     expect(employeeOrderGrandTotal([item], 12, 4, outsourceTotal, false)).toBe(125.7)
     expect(employeeOrderGrandTotal([item], 12, 4, outsourceTotal, true)).toBe(125)
+    expect(employeeOrderGrandTotal([item], 12, 4, outsourceTotal, false, 20.25)).toBe(145.95)
+    expect(employeeOrderGrandTotal([item], 12, 4, outsourceTotal, true, 20.25)).toBe(145)
   })
 
   it('does not guess among multiple customer aliases when a historical line has no alias id', () => {

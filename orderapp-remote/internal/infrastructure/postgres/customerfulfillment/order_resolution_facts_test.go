@@ -670,3 +670,28 @@ func TestOrderResolutionProductionOwnershipUsesInventoryFacts(t *testing.T) {
 		})
 	}
 }
+
+func TestOrderResolutionOtherFeeIsExcludedFromDiscountedGoodsCredit(t *testing.T) {
+	pool, schema := newMiniDirectShipTestDB(t)
+	seedMiniDirectShipStock(t, pool, schema)
+	ctx := context.Background()
+	_, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS other_fee numeric(12,2) NOT NULL DEFAULT 0;
+ INSERT INTO %[1]s.orders(id,order_no,customer_id,total_amount,grand_total,discount_amount,shipping_amount,other_fee) VALUES(78281,'FEE-DISCOUNT',501,90,89,20,9,10);
+ INSERT INTO %[1]s.order_items(id,order_id,line_no,product_id,item_name,spec,qty,unit,unit_price,line_total) VALUES(78281,78281,1,911,'coffee','1000g',3,'袋',30,90)`, schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := resolutionpg.NewRepository(pool, schema).Context(ctx, 78281)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Lines) != 1 || c.Lines[0].AmountCents != 7000 {
+		t.Fatalf("goods credit: %+v", c.Lines)
+	}
+	for _, dep := range c.Dependencies {
+		if dep.Kind == "fee" && dep.Label == "本单其他费用" && dep.AmountCents == 1000 {
+			return
+		}
+	}
+	t.Fatalf("fee credit missing: %+v", c.Dependencies)
+}

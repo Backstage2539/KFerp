@@ -22,6 +22,8 @@ type BillingLineDetail struct {
 	ReceiverAddressSource string             `json:"receiver_address_source,omitempty"`
 	ChargeType            string             `json:"charge_type"`
 	AmountCents           int64              `json:"amount_cents"`
+	OtherFeeCents         int64              `json:"other_fee_cents,omitempty"`
+	OtherFeeNote          string             `json:"other_fee_note,omitempty"`
 	DiscountCents         int64              `json:"discount_cents,omitempty"`
 	InformationSource     string             `json:"information_source"`
 	Items                 []AccountOrderItem `json:"items,omitempty"`
@@ -41,6 +43,10 @@ func BuildBillingLineDetail(line SettlementLineSummary, order AccountOrder, fee 
 		}
 	}
 	if line.ChargeType == "order_goods" || line.ChargeType == "product" {
+		if line.ChargeType == "order_goods" && order.OtherFeeCents > 0 {
+			detail.OtherFeeCents = order.OtherFeeCents
+			detail.OtherFeeNote = order.OtherFeeNote
+		}
 		detail.DiscountCents = order.DiscountCents
 		detail.Items = append(detail.Items, order.Items...)
 		return detail
@@ -86,6 +92,9 @@ func BillingDetailText(detail BillingLineDetail) []string {
 	}
 	if len(detail.Items) > 0 {
 		lines = append(lines, fmt.Sprintf("订单优惠：¥%.2f", float64(detail.DiscountCents)/100))
+	}
+	if detail.OtherFeeCents > 0 {
+		lines = append(lines, orderOtherFeeText(detail.OtherFeeCents, detail.OtherFeeNote))
 	}
 	for _, shipment := range detail.Shipments {
 		lines = append(lines, fmt.Sprintf("发货时间：%s　运单号：%s　寄件重量：%s kg", value(shipment.ShippedAt), value(shipment.TrackingNo), value(shipment.SettlementWeightKG)))

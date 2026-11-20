@@ -413,6 +413,7 @@ func ensureOutsourceFeeColumns(ctx context.Context, pool *pgxpool.Pool, schema s
 		fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS outsource_packaging_fee NUMERIC(12,2) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS outsource_manual_fee NUMERIC(12,2) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS outsource_tax_fee NUMERIC(12,2) NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS other_fee NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK(other_fee >= 0), ADD COLUMN IF NOT EXISTS other_fee_note TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS outsource_other_fee NUMERIC(12,2) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS outsource_total_fee NUMERIC(12,2) NOT NULL DEFAULT 0`, schema),
 	}

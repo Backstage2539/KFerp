@@ -6768,3 +6768,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - DEV: `DEV-PR767-READINESS`、`DEV-PR767-CARDS`、`DEV-PR767-DETAIL`、`DEV-PR767-VERIFY`。
 - Verifier: RED/GREEN、隔离数据库及 API、桌面窄屏、构建和手册；生产业务只读。
 - Deployment: ERP-only production `577cff15bbef289eb1b3aad69fd1bf94d2af68a2`；正式页面只读核对任务状态和投入数量，小程序包保留。已合并 develop。
+
+### PR-768-ORDER-OTHER-FEE
+- Branch: `codex/order-other-fee`；Status: review（待 Van 业务验收及开发部署核验）。
+- Scope: 员工销售录单增加每单一笔其他费用；应收、实收、销售单与客户账单一致。
+- DEV: `DEV-PR768-ORDER`（保存与金额保护）、`DEV-PR768-ENTRY`（网页与员工小程序）、`DEV-PR768-DOCUMENTS`（销售单及客户账单）、`DEV-PR768-VERIFY`（验证与交付）。
+- Verifier: Go 后端、Vue 2074 项、员工小程序 542 项、两端构建、PostgreSQL 定向订单/确认/账单、销售单 PDF/PNG 核对通过。另行运行既有确认用例遇到缺失 stock_entries 的夹具错误。证据 `orderapp-remote/docs/acceptance/2026-11-20-order-other-fee.md`。
+- Deployment: 待验证。

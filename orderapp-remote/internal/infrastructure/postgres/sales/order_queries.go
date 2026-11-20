@@ -148,7 +148,8 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 			COALESCE(to_char(o.outsource_packaging_fee, 'FM999999999.00'), '') AS outsource_packaging_fee,
 			COALESCE(to_char(o.outsource_manual_fee, 'FM999999999.00'), '') AS outsource_manual_fee,
 			COALESCE(to_char(o.outsource_tax_fee, 'FM999999999.00'), '') AS outsource_tax_fee,
-			COALESCE(to_char(o.outsource_other_fee, 'FM999999999.00'), '') AS outsource_other_fee,
+			COALESCE(o.other_fee,0)::numeric(12,2)::text, COALESCE(o.other_fee_note,''),
+ COALESCE(to_char(o.outsource_other_fee, 'FM999999999.00'), '') AS outsource_other_fee,
 			COALESCE(to_char(o.outsource_total_fee, 'FM999999999.00'), '') AS outsource_total_fee,
 			COALESCE(ot.name, '') AS order_type,
 			CASE WHEN COALESCE(to_jsonb(o)->>'settlement_reason','')='free_sample' THEN '无需收款' ELSE COALESCE(ps.name, '') END AS pay_status,
@@ -221,7 +222,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 		var r salesapp.OrderRow
 		var invoiceObjectKey string
 		var settled float64
-		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.DocumentDate, &r.OrderDate, &r.CustomerID, &r.Customer, &r.ResponsibleType, &r.ResponsibleID, &r.ResponsibleName, &r.TotalAmount, &r.ShippingAmount, &r.DiscountAmount, &r.GrandTotal, &r.ExpressFee, &r.OutsourceMaterialFee, &r.OutsourceRoastFee, &r.OutsourcePackagingFee, &r.OutsourceManualFee, &r.OutsourceTaxFee, &r.OutsourceOtherFee, &r.OutsourceTotalFee, &r.OrderType, &r.PayStatus, &r.SettlementReason, &r.PaymentMethod, &r.PrepaymentAmount, &r.ShipStatus, &r.ShipTrackingNo, &r.ShipMethod, &r.ReceiverName, &r.ReceiverPhone, &r.ReceiverAddress, &r.ReceiverCompany, &r.PortalServiceCode, &r.SourceWarehouse, &r.DeliveryMode, &r.DeliveryWarehouseCode, &r.DeliveryStatus, &r.FulfillmentMode, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.ProductKindSummary, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.ResolutionStatus, &r.FulfillmentPaused, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey, &r.ConfirmationStatus, &r.ConfirmationRequired, &settled); err != nil {
+		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.DocumentDate, &r.OrderDate, &r.CustomerID, &r.Customer, &r.ResponsibleType, &r.ResponsibleID, &r.ResponsibleName, &r.TotalAmount, &r.ShippingAmount, &r.DiscountAmount, &r.GrandTotal, &r.ExpressFee, &r.OutsourceMaterialFee, &r.OutsourceRoastFee, &r.OutsourcePackagingFee, &r.OutsourceManualFee, &r.OutsourceTaxFee, &r.OtherFee, &r.OtherFeeNote, &r.OutsourceOtherFee, &r.OutsourceTotalFee, &r.OrderType, &r.PayStatus, &r.SettlementReason, &r.PaymentMethod, &r.PrepaymentAmount, &r.ShipStatus, &r.ShipTrackingNo, &r.ShipMethod, &r.ReceiverName, &r.ReceiverPhone, &r.ReceiverAddress, &r.ReceiverCompany, &r.PortalServiceCode, &r.SourceWarehouse, &r.DeliveryMode, &r.DeliveryWarehouseCode, &r.DeliveryStatus, &r.FulfillmentMode, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.ProductKindSummary, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.ResolutionStatus, &r.FulfillmentPaused, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey, &r.ConfirmationStatus, &r.ConfirmationRequired, &settled); err != nil {
 			return nil, false, err
 		}
 		grand, _ := strconv.ParseFloat(r.GrandTotal, 64)

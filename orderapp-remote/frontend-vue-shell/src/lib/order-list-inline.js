@@ -37,6 +37,10 @@ export function inlineOrderItems(order = {}) {
 
 export function inlineOrderTotals(order = {}) {
   const lines = [{ label: order.freight?'运费状态':'运费', value: order.freight?freightLabel(order.freight):inlineMoney(order.shipping_amount) }]
+  if (Number(order.other_fee) > 0) {
+    const note = text(order.other_fee_note)
+    lines.push({ label: '其他费用', value: inlineMoney(order.other_fee) + (note ? `（${note}）` : '') })
+  }
   if (Number(order.discount_amount)) lines.push({ label: '优惠', value: `−${inlineMoney(order.discount_amount)}` })
   if (Number(order.outsource_total_fee)) lines.push({ label: '委外费用', value: inlineMoney(order.outsource_total_fee) })
   // express_fee is a legacy note/cost field, not an additional customer receivable.

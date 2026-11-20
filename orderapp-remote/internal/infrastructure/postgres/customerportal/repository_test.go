@@ -2030,9 +2030,12 @@ func TestLoadSettlementServicePageIncludesOrderReceivablesForCurrentCustomer(t *
 	`, schema)).Scan(&customerBID); err != nil {
 		t.Fatalf("insert customer B: %v", err)
 	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS other_fee numeric(12,2) DEFAULT 0, ADD COLUMN IF NOT EXISTS other_fee_note text DEFAULT ''`, schema)); err != nil {
+		t.Fatal(err)
+	}
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %[1]s.orders(order_no, order_date, customer_id, grand_total, shipping_amount, is_void, portal_service_code)
-		VALUES('SO-YAN-BILL','2026-05-17',$1,4559,59,false,'product_order')
+		INSERT INTO %[1]s.orders(order_no, order_date, customer_id, grand_total, shipping_amount, other_fee, other_fee_note, is_void, portal_service_code)
+		VALUES('SO-YAN-BILL','2026-05-17',$1,4571.50,59,12.50,'贴标',false,'product_order')
 		RETURNING id
 	`, schema), customerAID).Scan(&orderAID); err != nil {
 		t.Fatalf("insert order A: %v", err)
@@ -2061,7 +2064,7 @@ func TestLoadSettlementServicePageIncludesOrderReceivablesForCurrentCustomer(t *
 	if err != nil {
 		t.Fatalf("LoadServicePage(settlement): %v", err)
 	}
-	if len(got.Orders) != 1 || got.Orders[0].OrderNo != "SO-YAN-BILL" || got.Orders[0].GrandTotal != "4559.00" {
+	if len(got.Orders) != 1 || got.Orders[0].OrderNo != "SO-YAN-BILL" || got.Orders[0].GrandTotal != "4571.50" || got.Orders[0].OtherFee != "12.50" || got.Orders[0].OtherFeeNote != "贴标" {
 		t.Fatalf("settlement orders=%+v, want current customer order receivable", got.Orders)
 	}
 	if len(got.Orders[0].Items) != 0 {

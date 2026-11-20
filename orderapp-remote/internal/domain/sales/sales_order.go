@@ -3,10 +3,11 @@ package sales
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 )
 
-const SalesOrderRenderVersion = "sales-order-free-sample-v7"
+const SalesOrderRenderVersion = "sales-order-other-fee-v8"
 
 type SalesOrderSnapshot struct {
 	SettlementReason string `json:"settlement_reason,omitempty"`
@@ -43,6 +44,8 @@ type SalesOrderSnapshot struct {
 	ExpressFee         string                        `json:"express_fee"`
 	OrderNote          string                        `json:"order_note"`
 	SalesOrderNote     string                        `json:"sales_order_note"`
+	OtherFee           string                        `json:"other_fee,omitempty"`
+	OtherFeeNote       string                        `json:"other_fee_note,omitempty"`
 	GrandTotal         string                        `json:"grand_total"`
 	DiscountBreakdowns []SalesOrderDiscountBreakdown `json:"discount_breakdowns"`
 	PaymentCodes       []SalesOrderAssetRef          `json:"payment_codes"`
@@ -100,6 +103,19 @@ func NextSalesOrderVersion(existing []int) int {
 
 func FormatSalesOrderMoney(v float64) string {
 	return fmt.Sprintf("%.2f", math.Round(v*100)/100)
+}
+
+// SalesOrderOtherFeeText formats a customer-facing charge. Older orders have no fee.
+func SalesOrderOtherFeeText(amount, note string) string {
+	value, err := strconv.ParseFloat(strings.TrimSpace(amount), 64)
+	if err != nil || value <= 0 {
+		return ""
+	}
+	text := FormatSalesOrderMoney(value) + "元"
+	if note = strings.TrimSpace(note); note != "" {
+		text += "（" + note + "）"
+	}
+	return text
 }
 
 func (s SalesOrderSnapshot) Validate() error {

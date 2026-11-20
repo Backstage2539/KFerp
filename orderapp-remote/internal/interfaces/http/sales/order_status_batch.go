@@ -26,6 +26,8 @@ type batchStatusPreviewRow struct {
 	OrderNo                string `json:"order_no,omitempty"`
 	CustomerID             int64  `json:"customer_id"`
 	GrandTotal             string `json:"grand_total"`
+	OtherFee               string `json:"other_fee"`
+	OtherFeeNote           string `json:"other_fee_note"`
 	ShippingAmount         string `json:"shipping_amount"`
 	PaidAmount             string `json:"paid_amount"`
 	UnpaidAmount           string `json:"unpaid_amount"`
@@ -144,6 +146,7 @@ func (h orderAPIHandler) batchStatusOrder(c echo.Context, id int64) (batchStatus
 		return out, nil
 	}
 	out.CustomerID, out.GrandTotal, out.ShippingAmount = row.CustomerID, ed.GrandTotal, ed.ShippingAmount
+	out.OtherFee, out.OtherFeeNote = ed.OtherFee, ed.OtherFeeNote
 	out.Notes = ed.Notes
 	out.PayStatusName, out.FullyPaid = row.PayStatus, salesdomain.IsFullyPaid(row.PayStatus)
 	grand, grandErr := orderMoneyCents(ed.GrandTotal)

@@ -766,6 +766,8 @@ type CustomerOrderSummary struct {
 	PaymentMethod         string                       `json:"payment_method"`
 	ShipStatus            string                       `json:"ship_status"`
 	ShipTrackingNo        string                       `json:"ship_tracking_no"`
+	OtherFee              string                       `json:"other_fee"`
+	OtherFeeNote          string                       `json:"other_fee_note"`
 	GrandTotal            string                       `json:"grand_total"`
 	ShippingAmount        string                       `json:"shipping_amount"`
 	SalesOrderURL         string                       `json:"sales_order_url,omitempty"`

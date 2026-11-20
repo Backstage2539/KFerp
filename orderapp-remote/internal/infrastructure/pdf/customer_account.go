@@ -41,6 +41,9 @@ func RenderCustomerAccount(d app.AccountData) ([]byte, error) {
 			p.AddPage()
 		}
 		line(o.OrderDate + "　" + o.OrderNo + "　" + accountBillStatus(o.PaymentStatus) + "　" + o.ShipStatus)
+		if o.OtherFeeCents > 0 {
+			line(fmt.Sprintf("其他费用 ¥%s　%s", money(o.OtherFeeCents), o.OtherFeeNote))
+		}
 		line("商品 " + money(o.GoodsCents) + "　运费 " + money(o.ShippingCents) + "　优惠 " + money(o.DiscountCents))
 		line("总额 " + money(o.TotalCents) + "　已付 " + money(o.PaidCents) + "　待付 " + money(o.DueCents))
 		p.Ln(3)

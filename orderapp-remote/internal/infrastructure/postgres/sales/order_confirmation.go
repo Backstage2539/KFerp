@@ -145,7 +145,7 @@ func applyOrderContentSnapshotTx(ctx context.Context, tx pgx.Tx, schema string, 
 		return rows.Err()
 	}
 	columns := strings.Join(fields, ",")
-	_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.orders SET (%[2]s)=(SELECT %[2]s FROM jsonb_populate_record(NULL::%[1]s.orders,$2::jsonb)) WHERE id=$1`, schema, columns), id, s.Order)
+	_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.orders SET (%[2]s)=(SELECT %[2]s FROM jsonb_populate_record(NULL::%[1]s.orders,jsonb_build_object('other_fee',0,'other_fee_note','') || $2::jsonb)) WHERE id=$1`, schema, columns), id, s.Order)
 	if err != nil {
 		return err
 	}
@@ -204,6 +204,7 @@ func (r Repository) stageOrderConfirmationTx(ctx context.Context, tx pgx.Tx, id 
 		}
 		base["grand_total"] = float64(0)
 		base["total_amount"] = float64(0)
+		base["other_fee_note"] = ""
 		rawBase, _ := json.Marshal(base)
 		if err = applyOrderContentSnapshotTx(ctx, tx, r.schema, id, orderContentSnapshot{Order: rawBase, Items: json.RawMessage(`[]`), Freight: json.RawMessage(`null`)}); err != nil {
 			return err
@@ -301,6 +302,18 @@ func (r Repository) ReviewOrder(ctx context.Context, cmd salesapp.ReviewOrderCom
 			if current == nil && pendingFreight.Token != "" || current != nil && current.Token != pendingFreight.Token {
 				if e = freightpg.NewRepository(r.pool, r.schema).EditableTx(ctx, tx, cmd.OrderID); e != nil {
 					return salesapp.OrderConfirmation{}, e
+				}
+			}
+		}
+		if accepted > 0 {
+			var feeChanged bool
+			if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT (other_fee,other_fee_note) IS DISTINCT FROM
+    (COALESCE(($2::jsonb->>'other_fee')::numeric,0),COALESCE($2::jsonb->>'other_fee_note','')) FROM %s.orders WHERE id=$1`, r.schema), cmd.OrderID, content.Order).Scan(&feeChanged); err != nil {
+				return salesapp.OrderConfirmation{}, err
+			}
+			if feeChanged {
+				if err = ensureOtherFeeEditableTx(ctx, tx, r.schema, cmd.OrderID); err != nil {
+					return salesapp.OrderConfirmation{}, err
 				}
 			}
 		}

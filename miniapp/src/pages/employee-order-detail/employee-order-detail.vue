@@ -384,8 +384,8 @@ onShow(() => { void refreshMiniappShareMenu() })
               </picker>
             </template>
             <template v-if="statusNeedsReceipt">
-              <text class="label">实收货款（元）</text>
-              <input v-model="statusDraft.payment_goods_amount" :disabled="statusSaving" class="status-field" type="digit" placeholder="填写实际收到的货款" />
+              <text class="label">{{ Number(order.other_fee || 0) > 0 ? '实收货款及其他费用（元）' : '实收货款（元）' }}</text>
+              <input v-model="statusDraft.payment_goods_amount" :disabled="statusSaving" class="status-field" type="digit" :placeholder="Number(order.other_fee || 0) > 0 ? '填写实际收到的货款及其他费用' : '填写实际收到的货款'" />
               <text class="label">实收运费（元）</text>
               <input v-model="statusDraft.payment_shipping_amount" :disabled="statusSaving" class="status-field" type="digit" placeholder="无运费请填 0" />
               <text class="label">收款凭证</text>

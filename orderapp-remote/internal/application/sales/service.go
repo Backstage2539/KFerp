@@ -78,6 +78,8 @@ type SaveOrderCommand struct {
 	OutsourcePackagingFee             float64
 	OutsourceManualFee                float64
 	OutsourceTaxFee                   float64
+	OtherFee                          *float64
+	OtherFeeNote                      *string
 	OutsourceOtherFee                 float64
 	StockBatchDecision                string
 	BeanListPublicationID             int64
@@ -600,6 +602,8 @@ type OrderEditData struct {
 	OutsourcePackagingFee string
 	OutsourceManualFee    string
 	OutsourceTaxFee       string
+	OtherFee              string
+	OtherFeeNote          string
 	OutsourceOtherFee     string
 	OutsourceTotalFee     string
 
@@ -649,6 +653,8 @@ type OrderRow struct {
 	OutsourcePackagingFee string                   `json:"outsource_packaging_fee"`
 	OutsourceManualFee    string                   `json:"outsource_manual_fee"`
 	OutsourceTaxFee       string                   `json:"outsource_tax_fee"`
+	OtherFee              string                   `json:"other_fee"`
+	OtherFeeNote          string                   `json:"other_fee_note"`
 	OutsourceOtherFee     string                   `json:"outsource_other_fee"`
 	OutsourceTotalFee     string                   `json:"outsource_total_fee"`
 	OrderType             string                   `json:"order_type"`
@@ -1064,6 +1070,7 @@ type SalesOrderContext struct {
 }
 
 type SalesOrderDocumentFile struct {
+	OtherFeeChanged bool
 	Document SalesOrderDocument
 	Path     string
 	Filename string
@@ -1242,6 +1249,7 @@ type CombinedDeliveryNoteDocumentFile struct {
 }
 
 type SalesOrderImageFile struct {
+	OtherFeeChanged bool
 	Document SalesOrderImageDocument
 	Path     string
 	Filename string
@@ -1502,6 +1510,9 @@ func validateSaveOrderCommand(cmd SaveOrderCommand) error {
 	}
 	if cmd.CustomerID <= 0 {
 		return fmt.Errorf("customer required")
+	}
+	if !validOtherFee(cmd.OtherFee) {
+		return ErrInvalidOtherFee
 	}
 	if math.IsNaN(cmd.ShippingAmount) || math.IsInf(cmd.ShippingAmount, 0) || cmd.ShippingAmount < 0 {
 		return ErrInvalidShippingAmount

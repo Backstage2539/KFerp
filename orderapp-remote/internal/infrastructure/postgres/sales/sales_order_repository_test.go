@@ -331,7 +331,7 @@ func TestSalesOrderPreviewIncludesNoteAndDiscountBreakdowns(t *testing.T) {
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS notes TEXT`, schema)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET total_amount=2455, shipping_amount=169, discount_amount=261.65, grand_total=2362.35, notes='订单原始备注：到店后联系', express_fee='顺丰保价备注' WHERE id=1`, schema)); err != nil {
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET total_amount=2455, shipping_amount=169, discount_amount=261.65, other_fee=12.35, other_fee_note='礼盒定制', grand_total=2374.70, notes='订单原始备注：到店后联系', express_fee='顺丰保价备注' WHERE id=1`, schema)); err != nil {
 		t.Fatalf("update order amounts: %v", err)
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.order_items SET discount_type='unit_amount', discount_amount=100 WHERE order_id=1 AND line_no=1`, schema)); err != nil {
@@ -349,7 +349,7 @@ func TestSalesOrderPreviewIncludesNoteAndDiscountBreakdowns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PreviewSalesOrderDocument: %v", err)
 	}
-	if preview.Snapshot.OrderNote != "订单原始备注：到店后联系" || preview.Snapshot.SalesOrderNote != "末行备注：随货附赠杯测样" || preview.Snapshot.ExpressFee != "顺丰保价备注" || preview.Snapshot.Shipping != "169.00" || preview.Snapshot.Discount != "261.65" {
+	if preview.Snapshot.OtherFee != "12.35" || preview.Snapshot.OtherFeeNote != "礼盒定制" || preview.Snapshot.GrandTotal != "2374.70" || preview.Snapshot.OrderNote != "订单原始备注：到店后联系" || preview.Snapshot.SalesOrderNote != "末行备注：随货附赠杯测样" || preview.Snapshot.ExpressFee != "顺丰保价备注" || preview.Snapshot.Shipping != "169.00" || preview.Snapshot.Discount != "261.65" {
 		t.Fatalf("snapshot financial fields = %+v", preview.Snapshot)
 	}
 	if len(preview.Snapshot.Items) < 2 || preview.Snapshot.Items[0].DiscountAmount != "100.00" || preview.Snapshot.Items[1].DiscountAmount != "61.65" {
@@ -448,6 +448,17 @@ func TestGenerateSalesOrderImageCreatesIndependentImageVersions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Generate first image: %v", err)
 	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf("UPDATE %s.orders SET other_fee=10, other_fee_note='礼盒', grand_total=grand_total+10 WHERE id=1", schema)); err != nil {
+		t.Fatal(err)
+	}
+	oldPDF, err := repo.LoadSalesOrderDocumentFile(ctx, 1, pdf.Document.ID, false)
+	if err != nil || !oldPDF.OtherFeeChanged || salesdomain.SalesOrderOtherFeeText(oldPDF.Document.Snapshot.OtherFee, oldPDF.Document.Snapshot.OtherFeeNote) != "" {
+		t.Fatalf("original PDF should retain its zero fee and require a new version: %+v, %v", oldPDF.Document.Snapshot, err)
+	}
+	oldPNG, err := repo.LoadSalesOrderImageFile(ctx, 1, first.Document.ID, false)
+	if err != nil || !oldPNG.OtherFeeChanged {
+		t.Fatalf("expected changed fee on original PNG: %+v, %v", oldPNG.Document.Snapshot, err)
+	}
 	second, err := repo.GenerateSalesOrderImage(ctx, salesapp.GenerateSalesOrderImageCommand{Actor: "测试员", OrderID: 1})
 	if err != nil {
 		t.Fatalf("Generate second image: %v", err)
@@ -473,7 +484,7 @@ func TestGenerateSalesOrderImageCreatesIndependentImageVersions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read png: %v", err)
 	}
-	if string(b) != "\x89PNG\r\n\x1a\nimage-test" || file.Filename != "SO-20260430-0008-V2.png" {
+	if file.OtherFeeChanged || file.Document.Snapshot.OtherFee != "10.00" || string(b) != "\x89PNG\r\n\x1a\nimage-test" || file.Filename != "SO-20260430-0008-V2.png" {
 		t.Fatalf("file=%+v bytes=%q", file, b)
 	}
 }
@@ -632,6 +643,12 @@ func prepareSalesSchemaPrerequisites(t *testing.T, ctx context.Context, pool *pg
 			id BIGSERIAL PRIMARY KEY,
 			order_no TEXT NOT NULL DEFAULT '',
             pay_status_id BIGINT,
+            ship_status_id BIGINT,
+            is_void BOOLEAN NOT NULL DEFAULT false,
+            portal_service_code TEXT NOT NULL DEFAULT '',
+            receiver_name TEXT,
+            receiver_phone TEXT,
+            receiver_address TEXT,
             prepayment_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
 			order_date DATE,
 			customer_id BIGINT,

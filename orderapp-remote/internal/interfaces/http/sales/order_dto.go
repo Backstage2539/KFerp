@@ -50,6 +50,8 @@ type CreateOrderRequest struct {
 	OutsourcePackagingFee           string                  `form:"outsource_packaging_fee"`
 	OutsourceManualFee              string                  `form:"outsource_manual_fee"`
 	OutsourceTaxFee                 string                  `form:"outsource_tax_fee"`
+	OtherFee                        *float64                `form:"other_fee"`
+	OtherFeeNote                    *string                 `form:"other_fee_note"`
 	OutsourceOtherFee               string                  `form:"outsource_other_fee"`
 	StockBatchDecision              string                  `form:"stock_batch_decision"`
 	BeanListPublicationID           int64                   `form:"bean_list_publication_id"`

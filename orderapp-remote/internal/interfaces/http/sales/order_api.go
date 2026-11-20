@@ -122,6 +122,8 @@ type orderSaveAPIRequest struct {
 	OutsourcePackagingFee           string                  `json:"outsource_packaging_fee"`
 	OutsourceManualFee              string                  `json:"outsource_manual_fee"`
 	OutsourceTaxFee                 string                  `json:"outsource_tax_fee"`
+	OtherFee                        *salesapp.OtherFeeInput `json:"other_fee,omitempty"`
+	OtherFeeNote                    *string                 `json:"other_fee_note,omitempty"`
 	OutsourceOtherFee               string                  `json:"outsource_other_fee"`
 	StockBatchDecision              string                  `json:"stock_batch_decision"`
 	BeanListPublicationID           int64                   `json:"bean_list_publication_id"`
@@ -732,14 +734,15 @@ func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 		Notes:                 r.Notes,
 		ShippingAmount:        r.ShippingAmount,
 		ExpectedFreightToken:  r.ExpectedFreightToken, FreightOverride: r.FreightOverride, FreightProtocol: r.FreightProtocol, FreightQuoteToken: r.FreightQuoteToken, ShippingProvince: r.ShippingProvince, ShippingCity: r.ShippingCity, ShippingDistrict: r.ShippingDistrict,
-		DiscountAmount:                     r.DiscountAmount,
-		RoundToInt:                         r.RoundToInt,
-		ExpressFee:                         r.ExpressFee,
-		OutsourceMaterialFee:               r.OutsourceMaterialFee,
-		OutsourceRoastFee:                  r.OutsourceRoastFee,
-		OutsourcePackagingFee:              r.OutsourcePackagingFee,
-		OutsourceManualFee:                 r.OutsourceManualFee,
-		OutsourceTaxFee:                    r.OutsourceTaxFee,
+		DiscountAmount:        r.DiscountAmount,
+		RoundToInt:            r.RoundToInt,
+		ExpressFee:            r.ExpressFee,
+		OutsourceMaterialFee:  r.OutsourceMaterialFee,
+		OutsourceRoastFee:     r.OutsourceRoastFee,
+		OutsourcePackagingFee: r.OutsourcePackagingFee,
+		OutsourceManualFee:    r.OutsourceManualFee,
+		OutsourceTaxFee:       r.OutsourceTaxFee,
+		OtherFee:              (*float64)(r.OtherFee), OtherFeeNote: r.OtherFeeNote,
 		OutsourceOtherFee:                  r.OutsourceOtherFee,
 		StockBatchDecision:                 r.StockBatchDecision,
 		BeanListPublicationID:              r.BeanListPublicationID,
@@ -1326,11 +1329,12 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		"outsource_packaging_fee":             ed.OutsourcePackagingFee,
 		"outsource_manual_fee":                ed.OutsourceManualFee,
 		"outsource_tax_fee":                   ed.OutsourceTaxFee,
-		"outsource_other_fee":                 ed.OutsourceOtherFee,
-		"outsource_total_fee":                 ed.OutsourceTotalFee,
-		"items":                               items,
-		"quote_source_trace":                  orderQuoteSourceTrace(ed),
-		"production_source_trace":             orderProductionSourceTrace(ed),
+		"other_fee":                           ed.OtherFee, "other_fee_note": ed.OtherFeeNote,
+		"outsource_other_fee":     ed.OutsourceOtherFee,
+		"outsource_total_fee":     ed.OutsourceTotalFee,
+		"items":                   items,
+		"quote_source_trace":      orderQuoteSourceTrace(ed),
+		"production_source_trace": orderProductionSourceTrace(ed),
 	}
 }
 

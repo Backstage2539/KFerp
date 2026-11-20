@@ -1,6 +1,7 @@
 package sales
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -84,5 +85,18 @@ func TestOrderCopyDetailsPaidAmount(t *testing.T) {
 				t.Fatalf("got %s, want %s", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestOrderCopyDetailsOtherFee(t *testing.T) {
+	snapshot := OrderCopySnapshot{PayStatus: "未付款", Order: OrderEditData{TotalAmount: "100.00", GrandTotal: "112.35"}}
+	if err := json.Unmarshal([]byte(`{"OtherFee":"12.35","OtherFeeNote":"定制礼盒"}`), &snapshot.Order); err != nil {
+		t.Fatal(err)
+	}
+	got := BuildOrderDetailsText(snapshot)
+	for _, want := range []string{"其他费用：12.35元（定制礼盒）", "合计付款：0.00元"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("copy missing %q: %s", want, got)
+		}
 	}
 }

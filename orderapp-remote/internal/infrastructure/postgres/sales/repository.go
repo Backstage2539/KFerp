@@ -21,6 +21,7 @@ import (
 	salesdomain "orderapp/internal/domain/sales"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"orderapp/internal/infrastructure/postgres/orderbeans"
+	"orderapp/internal/infrastructure/postgres/orderconfirmation"
 	resolutionpg "orderapp/internal/infrastructure/postgres/orderresolution"
 	"orderapp/internal/infrastructure/postgres/receipts"
 
@@ -1638,6 +1639,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	var orderID int64
 	orderNo := ""
 	beforeAuditSummary := ""
+	var storedOtherFee float64
+	var storedOtherFeeNote string
 	var confirmationBefore *orderContentSnapshot
 	existingPortalServiceCode, existingSourceWarehouse := "", ""
 	var existingShipStatusID int64
@@ -1673,6 +1676,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				return salesapp.SaveOrderResult{}, err
 			}
 			confirmationBefore = &snapshot
+		}
+		// Old clients omit fee fields. Preserve the revision currently shown to the editor.
+		if err := tx.QueryRow(ctx, orderconfirmation.CurrentRead(fmt.Sprintf("SELECT o.other_fee,o.other_fee_note FROM %s.orders o WHERE id=$1", r.schema), r.schema), orderID).Scan(&storedOtherFee, &storedOtherFeeNote); err != nil {
+			return salesapp.SaveOrderResult{}, err
 		}
 		if cmd.RequirePreProductionEdit && strings.TrimSpace(cmd.ExpectedEditRevision) == "" {
 			return salesapp.SaveOrderResult{}, salesapp.NewOrderEditConflictError("订单版本信息缺失，请重新打开后再编辑")
@@ -2820,7 +2827,22 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		cmd.OutsourceOtherFee,
 	}
 	outsourceTotal := cmd.OutsourceMaterialFee + cmd.OutsourceRoastFee + cmd.OutsourcePackagingFee + cmd.OutsourceManualFee + cmd.OutsourceTaxFee + cmd.OutsourceOtherFee
-	grand0 := totalAmt + shippingAmt - discountAmt + outsourceTotal
+	otherFee, otherFeeNote := storedOtherFee, storedOtherFeeNote
+	if cmd.OtherFee != nil {
+		otherFee = *cmd.OtherFee
+	}
+	if cmd.OtherFeeNote != nil {
+		otherFeeNote = strings.TrimSpace(*cmd.OtherFeeNote)
+	}
+	if otherFee == 0 {
+		otherFeeNote = ""
+	}
+	if editID > 0 && (otherFee != storedOtherFee || otherFeeNote != storedOtherFeeNote) {
+		if err := ensureOtherFeeEditableTx(ctx, tx, r.schema, editID); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+	}
+	grand0 := totalAmt + shippingAmt - discountAmt + outsourceTotal + otherFee
 	grandTotal, roundingAmt := applyRoundToInt(grand0, roundToInt)
 
 	// Reject an explicit first-confirmation receipt before the freight helper
@@ -2836,7 +2858,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			return salesapp.SaveOrderResult{}, fmt.Errorf("待首次确认订单不能登记收款；请先提交未收款订单，确认后逐笔登记实际到账")
 		}
 	}
-	if cmd.EditID > 0 && (freightSnapshot != nil || storedFreight != nil) {
+	if cmd.EditID > 0 && (freightSnapshot != nil || storedFreight != nil || otherFee != storedOtherFee) {
 		if e := protectFreightReceiptsTx(ctx, tx, r.schema, cmd.EditID, &cmd, shippingAmt, grandTotal); e != nil {
 			return salesapp.SaveOrderResult{}, e
 		}
@@ -2866,7 +2888,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			return salesapp.SaveOrderResult{}, fmt.Errorf("待首次确认订单不能登记收款；请先提交未收款订单，确认后逐笔登记实际到账")
 		}
 	}
-	settlementReason, payStatusID, err := r.resolveSampleSettlementTx(ctx, tx, &cmd, allowFreeSamplePrice || sampleEdit, totalAmt, shippingAmt, outsourceTotal, grandTotal, payStatusID, prepayment)
+	settlementReason, payStatusID, err := r.resolveSampleSettlementTx(ctx, tx, &cmd, allowFreeSamplePrice || sampleEdit, totalAmt, shippingAmt, outsourceTotal+otherFee, grandTotal, payStatusID, prepayment)
 	if err != nil {
 		return salesapp.SaveOrderResult{}, err
 	}
@@ -3038,7 +3060,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 						receiver_name=$39,
 						receiver_phone=$40,
 						receiver_address=$41,
-						receiver_company=$42
+						receiver_company=$42, other_fee=$43, other_fee_note=$44
 					WHERE id=$1
 			`, r.schema)
 		if _, err := tx.Exec(ctx, uq,
@@ -3083,7 +3105,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			notNullText(cmd.ReceiverName),
 			notNullText(cmd.ReceiverPhone),
 			notNullText(cmd.ReceiverAddress),
-			notNullText(cmd.ReceiverCompany),
+			notNullText(cmd.ReceiverCompany), otherFee, otherFeeNote,
 		); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
@@ -3172,7 +3194,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 						bean_list_publication_id, bean_list_version_no,
 						order_no,
 						logistics_company_id, logistics_product_id,
-						payment_goods_amount, payment_shipping_amount, payment_voucher_asset_id
+						payment_goods_amount, payment_shipping_amount, payment_voucher_asset_id, other_fee, other_fee_note
 					) VALUES (
 						$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
 						$11,$12,$13,
@@ -3184,7 +3206,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 						$36,$37,
 						$38,
 						$39,
-						$40,$41,$42
+						$40,$41,$42,$43,$44
 					)
 					RETURNING id
 			`, r.schema)
@@ -3230,7 +3252,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			cmd.LogisticsProductID,
 			cmd.PaymentGoodsAmount,
 			cmd.PaymentShippingAmount,
-			cmd.PaymentVoucherAssetID,
+			cmd.PaymentVoucherAssetID, otherFee, otherFeeNote,
 		).Scan(&orderID)
 		if err != nil {
 			return salesapp.SaveOrderResult{}, err
@@ -3931,7 +3953,8 @@ func loadOrderSaveAuditSummaryTx(ctx context.Context, tx pgx.Tx, schema string, 
             'ship_method', to_jsonb(o)->'ship_method',
             'ship_status_id', to_jsonb(o)->'ship_status_id',
             'ship_tracking_no', to_jsonb(o)->'ship_tracking_no',
-			'shipping_amount', COALESCE(o.shipping_amount,0),
+			'other_fee',COALESCE((to_jsonb(o)->>'other_fee')::numeric,0), 'other_fee_note',COALESCE(to_jsonb(o)->>'other_fee_note',''),
+            'shipping_amount', COALESCE(o.shipping_amount,0),
 			'order_discount_amount', GREATEST(
 				COALESCE(o.discount_amount,0) - COALESCE((
 					SELECT SUM(discount_item.discount_amount)
@@ -4437,7 +4460,11 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	if err != nil {
 		return err
 	}
-	grand0 := totalAmt + ship - disc + outsourceTotal
+	var storedOtherFee float64
+	if err := tx.QueryRow(ctx, fmt.Sprintf("SELECT other_fee FROM %s.orders WHERE id=$1 FOR UPDATE", schema), id).Scan(&storedOtherFee); err != nil {
+		return err
+	}
+	grand0 := totalAmt + ship - disc + outsourceTotal + storedOtherFee
 	grandTotal, roundingAmt := applyRoundToInt(grand0, round)
 	paymentMethod, err := normalizeOrderPaymentMethodForStatusTx(ctx, tx, schema, req.PayStatusID, req.PaymentMethod)
 	if err != nil {

@@ -181,7 +181,7 @@
               <td>{{ money(row.goods_cents) }}</td>
               <td>{{ row.freight?freightLabel(row.freight):money(row.shipping_cents) }}</td>
               <td>{{ money(row.discount_cents) }}</td>
-              <td>{{ money(row.total_cents) }}</td>
+              <td>{{ money(row.total_cents) }}<small v-if="row.other_fee_cents">含其他费用 ¥{{ money(row.other_fee_cents) }}</small></td>
               <td>{{ money(row.paid_cents) }} / {{ money(row.due_cents) }}</td>
               <td>
                 {{ row.is_void ? "已作废" : accountStatus(row.payment_status)
@@ -339,6 +339,7 @@
             money(detail.paid_cents)
           }}　待付 ¥{{ money(detail.due_cents) }}
         </p>
+        <p v-if="detail.other_fee_cents">其他费用 ¥{{ money(detail.other_fee_cents) }}{{ detail.other_fee_note ? '（' + detail.other_fee_note + '）' : '' }}</p>
         <table>
           <thead>
             <tr>

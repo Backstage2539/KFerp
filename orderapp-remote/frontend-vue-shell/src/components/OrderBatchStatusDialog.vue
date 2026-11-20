@@ -48,7 +48,7 @@
           <div v-if="paymentMode === 'individual' && payStatusID && !draft.error && !isDone(draft) && draft.settlement_reason !== 'free_sample'" class="payment-fields">
             <label>收款方式<select v-model="draft.payment_method" :disabled="busy"><option value="">请选择</option><option v-for="method in methods" :key="method" :value="method">{{ method }}</option></select></label>
             <label>预付款（元）<input v-model="draft.prepayment_amount" type="number" min="0" step="0.01" :disabled="busy" /></label>
-            <label>实收货款（元）<input v-model="draft.payment_goods_amount" type="number" min="0" step="0.01" :disabled="busy" /></label>
+            <label>{{ Number(draft.other_fee || 0) > 0 ? '实收货款及其他费用（元）' : '实收货款（元）' }}<input v-model="draft.payment_goods_amount" type="number" min="0" step="0.01" :disabled="busy" /></label>
             <label>实收运费（元）<input v-model="draft.payment_shipping_amount" type="number" min="0" step="0.01" :disabled="busy" /></label>
             <label class="voucher">收款凭证<input type="file" accept="image/*,.pdf" :disabled="busy" @change="uploadVoucher(draft, $event)" /><small>{{ draft.uploading ? '上传中…' : (draft.payment_voucher_filename || (draft.payment_voucher_asset_id ? '已保存' : '未上传')) }}</small></label>
           </div>

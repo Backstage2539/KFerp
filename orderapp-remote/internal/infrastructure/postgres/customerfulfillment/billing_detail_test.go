@@ -22,7 +22,10 @@ func TestIssuedBillDetailSnapshotAndHistoricFallback(t *testing.T) {
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_service_capabilities(customer_id,capability_code,enabled) VALUES($1,'settlement',true)`, schema), customerID); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.orders(order_no,customer_id,order_date,grand_total,discount_amount) VALUES('SO-BILL-SNAPSHOT',$1,'2026-10-22',80,20) RETURNING id`, schema), customerID).Scan(&orderID); err != nil {
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS other_fee numeric(12,2) DEFAULT 0, ADD COLUMN IF NOT EXISTS other_fee_note text DEFAULT ''`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.orders(order_no,customer_id,order_date,grand_total,discount_amount,other_fee,other_fee_note) VALUES('SO-BILL-SNAPSHOT',$1,'2026-10-22',87.50,20,7.50,'贴标') RETURNING id`, schema), customerID).Scan(&orderID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,item_name,spec,qty,unit,unit_price,line_total) VALUES($1,1,'原商品','454g',2,'袋',50,100)`, schema), orderID); err != nil {
@@ -40,6 +43,12 @@ func TestIssuedBillDetailSnapshotAndHistoricFallback(t *testing.T) {
 	if len(bill.Lines) != 1 || bill.Lines[0].Detail == nil || len(bill.Lines[0].Detail.Items) != 1 || bill.Lines[0].Detail.Items[0].Name != "原商品" || bill.Lines[0].Detail.InformationSource != "出账快照" {
 		t.Fatalf("snapshot missing: %+v", bill.Lines)
 	}
+	if bill.TotalAmountCents != 8750 || bill.Lines[0].Detail.OtherFeeCents != 750 || bill.Lines[0].Detail.OtherFeeNote != "贴标" {
+		t.Fatalf("issued fee detail: %+v", bill)
+	}
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET other_fee_note='新说明' WHERE id=$1`, schema), orderID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.order_items SET item_name='修改后商品' WHERE order_id=$1`, schema), orderID); err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +56,7 @@ func TestIssuedBillDetailSnapshotAndHistoricFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again.Lines[0].Detail.Items[0].Name != "原商品" {
+	if again.Lines[0].Detail.Items[0].Name != "原商品" || again.Lines[0].Detail.OtherFeeNote != "贴标" {
 		t.Fatalf("snapshot changed: %+v", again.Lines[0].Detail)
 	}
 	if _, err = repo.GetIssuedBill(ctx, otherCustomer, bill.BatchID); err == nil {
@@ -60,7 +69,7 @@ func TestIssuedBillDetailSnapshotAndHistoricFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if historic.Lines[0].Detail.InformationSource != "原单当前信息" || historic.Lines[0].Detail.Items[0].Name != "修改后商品" || historic.TotalAmountCents != bill.TotalAmountCents {
+	if historic.Lines[0].Detail.OtherFeeCents != 0 || historic.Lines[0].Detail.OtherFeeNote != "" || historic.Lines[0].Detail.InformationSource != "原单当前信息" || historic.Lines[0].Detail.Items[0].Name != "修改后商品" || historic.TotalAmountCents != bill.TotalAmountCents {
 		t.Fatalf("historic fallback: %+v", historic)
 	}
 }

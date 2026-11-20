@@ -37,7 +37,7 @@ func (r *Repository) billingLineDetail(ctx context.Context, q billingReader, cus
 	}
 	order := app.AccountOrder{}
 	if orderID > 0 {
-		err := q.QueryRow(ctx, fmt.Sprintf(`SELECT id,coalesce(order_no,''),round(coalesce(discount_amount,0)*100)::bigint,coalesce(receiver_address,'') FROM %s.orders WHERE id=$1 AND customer_id=$2`, r.schema), orderID, customerID).Scan(&order.ID, &order.OrderNo, &order.DiscountCents, &order.ReceiverAddress)
+		err := q.QueryRow(ctx, fmt.Sprintf(`SELECT id,coalesce(order_no,''),round(coalesce(discount_amount,0)*100)::bigint,coalesce(receiver_address,''),round(coalesce((to_jsonb(o)->>'other_fee')::numeric,0)*100)::bigint,coalesce(to_jsonb(o)->>'other_fee_note','') FROM %s.orders o WHERE id=$1 AND customer_id=$2`, r.schema), orderID, customerID).Scan(&order.ID, &order.OrderNo, &order.DiscountCents, &order.ReceiverAddress, &order.OtherFeeCents, &order.OtherFeeNote)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return nil, err
 		}
@@ -178,6 +178,11 @@ func (r *Repository) hydrateBillingLineDetails(ctx context.Context, q billingRea
 		detail, err := r.billingLineDetail(ctx, q, customerID, lines[i], "原单当前信息")
 		if err != nil {
 			return err
+		}
+		// The original order charge breakdown is unknown for a pre-snapshot bill.
+		if detail != nil {
+			detail.OtherFeeCents = 0
+			detail.OtherFeeNote = ""
 		}
 		lines[i].Detail = detail
 	}

@@ -885,3 +885,31 @@ func testCombinedSalesOrderGroups(count int) []salesdomain.CombinedSalesOrderGro
 	}
 	return groups
 }
+
+func TestSalesOrderOtherFeeSettlement(t *testing.T) {
+	var single salesdomain.SalesOrderSnapshot
+	var combined salesdomain.CombinedSalesOrderSnapshot
+	const fields = `{"other_fee":"12.35","other_fee_note":"礼盒定制","grand_total":"112.35"}`
+	if err := json.Unmarshal([]byte(fields), &single); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(`{"other_fee":"12.35","groups":[`+fields+`]}`), &combined); err != nil {
+		t.Fatal(err)
+	}
+	rows := fmt.Sprint(salesOrderFinancialRows(single))
+	for _, want := range []string{"其他费用", "12.35", "礼盒定制", "应收： 112.35"} {
+		if !strings.Contains(rows, want) {
+			t.Errorf("single settlement missing %q: %s", want, rows)
+		}
+	}
+	if groupNote := combinedSalesOrderGroupNote(combined.Groups[0]); !strings.Contains(groupNote, "礼盒定制") || !strings.Contains(groupNote, "12.35") {
+		t.Errorf("group missing fee breakdown: %q", groupNote)
+	}
+	combinedRows := fmt.Sprint(salesOrderFinancialRows(combinedSalesOrderTotalsSnapshot(combined)))
+	if !strings.Contains(combinedRows, "其他费用") || !strings.Contains(combinedRows, "12.35") {
+		t.Errorf("combined settlement missing fee: %s", combinedRows)
+	}
+	if legacy := fmt.Sprint(salesOrderFinancialRows(salesdomain.SalesOrderSnapshot{})); strings.Contains(legacy, "其他费用") {
+		t.Errorf("unexpected zero fee row: %s", legacy)
+	}
+}

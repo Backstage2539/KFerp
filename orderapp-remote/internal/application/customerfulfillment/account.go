@@ -55,6 +55,8 @@ type AccountOrder struct {
 	PaymentStatus             string                   `json:"payment_status"`
 	Service                   string                   `json:"portal_service_code"`
 	IsVoid                    bool                     `json:"is_void"`
+	OtherFeeCents             int64                    `json:"other_fee_cents,omitempty"`
+	OtherFeeNote              string                   `json:"other_fee_note,omitempty"`
 	GoodsCents                int64                    `json:"goods_cents"`
 	ShippingCents             int64                    `json:"shipping_cents"`
 	DiscountCents             int64                    `json:"discount_cents"`
@@ -78,6 +80,21 @@ type AccountOrderItem struct {
 	LogisticsUnitWeightG *string `json:"logistics_unit_weight_g"`
 	LogisticsItemWeightG *string `json:"logistics_item_weight_g"`
 	WeightSnapshotJSON   string  `json:"weight_snapshot_json"`
+}
+
+func orderOtherFeeText(cents int64, note string) string {
+	text := fmt.Sprintf("其他费用：¥%.2f", float64(cents)/100)
+	if note != "" {
+		text += "（" + note + "）"
+	}
+	return text
+}
+
+func (o AccountOrder) goodsFeeName() string {
+	if o.OtherFeeCents > 0 {
+		return "订单款项，含" + orderOtherFeeText(o.OtherFeeCents, o.OtherFeeNote)
+	}
+	return "商品货款"
 }
 
 func (o *AccountOrder) SetPayment() {
@@ -108,6 +125,7 @@ type AccountSummary struct {
 	FeeShippingCents       int64 `json:"fee_shipping_cents"`
 	AdjustmentCents        int64 `json:"adjustment_cents"`
 	RefundCents            int64 `json:"refund_cents"`
+	OtherFeeCents          int64 `json:"other_fee_cents,omitempty"`
 	AdditionalFeeCents     int64 `json:"additional_fee_cents"`
 	PayableCents           int64 `json:"payable_cents"`
 }
@@ -449,7 +467,7 @@ func BuildOrderFeeGroups(orders []AccountOrder, fees []AccountFee) ([]AccountOrd
 		}
 		goods := g.Order.TotalCents - g.Order.ShippingCents
 		if goods != 0 {
-			add(g, AccountFee{OrderID: g.Order.ID, OrderNo: g.Order.OrderNo, FeeType: "product", FeeName: "商品货款", AmountCents: goods, OccurredAt: g.Order.OrderDate, SourceType: "order", SourceID: g.Order.ID, PaymentStatus: g.Order.PaymentStatus, IncludedInOrder: true})
+			add(g, AccountFee{OrderID: g.Order.ID, OrderNo: g.Order.OrderNo, FeeType: "product", FeeName: g.Order.goodsFeeName(), AmountCents: goods, OccurredAt: g.Order.OrderDate, SourceType: "order", SourceID: g.Order.ID, PaymentStatus: g.Order.PaymentStatus, IncludedInOrder: true})
 		}
 		if g.Order.ShippingCents != 0 && !g.Order.HasOrderShippingFee && !isDropshipFreight(g.Order) {
 			add(g, AccountFee{OrderID: g.Order.ID, OrderNo: g.Order.OrderNo, FeeType: "shipping", FeeName: "订单运费", AmountCents: g.Order.ShippingCents, OccurredAt: g.Order.OrderDate, SourceType: "order", SourceID: g.Order.ID, PaymentStatus: g.Order.PaymentStatus, IncludedInOrder: true})
@@ -649,7 +667,7 @@ func ApplyUnpaidSources(groups []AccountOrderFeeGroup, sources []AccountUnpaidSo
 			out = append(out, group)
 			index = len(out) - 1
 		}
-		line := AccountFeeLine{AccountFee: AccountFee{OrderID: source.SourceID, OrderNo: original.Order.OrderNo, FeeType: "product", FeeName: "商品货款", SourceType: "order", SourceID: source.SourceID, OccurredAt: source.OccurredAt, IncludedInOrder: true}, Category: "product"}
+		line := AccountFeeLine{AccountFee: AccountFee{OrderID: source.SourceID, OrderNo: original.Order.OrderNo, FeeType: "product", FeeName: original.Order.goodsFeeName(), SourceType: "order", SourceID: source.SourceID, OccurredAt: source.OccurredAt, IncludedInOrder: true}, Category: "product"}
 		add(&out[index], line, source)
 		delete(byKey, k)
 	}

@@ -221,10 +221,10 @@
         </div>
 
         <div v-if="paymentReceiptVisible" class="conditional-panel full-span">
-          <div class="condition-title">实收货款和运费分项</div>
-          <p class="hint">请填写本次实际收到的货款和运费；没有到账的项目填 0。选择全款时，未填写已收总额会按这两项合计计算。</p>
+          <div class="condition-title">实收{{ Number(form.other_fee) > 0 ? '货款及其他费用' : '货款' }}和运费分项</div>
+          <p class="hint">请填写本次实际收到的款项和运费；没有到账的项目填 0。选择全款时，未填写已收总额会按这两项合计计算。</p>
           <label :class="{ 'field-invalid': hasFieldError('payment_goods_amount') }" data-error-field="payment_goods_amount">
-            <span>货款金额</span>
+            <span>{{ Number(form.other_fee) > 0 ? '实收货款及其他费用（元）' : '货款金额' }}</span>
             <div class="amount-suggestion-wrap">
               <input v-model.trim="form.payment_goods_amount" type="number" min="0" step="0.01" />
               <button
@@ -232,7 +232,8 @@
                 class="amount-suggestion-popover"
                 type="button"
                 @click="applyPaymentGoodsAmountSuggestion">
-                实时价格提示 货款 {{ paymentGoodsAmountSuggestion }}
+                <template v-if="Number(form.other_fee) > 0">实时价格提示 货款及其他费用 {{ paymentGoodsAmountSuggestion }}</template>
+                <template v-else>实时价格提示 货款 {{ paymentGoodsAmountSuggestion }}</template>
               </button>
             </div>
           </label>
@@ -514,6 +515,14 @@
           <span>优惠</span>
           <input v-model.trim="form.discount_amount" type="number" min="0" step="0.01" />
         </label>
+        <label :class="{ 'field-invalid': hasFieldError('other_fee') }" data-error-field="other_fee">
+          <span>其他费用（元）</span>
+          <input v-model.trim="form.other_fee" type="number" min="0" step="0.01" placeholder="0.00" />
+        </label>
+        <label>
+          <span>其他费用说明（选填，客户可见）</span>
+          <input v-model.trim="form.other_fee_note" :disabled="Number(form.other_fee) <= 0" placeholder="例如定制包装" />
+        </label>
         <label v-if="!isCustomerStockOrder(form)">
           <span>快递费备注</span>
           <input v-model.trim="form.express_fee" />
@@ -584,6 +593,7 @@
           <li>需要临时改价时直接修改单价，点击 ↺ 恢复自动梯度价。表外 BOM 规格不能下单；历史换算订单仅保留原规格和冻结价格，复制时须重新选择当前价格表内的规格。</li>
           <li>每条商品明细可选择减免数额、单价优惠、折扣或免费，保存后会计入订单优惠。</li>
           <li>每条商品明细可填写“条目备注”，会随该商品带入销售单和出库单。</li>
+          <li v-if="!props.customerPortal">在费用区填写其他费用金额及选填说明，计入本单应收；实收登记合并在货款及其他费用栏，说明会在客户单据上展示。</li>
           <li>普通录单会按收件地区、商品物流重量及启用模板自动核算运费并计入本单应收；可以切换本单模板、手填运费、选择包邮，或点击“恢复自动计算”。缺商品物流重量时按缺失商品提示，可填本单含包装总重量继续报价；商品、规格或数量变化后需重新确认重量。编辑已有订单会先保留原运费，只有明确选择新模板、恢复自动或修改运费才重新报价；保存失败会保留当前输入。</li>
           <li>库存充足时保存前会提示成品批次；历史库存没有 FP 批次时会提示库存余额，确认使用后进入库存待发货。</li>
         </ul>
@@ -1113,6 +1123,8 @@ const form = reactive({
   freight_state: emptyFreightState(),
   shipping_amount: '',
   discount_amount: '',
+  other_fee: '',
+  other_fee_note: '',
   round_to_int: false,
   express_fee: '',
   outsource_material_fee: '',
@@ -1273,9 +1285,10 @@ const orderTotalPreviewValue = computed(() => orderTotalPreview({
   itemsTotal: fulfillmentOrderEditing.value ? fulfillmentGoodsCents.value / 100 : itemsTotal.value,
   shippingAmount: fulfillmentOrderEditing.value ? (fulfillmentFeeSummary(fulfillmentCurrentFees.value).service + fulfillmentFeeSummary(fulfillmentCurrentFees.value).shipping) / 100 : form.shipping_amount,
   discountAmount: fulfillmentOrderEditing.value ? 0 : form.discount_amount,
+  otherFee: fulfillmentOrderEditing.value ? 0 : form.other_fee,
   roundToInt: fulfillmentOrderEditing.value ? false : form.round_to_int,
 }))
-const orderTotalHintText = computed(() => fulfillmentOrderEditing.value ? '商品货款＋代发服务费＋本次运费应收，预估运费单独展示' : `货款 ${money(orderTotalPreviewValue.value.goodsAmount)} · 物流 ${money(orderTotalPreviewValue.value.logisticsAmount)}`)
+const orderTotalHintText = computed(() => fulfillmentOrderEditing.value ? '商品货款＋代发服务费＋本次运费应收，预估运费单独展示' : `货款 ${money(orderTotalPreviewValue.value.goodsAmount)} · 物流 ${money(orderTotalPreviewValue.value.logisticsAmount)}${orderTotalPreviewValue.value.otherFeeAmount > 0 ? ' · 其他费用 ' + money(orderTotalPreviewValue.value.otherFeeAmount) : ''}`)
 const filteredCustomers = computed(() => filterOptions(customers.value, customerQuery.value).slice(0, 20))
 const freeSampleSettlement = computed(() => isFreeSamplePreview(sampleOrderEditing.value, rows.value, form, orderTotalPreviewValue.value.grandTotal))
 const zeroGoodsSample = computed(() => sampleOrderEditing.value && itemsTotal.value === 0)
@@ -1315,9 +1328,9 @@ watch([initialReceiptExpected, initialShippingReceiptZero, () => form.payment_sh
   if (expected && zero && String(value ?? '').trim()==='') form.payment_shipping_amount='0'
 }, {immediate:true})
 const paymentReceiptRequired = computed(() => !newRetainedPurchase.value && !freeSampleSettlement.value && !props.customerPortal && requiresOrderPaymentReceipt(form, payStatuses.value))
-const paymentGoodsAmountSuggestion = computed(() => money(itemsTotal.value))
+const paymentGoodsAmountSuggestion = computed(() => money(Math.max(0, orderTotalPreviewValue.value.grandTotal - orderTotalPreviewValue.value.logisticsAmount)))
 const paymentShippingAmountSuggestion = computed(() => money(toNumber(form.shipping_amount)))
-const showPaymentGoodsAmountSuggestion = computed(() => paymentReceiptVisible.value && itemsTotal.value > 0)
+const showPaymentGoodsAmountSuggestion = computed(() => paymentReceiptVisible.value && Number(paymentGoodsAmountSuggestion.value) > 0)
 const showPaymentShippingAmountSuggestion = computed(() => paymentReceiptVisible.value && shippingReceiptAmountKnown.value)
 const logisticsRequired = computed(() => form.delivery_mode !== 'customer_stock' && !props.customerPortal && requiresCourierLogistics(form.ship_method, selectedShipStatusName.value))
 const deliveryMode = computed({
@@ -2721,6 +2734,8 @@ function applyEditData(data) {
     notes: data.notes || '',
     shipping_amount: data.shipping_amount ?? '',
     discount_amount: data.discount_amount || '',
+    other_fee: data.other_fee ?? '',
+    other_fee_note: data.other_fee_note || '',
     round_to_int: !!data.round_to_int,
     express_fee: data.express_fee || '',
     outsource_material_fee: data.outsource_material_fee || '',
@@ -3067,6 +3082,8 @@ async function load() {
         editData.logistics_company_id = 0
         editData.logistics_product_id = 0
         editData.payment_goods_amount = ''
+        editData.other_fee = ''
+        editData.other_fee_note = ''
         editData.payment_shipping_amount = ''
         editData.payment_voucher_asset_id = 0
         editData.payment_voucher = null
@@ -3190,6 +3207,8 @@ function resetForBackfillContinuation() {
   form.payment_voucher_asset_id = 0
   form.notes = ''
   form.discount_amount = ''
+  form.other_fee = ''
+  form.other_fee_note = ''
   form.outsource_material_fee = ''
   form.outsource_roast_fee = ''
   form.outsource_packaging_fee = ''
@@ -3236,6 +3255,13 @@ async function saveOrderUnlocked(options = {}, lockedIdentity = '', lockedToken 
       if (!await editor.validate()) { error.value = '请核对商品的工序备注；已填内容已保留。'; return }
     }
     const payload = buildOrderPayload({ form, rows: rows.value })
+    if (props.customerPortal) {
+      delete payload.other_fee
+      delete payload.other_fee_note
+    } else if (String(form.other_fee ?? '').trim() !== '' && !/^\d+(\.\d{1,2})?$/.test(String(form.other_fee))) {
+      raiseSaveError('其他费用必须是大于或等于 0 且最多两位小数的金额', 'other_fee')
+      return
+    }
     if (initialReceiptExpected.value && !protectInitialReceipt) throw new Error('收款信息已变化，请重新保存并核对')
     if (props.fulfillmentMode && !form.edit_id && (Number(form.prepayment_amount || 0)>0 || Number(form.payment_goods_amount || 0)>0 || Number(form.payment_shipping_amount || 0)>0)) { raiseSaveError('待确认新订单不能登记收款；请先提交未收款订单，确认后逐笔登记实际到账'); return }
     if (!props.customerPortal && !form.edit_id && backfillMode.value) payload.backfill_mode = true
@@ -3301,7 +3327,7 @@ async function saveOrderUnlocked(options = {}, lockedIdentity = '', lockedToken 
     if (initialReceiptExpected.value) {
       payload.prepayment_amount=initialReceiptPrepayment({prepayment:payload.prepayment_amount,goods:payload.payment_goods_amount,shipping:payload.payment_shipping_amount,status:selectedPayStatusName.value})
       const outsourceTotal=['outsource_material_fee','outsource_roast_fee','outsource_packaging_fee','outsource_manual_fee','outsource_tax_fee','outsource_other_fee'].reduce((sum,key)=>sum+Number(payload[key] || 0),0)
-      const receiptTotal=orderTotalPreview({itemsTotal:itemsTotal.value+outsourceTotal,shippingAmount:payload.shipping_amount,discountAmount:form.discount_amount,roundToInt:form.round_to_int}).grandTotal
+      const receiptTotal=orderTotalPreview({itemsTotal:itemsTotal.value+outsourceTotal,shippingAmount:payload.shipping_amount,discountAmount:form.discount_amount,otherFee:payload.other_fee,roundToInt:form.round_to_int}).grandTotal
       const receiptError=validateInitialReceiptBreakdown({prepayment:payload.prepayment_amount,goods:payload.payment_goods_amount,shipping:payload.payment_shipping_amount,total:money(receiptTotal),freight:money(Number(payload.shipping_amount || 0)),status:selectedPayStatusName.value})
       if(receiptError){raiseSaveError(receiptError,'payment_goods_amount');return}
     }

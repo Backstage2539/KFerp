@@ -26,16 +26,19 @@ func NewRepository(pool *pgxpool.Pool, schema string) Repository {
 
 func financeOrderRevenueSQL(alias string) string {
 	prefix := ""
+	orderRow := "orders"
 	if alias != "" {
+		orderRow = alias
 		prefix = alias + "."
 	}
 	return fmt.Sprintf(`CASE
 			WHEN COALESCE(%[1]sgrand_total,0) <> 0
 			  OR COALESCE(%[1]sdiscount_amount,0) <> 0
 			  OR COALESCE(%[1]sshipping_amount,0) <> 0
+			  OR COALESCE((to_jsonb(%[2]s)->>'rounding_amount')::numeric,0) <> 0
 			THEN COALESCE(%[1]sgrand_total,0)
 			ELSE COALESCE(%[1]stotal_amount,0)
-		END`, prefix)
+		END`, prefix, orderRow)
 }
 
 func (r Repository) LoadSettings(ctx context.Context) (appfinance.SettingsSnapshot, error) {

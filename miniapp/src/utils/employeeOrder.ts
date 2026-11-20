@@ -816,6 +816,8 @@ export function employeeOrderCopyPayload(
     receiver_company: String(detail.receiver_company || ''),
     shipping_amount: Number(detail.shipping_amount || detail.payment_shipping_amount || 0),
     discount_amount: Number(detail.discount_amount || detail.order_discount_amount || 0),
+    other_fee: 0,
+    other_fee_note: '',
     notes: String(detail.notes || ''),
     items,
   }
@@ -935,6 +937,7 @@ export function employeeOrderGrandTotal(
   discountAmount = 0,
   outsourceAmount = 0,
   roundToInt = false,
+  otherFee = 0,
 ): number {
   const total = (
     employeeOrderItemsTotal(items)
@@ -942,6 +945,7 @@ export function employeeOrderGrandTotal(
     - employeeOrderLineDiscountTotal(items)
     - Number(discountAmount || 0)
     + Number(outsourceAmount || 0)
+    + Number(otherFee || 0)
   )
   return roundEmployeeOrderMoney(roundToInt ? Math.trunc(total) : total)
 }

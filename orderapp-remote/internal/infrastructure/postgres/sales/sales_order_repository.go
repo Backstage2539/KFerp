@@ -549,12 +549,12 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 			COALESCE(NULLIF(c.company_phone,''), c.phone, ''),
 			COALESCE(o.total_amount,0)::float8, COALESCE(o.shipping_amount,0)::float8,
 			COALESCE(o.discount_amount,0)::float8, COALESCE(o.grand_total,0)::float8,
-			COALESCE(o.express_fee,''),
+			COALESCE(o.express_fee,''), COALESCE(o.other_fee,0)::text, COALESCE(o.other_fee_note,''),
 			COALESCE(o.sales_order_note,''), COALESCE(to_jsonb(o)->>'notes',''), COALESCE(to_jsonb(o)->>'receiver_name',''), COALESCE(to_jsonb(o)->>'receiver_phone',''), COALESCE(to_jsonb(o)->>'receiver_address','')
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id=o.customer_id
 		WHERE o.id=$1`, r.schema, r.schema)
-	if err := tx.QueryRow(ctx, q, orderID).Scan(&snapshot.OrderID, &snapshot.OrderNo, &snapshot.DocumentDate, &snapshot.OrderDate, &snapshot.CustomerName, &snapshot.CustomerCompanyName, &snapshot.CustomerCompanyAddress, &snapshot.CustomerCompanyPhone, &total, &shipping, &discount, &grand, &snapshot.ExpressFee, &snapshot.SalesOrderNote, &snapshot.OrderNote, &snapshot.ReceiverName, &snapshot.ReceiverPhone, &snapshot.ReceiverAddress); err != nil {
+	if err := tx.QueryRow(ctx, q, orderID).Scan(&snapshot.OrderID, &snapshot.OrderNo, &snapshot.DocumentDate, &snapshot.OrderDate, &snapshot.CustomerName, &snapshot.CustomerCompanyName, &snapshot.CustomerCompanyAddress, &snapshot.CustomerCompanyPhone, &total, &shipping, &discount, &grand, &snapshot.ExpressFee, &snapshot.OtherFee, &snapshot.OtherFeeNote, &snapshot.SalesOrderNote, &snapshot.OrderNote, &snapshot.ReceiverName, &snapshot.ReceiverPhone, &snapshot.ReceiverAddress); err != nil {
 		return salesdomain.SalesOrderSnapshot{}, err
 	}
 	companyProfile, err := r.loadCompanyProfileForSalesOrderTx(ctx, tx)
@@ -768,24 +768,26 @@ func (r Repository) LoadSalesOrderDocumentFile(ctx context.Context, orderID, doc
 		args = []any{orderID}
 	}
 	q := fmt.Sprintf(`SELECT d.id, d.order_id, d.order_no, d.version_no, d.snapshot_json, COALESCE(d.pdf_asset_id,0), d.is_latest, to_char(d.created_at,'YYYY-MM-DD HH24:MI:SS'), d.created_by,
-			a.object_key
+			a.object_key, COALESCE(o.other_fee,0)::text, COALESCE(o.other_fee_note,'')
 		FROM %s.sales_order_documents d
 		JOIN %s.sales_order_assets a ON a.id=d.pdf_asset_id
+		LEFT JOIN %s.orders o ON o.id=d.order_id
 		WHERE %s
 		ORDER BY d.version_no DESC
-		LIMIT 1`, r.schema, r.schema, where)
+		LIMIT 1`, r.schema, r.schema, r.schema, where)
 	var doc salesapp.SalesOrderDocument
 	var snapshotJSON []byte
-	var objectKey string
-	if err := r.pool.QueryRow(ctx, q, args...).Scan(&doc.ID, &doc.OrderID, &doc.OrderNo, &doc.VersionNo, &snapshotJSON, &doc.PDFAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy, &objectKey); err != nil {
+	var objectKey, currentFee, currentFeeNote string
+	if err := r.pool.QueryRow(ctx, q, args...).Scan(&doc.ID, &doc.OrderID, &doc.OrderNo, &doc.VersionNo, &snapshotJSON, &doc.PDFAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy, &objectKey, &currentFee, &currentFeeNote); err != nil {
 		return salesapp.SalesOrderDocumentFile{}, err
 	}
 	_ = json.Unmarshal(snapshotJSON, &doc.Snapshot)
 	doc.DownloadURL = salesOrderDocumentDownloadURL(doc.OrderID, doc.ID)
 	return salesapp.SalesOrderDocumentFile{
-		Document: doc,
-		Path:     filepath.Join(r.assetDir, objectKey),
-		Filename: fmt.Sprintf("%s-V%d.pdf", doc.OrderNo, doc.VersionNo),
+		Document:        doc,
+		OtherFeeChanged: salesdomain.SalesOrderOtherFeeText(currentFee, currentFeeNote) != salesdomain.SalesOrderOtherFeeText(doc.Snapshot.OtherFee, doc.Snapshot.OtherFeeNote),
+		Path:            filepath.Join(r.assetDir, objectKey),
+		Filename:        fmt.Sprintf("%s-V%d.pdf", doc.OrderNo, doc.VersionNo),
 	}, nil
 }
 
@@ -797,24 +799,26 @@ func (r Repository) LoadSalesOrderImageFile(ctx context.Context, orderID, imageI
 		args = []any{orderID}
 	}
 	q := fmt.Sprintf(`SELECT d.id, d.order_id, d.order_no, d.version_no, d.snapshot_json, COALESCE(d.image_asset_id,0), d.is_latest, to_char(d.created_at,'YYYY-MM-DD HH24:MI:SS'), d.created_by,
-			a.object_key
+			a.object_key, COALESCE(o.other_fee,0)::text, COALESCE(o.other_fee_note,'')
 		FROM %s.sales_order_images d
 		JOIN %s.sales_order_assets a ON a.id=d.image_asset_id
+		LEFT JOIN %s.orders o ON o.id=d.order_id
 		WHERE %s
 		ORDER BY d.version_no DESC
-		LIMIT 1`, r.schema, r.schema, where)
+		LIMIT 1`, r.schema, r.schema, r.schema, where)
 	var doc salesapp.SalesOrderImageDocument
 	var snapshotJSON []byte
-	var objectKey string
-	if err := r.pool.QueryRow(ctx, q, args...).Scan(&doc.ID, &doc.OrderID, &doc.OrderNo, &doc.VersionNo, &snapshotJSON, &doc.ImageAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy, &objectKey); err != nil {
+	var objectKey, currentFee, currentFeeNote string
+	if err := r.pool.QueryRow(ctx, q, args...).Scan(&doc.ID, &doc.OrderID, &doc.OrderNo, &doc.VersionNo, &snapshotJSON, &doc.ImageAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy, &objectKey, &currentFee, &currentFeeNote); err != nil {
 		return salesapp.SalesOrderImageFile{}, err
 	}
 	_ = json.Unmarshal(snapshotJSON, &doc.Snapshot)
 	doc.DownloadURL = salesOrderImageDownloadURL(doc.OrderID, doc.ID)
 	return salesapp.SalesOrderImageFile{
-		Document: doc,
-		Path:     filepath.Join(r.assetDir, objectKey),
-		Filename: fmt.Sprintf("%s-V%d.png", doc.OrderNo, doc.VersionNo),
+		Document:        doc,
+		OtherFeeChanged: salesdomain.SalesOrderOtherFeeText(currentFee, currentFeeNote) != salesdomain.SalesOrderOtherFeeText(doc.Snapshot.OtherFee, doc.Snapshot.OtherFeeNote),
+		Path:            filepath.Join(r.assetDir, objectKey),
+		Filename:        fmt.Sprintf("%s-V%d.png", doc.OrderNo, doc.VersionNo),
 	}, nil
 }
 

@@ -332,6 +332,9 @@ func combinedSalesOrderGroupNote(group salesdomain.CombinedSalesOrderGroup) stri
 	if recipient := strings.TrimSpace(group.ReceiverName + " " + group.ReceiverPhone + " " + group.ReceiverAddress); recipient != "" {
 		parts = append(parts, "收件信息："+recipient)
 	}
+	if fee := salesdomain.SalesOrderOtherFeeText(group.OtherFee, group.OtherFeeNote); fee != "" {
+		parts = append(parts, "其他费用："+fee)
+	}
 	if note := strings.TrimSpace(group.OrderNote); note != "" {
 		parts = append(parts, "订单备注："+note)
 	}
@@ -366,6 +369,7 @@ func combinedSalesOrderTotalsSnapshot(snapshot salesdomain.CombinedSalesOrderSna
 		Shipping:       snapshot.Shipping,
 		Discount:       snapshot.Discount,
 		GrandTotal:     snapshot.GrandTotal,
+		OtherFee:       snapshot.OtherFee,
 		PaymentCodes:   snapshot.PaymentCodes,
 		PaymentTextBox: snapshot.PaymentTextBox,
 		PaymentCodeBox: snapshot.PaymentCodeBox,
@@ -684,6 +688,9 @@ func salesOrderFinancialRows(snapshot salesdomain.SalesOrderSnapshot) []salesOrd
 	if note := strings.TrimSpace(snapshot.SalesOrderNote); note != "" {
 		rows = append(rows, salesOrderFinancialRow{Label: "销售单备注", Value: note})
 	}
+	if fee := salesdomain.SalesOrderOtherFeeText(snapshot.OtherFee, snapshot.OtherFeeNote); fee != "" {
+		rows = append(rows, salesOrderFinancialRow{Label: "其他费用", Value: fee})
+	}
 	cells := []string{"商品合计： " + snapshot.TotalAmount}
 	if salesOrderMoneyPositive(snapshot.Discount) {
 		cells = append(cells, "优惠合计： "+snapshot.Discount)
@@ -717,7 +724,7 @@ func salesOrderPaymentRows(snapshot salesdomain.SalesOrderSnapshot) []salesOrder
 
 func salesOrderFinancialRowWrapLeft(row salesOrderFinancialRow) bool {
 	switch row.Label {
-	case "快递费备注", "销售单备注", "订单备注":
+	case "快递费备注", "销售单备注", "订单备注", "其他费用":
 		return true
 	default:
 		return false

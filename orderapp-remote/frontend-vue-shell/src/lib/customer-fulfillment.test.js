@@ -69,3 +69,11 @@ test('customer fulfillment order fees keep ERP-style fee breakdown for the botto
     { label: '应收', value: '135.00', emphasized: true },
   ])
 })
+
+test('order fee detail explains the included charge for estimated and actual freight', () => {
+  for (const freight of [undefined, { final_receivable_cents: 2000 }]) {
+    const lines = customerFulfillmentOrderFees({ total_amount: '100.00', shipping_amount: '20.00', grand_total: '132.50', other_fee: '12.50', other_fee_note: '贴标', freight })
+    assert.deepEqual(lines.find(line => line.label === '其他费用'), { label: '其他费用', value: '12.50（贴标）' })
+    assert.equal(Number(lines.at(-1).value), 132.50)
+  }
+})

@@ -76,14 +76,14 @@ func protectFreightReceiptsTx(ctx context.Context, tx pgx.Tx, schema string, id 
 	}
 	if paid > 0 {
 		if total+0.00001 < paid || voucher > 0 && shipping+0.00001 < freight {
-			return fmt.Errorf("调整运费将使已有真实收款超出应收，请先通过财务流程核对处理")
+			return fmt.Errorf("费用调整将使已有真实收款超出应收，请先通过财务流程核对处理")
 		}
 		// Freight edits preserve the recorded collection; new money is recorded separately.
 		if total > paid+0.00001 {
 			var partial int64
 			e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.pay_statuses WHERE name ILIKE '%%预付款%%' ORDER BY id LIMIT 1`, schema)).Scan(&partial)
 			if e != nil {
-				return fmt.Errorf("新增运费尚未收取，请先维护部分收款状态")
+				return fmt.Errorf("新增费用尚未收取，请先维护部分收款状态")
 			}
 			c.PayStatusID = partial
 			c.PrepaymentAmount = &paid

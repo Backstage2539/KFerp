@@ -2286,7 +2286,8 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 			COALESCE(o.outsource_packaging_fee,0) as outsource_packaging_fee,
 			COALESCE(o.outsource_manual_fee,0) as outsource_manual_fee,
 			COALESCE(o.outsource_tax_fee,0) as outsource_tax_fee,
-			COALESCE(o.outsource_other_fee,0) as outsource_other_fee,
+			COALESCE(o.other_fee,0)::numeric(12,2)::text, COALESCE(o.other_fee_note,''),
+ COALESCE(o.outsource_other_fee,0) as outsource_other_fee,
 			COALESCE(o.outsource_total_fee,0) as outsource_total_fee,
 			md5(to_jsonb(o)::text || '|' || COALESCE((
 				SELECT jsonb_agg(to_jsonb(revision_item) ORDER BY revision_item.id)::text
@@ -2363,7 +2364,7 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 		&outsourcePackaging,
 		&outsourceManual,
 		&outsourceTax,
-		&outsourceOther,
+		&d.OtherFee, &d.OtherFeeNote, &outsourceOther,
 		&outsourceTotal,
 		&d.EditRevision,
 		&d.IsVoid,

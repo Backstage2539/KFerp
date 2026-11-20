@@ -94,7 +94,7 @@ func TestOrderCopyDetailsPostgresSavedAddressAndSnapshots(t *testing.T) {
 			t.Fatal(body.Text)
 		}
 	}
-	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS prepayment_amount numeric DEFAULT 0; INSERT INTO %[1]s.pay_statuses(id,name) VALUES (30,'预付款（付款未完成）'); UPDATE %[1]s.orders SET pay_status_id=30,prepayment_amount=20.50 WHERE id=9001`, s))
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS prepayment_amount numeric DEFAULT 0; INSERT INTO %[1]s.pay_statuses(id,name) VALUES (30,'预付款（付款未完成）'); UPDATE %[1]s.orders SET pay_status_id=30,prepayment_amount=20.50,other_fee=8.30,other_fee_note='礼盒', grand_total=115.30 WHERE id=9001`, s))
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, httptest.NewRequest("GET", "/api/orders/9001/copy-details", nil))
 	if rec.Code != 200 {
@@ -103,10 +103,10 @@ func TestOrderCopyDetailsPostgresSavedAddressAndSnapshots(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(body.Text, "合计付款：20.50元") {
+	if !strings.Contains(body.Text, "其他费用：8.30元（礼盒）") || !strings.Contains(body.Text, "合计付款：20.50元") {
 		t.Fatal(body.Text)
 	}
-	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %[1]s.order_freight_snapshots(order_id bigint PRIMARY KEY, snapshot_json jsonb); INSERT INTO %[1]s.order_freight_snapshots(order_id,snapshot_json) VALUES (9001,'{"charge_mode":"deferred"}') ON CONFLICT(order_id) DO UPDATE SET snapshot_json=EXCLUDED.snapshot_json; UPDATE %[1]s.orders SET shipping_amount=0,grand_total=95,pay_status_id=2 WHERE id=9001`, s))
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %[1]s.order_freight_snapshots(order_id bigint PRIMARY KEY, snapshot_json jsonb); INSERT INTO %[1]s.order_freight_snapshots(order_id,snapshot_json) VALUES (9001,'{"charge_mode":"deferred"}') ON CONFLICT(order_id) DO UPDATE SET snapshot_json=EXCLUDED.snapshot_json; UPDATE %[1]s.orders SET shipping_amount=0,grand_total=103.30,pay_status_id=2 WHERE id=9001`, s))
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, httptest.NewRequest("GET", "/api/orders/9001/copy-details", nil))
 	if rec.Code != 200 {
@@ -115,7 +115,7 @@ func TestOrderCopyDetailsPostgresSavedAddressAndSnapshots(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"运费：0.00元（实际运费另行结算）", "合计付款：95.00元（不含另行结算运费）"} {
+	for _, want := range []string{"运费：0.00元（实际运费另行结算）", "合计付款：103.30元（不含另行结算运费）"} {
 		if !strings.Contains(body.Text, want) {
 			t.Fatalf("missing %s: %s", want, body.Text)
 		}

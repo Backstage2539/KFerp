@@ -106,6 +106,12 @@ describe('employee order detail presentation', () => {
     expect(lines.find((line) => line.label === '快递费')?.value).toBe('顺丰到付')
   })
 
+  it('lists other fees and their customer-visible note', () => {
+    const lines = employeeOrderFeeLines({ other_fee: '20.00', other_fee_note: '定制包装', grand_total: '130.00' })
+    expect(lines.find(line => line.key === 'other_fee')).toMatchObject({ label: '其他费用', value: '¥20.00（定制包装）' })
+    expect(employeeOrderFeeLines({ other_fee: '0.00' }).some(line => line.key === 'other_fee')).toBe(false)
+  })
+
   it('formats quotation and production sources into mobile-readable rows', () => {
     expect(employeeOrderTraceSourceLines({
       price_list_version: 'V8',

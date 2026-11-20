@@ -13,6 +13,7 @@ import (
 	customerportalapp "orderapp/internal/application/customerportal"
 	messagecenterapp "orderapp/internal/application/messagecenter"
 	salesapp "orderapp/internal/application/sales"
+	stockapp "orderapp/internal/application/stock"
 	pdfinfra "orderapp/internal/infrastructure/pdf"
 	supporthttp "orderapp/internal/interfaces/http/support"
 
@@ -58,7 +59,11 @@ type Service interface {
 	EnsureOrderAccess(context.Context, string, int64) error
 }
 
+type EmployeeWarehouseReader interface {
+	ListWarehouses(context.Context, stockapp.WarehouseListQuery) ([]stockapp.WarehouseRow, error)
+}
 type Dependencies struct {
+	EmployeeWarehouses       EmployeeWarehouseReader
 	CustomerPortal           Service
 	CustomerFulfillment      MiniCustomerFulfillment
 	Authz                    supporthttp.AuthzService
@@ -132,7 +137,7 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	registerMiniProcessingCatalogAPI(e, deps.CustomerPortal, deps.EmployeeSales)
 	registerRecipientParseAPI(e, deps.CustomerPortal, deps.Authz)
 	registerRecipientAddressAPI(e, deps.CustomerPortal, deps.Authz)
-	registerMiniEmployeeAPI(e, deps.CustomerPortal, deps.EmployeeSales, deps.CustomerMaintenance)
+	registerMiniEmployeeAPI(e, deps.CustomerPortal, deps.EmployeeSales, deps)
 	registerMiniEmployeePaymentVoucherAPI(e, deps.CustomerPortal, deps.EmployeeSales, deps.AssetDir)
 	registerMiniOrderCopyAPI(e, deps.CustomerPortal, deps.EmployeeSales)
 	registerMiniEmployeeShareSettingsAPI(e, deps.CustomerPortal, deps.EmployeeShareSettings)
