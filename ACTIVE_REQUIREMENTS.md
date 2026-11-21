@@ -6783,4 +6783,4 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Scope: 员工订单列表、详情、编辑性能及列表付款发货状态；凭证校验
 - Verifier: 单元、API、分页数据库、小程序构建与真机性能
 - Manual: orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md
-- Deployment: 待验证
+- Deployment: development 5daa93d387af，2026-11-22 已部署；真机验收与正式环境待完成
