@@ -203,7 +203,7 @@ func seedReqRow(ctx context.Context, pool *pgxpool.Pool, schema string, row reqS
 	}
 	// Delivery and Van's review happen after startup. Preserve their actual
 	// progress when subsequent restarts re-run the built-in requirement seeds.
-	if row.code == "PR-768-ORDER-OTHER-FEE" || strings.HasPrefix(row.code, "DEV-PR768-") {
+	if row.code == "PR-768-ORDER-OTHER-FEE" || strings.HasPrefix(row.code, "DEV-PR768-") || row.code == "PR-WECHAT-AUTOBIND-20261122" || strings.HasPrefix(row.code, "DEV-WECHAT-AUTOBIND-") {
 		_, err := pool.Exec(ctx, fmt.Sprintf("INSERT INTO %s.%s(code,title,status,assignee,evidence) VALUES($1,$2,$3,$4,$5) ON CONFLICT(code) DO NOTHING", schema, row.table), row.code, row.title, row.status, row.assignee, row.evidence)
 		return err
 	}
@@ -416,6 +416,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-PR751-01", title: "候选与发货条件分开并防止误配旧订单", status: "review", assignee: "Codex", evidence: "shipping_return_candidate_inventory_test.go"},
 		{table: "req_dev", code: "DEV-PR751-02", title: "显式现货补足及历史身份事务校验", status: "review", assignee: "Codex", evidence: "shipping_return_candidate_inventory_test.go；隔离 API 和日志回滚"},
 		{table: "req_dev", code: "DEV-PR751-03", title: "Vue 来源预览、手册与交付验证", status: "review", assignee: "Codex", evidence: "OP_MANUAL_SHIPPING_RETURN.md；fulfillment-full-edit-dom.test.js"},
+		{table: "req_product", code: "PR-WECHAT-AUTOBIND-20261122", title: "服务号自动绑定及发货通知体验", status: "doing", assignee: "Van"},
+		{table: "req_dev", code: "DEV-WECHAT-AUTOBIND-IDENTITY", title: "微信关注及客户和员工身份自动匹配", status: "doing", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-WECHAT-AUTOBIND-CHOICE", title: "小程序通知选择及后台状态", status: "doing", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-WECHAT-AUTOBIND-SHIPMENT", title: "客户和销售发货通知及真实验收", status: "doing", assignee: "Codex"},
 		{table: "req_product", code: "PR-WECHAT-SUBSCRIPTION-ADMIN-20261112", title: "后台查看和管理客户服务号通知状态", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-11-12-wechat-subscription-admin.md；客户与负责人逐账号查看，用户自主决定通知"},
 		{table: "req_dev", code: "DEV-WECHAT-SUBSCRIPTION-ADMIN-01", title: "订阅绑定状态查询、权限及逐人提醒", status: "doing", assignee: "Codex", evidence: "身份隔离、手机号歧义、重选并发和审计待验证"},
 		{table: "req_dev", code: "DEV-WECHAT-SUBSCRIPTION-ADMIN-02", title: "后台客户与负责人通知管理页面", status: "doing", assignee: "Codex", evidence: "按客户或手机号搜索、按账号显示绑定与选择，用户本人确认"},

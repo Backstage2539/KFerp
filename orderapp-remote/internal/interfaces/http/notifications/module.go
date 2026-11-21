@@ -353,13 +353,31 @@ func (h *Handler) preferences(c echo.Context) error {
 	if e != nil {
 		return e
 	}
-	v, e := h.Repo.NotificationPreferences(c.Request().Context(), h.Client.Config.AppID, cur.MiniUserID)
-	if e != nil {
-		return respond(c, nil, e)
-	}
 	employee := int64(0)
 	if cur.AccountType == "employee" {
 		employee = cur.EmployeeID
+	}
+	// Matching runs only for a verified session and an explicitly configured
+	// WeChat open-platform link. A failure must not block normal navigation.
+	bindingError := ""
+	if h.Client.Config.Ready() && h.Client.Config.UnionIDEnabled {
+		unionID, err := h.Repo.NotificationUnionID(c.Request().Context(), cur.MiniUserID, employee)
+		if errors.Is(err, pg.ErrNotificationBindingConflict) {
+			bindingError = "微信身份存在多个关联，暂无法自动绑定"
+		}
+		if err == nil && unionID != "" {
+			if err = h.Repo.AutoBindNotification(c.Request().Context(), h.Client.Config.AppID, cur.MiniUserID, cur.CurrentCustomerID, employee, unionID, bearer(c)); err != nil {
+				if errors.Is(err, pg.ErrNotificationBindingConflict) {
+					bindingError = "微信身份存在多个关联，暂无法自动绑定"
+				} else {
+					bindingError = "微信身份暂时无法自动关联"
+				}
+			}
+		}
+	}
+	v, e := h.Repo.NotificationPreferences(c.Request().Context(), h.Client.Config.AppID, cur.MiniUserID)
+	if e != nil {
+		return respond(c, nil, e)
 	}
 	scoped := make([]pg.NotificationPreference, 0, len(v))
 	for _, row := range v {
@@ -369,7 +387,7 @@ func (h *Handler) preferences(c echo.Context) error {
 	}
 	state, e := h.Repo.NotificationPrompt(c.Request().Context(), h.Client.Config.AppID, cur.MiniUserID, cur.CurrentCustomerID, employee)
 	c.Response().Header().Set("Cache-Control", "no-store")
-	return respond(c, map[string]any{"rows": scoped, "enabled": h.Client.Config.Ready(), "prompt_required": state.Required, "prompt_version": state.Version, "choice": state.Choice, "mini_user_id": cur.MiniUserID, "customer_id": cur.CurrentCustomerID, "employee_id": employee}, e)
+	return respond(c, map[string]any{"rows": scoped, "enabled": h.Client.Config.Ready(), "prompt_required": state.Required, "prompt_version": state.Version, "choice": state.Choice, "mini_user_id": cur.MiniUserID, "customer_id": cur.CurrentCustomerID, "employee_id": employee, "binding_error": bindingError}, e)
 }
 
 type promptIdentity struct {

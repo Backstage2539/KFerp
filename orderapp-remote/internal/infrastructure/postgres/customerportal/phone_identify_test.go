@@ -44,8 +44,15 @@ func TestPhoneIdentifyGuestAndEmployee(t *testing.T) {
 	if _, err = pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.employee_roles(employee_id,role_code) VALUES($1,'sales')`, schema), id); err != nil {
 		t.Fatal(err)
 	}
-	cmd = app.CreatePhoneVerifiedLoginSessionCommand{Identify: true, Registration: true, CredentialHash: strings.Repeat("b", 64), OpenID: "verified-staff", Phone: "13960009998"}
+	cmd = app.CreatePhoneVerifiedLoginSessionCommand{Identify: true, Registration: true, CredentialHash: strings.Repeat("b", 64), OpenID: "verified-staff", UnionID: "trusted-union", Phone: "13960009998"}
 	staff, err := repo.CreatePhoneVerifiedLoginSession(ctx, cmd)
+	if err == nil {
+		var count int
+		err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.mini_wechat_identities WHERE mini_user_id=$1 AND openid='verified-staff' AND unionid='trusted-union'`, schema), staff.MiniUserID).Scan(&count)
+		if err == nil && count != 1 {
+			t.Fatalf("verified employee WeChat identity count=%d", count)
+		}
+	}
 	if err != nil || staff.AccountType != "employee" || staff.EmployeeID != id || staff.Token == "" {
 		t.Fatalf("verified staff: %+v, %v", staff, err)
 	}

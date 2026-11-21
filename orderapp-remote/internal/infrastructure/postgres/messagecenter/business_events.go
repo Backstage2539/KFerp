@@ -25,12 +25,28 @@ func EnsureBusinessEventSchema(ctx context.Context, pool *pgxpool.Pool, schema s
  ALTER TABLE %[1]s.message_business_events ADD COLUMN IF NOT EXISTS failure_reason TEXT NOT NULL DEFAULT '';
  ALTER TABLE %[1]s.message_business_events ADD COLUMN IF NOT EXISTS status_value TEXT NOT NULL DEFAULT '';
  ALTER TABLE %[1]s.message_business_events ADD COLUMN IF NOT EXISTS snapshot_pending BOOLEAN NOT NULL DEFAULT false;
+ ALTER TABLE %[1]s.message_business_events ADD COLUMN IF NOT EXISTS transaction_id BIGINT NOT NULL DEFAULT 0;
  CREATE INDEX IF NOT EXISTS message_business_events_pending ON %[1]s.message_business_events(id) WHERE processed_at IS NULL;
+ CREATE INDEX IF NOT EXISTS message_business_events_order_transaction ON %[1]s.message_business_events(order_id,transaction_id,event_type);
  CREATE TABLE IF NOT EXISTS %[1]s.message_external_settings(id INT PRIMARY KEY CHECK(id=1),config JSONB NOT NULL DEFAULT '{}',updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
  INSERT INTO %[1]s.message_external_settings(id) VALUES(1) ON CONFLICT DO NOTHING;
  CREATE TABLE IF NOT EXISTS %[1]s.message_business_test_verifications(event TEXT NOT NULL,status_value TEXT NOT NULL,template_fingerprint TEXT NOT NULL,delivery_id BIGINT NOT NULL UNIQUE,verified_by TEXT NOT NULL,verified_at TIMESTAMPTZ NOT NULL DEFAULT now(),PRIMARY KEY(event,status_value,template_fingerprint));
  ALTER TABLE %[1]s.message_business_test_verifications ADD COLUMN IF NOT EXISTS detail_verified BOOLEAN NOT NULL DEFAULT false`, schema))
 	return err
+}
+
+// A partial shipment must carry an explicit snapshot for this shipment. The
+// order-wide item summary cannot describe which goods left in this parcel.
+func partialShipmentItems(raw []byte) string {
+	var payload map[string]json.RawMessage
+	if json.Unmarshal(raw, &payload) != nil {
+		return ""
+	}
+	var items string
+	if json.Unmarshal(payload["shipment_items"], &items) != nil {
+		return ""
+	}
+	return strings.TrimSpace(items)
 }
 
 // RecordBusinessEvent stores an eligible order event in the business transaction.
@@ -95,8 +111,25 @@ func RecordBusinessEvent(ctx context.Context, tx pgx.Tx, schema, eventType, sour
 				if values.Tracking == "" {
 					status = ""
 				}
+				if status == "部分发货" {
+					items := partialShipmentItems(raw)
+					if items == "" {
+						status = ""
+						failureReason = "缺少本次发货商品明细，部分发货通知未发送"
+					} else {
+						var payload map[string]json.RawMessage
+						if err = json.Unmarshal(raw, &payload); err != nil {
+							return err
+						}
+						payload["items"], _ = json.Marshal(items)
+						raw, err = json.Marshal(payload)
+						if err != nil {
+							return err
+						}
+					}
+				}
 			}
-			if status == "" {
+			if status == "" && failureReason == "" {
 				failureReason = "缺少有效发货状态或快递单号，事件未发送"
 			}
 			if status != "" {
@@ -157,9 +190,9 @@ func RecordBusinessEvent(ctx context.Context, tx pgx.Tx, schema, eventType, sour
 		log.Printf("business notification %s %s: %s", eventType, sourceKey, failureReason)
 	}
 	if eligible {
-		_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.message_business_events(event_type,source_key,order_id,customer_id,payload,snapshot_pending) VALUES($1,$2,$3,$4,$5::jsonb,$6) ON CONFLICT(source_key) DO NOTHING`, schema), eventType, sourceKey, orderID, customerID, raw, snapshotPending)
+		_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.message_business_events(event_type,source_key,order_id,customer_id,payload,snapshot_pending,status_value,transaction_id) VALUES($1,$2,$3,$4,$5::jsonb,$6,$7,txid_current()) ON CONFLICT(source_key) DO NOTHING`, schema), eventType, sourceKey, orderID, customerID, raw, snapshotPending, statusValue)
 	} else {
-		_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.message_business_events(event_type,source_key,order_id,customer_id,payload,processed_at,failure_reason,status_value) VALUES($1,$2,$3,$4,'{}'::jsonb,clock_timestamp(),$5,$6) ON CONFLICT(source_key) DO NOTHING`, schema), eventType, sourceKey, orderID, customerID, failureReason, statusValue)
+		_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.message_business_events(event_type,source_key,order_id,customer_id,payload,processed_at,failure_reason,status_value,transaction_id) VALUES($1,$2,$3,$4,'{}'::jsonb,clock_timestamp(),$5,$6,txid_current()) ON CONFLICT(source_key) DO NOTHING`, schema), eventType, sourceKey, orderID, customerID, failureReason, statusValue)
 	}
 	return err
 }

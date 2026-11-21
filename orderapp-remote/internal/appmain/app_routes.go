@@ -46,6 +46,7 @@ import (
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
 	samplespg "orderapp/internal/infrastructure/postgres/samples"
 	postgresstock "orderapp/internal/infrastructure/postgres/stock"
+	wechataccount "orderapp/internal/infrastructure/wechataccount"
 	bomhttp "orderapp/internal/interfaces/http/bom"
 	cataloghttp "orderapp/internal/interfaces/http/catalog"
 	companyhttp "orderapp/internal/interfaces/http/company"
@@ -139,7 +140,13 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) func(con
 	customerhttp.RegisterRoutes(e, customerhttp.Dependencies{Customer: customerSvc, AssetDir: assetDir})
 	saleshttp.RegisterRoutes(e, saleshttp.Dependencies{Authz: authzSvc, Sales: salesSvc, MessageCenter: messageCenterSvc, AssetDir: assetDir, CustomerScope: customerFulfillmentSvc, CustomerMall: customerPortalSvc, FulfillmentEditor: customerFulfillmentSvc})
 	financehttp.RegisterRoutes(e, financehttp.Dependencies{Finance: financeSvc, CustomerAccounts: customerFulfillmentSvc})
-	return notifications.Worker.Run
+	return func(ctx context.Context) {
+		wechat := &wechataccount.WechatClient{Config: officialaccounthttp.ConfigFromEnv(cfg.WechatMiniAppID)}
+		go wechat.RunFollowerSync(ctx, notifications.Repo, func(ctx context.Context, unionID string) error {
+			return postgresmessagecenter.ReconcileWechatUnion(ctx, pool, schema, customerPortalSvc, wechat.Config.AppID, unionID)
+		})
+		notifications.Worker.Run(ctx)
+	}
 }
 
 func customerPortalIdentityProvider(cfg appConfig) customerportalapp.IdentityProvider {

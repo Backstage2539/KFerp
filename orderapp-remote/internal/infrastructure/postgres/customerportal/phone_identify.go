@@ -66,6 +66,15 @@ func (r Repository) identifyWechatEmployeeTx(ctx context.Context, tx pgx.Tx, cmd
 	if !active {
 		return app.LoginResult{}, false, app.ErrMiniUserDisabled
 	}
+	// Both identifiers originate from this same server-side WeChat code exchange.
+	// The employee's stable business account remains independent of the WeChat ID.
+	if cmd.OpenID != "" && cmd.UnionID != "" {
+		_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.mini_wechat_identities(mini_user_id,openid,unionid)
+			VALUES($1,$2,$3) ON CONFLICT(mini_user_id,openid) DO UPDATE SET unionid=excluded.unionid`, r.schema), miniID, cmd.OpenID, cmd.UnionID)
+		if err != nil {
+			return app.LoginResult{}, false, err
+		}
+	}
 	result, err := r.createMiniSessionTx(ctx, tx, miniID, 0)
 	if err != nil {
 		return app.LoginResult{}, false, err

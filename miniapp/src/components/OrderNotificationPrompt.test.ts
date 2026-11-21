@@ -31,7 +31,7 @@ function hideAndUnmount(app: ReturnType<typeof renderer.createApp>) { notificati
 describe('notification prompt component', () => {
   beforeEach(() => {
     hooks.request.mockReset()
-    hooks.session = reactive({ token: 'token', miniUserID: 7, currentCustomerID: 2, currentCustomerName: '测试客户', employeeID: 0, employeeName: '', accountType: 'customer', isCustomerPreview: false })
+    hooks.session = reactive({ token: 'token', miniUserID: 7, currentCustomerID: 2, currentCustomerName: '测试客户', employeeID: 0, employeeName: '', accountType: 'customer', capabilities: [{code:'direct_ship',enabled:true},{code:'settlement',enabled:true}], isCustomerPreview: false })
     hooks.page = { route: 'pages/home/home' }
     vi.stubGlobal('getCurrentPages', () => [hooks.page])
     vi.stubGlobal('uni', { showModal: vi.fn(), navigateTo: vi.fn() })
@@ -80,8 +80,28 @@ describe('notification prompt component', () => {
   it('requires a new binding when a formerly subscribed account was unbound', async () => {
     hooks.request.mockResolvedValueOnce(response({ prompt_version: 16, rows: [{ customer_id: 2, employee_id: 0, active: false, enabled: false, subscribed: true, events: ['shipped'] }] })).mockResolvedValueOnce({})
     const { app, state } = mount(); await flush()
+    state.toggle('shipment_created')
     await state.save(true); await flush()
     expect(uni.showModal).toHaveBeenCalledOnce()
+    hideAndUnmount(app)
+  })
+  it('shows identity conflict guidance and does not claim a re-scan resolves it', async () => {
+    hooks.request.mockResolvedValueOnce(response({ prompt_version: 22, binding_error: '微信身份暂时无法自动关联，请在订单通知设置中查看' })).mockResolvedValueOnce({})
+    const { app, state } = mount(); await flush()
+    expect(state.bindingError).toContain('微信身份暂时无法自动关联')
+    state.toggle('shipment_created')
+    await state.save(true); await flush()
+    expect(uni.showModal).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('联系管理员') }))
+    hideAndUnmount(app)
+  })
+  it('keeps legacy choices when saving a newly selected notification', async () => {
+    hooks.request.mockResolvedValueOnce(response({ prompt_version: 21, choice: { enabled: true, events: ['created', 'shipped'] } })).mockResolvedValueOnce({})
+    const { app, state } = mount(); await flush()
+    expect(state.choices.map(([key]: string[]) => key)).toEqual(['order_accepted', 'shipment_created', 'receipt_received', 'bill_issued'])
+    expect(state.hasSelectedChoice).toBe(false)
+    state.toggle('shipment_created')
+    await state.save(true); await flush()
+    expect(hooks.request.mock.calls[1][1].data.events).toEqual(['created', 'shipped', 'shipment_created'])
     hideAndUnmount(app)
   })
   it('does not interrupt ordinary app use when loading fails', async () => {

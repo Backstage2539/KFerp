@@ -25,9 +25,9 @@ func TestIndividualNotificationReselectPreservesChoicesAndRejectsOldVersion(t *t
 	p, s := notificationDB(t)
 	ctx := context.Background()
 	r := NewRepository(p, s)
-	if _, err := p.Exec(ctx, fmt.Sprintf(`ALTER TABLE %[1]s.mini_users ADD COLUMN active bool DEFAULT true, ADD COLUMN openid text DEFAULT '', ADD COLUMN phone text DEFAULT '';
-	ALTER TABLE %[1]s.customers ADD COLUMN active bool DEFAULT true;
-	ALTER TABLE %[1]s.company_employees ADD COLUMN active bool DEFAULT true, ADD COLUMN account_type text DEFAULT 'internal_employee', ADD COLUMN phone text DEFAULT '';
+	if _, err := p.Exec(ctx, fmt.Sprintf(`ALTER TABLE %[1]s.mini_users ADD COLUMN IF NOT EXISTS active bool DEFAULT true, ADD COLUMN openid text DEFAULT '', ADD COLUMN phone text DEFAULT '';
+	ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS active bool DEFAULT true;
+	ALTER TABLE %[1]s.company_employees ADD COLUMN IF NOT EXISTS active bool DEFAULT true, ADD COLUMN account_type text DEFAULT 'internal_employee', ADD COLUMN phone text DEFAULT '';
 	CREATE TABLE %[1]s.employee_login_passwords(employee_id bigint,login_disabled boolean);
 	CREATE TABLE %[1]s.customer_portal_user_bindings(mini_user_id bigint,customer_id bigint,status text);
 	INSERT INTO %[1]s.mini_users(id) VALUES(1),(2);
@@ -94,7 +94,7 @@ func TestConcurrentIndividualReselectKeepsBothRequests(t *testing.T) {
 	p, s := notificationDB(t)
 	ctx := context.Background()
 	r := NewRepository(p, s)
-	_, err := p.Exec(ctx, fmt.Sprintf(`ALTER TABLE %[1]s.mini_users ADD COLUMN active bool DEFAULT true, ADD COLUMN openid text DEFAULT '', ADD COLUMN phone text DEFAULT ''; ALTER TABLE %[1]s.customers ADD COLUMN active bool DEFAULT true; ALTER TABLE %[1]s.company_employees ADD COLUMN active bool DEFAULT true, ADD COLUMN account_type text DEFAULT 'internal_employee', ADD COLUMN phone text DEFAULT ''; CREATE TABLE %[1]s.employee_login_passwords(employee_id bigint,login_disabled boolean); CREATE TABLE %[1]s.customer_portal_user_bindings(mini_user_id bigint,customer_id bigint,status text); INSERT INTO %[1]s.mini_users(id) VALUES(1);INSERT INTO %[1]s.customer_portal_user_bindings VALUES(1,8,'approved')`, s))
+	_, err := p.Exec(ctx, fmt.Sprintf(`ALTER TABLE %[1]s.mini_users ADD COLUMN IF NOT EXISTS active bool DEFAULT true, ADD COLUMN openid text DEFAULT '', ADD COLUMN phone text DEFAULT ''; ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS active bool DEFAULT true; ALTER TABLE %[1]s.company_employees ADD COLUMN IF NOT EXISTS active bool DEFAULT true, ADD COLUMN account_type text DEFAULT 'internal_employee', ADD COLUMN phone text DEFAULT ''; CREATE TABLE %[1]s.employee_login_passwords(employee_id bigint,login_disabled boolean); CREATE TABLE %[1]s.customer_portal_user_bindings(mini_user_id bigint,customer_id bigint,status text); INSERT INTO %[1]s.mini_users(id) VALUES(1);INSERT INTO %[1]s.customer_portal_user_bindings VALUES(1,8,'approved')`, s))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,9 +136,9 @@ func TestNotificationSubscribersShowsUnboundAndMultipleAccounts(t *testing.T) {
 	p, s := notificationDB(t)
 	ctx := context.Background()
 	r := NewRepository(p, s)
-	_, err := p.Exec(ctx, fmt.Sprintf(`ALTER TABLE %[1]s.customers ADD COLUMN active boolean DEFAULT true, ADD COLUMN phone text DEFAULT '';
-	ALTER TABLE %[1]s.company_employees ADD COLUMN name text DEFAULT '',ADD COLUMN phone text DEFAULT '',ADD COLUMN active boolean DEFAULT true,ADD COLUMN account_type text DEFAULT 'internal_employee';
-	ALTER TABLE %[1]s.mini_users ADD COLUMN openid text DEFAULT '',ADD COLUMN phone text DEFAULT '',ADD COLUMN nickname text DEFAULT '',ADD COLUMN active boolean DEFAULT true;
+	_, err := p.Exec(ctx, fmt.Sprintf(`ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS active boolean DEFAULT true, ADD COLUMN phone text DEFAULT '';
+	ALTER TABLE %[1]s.company_employees ADD COLUMN name text DEFAULT '',ADD COLUMN phone text DEFAULT '',ADD COLUMN IF NOT EXISTS active boolean DEFAULT true,ADD COLUMN account_type text DEFAULT 'internal_employee';
+	ALTER TABLE %[1]s.mini_users ADD COLUMN openid text DEFAULT '',ADD COLUMN phone text DEFAULT '',ADD COLUMN nickname text DEFAULT '',ADD COLUMN IF NOT EXISTS active boolean DEFAULT true;
 	CREATE TABLE %[1]s.customer_portal_user_bindings(mini_user_id bigint,customer_id bigint,status text);
 	CREATE TABLE %[1]s.employee_login_passwords(employee_id bigint,login_disabled boolean);
 	UPDATE %[1]s.customers SET phone='13800000000' WHERE id=8;
@@ -151,6 +151,15 @@ func TestNotificationSubscribersShowsUnboundAndMultipleAccounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	eligibilityFixtures(t, p, s)
+	_, err = p.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.message_events(id,event_key,payload_json) VALUES
+	 (9001,'business.shipment_created:42:SF01','{"milestones":["shipment_created"],"test":false}'),
+	 (9002,'order.test.x','{"milestones":["shipment_created"],"test":true}');
+	 INSERT INTO %[1]s.message_deliveries(event_id,channel,target_key,status,recipient_json,created_at) VALUES
+	 (9001,'wechat_service_account','app:official-one','delivered','{"app_id":"app","mini_user_id":1,"customer_id":8,"employee_id":0}',now()-interval '1 minute'),
+	 (9002,'wechat_service_account','app:official-one','failed','{"app_id":"app","mini_user_id":1,"customer_id":8,"employee_id":0}',now());`, s))
+	if err != nil {
+		t.Fatal(err)
+	}
 	items, err := r.NotificationSubscribers(ctx, "app", "")
 	if err != nil {
 		t.Fatal(err)
@@ -169,6 +178,24 @@ func TestNotificationSubscribersShowsUnboundAndMultipleAccounts(t *testing.T) {
 	}
 	if byID[2].HasBinding || !byID[2].IdentityActive || !byID[2].PromptRequired {
 		t.Fatalf("unbound=%+v", byID[2])
+	}
+	if byID[1].LatestShipmentStatus != "delivered" || byID[1].LatestShipmentAt == nil || byID[2].LatestShipmentStatus != "" {
+		t.Fatalf("latest shipment status leaked, omitted or includes tests: bound=%+v unbound=%+v", byID[1], byID[2])
+	}
+	if _, err = p.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.mini_users SET unionid='union-2' WHERE id=2;
+	INSERT INTO %[1]s.message_wechat_followers(app_id,openid,unionid,subscribed,event_time) VALUES('app','official-second','union-2',false,123)`, s)); err != nil {
+		t.Fatal(err)
+	}
+	items, err = r.NotificationSubscribers(ctx, "app", "13900000002")
+	if err != nil || len(items) != 1 || items[0].MatchStatus != "matched" || items[0].FollowStatus != "unsubscribed" {
+		t.Fatalf("unbound identity and unsubscribe status=%+v err=%v", items, err)
+	}
+	if _, err = p.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.wechat_bindings(app_id,openid,mini_user_id,customer_id,active,subscribed) VALUES('app','official-second',1,8,true,true)`, s)); err != nil {
+		t.Fatal(err)
+	}
+	items, err = r.NotificationSubscribers(ctx, "app", "13900000002")
+	if err != nil || len(items) != 1 || items[0].MatchStatus != "conflict" || items[0].FollowStatus != "unknown" {
+		t.Fatalf("conflicting identity must not expose another account's follow status: %+v err=%v", items, err)
 	}
 	_, err = p.Exec(ctx, "UPDATE "+s+".customer_portal_profiles SET enabled=false WHERE customer_id=8")
 	if err != nil {

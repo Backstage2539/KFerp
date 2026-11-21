@@ -210,6 +210,15 @@ func (r Repository) SubscriptionEvent(ctx context.Context, appID, openid string,
 		return e
 	}
 	defer tx.Rollback(ctx)
+	// Follower observations and unsubscribe events serialize on the same row.
+	// A same-second unsubscribe has precedence over an older scan or subscribe.
+	_, e = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.message_wechat_followers(app_id,openid,subscribed,event_time) VALUES($1,$2,$3,$4)
+		ON CONFLICT(app_id,openid) DO UPDATE SET subscribed=excluded.subscribed,event_time=excluded.event_time
+		WHERE excluded.event_time > %[1]s.message_wechat_followers.event_time OR
+		(excluded.event_time = %[1]s.message_wechat_followers.event_time AND NOT excluded.subscribed)`, r.schema), appID, openid, subscribed, timestamp)
+	if e != nil {
+		return e
+	}
 	if !subscribed {
 		if _, e = tx.Exec(ctx, "INSERT INTO "+r.schema+".message_notification_subscription_events(app_id,openid,last_unsubscribe) VALUES($1,$2,$3) ON CONFLICT(app_id,openid) DO UPDATE SET last_unsubscribe=GREATEST("+r.schema+".message_notification_subscription_events.last_unsubscribe,excluded.last_unsubscribe)", appID, openid, timestamp); e != nil {
 			return e
@@ -224,6 +233,11 @@ func (r Repository) SubscriptionEvent(ctx context.Context, appID, openid string,
 		return e
 	}
 	if !subscribed {
+		if _, e = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.message_notification_individual_prompts(app_id,mini_user_id,customer_id,employee_id,revision)
+			VALUES($1,$2,$3,$4,1) ON CONFLICT(app_id,mini_user_id,customer_id,employee_id)
+			DO UPDATE SET revision=%[1]s.message_notification_individual_prompts.revision+1`, r.schema), appID, mini, customer, employee); e != nil {
+			return e
+		}
 		if _, e = tx.Exec(ctx, "UPDATE "+r.schema+".message_notification_choices SET version=0,enabled=false,events='[]'::jsonb,updated_at=now() WHERE app_id=$1 AND mini_user_id=$2 AND customer_id=$3 AND employee_id=$4", appID, mini, customer, employee); e != nil {
 			return e
 		}

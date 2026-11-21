@@ -88,6 +88,16 @@ func (w *Worker) CaptureBusinessCommitted(ctx context.Context) error {
 		if err = json.Unmarshal(e.raw, &data); err != nil {
 			return err
 		}
+		if e.event == "shipment_created" && data.ShippingStatus == "部分发货" {
+			items := partialShipmentItems(e.raw)
+			if items == "" {
+				if _, err = tx.Exec(ctx, "UPDATE "+w.Repo.schema+".message_business_events SET processed_at=now(),payload='{}'::jsonb,failure_reason='缺少本次发货商品明细，部分发货通知未发送',status_value='部分发货' WHERE id=$1", e.id); err != nil {
+					return err
+				}
+				continue
+			}
+			notice.Items = items
+		}
 		notice.State.Shipping = data.ShippingStatus
 		notice.ChangeID = e.id
 		notice.BusinessEventKey = e.key

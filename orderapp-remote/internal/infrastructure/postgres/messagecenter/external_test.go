@@ -164,7 +164,8 @@ func notificationDB(t *testing.T) (*pgxpool.Pool, string) {
 	t.Cleanup(func() { p.Exec(ctx, "DROP SCHEMA "+s+" CASCADE"); p.Close() })
 	_, e = p.Exec(ctx, fmt.Sprintf(`
  CREATE TABLE %[1]s.company_employees(id BIGINT PRIMARY KEY);
- CREATE TABLE %[1]s.mini_users(id BIGINT PRIMARY KEY);
+ CREATE TABLE %[1]s.mini_users(id BIGINT PRIMARY KEY,unionid TEXT NOT NULL DEFAULT '',active BOOLEAN NOT NULL DEFAULT true);
+ CREATE TABLE %[1]s.mini_wechat_identities(mini_user_id BIGINT,openid TEXT,unionid TEXT);
  CREATE TABLE %[1]s.wechat_bindings(app_id TEXT,openid TEXT,mini_user_id BIGINT,customer_id BIGINT,active BOOLEAN DEFAULT true,bound_at TIMESTAMPTZ DEFAULT now(),PRIMARY KEY(app_id,openid));
  CREATE TABLE %[1]s.customers(id BIGINT PRIMARY KEY,name TEXT,responsible_employee_id BIGINT);
  CREATE TABLE %[1]s.pay_statuses(id BIGINT PRIMARY KEY,name TEXT);INSERT INTO %[1]s.pay_statuses VALUES(1,'未付款'),(2,'已付款');
@@ -672,7 +673,7 @@ func TestShipmentPerStatusProofAndNoHistoricalReplay(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		payload := map[string]any{"order_id": 42, "order_no": "TEST42", "customer_id": 8, "items": "测试", "tracking_no": key, "shipping_status": status}
+		payload := map[string]any{"order_id": 42, "order_no": "TEST42", "customer_id": 8, "items": "测试", "shipment_items": "本次测试", "tracking_no": key, "shipping_status": status}
 		if e = RecordBusinessEvent(ctx, tx, s, "shipment_created", key, 42, 8, payload); e != nil {
 			t.Fatal(e)
 		}

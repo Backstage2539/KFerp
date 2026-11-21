@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	app "orderapp/internal/application/officialaccount"
+	messagepg "orderapp/internal/infrastructure/postgres/messagecenter"
 	"strconv"
 	"strings"
 	"time"
@@ -99,6 +100,17 @@ func (h *Handler) Callback(c echo.Context) error {
 		case "subscribe", "unsubscribe":
 			if err := h.Repo.NotificationSubscription(ctx, h.Config.AppID, msg.From, msg.Event == "subscribe", msg.Created); err != nil {
 				return c.NoContent(503)
+			}
+			if msg.Event == "subscribe" && h.Config.UnionIDEnabled && h.Wechat != nil {
+				unionID, err := h.Wechat.UnionID(ctx, msg.From)
+				if err == nil && unionID != "" {
+					r := messagepg.NewRepository(h.Repo.Pool, h.Repo.Schema)
+					if err = r.UpsertOfficialFollower(ctx, h.Config.AppID, msg.From, unionID, true, msg.Created); err != nil {
+						return c.NoContent(503)
+					}
+					// Failure is retried by the regular follower synchronization.
+					_ = messagepg.ReconcileWechatUnion(ctx, h.Repo.Pool, h.Repo.Schema, h.Portal, h.Config.AppID, unionID)
+				}
 			}
 		}
 		if msg.Event == "unsubscribe" {

@@ -6,31 +6,37 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 type NotificationSubscriber struct {
-	MiniUserID             int64    `json:"mini_user_id"`
-	CustomerID             int64    `json:"customer_id"`
-	EmployeeID             int64    `json:"employee_id"`
-	IdentityType           string   `json:"identity_type"`
-	Name                   string   `json:"name"`
-	Phone                  string   `json:"phone"`
-	CustomerPhone          string   `json:"customer_phone"`
-	AccountPhone           string   `json:"account_phone"`
-	AccountName            string   `json:"account_name"`
-	IdentityActive         bool     `json:"identity_active"`
-	HasBinding             bool     `json:"has_binding"`
-	BindingCount           int64    `json:"binding_count"`
-	ActiveBindingCount     int64    `json:"active_binding_count"`
-	SubscribedBindingCount int64    `json:"subscribed_binding_count"`
-	EnabledBindingCount    int64    `json:"enabled_binding_count"`
-	Active                 bool     `json:"active"`
-	Subscribed             bool     `json:"subscribed"`
-	NotificationsEnabled   bool     `json:"notifications_enabled"`
-	ChoiceRecorded         bool     `json:"choice_recorded"`
-	ChoiceEnabled          bool     `json:"choice_enabled"`
-	Events                 []string `json:"events"`
-	PromptRequired         bool     `json:"prompt_required"`
+	MiniUserID             int64      `json:"mini_user_id"`
+	CustomerID             int64      `json:"customer_id"`
+	EmployeeID             int64      `json:"employee_id"`
+	IdentityType           string     `json:"identity_type"`
+	Name                   string     `json:"name"`
+	Phone                  string     `json:"phone"`
+	CustomerPhone          string     `json:"customer_phone"`
+	AccountPhone           string     `json:"account_phone"`
+	AccountName            string     `json:"account_name"`
+	IdentityActive         bool       `json:"identity_active"`
+	HasBinding             bool       `json:"has_binding"`
+	BindingCount           int64      `json:"binding_count"`
+	ActiveBindingCount     int64      `json:"active_binding_count"`
+	SubscribedBindingCount int64      `json:"subscribed_binding_count"`
+	EnabledBindingCount    int64      `json:"enabled_binding_count"`
+	Active                 bool       `json:"active"`
+	Subscribed             bool       `json:"subscribed"`
+	NotificationsEnabled   bool       `json:"notifications_enabled"`
+	ChoiceRecorded         bool       `json:"choice_recorded"`
+	ChoiceEnabled          bool       `json:"choice_enabled"`
+	Events                 []string   `json:"events"`
+	PromptRequired         bool       `json:"prompt_required"`
+	MatchStatus            string     `json:"match_status"`
+	FollowStatus           string     `json:"follow_status"`
+	LatestShipmentStatus   string     `json:"latest_shipment_status"`
+	LatestShipmentError    string     `json:"latest_shipment_error"`
+	LatestShipmentAt       *time.Time `json:"latest_shipment_at"`
 }
 
 // Match the portal's live customer binding rules without changing a stale
@@ -67,12 +73,18 @@ func (r Repository) NotificationSubscribers(ctx context.Context, appID, search s
 	 COALESCE(u.phone,''),COALESCE(u.nickname,''),b.identity_active AND (b.mini_user_id=0 OR (COALESCE(u.active,false) AND CASE WHEN b.customer_id>0 THEN %[2]s ELSE %[3]s AND EXISTS(SELECT 1 FROM %[1]s.company_employees ve LEFT JOIN %[1]s.employee_login_passwords lp ON lp.employee_id=ve.id WHERE ve.id=b.employee_id AND ve.active AND ve.account_type='internal_employee' AND NOT COALESCE(lp.login_disabled,false) AND ((lp.employee_id IS NOT NULL AND u.openid='erp-internal-employee:'||ve.id::text) OR (u.openid='wechat-internal-employee:'||ve.id::text||':'||encode(sha256(convert_to(trim(ve.phone),'UTF8')),'hex') AND (SELECT count(*) FROM %[1]s.company_employees du WHERE du.active AND du.phone=ve.phone AND du.account_type IN ('internal_employee','channel_customer'))=1))) END)),COALESCE(w.present,false),COALESCE(w.active,false),COALESCE(w.subscribed,false),COALESCE(w.notifications_enabled,false),
 	 COALESCE(w.binding_count,0),COALESCE(w.active_count,0),COALESCE(w.subscribed_count,0),COALESCE(w.enabled_count,0),
 	 (c.version IS NOT NULL),COALESCE(c.enabled,false),COALESCE(c.events,'[]'::jsonb),
-	 (b.mini_user_id>0 AND (c.version IS NULL OR c.version<p.version+COALESCE(i.revision,0)))
+	 (b.mini_user_id>0 AND (c.version IS NULL OR c.version<p.version+COALESCE(i.revision,0))),
+	 CASE WHEN COALESCE(w.present,false) THEN 'matched' WHEN ident.union_count>1 OR follower.follower_count>1 OR follower.conflicting THEN 'conflict' WHEN follower.follower_count=1 THEN 'matched' ELSE 'unknown' END,
+	 CASE WHEN COALESCE(w.subscribed,false) THEN 'subscribed' WHEN COALESCE(w.unsubscribed,false) THEN 'unsubscribed' WHEN ident.union_count=1 AND follower.follower_count=1 AND NOT follower.conflicting THEN CASE WHEN follower.subscribed THEN 'subscribed' ELSE 'unsubscribed' END ELSE 'unknown' END,
+	 COALESCE(d.status,''),COALESCE(d.error,''),d.created_at
 	FROM base b CROSS JOIN %[1]s.message_notification_prompt_settings p
 	LEFT JOIN %[1]s.mini_users u ON u.id=b.mini_user_id
 	LEFT JOIN %[1]s.message_notification_choices c ON c.app_id=$1 AND c.mini_user_id=b.mini_user_id AND c.customer_id=b.customer_id AND c.employee_id=b.employee_id
 	LEFT JOIN %[1]s.message_notification_individual_prompts i ON i.app_id=$1 AND i.mini_user_id=b.mini_user_id AND i.customer_id=b.customer_id AND i.employee_id=b.employee_id
-	LEFT JOIN LATERAL (SELECT count(*)>0 present,COALESCE(bool_or(w.active),false) active,COALESCE(bool_or(w.active AND w.subscribed),false) subscribed,COALESCE(bool_or(w.active AND w.subscribed AND w.notifications_enabled),false) notifications_enabled,count(*) binding_count,count(*) FILTER(WHERE w.active) active_count,count(*) FILTER(WHERE w.active AND w.subscribed) subscribed_count,count(*) FILTER(WHERE w.active AND w.subscribed AND w.notifications_enabled) enabled_count FROM %[1]s.wechat_bindings w WHERE w.app_id=$1 AND w.mini_user_id=b.mini_user_id AND w.customer_id=b.customer_id AND w.employee_id=b.employee_id) w ON true
+	LEFT JOIN LATERAL (SELECT count(DISTINCT candidate.unionid) union_count,COALESCE(min(candidate.unionid),'') unionid FROM (SELECT u.unionid WHERE b.employee_id=0 AND u.unionid<>'' UNION ALL SELECT wi.unionid FROM %[1]s.mini_wechat_identities wi WHERE wi.mini_user_id=b.mini_user_id AND b.employee_id>0 AND wi.unionid<>'') candidate) ident ON b.mini_user_id>0
+	LEFT JOIN LATERAL (SELECT count(*) follower_count,COALESCE(bool_or(f.subscribed),false) subscribed,COALESCE(bool_or(binding.openid IS NOT NULL AND (binding.mini_user_id<>b.mini_user_id OR binding.customer_id<>b.customer_id OR binding.employee_id<>b.employee_id)),false) conflicting FROM %[1]s.message_wechat_followers f LEFT JOIN %[1]s.wechat_bindings binding ON binding.app_id=f.app_id AND binding.openid=f.openid WHERE f.app_id=$1 AND f.unionid=ident.unionid AND ident.unionid<>'' AND ident.union_count=1) follower ON true
+	LEFT JOIN LATERAL (SELECT count(*)>0 present,COALESCE(bool_or(w.active),false) active,COALESCE(bool_or(w.active AND w.subscribed),false) subscribed,COALESCE(bool_or(w.active AND w.subscribed AND w.notifications_enabled),false) notifications_enabled,COALESCE(bool_or(NOT w.subscribed AND se.last_unsubscribe>0 AND se.last_unsubscribe>=w.notification_subscription_time),false) unsubscribed,count(*) binding_count,count(*) FILTER(WHERE w.active) active_count,count(*) FILTER(WHERE w.active AND w.subscribed) subscribed_count,count(*) FILTER(WHERE w.active AND w.subscribed AND w.notifications_enabled) enabled_count FROM %[1]s.wechat_bindings w LEFT JOIN %[1]s.message_notification_subscription_events se ON se.app_id=w.app_id AND se.openid=w.openid WHERE w.app_id=$1 AND w.mini_user_id=b.mini_user_id AND w.customer_id=b.customer_id AND w.employee_id=b.employee_id) w ON true
+	LEFT JOIN LATERAL (SELECT d.status,d.error,d.created_at FROM %[1]s.message_deliveries d JOIN %[1]s.message_events e ON e.id=d.event_id WHERE d.channel='wechat_service_account' AND d.recipient_json->>'app_id'=$1 AND d.recipient_json->>'mini_user_id'=b.mini_user_id::text AND d.recipient_json->>'customer_id'=b.customer_id::text AND d.recipient_json->>'employee_id'=b.employee_id::text AND e.payload_json->'milestones' ? 'shipment_created' AND COALESCE(e.payload_json->>'test','false')='false' ORDER BY d.created_at DESC,d.id DESC LIMIT 1) d ON b.mini_user_id>0
 	WHERE p.id=1 AND ($2='' OR b.name ILIKE '%%'||$2||'%%' OR b.phone ILIKE '%%'||$2||'%%' OR COALESCE(u.phone,'') ILIKE '%%'||$2||'%%' OR COALESCE(u.nickname,'') ILIKE '%%'||$2||'%%' OR b.mini_user_id::text=$2)
 	ORDER BY b.identity_type,b.name,b.customer_id,b.employee_id,b.mini_user_id`, r.schema, customerIdentityEligibleSQL(r.schema, "b.customer_id", "b.mini_user_id"), employeeAccessSQL(r.schema, "b.employee_id"))
 	rows, err := r.pool.Query(ctx, q, appID, strings.TrimSpace(search))
@@ -84,7 +96,7 @@ func (r Repository) NotificationSubscribers(ctx context.Context, appID, search s
 	for rows.Next() {
 		var v NotificationSubscriber
 		var raw []byte
-		if err = rows.Scan(&v.MiniUserID, &v.CustomerID, &v.EmployeeID, &v.IdentityType, &v.Name, &v.Phone, &v.CustomerPhone, &v.AccountPhone, &v.AccountName, &v.IdentityActive, &v.HasBinding, &v.Active, &v.Subscribed, &v.NotificationsEnabled, &v.BindingCount, &v.ActiveBindingCount, &v.SubscribedBindingCount, &v.EnabledBindingCount, &v.ChoiceRecorded, &v.ChoiceEnabled, &raw, &v.PromptRequired); err != nil {
+		if err = rows.Scan(&v.MiniUserID, &v.CustomerID, &v.EmployeeID, &v.IdentityType, &v.Name, &v.Phone, &v.CustomerPhone, &v.AccountPhone, &v.AccountName, &v.IdentityActive, &v.HasBinding, &v.Active, &v.Subscribed, &v.NotificationsEnabled, &v.BindingCount, &v.ActiveBindingCount, &v.SubscribedBindingCount, &v.EnabledBindingCount, &v.ChoiceRecorded, &v.ChoiceEnabled, &raw, &v.PromptRequired, &v.MatchStatus, &v.FollowStatus, &v.LatestShipmentStatus, &v.LatestShipmentError, &v.LatestShipmentAt); err != nil {
 			return nil, err
 		}
 		if err = json.Unmarshal(raw, &v.Events); err != nil {

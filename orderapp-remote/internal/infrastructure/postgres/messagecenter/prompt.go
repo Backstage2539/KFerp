@@ -92,10 +92,18 @@ func (r Repository) SaveNotificationChoice(ctx context.Context, appID string, mi
 	if current != version {
 		return ErrNotificationChoiceStale
 	}
+	globalVersion := current - individual
 	// Keep binding-before-choice lock order aligned with unsubscribe callbacks.
 	_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.wechat_bindings SET notifications_enabled=CASE WHEN $1 THEN active AND subscribed ELSE false END,notification_events=$2,notification_consent_at=CASE WHEN $1 AND active AND subscribed THEN now() ELSE notification_consent_at END WHERE app_id=$3 AND mini_user_id=$4 AND customer_id=$5 AND employee_id=$6`, r.schema), enabled, raw, appID, mini, customer, employee)
 	if err != nil {
 		return err
+	}
+	// An unsubscribe can commit while this save waits for the binding row.
+	if err = tx.QueryRow(ctx, "SELECT COALESCE((SELECT revision FROM "+r.schema+".message_notification_individual_prompts WHERE app_id=$1 AND mini_user_id=$2 AND customer_id=$3 AND employee_id=$4),0)", appID, mini, customer, employee).Scan(&individual); err != nil {
+		return err
+	}
+	if globalVersion+individual != version {
+		return ErrNotificationChoiceStale
 	}
 	_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.message_notification_choices(app_id,mini_user_id,customer_id,employee_id,version,enabled,events) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(app_id,mini_user_id,customer_id,employee_id) DO UPDATE SET version=excluded.version,enabled=excluded.enabled,events=excluded.events,updated_at=now()`, r.schema), appID, mini, customer, employee, version, enabled, raw)
 	if err != nil {

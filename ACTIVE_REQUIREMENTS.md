@@ -6784,3 +6784,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier: 单元、API、分页数据库、小程序构建与真机性能
 - Manual: orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md
 - Deployment: 待验证
+### PR-WECHAT-AUTOBIND-20261122
+
+- Branch: `codex/wechat-notify-autobind-20261122`
+- Status: doing
+- Scope: 服务号关注身份匹配、通知选择、后台状态和客户及销售发货验收。
+- Verifier: 微信身份绑定与关注时序、通知选择权限、发货事务与收件权限、真实微信收件和跳转。
+- Deployment: 未部署；微信开放平台关联与真实验收待完成。

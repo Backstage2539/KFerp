@@ -90,18 +90,25 @@ func TestConcurrentUnsubscribeAndChoiceNeverDeadlockOrSend(t *testing.T) {
 		if _, err := p.Exec(ctx, fmt.Sprintf(`UPDATE %s.wechat_bindings SET active=true,subscribed=true,notifications_enabled=true,notification_subscription_time=0`, s)); err != nil {
 			t.Fatal(err)
 		}
-		if err := r.SaveNotificationChoice(ctx, "app", 1, 8, 0, 1, true, []string{"created"}); err != nil {
+		state, err := r.NotificationPrompt(ctx, "app", 1, 8, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := r.SaveNotificationChoice(ctx, "app", 1, 8, 0, state.Version, true, []string{"created"}); err != nil {
 			t.Fatal(err)
 		}
 		start := make(chan struct{})
 		errs := make(chan error, 2)
-		go func() { <-start; errs <- r.SaveNotificationChoice(ctx, "app", 1, 8, 0, 1, true, []string{"created"}) }()
+		go func() {
+			<-start
+			errs <- r.SaveNotificationChoice(ctx, "app", 1, 8, 0, state.Version, true, []string{"created"})
+		}()
 		go func() { <-start; errs <- r.SubscriptionEvent(ctx, "app", "old", false, 1) }()
 		close(start)
 		for j := 0; j < 2; j++ {
 			select {
 			case err := <-errs:
-				if err != nil {
+				if err != nil && err != ErrNotificationChoiceStale {
 					t.Fatalf("concurrent op %d: %v", i, err)
 				}
 			case <-time.After(5 * time.Second):

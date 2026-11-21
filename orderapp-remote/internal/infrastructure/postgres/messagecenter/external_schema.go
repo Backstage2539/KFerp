@@ -29,6 +29,7 @@ func EnsureExternalSchema(ctx context.Context, p *pgxpool.Pool, s string) error 
  ALTER TABLE %[1]s.message_deliveries ADD COLUMN IF NOT EXISTS provider_message_id TEXT NOT NULL DEFAULT '';
  ALTER TABLE %[1]s.message_deliveries ADD COLUMN IF NOT EXISTS recipient_json JSONB NOT NULL DEFAULT '{}';
  ALTER TABLE %[1]s.message_deliveries ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ CREATE INDEX IF NOT EXISTS message_delivery_recipient_recent_idx ON %[1]s.message_deliveries ((recipient_json->>'app_id'),(recipient_json->>'mini_user_id'),(recipient_json->>'customer_id'),(recipient_json->>'employee_id'),created_at DESC,id DESC) WHERE channel='wechat_service_account';
  CREATE TABLE IF NOT EXISTS %[1]s.message_provider_receipts(app_id TEXT NOT NULL,msg_id TEXT NOT NULL,status TEXT NOT NULL,received_at TIMESTAMPTZ NOT NULL DEFAULT now(),PRIMARY KEY(app_id,msg_id));
  CREATE INDEX IF NOT EXISTS message_delivery_provider ON %[1]s.message_deliveries(provider_message_id) WHERE provider_message_id<>'';
  ALTER TABLE %[1]s.wechat_bindings ADD COLUMN IF NOT EXISTS employee_id BIGINT NOT NULL DEFAULT 0;
@@ -47,6 +48,8 @@ func EnsureExternalSchema(ctx context.Context, p *pgxpool.Pool, s string) error 
  expires_at TIMESTAMPTZ NOT NULL,consumed_at TIMESTAMPTZ,app_id TEXT NOT NULL DEFAULT '',openid TEXT NOT NULL DEFAULT '');
  ALTER TABLE %[1]s.message_notification_oauth ADD COLUMN IF NOT EXISTS scan_event_time BIGINT NOT NULL DEFAULT 0;
  CREATE TABLE IF NOT EXISTS %[1]s.message_notification_subscription_events(app_id TEXT NOT NULL,openid TEXT NOT NULL,last_unsubscribe BIGINT NOT NULL DEFAULT 0,PRIMARY KEY(app_id,openid));
+ CREATE TABLE IF NOT EXISTS %[1]s.message_wechat_followers(app_id TEXT NOT NULL,openid TEXT NOT NULL,unionid TEXT NOT NULL DEFAULT '',subscribed BOOLEAN NOT NULL DEFAULT false,event_time BIGINT NOT NULL DEFAULT 0,PRIMARY KEY(app_id,openid));
+ CREATE INDEX IF NOT EXISTS message_wechat_followers_union_idx ON %[1]s.message_wechat_followers(app_id,unionid) WHERE subscribed AND unionid<>'';
  CREATE TABLE IF NOT EXISTS %[1]s.message_notification_prompt_settings(id INT PRIMARY KEY CHECK(id=1),version BIGINT NOT NULL DEFAULT 1);
  INSERT INTO %[1]s.message_notification_prompt_settings(id) VALUES(1) ON CONFLICT DO NOTHING;
  CREATE TABLE IF NOT EXISTS %[1]s.message_notification_choices(app_id TEXT NOT NULL,mini_user_id BIGINT NOT NULL,customer_id BIGINT NOT NULL,employee_id BIGINT NOT NULL,

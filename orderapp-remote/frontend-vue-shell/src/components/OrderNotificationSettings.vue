@@ -27,14 +27,23 @@ onMounted(()=>run(async()=>{await load();await loadSubscribers()}))
 <template>
 <section class="external-notices">
  <header><div><h3>订单微信通知</h3><p>六类状态变化 · 客户与相关员工服务号 · 公司生产群</p></div><button :disabled="busy" @click="run(load)">刷新记录</button></header>
- <p>服务号接收人须在小程序“我的 → 订单通知”中关注、绑定并开启通知。生产群使用专用 Mac，完成六类实测后才可启用。</p>
+ <p>接收人关注服务号后登录小程序并选择通知，系统自动识别微信身份；无法自动识别时可到“我的 → 订单通知”使用二维码确认，身份冲突请联系管理员处理。生产群使用专用 Mac，完成六类实测后才可启用。</p>
  <p>需要用户重新确认通知类型时，可以发起提醒；原有选择会保留，用户可自行调整或关闭。</p><button type="button" :disabled="busy" @click="run(requestReselection)">提醒用户重新选择通知</button>
  <div class="message" role="status">{{message}}</div><div v-if="error" class="error" role="alert">{{error}}</div>
- <section class="subscribers"><h4>客户与员工通知状态</h4><p>客户需登录小程序并自行关注、绑定服务号及选择通知。按账号逐条显示；提醒不会替用户开启通知。</p>
+ <section class="subscribers"><h4>客户与员工通知状态</h4><p>接收人登录小程序并选择通知后，系统自动识别已关注的微信；按账号逐条显示，提醒不会替用户开启通知。</p>
   <form class="subscriber-search" @submit.prevent="run(loadSubscribers)"><input v-model.trim="subscriberQuery" aria-label="搜索客户、员工或手机号" placeholder="客户、员工或手机号"><button data-testid="subscriber-search" :disabled="busy">查询</button></form>
-  <div class="table-wrap"><table data-auto-pagination="off"><thead><tr><th>接收人</th><th>联系电话</th><th>小程序账号</th><th>服务号绑定</th><th>关注状态</th><th>通知选择</th><th>操作</th></tr></thead><tbody>
-   <tr v-for="row in visibleSubscribers" :key="`${row.mini_user_id}-${row.customer_id}-${row.employee_id}`" data-testid="subscriber-row"><td>{{row.name}}<small>{{row.identity_type==='employee'?'员工':'客户'}}{{row.identity_active?'':' · 身份或关联已失效'}}</small></td><td><small v-if="row.customer_phone">客户档案：{{row.customer_phone}}</small><small v-if="row.identity_type==='employee' && row.phone">员工档案：{{row.phone}}</small><small>账号手机号：{{row.account_phone||'未提供'}}</small></td><td>{{row.mini_user_id || '尚无小程序账号'}}<small v-if="row.account_name">{{row.account_name}}</small></td><td>{{row.active_binding_count?'当前绑定 '+row.active_binding_count:'未绑定'}}<small v-if="row.binding_count">关联记录 {{row.binding_count}}</small></td><td>{{row.active_binding_count?'已关注 '+row.subscribed_binding_count+' / 当前绑定 '+row.active_binding_count:'未知'}}</td><td><small v-if="row.choice_recorded">用户选择：{{row.choice_enabled?'接收所选通知':'不接收'}}</small><small v-else>尚无明确选择记录</small><small>绑定通知开启：{{row.enabled_binding_count || 0}}</small><small>{{selectedEventLabels(row)}}</small><small v-if="row.prompt_required">待重新选择</small></td><td><button type="button" :disabled="busy||!ready||!row.mini_user_id||!row.identity_active" @click="run(()=>requestSubscriber(row))">提醒重新选择</button></td></tr>
-   <tr v-if="!subscribers.length"><td colspan="7">暂无符合条件的账号</td></tr></tbody></table></div>
+  <div class="table-wrap"><table data-auto-pagination="off"><thead><tr><th>接收人</th><th>联系电话</th><th>小程序账号</th><th>微信匹配</th><th>关注状态</th><th>通知选择</th><th>最近发货通知</th><th>操作</th></tr></thead><tbody>
+   <tr v-for="row in visibleSubscribers" :key="`${row.mini_user_id}-${row.customer_id}-${row.employee_id}`" data-testid="subscriber-row">
+    <td>{{row.name}}<small>{{row.identity_type==='employee'?'员工':'客户'}}{{row.identity_active?'':' · 身份或关联已失效'}}</small></td>
+    <td><small v-if="row.customer_phone">客户档案：{{row.customer_phone}}</small><small v-if="row.identity_type==='employee' && row.phone">员工档案：{{row.phone}}</small><small>账号手机号：{{row.account_phone||'未提供'}}</small></td>
+    <td>{{row.mini_user_id || '尚无小程序账号'}}<small v-if="row.account_name">{{row.account_name}}</small></td>
+    <td>{{row.match_status==='matched'?'已匹配':row.match_status==='conflict'?'身份冲突':'待核实'}}<small>{{row.active_binding_count?'当前绑定 '+row.active_binding_count:'未绑定'}}</small><small v-if="row.binding_count">关联记录 {{row.binding_count}}</small></td>
+    <td>{{row.follow_status==='unsubscribed'?'已取消关注':row.active_binding_count?'已关注 '+row.subscribed_binding_count+' / 当前绑定 '+row.active_binding_count:row.follow_status==='subscribed'?'已关注':'未知'}}</td>
+    <td><small v-if="row.choice_recorded">用户选择：{{row.choice_enabled?'接收所选通知':'不接收'}}</small><small v-else>尚无明确选择记录</small><small>绑定通知开启：{{row.enabled_binding_count || 0}}</small><small>{{selectedEventLabels(row)}}</small><small v-if="row.prompt_required">待重新选择</small></td>
+    <td><template v-if="row.latest_shipment_status">{{statusLabel(row.latest_shipment_status)}}<small>{{row.latest_shipment_at}}</small><small v-if="row.latest_shipment_error && ['failed','retry','unknown','skipped'].includes(row.latest_shipment_status)">{{row.latest_shipment_error}}</small></template><template v-else>暂无发送记录</template></td>
+    <td><button type="button" :disabled="busy||!ready||!row.mini_user_id||!row.identity_active" @click="run(()=>requestSubscriber(row))">提醒重新选择</button></td>
+   </tr>
+   <tr v-if="!subscribers.length"><td colspan="8">暂无符合条件的账号</td></tr></tbody></table></div>
   <nav class="pager list-pagination-controls" aria-label="通知账号分页"><span>共 {{subscribers.length}} 条 / {{subscriberTotalPages}} 页，当前第 {{subscriberPage}} 页</span><div class="pagination-actions"><button type="button" :disabled="busy||subscriberPage<=1" @click="goSubscriberPage(subscriberPage-1)">上一页</button><label>跳至<input v-model.number="subscriberJump" type="number" min="1" :max="subscriberTotalPages" aria-label="通知账号跳转页码" @keyup.enter="goSubscriberPage(subscriberJump)"></label><button type="button" :disabled="busy" @click="goSubscriberPage(subscriberJump)">跳转</button><label>每页<select v-model.number="subscriberPageSize" aria-label="通知账号每页条数" @change="goSubscriberPage(1)"><option v-for="size in PAGE_SIZE_OPTIONS" :key="size" :value="size">{{size}} 条</option></select></label><button type="button" :disabled="busy||subscriberPage>=subscriberTotalPages" @click="goSubscriberPage(subscriberPage+1)">下一页</button></div></nav>
  </section>
  <form @submit.prevent="run(save)">

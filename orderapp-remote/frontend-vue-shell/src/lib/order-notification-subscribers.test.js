@@ -19,6 +19,29 @@ const Component = (await import(`data:text/javascript;base64,${Buffer.from(sourc
 const flush = async () => { for (let i = 0; i < 5; i++) { await nextTick(); await new Promise(resolve => setImmediate(resolve)) } }
 const response = data => ({ ok: true, status: 200, json: async () => data })
 
+test('显示微信匹配、取消关注及最近一笔发货通知结果', async () => {
+  const originalFetch=globalThis.fetch
+  globalThis.fetch=async url=>{
+    const path=new URL(String(url),window.location.origin).pathname
+    return response(path.endsWith('/subscribers')?{items:[
+      {mini_user_id:12,customer_id:3,employee_id:0,name:'已匹配客户',identity_type:'customer',identity_active:true,active_binding_count:1,subscribed_binding_count:1,match_status:'matched',follow_status:'subscribed',latest_shipment_status:'delivered',latest_shipment_at:'2026-11-22T10:00:00+08:00',events:['shipment_created']},
+      {mini_user_id:13,customer_id:4,employee_id:0,name:'已取关客户',identity_type:'customer',identity_active:true,match_status:'matched',follow_status:'unsubscribed',events:[]},
+      {mini_user_id:14,customer_id:5,employee_id:0,name:'待核实客户',identity_type:'customer',identity_active:true,match_status:'unknown',follow_status:'unknown',events:[]},
+    ]}:{config:{},devices:[],deliveries:[],official_ready:true})
+  }
+  const app=createApp(Component)
+  try {
+    app.mount(document.querySelector('#app')); await flush()
+    assert.match(document.querySelector('#app').textContent, /系统自动识别/)
+    assert.doesNotMatch(document.querySelector('#app').textContent, /须在小程序“我的 → 订单通知”中关注、绑定/)
+    const rows=[...document.querySelectorAll('[data-testid="subscriber-row"]')]
+    assert.match(rows[0].textContent,/已匹配/)
+    assert.match(rows[0].textContent,/已送达/)
+    assert.match(rows[1].textContent,/已取消关注/)
+    assert.match(rows[2].textContent,/待核实/)
+  } finally {app.unmount();globalThis.fetch=originalFetch}
+})
+
 test('按姓名或手机号查询订阅名单并对指定账号提醒，不能把未绑定当作已关注', async () => {
   const calls = [], originalFetch = globalThis.fetch
   globalThis.fetch = async (url, options = {}) => {

@@ -458,6 +458,15 @@ ALTER TABLE IF EXISTS %[1]s.order_items ADD COLUMN IF NOT EXISTS bom_spec_id BIG
 ALTER TABLE IF EXISTS %[1]s.order_items ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0;
 `, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 	_, err := pool.Exec(ctx, q)
+	if err != nil {
+		return err
+	}
+	_, err = pool.Exec(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.mini_wechat_identities (
+		mini_user_id BIGINT NOT NULL REFERENCES %s.mini_users(id),
+		openid TEXT NOT NULL,
+		unionid TEXT NOT NULL,
+		PRIMARY KEY (mini_user_id, openid)
+	)`, schema, schema))
 	return err
 }
 
