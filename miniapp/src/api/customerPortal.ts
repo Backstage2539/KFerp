@@ -1365,6 +1365,9 @@ export type EmployeeOrderDraftItem = {
 }
 
 export type EmployeeOrderDraftPayload = {
+  payment_voucher_asset_id?: number
+  payment_goods_amount?: string
+  payment_shipping_amount?: string
   delivery_mode?: 'ship' | 'customer_stock'
   delivery_warehouse_code?: string
  freight_state?:import("../utils/orderFreight").FreightState
@@ -1522,6 +1525,7 @@ export type EmployeeOrderProductFamily = {
 }
 
 export type EmployeeOrder = {
+  confirmation_required?: boolean
  delivery_mode?: string
  delivery_status?: string
 
@@ -1739,6 +1743,7 @@ export type EmployeeOrderStatusOptions = {
 
 export type EmployeeOrderStatusPayload = {
   edit_revision: string
+  payment_unchanged?: boolean
   pay_status_id: number
   ship_status_id: number
   payment_method: string
@@ -1778,10 +1783,11 @@ const employeeOrderDocumentFiles: Record<
   'delivery-note': { pdf: 'delivery-note.pdf', png: 'delivery-note.png' },
 }
 
-export function fetchEmployeeOrderForm(token: string, customerID = 0, selectedPriceTableIDs: number[] = []): Promise<EmployeeOrderForm> {
+export function fetchEmployeeOrderForm(token: string, customerID = 0, selectedPriceTableIDs: number[] = [], preferredPriceTableIDs: number[] = []): Promise<EmployeeOrderForm> {
   const path = buildEmployeeOrderFormPath(customerID)
   const selection = selectedPriceTableIDs.length ? `${path.includes('?') ? '&' : '?'}selected_price_table_ids=${selectedPriceTableIDs.join(',')}` : ''
-  return miniRequest<EmployeeOrderForm>(path + selection, { token })
+  const preferred = preferredPriceTableIDs.length ? `${path.includes('?') || selection ? '&' : '?'}preferred_price_table_ids=${preferredPriceTableIDs.join(',')}` : ''
+  return miniRequest<EmployeeOrderForm>(path + selection + preferred, { token })
 }
 
 export function fetchEmployeeOrders(token: string, q = ''): Promise<{ rows: EmployeeOrder[]; has_next: boolean }> {
@@ -1789,8 +1795,16 @@ export function fetchEmployeeOrders(token: string, q = ''): Promise<{ rows: Empl
   return miniRequest(`${buildEmployeeOrdersPath()}${suffix}`, { token })
 }
 
-export function fetchEmployeeOrderDetail(token: string, orderID: number): Promise<EmployeeOrderDetailResponse> {
-  return miniRequest<EmployeeOrderDetailResponse>(buildEmployeeOrderDetailPath(orderID), { token })
+export function fetchEmployeeOrderPage(token: string, q: string, cursor = ''): Promise<{ rows: EmployeeOrder[]; has_next: boolean; next_cursor: string }> {
+  const params = ['lightweight=1', 'limit=4']
+  if (q.trim()) params.push(`q=${encodeURIComponent(q.trim())}`)
+  if (cursor) params.push(`cursor=${encodeURIComponent(cursor)}`)
+  return miniRequest(`${buildEmployeeOrdersPath()}?${params.join('&')}`, { token })
+}
+
+export function fetchEmployeeOrderDetail(token: string, orderID: number, includeDocuments = false): Promise<EmployeeOrderDetailResponse> {
+  const path = buildEmployeeOrderDetailPath(orderID)
+  return miniRequest<EmployeeOrderDetailResponse>(includeDocuments ? path : path + '?include_documents=false', { token })
 }
 
 export function fetchEmployeeShareSettings(token: string): Promise<EmployeeShareSettingsResponse> {
@@ -1852,7 +1866,8 @@ export function updateEmployeeOrderStatus(
 }
 
 export function uploadEmployeeOrderPaymentVoucher(token: string, orderID: number, filePath: string): Promise<{ asset: EmployeeOrderAsset }> {
-  return miniUpload(`${buildEmployeeOrderDetailPath(orderID)}/payment-voucher`, filePath, token)
+  const path = orderID === 0 ? '/api/mini/employee/order/payment-voucher' : `${buildEmployeeOrderDetailPath(orderID)}/payment-voucher`
+  return miniUpload(path, filePath, token)
 }
 
 export function fetchEmployeeCustomers(token: string, query: EmployeeCustomerListQuery = {}): Promise<EmployeeCustomersResponse> {

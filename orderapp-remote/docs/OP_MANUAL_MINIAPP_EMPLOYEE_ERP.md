@@ -66,6 +66,14 @@
 
 关联需求：`PR-572-MINIAPP-ORDER-DETAIL-DOCUMENT-SHARE`、`PR-573-MINIAPP-ORDER-CATALOG-EDIT`、`PR-575-MINIAPP-SHARE-IMAGE-ENTRANCE-SETTING`、`PR-579-MINIAPP-CUSTOMER-ADDRESS-PASTE`、`PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD`、`PR-613-MINI-LATEST-CATALOG-TIER-PRICE-SYNC`、`PR-614-CURRENT-PRICE-CATALOG-BOM-SPEC-PROJECTION`、`PR-659-MINIAPP-SHARE-SCOPE`。
 
+## 订单列表与状态修改（PR-769）
+
+进入员工首页的“查看订单”，先显示一屏订单，向下滑动继续加载。可用订单号或客户搜索，进入详情后返回会保留列表位置。
+
+在订单卡片点击付款或发货状态，选择新状态并保存。修改为已付款时，从手机相册或相机选择付款截图，上传完成后保存；选择已收款还需填写实收货款和运费。预付款需填写金额。取消选择、上传失败或保存失败时，订单保持原状态，可重试。其他人同时修改订单时需刷新后重新操作。
+
+履约订单的发货状态由发货操作更新，留厂订单显示无需发货。状态修改记录在操作日志。付款状态只更新订单，财务到账继续按原收款流程登记。
+
 ## 适用角色
 
 - 销售员工：需配置 `sales` 角色以及查看、录入订单和维护客户权限；只能修改本人负责的客户。

@@ -14,19 +14,12 @@ func registerMiniEmployeePaymentVoucherAPI(e *echo.Echo, portal Service, sales E
 		assetDir = "/app/data/assets"
 	}
 	h := miniEmployeeOrderHandler{portal: portal, sales: sales}
-	e.POST("/api/mini/employee/orders/:id/payment-voucher", func(c echo.Context) error {
-		access, ok, err := h.ensureMiniEmployeeOrderAccess(c, "orders.write")
-		if !ok {
-			return err
-		}
-		if access.row.IsVoid {
-			return c.JSON(http.StatusConflict, map[string]string{"error": "作废订单不能上传收款凭证"})
-		}
+	upload := func(c echo.Context, actor string) error {
 		saver, ok := sales.(supporthttp.SalesOrderAssetSaver)
 		if !ok {
 			return miniInternalError(c)
 		}
-		asset, err := supporthttp.SaveUploadedSalesOrderAsset(c, saver, assetDir, "payment_voucher", miniEmployeeActor(access.employee))
+		asset, err := supporthttp.SaveUploadedSalesOrderAsset(c, saver, assetDir, "payment_voucher", actor)
 		if err != nil {
 			var httpError *echo.HTTPError
 			if errors.As(err, &httpError) && httpError.Code == http.StatusBadRequest {
@@ -36,5 +29,22 @@ func registerMiniEmployeePaymentVoucherAPI(e *echo.Echo, portal Service, sales E
 			return miniInternalError(c)
 		}
 		return c.JSON(http.StatusCreated, map[string]any{"asset": asset})
+	}
+	e.POST("/api/mini/employee/order/payment-voucher", func(c echo.Context) error {
+		employee, err := requireMiniEmployee(c.Request().Context(), c.Request().Header.Get(echo.HeaderAuthorization), portal, "orders.write")
+		if err != nil {
+			return miniEmployeeAuthError(c, err)
+		}
+		return upload(c, miniEmployeeActor(employee))
+	})
+	e.POST("/api/mini/employee/orders/:id/payment-voucher", func(c echo.Context) error {
+		access, ok, err := h.ensureMiniEmployeeOrderAccess(c, "orders.write")
+		if !ok {
+			return err
+		}
+		if access.row.IsVoid {
+			return c.JSON(http.StatusConflict, map[string]string{"error": "作废订单不能上传收款凭证"})
+		}
+		return upload(c, miniEmployeeActor(access.employee))
 	})
 }

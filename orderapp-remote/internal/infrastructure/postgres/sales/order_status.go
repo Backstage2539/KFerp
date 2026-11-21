@@ -126,18 +126,11 @@ func (r Repository) updateOrderStatusTx(ctx context.Context, tx pgx.Tx, cmd sale
 			return fmt.Errorf("实收金额必须为非负金额，最多两位小数")
 		}
 	}
-	if nextVoucher < 0 {
-		return fmt.Errorf("invalid payment_voucher_asset_id")
+	if err = validatePaidVoucherTx(ctx, tx, r.schema, cmd.RequirePaidVoucher && reason != "free_sample" && cmd.PayStatusID != curPay,
+		statusName, voucherID, nextVoucher, cmd.Actor); err != nil {
+		return err
 	}
-	if nextVoucher > 0 && nextVoucher != voucherID {
-		var owned bool
-		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.sales_order_assets WHERE id=$1 AND kind='payment_voucher' AND created_by=$2)`, r.schema), nextVoucher, strings.TrimSpace(cmd.Actor)).Scan(&owned); err != nil {
-			return err
-		}
-		if !owned {
-			return fmt.Errorf("invalid payment_voucher_asset_id")
-		}
-	}
+
 	method := curMethod
 	if cmd.PaymentUnchanged {
 		// Preserve legacy payment metadata when changing shipping only.
@@ -234,4 +227,27 @@ func (r Repository) updateOrderStatusTx(ctx context.Context, tx pgx.Tx, cmd sale
 // OrderStatusEditData avoids loading full catalog and customer option lists.
 func (r Repository) OrderStatusEditData(ctx context.Context, id int64) (*salesapp.OrderEditData, error) {
 	return r.fetchOrderEdit(ctx, id)
+}
+
+// A retained voucher may have been uploaded by another employee. A replacement
+// must be a real payment voucher uploaded by the current employee.
+func validatePaidVoucherTx(ctx context.Context, tx pgx.Tx, schema string, requireOnTransition bool, status string, previous, next int64, actor string) error {
+	transition := requireOnTransition && salesdomain.IsFullyPaid(status)
+	if transition && next <= 0 {
+		return fmt.Errorf("payment_voucher_asset_id required")
+	}
+	if next < 0 {
+		return fmt.Errorf("invalid payment_voucher_asset_id")
+	}
+	if next == 0 || next == previous && !transition {
+		return nil
+	}
+	var valid bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.sales_order_assets WHERE id=$1 AND kind='payment_voucher' AND ($2 OR created_by=$3))`, schema), next, next == previous, strings.TrimSpace(actor)).Scan(&valid); err != nil {
+		return err
+	}
+	if !valid {
+		return fmt.Errorf("invalid payment_voucher_asset_id")
+	}
+	return nil
 }

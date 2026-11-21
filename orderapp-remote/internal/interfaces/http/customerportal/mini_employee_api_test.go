@@ -80,6 +80,7 @@ type miniEmployeeSalesFake struct {
 	save                     salesapp.SaveOrderCommand
 	orderFormEditID          int64
 	orderFormResult          *salesapp.OrderFormData
+	detailFormCalls          int
 	orderFormCalls           int
 	listCalls                int
 	saveCalls                int
@@ -124,6 +125,22 @@ func (f *miniEmployeeSalesFake) ListOrders(_ context.Context, query salesapp.Ord
 }
 func (f *miniEmployeeSalesFake) OrderForm(_ context.Context, editID int64) (salesapp.OrderFormData, error) {
 	f.orderFormCalls++
+	return f.formFixture(editID)
+}
+func (f *miniEmployeeSalesFake) OrderDetailForm(_ context.Context, editID int64) (salesapp.OrderFormData, error) {
+	f.detailFormCalls++
+	return f.formFixture(editID)
+}
+func (f *miniEmployeeSalesFake) EmployeeOrderRow(ctx context.Context, query salesapp.OrderListQuery) (*salesapp.OrderRow, error) {
+	list, err := f.ListOrders(ctx, query)
+	for _, row := range list.Rows {
+		if row.ID == query.OrderID {
+			return &row, err
+		}
+	}
+	return nil, err
+}
+func (f *miniEmployeeSalesFake) formFixture(editID int64) (salesapp.OrderFormData, error) {
 	f.orderFormEditID = editID
 	if f.orderFormResult != nil {
 		result := *f.orderFormResult
@@ -416,8 +433,8 @@ func TestMiniEmployeeOrderDetailReturnsExplicitWebParityDTOAfterScopedLookup(t *
 	if sales.listQuery.OrderID != 42 || sales.listQuery.Void != "all" || sales.listQuery.Scope != "mine" || sales.listQuery.EmployeeID != 7 || sales.listQuery.Limit != 1 {
 		t.Fatalf("scope query=%+v", sales.listQuery)
 	}
-	if sales.orderFormCalls != 1 || sales.orderFormEditID != 42 {
-		t.Fatalf("order form calls=%d edit_id=%d", sales.orderFormCalls, sales.orderFormEditID)
+	if sales.detailFormCalls != 1 || sales.orderFormEditID != 42 {
+		t.Fatalf("order form calls=%d edit_id=%d", sales.detailFormCalls, sales.orderFormEditID)
 	}
 	if sales.editabilityCalls != 1 || sales.editabilityOrderID != 42 {
 		t.Fatalf("editability calls=%d order_id=%d", sales.editabilityCalls, sales.editabilityOrderID)
@@ -470,8 +487,8 @@ func TestMiniEmployeeOrderDetailReturnsNotFoundBeforeLoadingOutOfScopeOrder(t *t
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNotFound || sales.orderFormCalls != 0 {
-		t.Fatalf("status=%d detail_calls=%d body=%s", rec.Code, sales.orderFormCalls, rec.Body.String())
+	if rec.Code != http.StatusNotFound || sales.detailFormCalls != 0 {
+		t.Fatalf("status=%d detail_calls=%d body=%s", rec.Code, sales.detailFormCalls, rec.Body.String())
 	}
 	if !json.Valid(rec.Body.Bytes()) || strings.Contains(rec.Body.String(), "forbidden") {
 		t.Fatalf("out-of-scope response=%s", rec.Body.String())
@@ -493,8 +510,8 @@ func TestMiniEmployeeOrderDetailKeepsAdministratorScopeUnrestricted(t *testing.T
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK || sales.listQuery.Scope != "" || sales.listQuery.EmployeeID != 0 || sales.orderFormCalls != 1 {
-		t.Fatalf("status=%d query=%+v detail_calls=%d body=%s", rec.Code, sales.listQuery, sales.orderFormCalls, rec.Body.String())
+	if rec.Code != http.StatusOK || sales.listQuery.Scope != "" || sales.listQuery.EmployeeID != 0 || sales.detailFormCalls != 1 {
+		t.Fatalf("status=%d query=%+v detail_calls=%d body=%s", rec.Code, sales.listQuery, sales.detailFormCalls, rec.Body.String())
 	}
 }
 

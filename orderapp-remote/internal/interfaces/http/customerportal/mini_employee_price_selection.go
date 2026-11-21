@@ -13,3 +13,19 @@ func miniEmployeeSelectPublications(form salesapp.OrderFormData, cid int64, ids 
 func miniEmployeeCatalogWithSelectedPublicPrices(form salesapp.OrderFormData, cid int64) salesapp.OrderFormData {
 	return salesapp.OrderFormWithSelectedPublicPrices(form, cid)
 }
+
+func preferredCurrentOrderTables(options []salesapp.BeanListVersionOption, preferred []int64) []int64 {
+	byID := make(map[int64]string, len(options))
+	for _, opt := range options {
+		byID[opt.ID] = salesapp.OrderPriceTableTypeKey(opt)
+	}
+	var selected []int64
+	seen := map[string]bool{}
+	for _, id := range preferred {
+		if key, ok := byID[id]; ok && !seen[key] {
+			selected = append(selected, id)
+			seen[key] = true
+		}
+	}
+	return selected
+}

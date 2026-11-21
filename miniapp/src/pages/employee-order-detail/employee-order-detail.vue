@@ -17,7 +17,6 @@ import {
   fetchEmployeeShareSettings,
   generateEmployeeOrderDocument,
   updateEmployeeOrderStatus,
-  uploadEmployeeOrderPaymentVoucher,
   type EmployeeOrderDetail,
   type EmployeeOrderDetailResponse,
   type EmployeeOrderStatusOptions,
@@ -46,7 +45,10 @@ import {
   employeeOrderTraceSourceLines,
 } from '../../utils/employeeOrderDetail'
 import { shareMiniappFileOutput } from '../../utils/fileOutput'
+import { chooseEmployeePaymentVoucher, employeePaymentNeedsVoucher } from '../../utils/employeePaymentVoucher'
 import { employeeReceiptMethods, useEmployeeOrderStatus } from '../../composables/useEmployeeOrderStatus'
+
+import { passOrderToEditor } from '../../utils/employeeOrderHandoff'
 
 const session = useSessionStore()
 const {
@@ -60,6 +62,9 @@ const orderID = ref(0)
 const order = ref<EmployeeOrderDetail>()
 const documents = ref<EmployeeOrderDocuments>({})
 const loading = ref(false)
+const documentsLoaded = ref(false)
+let detailRequest = 0
+let lastRead: { response: EmployeeOrderDetailResponse; token: string; at: number } | undefined
 const errorMessage = ref('')
 const authExpired = ref(false)
 const sharingKey = ref('')
@@ -107,38 +112,32 @@ function saveStatus() {
   if (!voucherUploading.value) void submitStatus()
 }
 
-function choosePaymentVoucher() {
+async function choosePaymentVoucher() {
   if (voucherUploading.value || statusSaving.value) return
-  uni.chooseImage({
-    count: 1,
-    sizeType: ['compressed'],
-    success: async result => {
-      const filePath = result.tempFilePaths[0]
-      if (!filePath) return
-      voucherUploading.value = true
-      statusError.value = ''
-      try {
-        const uploaded = await uploadEmployeeOrderPaymentVoucher(session.token, orderID.value, filePath)
-        if (!uploaded.asset?.id) throw new Error('凭证上传未完成，请重试')
-        statusDraft.value.payment_voucher_asset_id = uploaded.asset.id
-        voucherFilename.value = uploaded.asset.filename || '收款凭证已上传'
-      } catch (cause) {
-        statusError.value = cause instanceof Error ? cause.message : '凭证上传失败，请重试'
-        if (isAuthenticationExpiredRequestError(cause)) {
-          session.clearSession()
-          authExpired.value = true
-          errorMessage.value = '登录已失效，请重新登录'
-        }
-      } finally {
-        voucherUploading.value = false
-      }
-    },
-  })
+  voucherUploading.value = true
+  statusError.value = ''
+  try {
+    const asset = await chooseEmployeePaymentVoucher(session.token, orderID.value)
+    if (!asset) return
+    statusDraft.value.payment_voucher_asset_id = asset.id
+    voucherFilename.value = asset.filename || '付款凭证已上传'
+  } catch (cause) {
+    statusError.value = cause instanceof Error ? cause.message : '凭证上传失败，请重试'
+    if (isAuthenticationExpiredRequestError(cause)) {
+      session.clearSession()
+      authExpired.value = true
+      errorMessage.value = '登录已失效，请重新登录'
+    }
+  } finally {
+    voucherUploading.value = false
+  }
 }
 
 function applyDetail(response: EmployeeOrderDetailResponse) {
+  lastRead = { response, token: session.token, at: Date.now() }
   order.value = response.order
-  documents.value = response.documents || {}
+  documentsLoaded.value = false
+  documents.value = {}
   canEdit.value = Boolean(response.can_edit ?? response.order.can_edit)
   editBlockReason.value = String(response.edit_block_reason || response.order.edit_block_reason || '')
   canUpdateStatus.value = Boolean(response.can_update_status) && !response.order.is_void
@@ -194,22 +193,29 @@ async function loadDetail() {
     errorMessage.value = '订单参数不正确'
     return
   }
-  loading.value = true
+  const request = ++detailRequest
+  const token = session.token
+  loading.value = !order.value
   errorMessage.value = ''
   authExpired.value = false
   try {
-    const response = await fetchEmployeeOrderDetail(session.token, orderID.value)
+    const response = await fetchEmployeeOrderDetail(token, orderID.value)
+    if (request !== detailRequest || token !== session.token) return
     applyDetail(response)
     if (!statusEditing.value) statusError.value = ''
     if (order.value?.order_no) uni.setNavigationBarTitle({ title: order.value.order_no })
   } catch (cause) {
+    if (request !== detailRequest || token !== session.token) return
     authExpired.value = isAuthenticationExpiredRequestError(cause)
+    order.value = undefined
+    lastRead = undefined
+    canEdit.value = false
     if (authExpired.value) session.clearSession()
     errorMessage.value = authExpired.value
       ? '登录已失效，请重新登录'
       : (cause instanceof Error ? cause.message : '订单详情加载失败')
   } finally {
-    loading.value = false
+    if (request === detailRequest) loading.value = false
   }
 }
 
@@ -220,6 +226,7 @@ function goToLogin() {
 
 function openEditor() {
   if (!canEdit.value || orderID.value <= 0) return
+  if (lastRead && lastRead.token === session.token) passOrderToEditor(lastRead.token, lastRead.response, lastRead.at)
   uni.navigateTo({
     url: `/pages/employee-order-entry/employee-order-entry?edit_id=${orderID.value}`,
   })
@@ -248,6 +255,11 @@ async function shareDocument(kind: EmployeeOrderDocumentKind, format: EmployeeOr
   const key = `${kind}.${format}`
   sharingKey.value = key
   try {
+    if (!documentsLoaded.value) {
+      const metadata = await fetchEmployeeOrderDetail(session.token, orderID.value, true)
+      documents.value = metadata.documents || {}
+      documentsLoaded.value = true
+    }
     let imageNeedShowEntrance = false
     if (format === 'png') {
       try {
@@ -264,8 +276,8 @@ async function shareDocument(kind: EmployeeOrderDocumentKind, format: EmployeeOr
       const generated = await generateEmployeeOrderDocument(session.token, orderID.value, kind, format)
       setDocumentAsset(kind, format, normalizedDocumentAsset(generated))
       try {
-        const refreshed = await fetchEmployeeOrderDetail(session.token, orderID.value)
-        applyDetail({ ...refreshed, documents: refreshed.documents || documents.value })
+        const refreshed = await fetchEmployeeOrderDetail(session.token, orderID.value, true)
+        documents.value = refreshed.documents || documents.value
       } catch {
         // The generated path remains usable even if the metadata refresh is interrupted.
       }
@@ -388,6 +400,8 @@ onShow(() => { void refreshMiniappShareMenu() })
               <input v-model="statusDraft.payment_goods_amount" :disabled="statusSaving" class="status-field" type="digit" :placeholder="Number(order.other_fee || 0) > 0 ? '填写实际收到的货款及其他费用' : '填写实际收到的货款'" />
               <text class="label">实收运费（元）</text>
               <input v-model="statusDraft.payment_shipping_amount" :disabled="statusSaving" class="status-field" type="digit" placeholder="无运费请填 0" />
+            </template>
+            <template v-if="employeePaymentNeedsVoucher(selectedPaymentStatus)">
               <text class="label">收款凭证</text>
               <text v-if="voucherFilename" class="voucher-filename">{{ voucherFilename }}</text>
               <button :loading="voucherUploading" :disabled="statusSaving || voucherUploading" class="voucher-upload-button" @tap="choosePaymentVoucher">{{ statusDraft.payment_voucher_asset_id ? '更换收款凭证' : '上传收款截图' }}</button>

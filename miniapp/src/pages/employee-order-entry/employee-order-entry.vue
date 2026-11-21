@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import EmployeeFreightEstimate from '../../components/EmployeeFreightEstimate.vue'
 import {emptyFreightState,freightStateFromOrder} from '../../utils/orderFreight'
 import type {FreightSnapshot} from '../../api/customerPortal'
+import { chooseEmployeePaymentVoucher, employeePaymentNeedsVoucher } from '../../utils/employeePaymentVoucher'
 import { isFreeSampleOrder } from '../../utils/sampleSettlement'
 function isFrozenConversion(item: EmployeeOrderDraftItem) { return ['converted_tier','bom_tier'].includes(item.price_selection_mode || '') && item.spec_conversion?.reprice === false && isEditMode.value }
 import { priceTableGroups, priceTableLabel, replaceSelectedPriceTable, type PriceTableGroup } from '../../utils/priceTables'
@@ -28,6 +29,7 @@ import {
   type EmployeeCustomer,
   type EmployeeCustomersResponse,
   type EmployeeOrderCustomer,
+  type EmployeeOrderDetail,
   type EmployeeOrderDraft,
   type EmployeeOrderDraftItem,
   type EmployeeOrderDraftPayload,
@@ -71,6 +73,8 @@ import {
 } from '../../utils/employeeOrder'
 import { useSessionStore } from '../../stores/session'
 
+import { takeOrderForEditor } from '../../utils/employeeOrderHandoff'
+
 const session = useSessionStore()
 const {
   pullUpBrandRevealed,
@@ -83,7 +87,10 @@ const formData = ref<EmployeeOrderForm>()
 const customerContext = ref<EmployeeCustomersResponse>()
 const loading = ref(false)
 const productCatalogLoading = ref(false)
+const pendingEditCatalog = ref<EmployeeOrderDetail>()
 const saving = ref(false)
+const voucherUploading = ref(false)
+const originalPaymentStatusID = ref(0)
 const savingDraft = ref(false)
 const clearingDraft = ref(false)
 const loadError = ref('')
@@ -125,6 +132,19 @@ const shippingBaseline = ref<EmployeeOrderShippingSnapshot>(emptyShippingSnapsho
 const receiptMethods = ['微信支付', '支付宝', '银行转账', '对公银行', '现金', 'POS刷卡', '其他']
 const freeSampleSettlement = computed(() => isFreeSampleOrder(editingSampleOrder.value,form.value.items.map(item=>Number(item.unit_price)),Number(form.value.shipping_amount || 0),preservedOutsourceTotal.value + Number(form.value.other_fee || 0),orderGrandTotal.value))
 const selectedPaymentStatus = computed(() => freeSampleSettlement.value ? '无需收款' : formData.value?.pay_statuses.find(s => s.id === form.value.pay_status_id)?.name || '')
+async function choosePaymentVoucher() {
+  if (voucherUploading.value || saving.value) return
+  voucherUploading.value = true
+  const customerID = form.value.customer_id
+  try {
+    const asset = await chooseEmployeePaymentVoucher(session.token, editOrderID.value)
+    if (asset && customerID === form.value.customer_id) form.value.payment_voucher_asset_id = asset.id
+  } catch (cause) {
+    uni.showToast({ title: cause instanceof Error ? cause.message : '凭证上传失败，请重试', icon: 'none' })
+  } finally {
+    voucherUploading.value = false
+  }
+}
 function selectPaymentStatus(event: { detail: { value: string | number } }) {
   form.value.pay_status_id = formData.value?.pay_statuses[Number(event.detail.value)]?.id || 0
 }
@@ -404,6 +424,9 @@ async function chooseCustomer(customer: EmployeeOrderCustomer) {
   const customerChanged = Number(form.value.customer_id || 0) !== Number(customer.id)
   form.value.customer_id = Number(customer.id)
   if (customerChanged) {
+    form.value.payment_voucher_asset_id = undefined
+    form.value.payment_goods_amount = undefined
+    form.value.payment_shipping_amount = undefined
     form.value.delivery_warehouse_code = ''
     if (formData.value) formData.value.delivery_warehouses = []
     form.value.selected_price_table_ids = []
@@ -429,6 +452,10 @@ async function chooseCustomer(customer: EmployeeOrderCustomer) {
 }
 
 async function refreshCurrentProductCatalog(): Promise<boolean> {
+  if (pendingEditCatalog.value) {
+    await openEditCatalog()
+    return !pendingEditCatalog.value
+  }
   const customerID = Number(form.value.customer_id || 0)
   if (customerID <= 0) return false
   const loaded = await loadCustomerProductCatalog(customerID)
@@ -667,6 +694,31 @@ function applyDefaultOptions() {
   form.value.ship_status_id ||= formData.value?.ship_statuses[0]?.id || 0
 }
 
+function storedPriceTables(detail?: EmployeeOrderDetail): number[] {
+  const ids = (detail?.items || []).map(row => Number(row.bean_list_publication_id || 0))
+  return [...new Set(ids.filter(id => id > 0))]
+}
+
+async function openEditCatalog() {
+  const detail = pendingEditCatalog.value
+  if (!detail || productCatalogLoading.value || saving.value) return
+  productCatalogLoading.value = true
+  try {
+    const customerID = Number(detail.customer_id)
+    const catalog = await fetchEmployeeOrderForm(session.token, customerID, [], storedPriceTables(detail))
+    const families = catalog.product_families || []
+    const retail = /零售|retail/i.test(detail.order_type || '')
+    form.value.items = hydrateEmployeeOrderEditItems(detail.items, families, customerID, retail, editingSampleOrder.value)
+    form.value.selected_price_table_ids = catalog.selected_price_table_ids || []
+    formData.value = { ...catalog, product_families: families }
+    pendingEditCatalog.value = undefined
+  } catch (cause) {
+    uni.showToast({ title: cause instanceof Error ? cause.message : '商品目录加载失败，请重试', icon: 'none' })
+  } finally {
+    productCatalogLoading.value = false
+  }
+}
+
 async function loadForm() {
   editingSampleOrder.value = false
   prepaymentRate.value = 0
@@ -677,9 +729,10 @@ async function loadForm() {
   preservedRoundToInt.value = false
   try {
     if (!session.token) throw new Error('登录已失效')
-    const detailResponse = isEditMode.value || isCopyMode.value
+    const handoff = isEditMode.value ? takeOrderForEditor(session.token, editOrderID.value) : undefined
+    const detailResponse = handoff ?? (isEditMode.value || isCopyMode.value
       ? await fetchEmployeeOrderDetail(session.token, isEditMode.value ? editOrderID.value : copyOrderID.value)
-      : undefined
+      : undefined)
     if (detailResponse && isEditMode.value) {
       const allowed = detailResponse.can_edit ?? detailResponse.order.can_edit
       if (allowed === false) {
@@ -687,17 +740,17 @@ async function loadForm() {
       }
     }
     const targetCustomerID = Number(detailResponse?.order.customer_id || 0)
-    let data = await fetchEmployeeOrderForm(session.token, targetCustomerID, form.value.selected_price_table_ids || [])
-    if (detailResponse) {
-      const currentOptions = data.price_table_options || []
-      const preferred = [...new Set((detailResponse.order.items || []).map(row => Number(row.bean_list_publication_id || 0)))].filter(id => currentOptions.some(row => row.id === id))
-      let selected = data.selected_price_table_ids || []
-      for (const group of priceTableGroups(currentOptions)) {
-        const id = preferred.find(value => group.options.some(row => row.id === value))
-        if (id) selected = replaceSelectedPriceTable(selected, group, id)
-      }
-      if (preferred.length) data = await fetchEmployeeOrderForm(session.token, targetCustomerID, selected)
-    }
+    const edit = isEditMode.value ? detailResponse?.order : undefined
+    pendingEditCatalog.value = edit
+    const data: EmployeeOrderForm = edit ? {
+      today: shanghaiToday(),
+      customers: [{ id: targetCustomerID, name: edit.customer || '', receiver_name: edit.receiver_name, receiver_phone: edit.receiver_phone, receiver_company: edit.receiver_company, receiver_address: edit.receiver_address }],
+      sources: [{ id: Number(edit.source_id || 0), name: edit.source || '' }],
+      order_types: [{ id: Number(edit.order_type_id || 0), name: edit.order_type || '' }],
+      pay_statuses: detailResponse?.status_options?.pay_statuses || [],
+      ship_statuses: detailResponse?.status_options?.ship_statuses || [],
+      product_families: [],
+    } : await fetchEmployeeOrderForm(session.token, targetCustomerID, [], storedPriceTables(detailResponse?.order))
     formData.value = {
       ...data,
       customers: data.customers || [],
@@ -728,6 +781,7 @@ async function loadForm() {
         preservedOutsourceTotal.value = 0
         preservedRoundToInt.value = false
       } else {
+        originalPaymentStatusID.value = Number(detail.pay_status_id || 0)
         preservedOutsourceTotal.value = employeeOrderOutsourceTotal(detail)
         preservedRoundToInt.value = Boolean(detail.round_to_int)
         form.value = {
@@ -742,6 +796,9 @@ async function loadForm() {
           pay_status_id: Number(detail.pay_status_id || 0),
           prepayment_amount: Number(detail.prepayment_amount || 0),
           payment_method: detail.payment_method || '',
+          payment_voucher_asset_id: Number(detail.payment_voucher_asset_id || 0),
+          payment_goods_amount: detail.payment_goods_amount ?? '',
+          payment_shipping_amount: detail.payment_shipping_amount ?? '',
           ship_status_id: Number(detail.ship_status_id || 0),
           receiver_name: String(detail.receiver_name || ''),
           receiver_phone: String(detail.receiver_phone || ''),
@@ -756,7 +813,7 @@ async function loadForm() {
           other_fee: Number(detail.other_fee || 0),
           other_fee_note: String(detail.other_fee_note || ''),
           notes: String(detail.notes || ''),
-          items: hydrateEmployeeOrderEditItems(detail.items || [], formData.value.product_families, targetCustomerID, editRetailOrder, editingSampleOrder.value),
+          items: hydrateEmployeeOrderEditItems(detail.items || [], formData.value.product_families, targetCustomerID, editRetailOrder, editingSampleOrder.value, Boolean(edit)),
         }
       }
       orderFreight.value=isCopyMode.value?undefined:detail.freight
@@ -822,6 +879,16 @@ function clearDraft() {
 }
 
 function validateOrder(): boolean {
+  if (!newRetainedOrder.value && employeePaymentNeedsVoucher(selectedPaymentStatus.value)) {
+    if ((!isEditMode.value || form.value.pay_status_id !== originalPaymentStatusID.value) && !form.value.payment_voucher_asset_id) {
+      uni.showToast({ title: '请上传付款凭证', icon: 'none' })
+      return false
+    }
+    if (selectedPaymentStatus.value.includes('已收款') && (!/^\d+(\.\d{1,2})?$/.test(String(form.value.payment_goods_amount ?? '')) || !/^\d+(\.\d{1,2})?$/.test(String(form.value.payment_shipping_amount ?? '')))) {
+      uni.showToast({ title: '请填写实收货款和运费', icon: 'none' })
+      return false
+    }
+  }
   if (!form.value.customer_id) {
     uni.showToast({ title: '请选择客户', icon: 'none' })
     return false
@@ -898,7 +965,7 @@ function isPriceCatalogInvalidationError(cause: unknown): boolean {
 }
 
 async function submit() {
-  if (clearingDraft.value) return
+  if (clearingDraft.value || saving.value || voucherUploading.value) return
   if (productCatalogLoading.value) return
   if (!validateOrder()) return
   saving.value = true
@@ -914,6 +981,11 @@ async function submit() {
       pay_status_id: newRetainedOrder.value ? 0 : form.value.pay_status_id,
       prepayment_amount: newRetainedOrder.value ? 0 : Number(form.value.prepayment_amount || 0),
       payment_method: newRetainedOrder.value ? '' : form.value.payment_method || '',
+      ...(!newRetainedOrder.value && employeePaymentNeedsVoucher(selectedPaymentStatus.value) && form.value.payment_voucher_asset_id
+        ? { payment_voucher_asset_id: form.value.payment_voucher_asset_id } : {}),
+      ...(!newRetainedOrder.value && selectedPaymentStatus.value.includes('已收款') ? {
+        payment_goods_amount: Number(form.value.payment_goods_amount), payment_shipping_amount: Number(form.value.payment_shipping_amount),
+      } : {}),
       ship_status_id: form.value.ship_status_id,
       receiver_name: form.value.receiver_name,
       receiver_phone: form.value.receiver_phone,
@@ -994,7 +1066,7 @@ onShow(() => {
     employeeOrderPageHasShown = true
     return
   }
-  if (loading.value || productCatalogLoading.value || Number(form.value.customer_id || 0) <= 0) return
+  if (pendingEditCatalog.value || loading.value || productCatalogLoading.value || Number(form.value.customer_id || 0) <= 0) return
   void refreshCurrentProductCatalog()
 })
 
@@ -1019,7 +1091,7 @@ onShow(() => { void refreshMiniappShareMenu() })
       </view>
 
       <view v-if="loading" class="status-card">
-        <text>{{ isEditMode || isCopyMode ? '正在加载订单和当前可售商品...' : '正在加载客户和商品...' }}</text>
+        <text>{{ isEditMode ? '正在加载原订单…' : isCopyMode ? '正在加载订单和当前可售商品…' : '正在加载客户和商品…' }}</text>
       </view>
       <view v-else-if="loadError" class="status-card error-card">
         <text>{{ loadError }}</text>
@@ -1081,6 +1153,14 @@ onShow(() => { void refreshMiniappShareMenu() })
         <text class="section-title">商品明细</text>
       </view>
 
+      <view v-if="pendingEditCatalog">
+        <view v-for="item in form.items" :key="item.key" class="item-card">
+          <text class="item-title">{{ item.product_name }} · {{ item.spec_label }}</text>
+          <text class="hint">{{ item.qty }} {{ displayedSalesUnit(item) }} × ¥{{ Number(item.unit_price).toFixed(2) }}</text>
+        </view>
+        <button class="compact-action" :loading="productCatalogLoading" :disabled="productCatalogLoading || saving" @tap="openEditCatalog">编辑商品和价格表</button>
+      </view>
+      <view v-else>
       <view v-for="(item, index) in form.items" :key="item.key" class="item-card">
         <view class="item-head">
           <text class="item-title">商品 {{ index + 1 }}</text>
@@ -1133,6 +1213,7 @@ onShow(() => { void refreshMiniappShareMenu() })
       </view>
 
       <button class="add-item add-item-after-list" @tap="addItem">新增商品</button>
+      </view>
 
       <view class="order-total">
         <text>商品估算合计</text>
@@ -1182,6 +1263,16 @@ onShow(() => { void refreshMiniappShareMenu() })
         <picker :range="receiptMethods" @change="form.payment_method = receiptMethods[Number($event.detail.value)]">
           <view class="field">{{ form.payment_method || '选择收款方式' }}</view>
         </picker>
+      </view>
+      <view v-if="selectedPaymentStatus.includes('已收款')">
+        <text class="label">实收货款（元）</text>
+        <input v-model="form.payment_goods_amount" class="field" type="digit" placeholder="填写实收货款" />
+        <text class="label">实收运费（元）</text>
+        <input v-model="form.payment_shipping_amount" class="field" type="digit" placeholder="无运费请填 0" />
+      </view>
+      <view v-if="employeePaymentNeedsVoucher(selectedPaymentStatus)">
+        <text class="label">付款凭证</text>
+        <button :loading="voucherUploading" :disabled="saving || voucherUploading" @tap="choosePaymentVoucher">{{ form.payment_voucher_asset_id ? '已上传 · 更换凭证' : '上传付款截图' }}</button>
       </view>
       <PaymentSummary :order="{ pay_status: selectedPaymentStatus, prepayment_amount: String(form.prepayment_amount || 0), grand_total: String(orderGrandTotal) }" />
       </view>

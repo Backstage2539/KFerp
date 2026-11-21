@@ -211,7 +211,13 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 		LIMIT $%d OFFSET $%d
 	`, orderReceivableSQL("o"), orderTrackingSummaryExpr(schema, "o"), orderProcessStatusExpr(schema), schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, wsql, limitArg, offsetArg)
 
-	dbRows, err := pool.Query(ctx, orderconfirmation.CurrentRead(sql, schema), args...)
+	if query.OrderID > 0 {
+		// orderListWhere binds the primary key first.
+		sql = orderconfirmation.CurrentOrderRead(sql, schema)
+	} else {
+		sql = orderconfirmation.CurrentRead(sql, schema)
+	}
+	dbRows, err := pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, false, err
 	}
@@ -257,10 +263,14 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 }
 
 func orderProcessStatusExpr(schema string) string {
+	return orderProcessStatusExprForItems(schema, schema+".order_items")
+}
+
+func orderProcessStatusExprForItems(schema, itemRelation string) string {
 	return fmt.Sprintf(`COALESCE(NULLIF(ops.name,''), CASE
 		WHEN EXISTS (
 			SELECT 1
-			FROM %[1]s.order_items oi_status
+			FROM %[2]s oi_status
 			LEFT JOIN %[1]s.products p_status ON p_status.id=oi_status.product_id
 			WHERE oi_status.order_id=o.id AND oi_status.qty>0
 			  AND COALESCE(oi_status.product_id,0) > 0
@@ -273,7 +283,7 @@ func orderProcessStatusExpr(schema string) string {
 		)
 		THEN '待计划'
 		ELSE ''
-	END)`, schema)
+	END)`, schema, itemRelation)
 }
 
 func fetchOrderIDNameMap(ctx context.Context, pool *pgxpool.Pool, sqlstr string) (map[int64]string, error) {

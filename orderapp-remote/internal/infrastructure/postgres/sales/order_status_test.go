@@ -42,11 +42,48 @@ CREATE TABLE %[1]s.order_freight_snapshots(order_id BIGINT,snapshot_json JSONB);
 		}
 		return v
 	}
+	t.Run("voucher policy on create, edit and historical data", func(t *testing.T) {
+		tx, e := pool.Begin(ctx)
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer tx.Rollback(ctx)
+		for _, tc := range []struct {
+			name, status   string
+			transition     bool
+			previous, next int64
+			wantError      bool
+		}{
+			{"new unpaid", "未付款", true, 0, 0, false},
+			{"new paid without proof", "已付款", true, 0, 0, true},
+			{"new paid with proof", "已支付", true, 0, 12, false},
+			{"transition with another employee's new proof", "已付款", true, 0, 13, true},
+			{"previously attached proof", "已付款", true, 13, 13, false},
+			{"missing asset", "已付款", true, 0, 123456, true},
+			{"historical paid without proof", "已付款", false, 0, 0, false},
+		} {
+			e := validatePaidVoucherTx(ctx, tx, schema, tc.transition, tc.status, tc.previous, tc.next, "mini-employee:7:test")
+			if (e != nil) != tc.wantError {
+				t.Errorf("%s: %v", tc.name, e)
+			}
+		}
+	})
+
 	var beforeItems string
 	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT jsonb_agg(to_jsonb(i))::text FROM %s.order_items i`, schema)).Scan(&beforeItems); err != nil {
 		t.Fatal(err)
 	}
 	cmd := salesapp.UpdateOrderStatusCommand{OrderID: 42, PayStatusID: 2, ShipStatusID: 2, PaymentMethod: "现金", ExpectedEditRevision: revision(), Actor: "mini-employee:7:test"}
+	t.Run("mini employee paid requires an uploaded voucher", func(t *testing.T) {
+		mobile := cmd
+		mobile.RequirePaidVoucher = true
+		if err := repo.UpdateOrderStatus(ctx, mobile); err == nil || err.Error() != "payment_voucher_asset_id required" {
+			t.Fatalf("error=%v", err)
+		}
+		if current := revision(); current != cmd.ExpectedEditRevision {
+			t.Fatalf("failed status advanced revision %q", current)
+		}
+	})
 	if err = repo.UpdateOrderStatus(ctx, cmd); err != nil {
 		t.Fatal(err)
 	}

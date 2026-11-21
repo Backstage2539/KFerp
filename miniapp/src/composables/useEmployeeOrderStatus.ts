@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { employeePaymentNeedsVoucher } from '../utils/employeePaymentVoucher'
 import type {
   EmployeeOrderDetail, EmployeeOrderDetailResponse, EmployeeOrderStatusOptions, EmployeeOrderStatusPayload,
 } from '../api/customerPortal'
@@ -66,22 +67,28 @@ export function useEmployeeOrderStatus(options: StatusEditorOptions) {
     if (draft.value.ship_status_id !== Number(order.ship_status_id || 0) && !statusOptions.ship_statuses.some(status => status.id === draft.value.ship_status_id)) {
       error.value = '请选择有效的发货状态'; return
     }
-    const paid = !noPayment && /预付款|已付|已收|已支付/.test(selectedPay?.name || '')
+    const paymentUnchanged = draft.value.pay_status_id === Number(order.pay_status_id || 0)
+      && draft.value.payment_method === (order.payment_method || '')
+      && draft.value.prepayment_amount === (order.prepayment_amount || '0.00')
+      && draft.value.payment_goods_amount === (order.payment_goods_amount || '')
+      && draft.value.payment_shipping_amount === (order.payment_shipping_amount || '')
+      && draft.value.payment_voucher_asset_id === Number(order.payment_voucher_asset_id || 0)
+    const paid = !paymentUnchanged && !noPayment && /预付款|已付|已收|已支付/.test(selectedPay?.name || '')
     if (paid && !draft.value.payment_method.trim()) { error.value = '请选择收款方式'; return }
     const prepayment = Number(draft.value.prepayment_amount)
-    if (draft.value.prepayment_amount.trim() && !/^\d+(\.\d{1,2})?$/.test(draft.value.prepayment_amount.trim())) {
+    if (!paymentUnchanged && draft.value.prepayment_amount.trim() && !/^\d+(\.\d{1,2})?$/.test(draft.value.prepayment_amount.trim())) {
       error.value = '预付款金额必须为非负金额，最多两位小数'; return
     }
-    if (!Number.isFinite(prepayment) || prepayment < 0 || prepayment > Number(order.grand_total || 0)) {
+    if (!paymentUnchanged && (!Number.isFinite(prepayment) || prepayment < 0 || prepayment > Number(order.grand_total || 0))) {
       error.value = '预付款金额须在 0 和订单应收金额之间'; return
     }
-    if (!noPayment && selectedPay?.name.includes('预付款') && (prepayment <= 0 || prepayment >= Number(order.grand_total || 0))) {
+    if (!paymentUnchanged && !noPayment && selectedPay?.name.includes('预付款') && (prepayment <= 0 || prepayment >= Number(order.grand_total || 0))) {
       error.value = '预付款须大于零且小于应收金额；收齐款项请选择已付款'; return
     }
-    if (!noPayment && prepayment > 0 && !selectedPay?.name.includes('预付款') && !/已付款|已收款|已支付/.test(selectedPay?.name || '')) {
+    if (!paymentUnchanged && !noPayment && prepayment > 0 && !selectedPay?.name.includes('预付款') && !/已付款|已收款|已支付/.test(selectedPay?.name || '')) {
       error.value = '已登记预付款，请选择预付款状态或已付款'; return
     }
-    const needsReceipt = !noPayment && selectedPay?.name.includes('已收款')
+    const needsReceipt = !paymentUnchanged && !noPayment && selectedPay?.name.includes('已收款')
     if (needsReceipt) {
       const shipping = Number(draft.value.payment_shipping_amount)
       const goods = Number(draft.value.payment_goods_amount)
@@ -92,8 +99,10 @@ export function useEmployeeOrderStatus(options: StatusEditorOptions) {
       if (!/^\d+(\.\d{1,2})?$/.test(draft.value.payment_shipping_amount.trim())) {
         error.value = '请输入有效的实收运费金额，无运费请填 0'; return
       }
-      if (!draft.value.payment_voucher_asset_id) { error.value = '请上传收款凭证'; return }
     }
+    const needsVoucher = needsReceipt || (!noPayment && draft.value.pay_status_id !== Number(order.pay_status_id || 0)
+      && employeePaymentNeedsVoucher(selectedPay?.name || ''))
+    if (needsVoucher && !draft.value.payment_voucher_asset_id) { error.value = '请上传付款凭证'; return }
     saving.value = true
     try {
       await options.request({
@@ -102,10 +111,11 @@ export function useEmployeeOrderStatus(options: StatusEditorOptions) {
         ship_status_id: draft.value.ship_status_id,
         payment_method: noPayment ? (order.payment_method || '') : draft.value.payment_method.trim(),
         prepayment_amount: noPayment ? Number(order.prepayment_amount || 0) : prepayment,
+        ...(paymentUnchanged ? { payment_unchanged: true } : {}),
+        ...(needsVoucher || draft.value.payment_voucher_asset_id !== Number(order.payment_voucher_asset_id || 0) ? { payment_voucher_asset_id: draft.value.payment_voucher_asset_id } : {}),
         ...(needsReceipt ? {
           payment_goods_amount: Number(draft.value.payment_goods_amount),
           payment_shipping_amount: Number(draft.value.payment_shipping_amount),
-          payment_voucher_asset_id: draft.value.payment_voucher_asset_id,
         } : {}),
       })
       editing.value = false

@@ -7,7 +7,7 @@ const order = {
   payment_method: '', prepayment_amount: '0.00', ship_status_id: 3, grand_total: '100.00',
 } as EmployeeOrderDetail
 const statuses = {
-  pay_statuses: [{ id: 1, name: '未付款' }, { id: 2, name: '已付款' }, { id: 4, name: '已付预付款' }, { id: 6, name: '已收款' }],
+  pay_statuses: [{ id: 1, name: '未付款' }, { id: 2, name: '已付款' }, { id: 4, name: '已付预付款' }, { id: 6, name: '已收款' }, { id: 7, name: '已支付' }],
   ship_statuses: [{ id: 3, name: '待发货' }, { id: 5, name: '已发货' }],
 }
 
@@ -35,6 +35,7 @@ describe('employee order status editor', () => {
     editor.start()
     editor.draft.value.pay_status_id = 2
     editor.draft.value.payment_method = '微信支付'
+    editor.draft.value.payment_voucher_asset_id = 17
     await editor.save()
     expect(request).toHaveBeenCalledWith(expect.objectContaining({ ship_status_id: 0, pay_status_id: 2 }))
   })
@@ -94,12 +95,13 @@ describe('employee order status editor', () => {
     editor.draft.value.pay_status_id = 2
     editor.draft.value.payment_method = '微信支付'
     editor.draft.value.ship_status_id = 5
+    editor.draft.value.payment_voucher_asset_id = 17
     const first = editor.save()
     await editor.save()
     expect(request).toHaveBeenCalledTimes(1)
     expect(request).toHaveBeenCalledWith({
       edit_revision: 'revision-1', pay_status_id: 2, payment_method: '微信支付',
-      prepayment_amount: 0, ship_status_id: 5,
+      prepayment_amount: 0, ship_status_id: 5, payment_voucher_asset_id: 17,
     })
     const refreshed = { order: { ...order, pay_status_id: 2, pay_status: '已付款', edit_revision: 'revision-2' } }
     refresh.mockResolvedValue(refreshed)
@@ -139,6 +141,28 @@ describe('employee order status editor', () => {
     expect(editor.draft.value.payment_voucher_asset_id).toBe(77)
     await editor.save()
     expect(request).toHaveBeenCalledWith(expect.objectContaining({ payment_goods_amount: 80, payment_shipping_amount: 20, payment_voucher_asset_id: 77 }))
+  })
+
+  it.each([2, 7])('requires an uploaded voucher for paid status %i, without invented receipt amounts', async (id) => {
+    const { editor, request } = setup()
+    editor.start()
+    editor.draft.value.pay_status_id = id
+    editor.draft.value.payment_method = '现金'
+    await editor.save()
+    expect(request).not.toHaveBeenCalled()
+    expect(editor.error.value).toContain('凭证')
+    editor.draft.value.payment_voucher_asset_id = 29
+    await editor.save()
+    expect(request.mock.calls[0][0].payment_voucher_asset_id).toBe(29)
+    expect(request.mock.calls[0][0]).not.toHaveProperty('payment_goods_amount')
+  })
+
+  it('allows a shipping-only edit on a historical paid order without a voucher or method', async () => {
+    const { editor, request } = setup(true, { ...order, pay_status_id: 2, pay_status: '已付款' })
+    editor.start()
+    editor.draft.value.ship_status_id = 5
+    await editor.save()
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({ payment_unchanged: true, ship_status_id: 5 }))
   })
 
   it('requires actual receipt values and voucher before received status can save', async () => {

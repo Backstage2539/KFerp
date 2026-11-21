@@ -54,7 +54,11 @@ func protectFreightReceiptsTx(ctx context.Context, tx pgx.Tx, schema string, id 
 			if salesdomain.IsFullyPaid(nextStatus) {
 				collected = total
 			}
-			if math.Abs(c.PaymentGoodsAmount+c.PaymentShippingAmount-collected) > 0.00001 {
+			// The employee status editor also supports voucher-only confirmation of
+			// a fully paid status, preserving the existing goods/freight split.
+			voucherOnlyPaid := c.RequirePaidVoucher && c.PayStatusID != status && salesdomain.IsFullyPaid(nextStatus) && !orderPaidStatusRequiresReceipt(nextStatus) &&
+				c.PaymentGoodsAmount == goods && c.PaymentShippingAmount == freight && samePrepayment
+			if !voucherOnlyPaid && math.Abs(c.PaymentGoodsAmount+c.PaymentShippingAmount-collected) > 0.00001 {
 				return salesapp.NewOrderEditConflictError("累计实收金额与付款状态或预付款不一致，请按实际累计到账金额核对货款、运费及收款凭证")
 			}
 		}

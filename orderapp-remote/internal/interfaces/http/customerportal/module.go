@@ -91,6 +91,8 @@ type SalesDocuments interface {
 }
 
 type EmployeeSales interface {
+	EmployeeOrderRow(context.Context, salesapp.OrderListQuery) (*salesapp.OrderRow, error)
+	OrderDetailForm(context.Context, int64) (salesapp.OrderFormData, error)
 	ListOrders(context.Context, salesapp.OrderListQuery) (salesapp.OrderListResult, error)
 	OrderForm(context.Context, int64) (salesapp.OrderFormData, error)
 	OrderEditability(context.Context, int64) (salesapp.OrderEditability, error)
