@@ -6776,3 +6776,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier: Go 后端、Vue 2074 项、员工小程序 542 项、两端构建、PostgreSQL 定向订单/确认/账单、销售单 PDF/PNG 核对通过。另行运行既有确认用例遇到缺失 stock_entries 的夹具错误。证据 `orderapp-remote/docs/acceptance/2026-11-20-order-other-fee.md`。
 - Deployment: `./deploy_orderapp.sh development` 完成，部署代码 `1a09c4d620036a97d8e55ac9d49603283777fc1a`；登录、认证后的录单页面/API 200、匿名 API 401、真实订单编辑数据两个新字段及数据库迁移核对通过。上一版源码保留于 `/opt/stacks/erp/orderapp.backup.deploy-20261120213530-1a09c4d62003`；小程序开发包已导出至 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，待微信开发者工具预览/上传。
 - 2026-11-21 正式部署：`./deploy_orderapp.sh production` 完成，`main` 部署代码 `d915284d20a3227ce73b5e0d3fb69b9ff19a46e0`。服务正常，登录与认证录单接口 200、匿名 API 401、正式订单编辑费用字段及数据库新增列核对通过。生产源码备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20261121001921-d915284d20a3`；正式小程序包已导出至 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，108 个文件清单校验通过，待微信预览、上传、审核与发布。正式环境 PR 为 review、四项 DEV 均已完成。
+
+### PR-769-MINIAPP-ORDER-SPEED
+- Branch: codex/miniapp-order-speed-status
+- Status: doing
+- Scope: 员工订单列表、详情、编辑性能及列表付款发货状态；凭证校验
+- Verifier: 单元、API、分页数据库、小程序构建与真机性能
+- Manual: orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md
+- Deployment: 待验证

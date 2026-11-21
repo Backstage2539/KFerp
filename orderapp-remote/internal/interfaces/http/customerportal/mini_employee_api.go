@@ -271,6 +271,9 @@ type miniEmployeeOrderItemRequest struct {
 }
 
 type miniEmployeeOrderRequest struct {
+	PaymentVoucherAssetID int64                          `json:"payment_voucher_asset_id"`
+	PaymentGoodsAmount    *float64                       `json:"payment_goods_amount"`
+	PaymentShippingAmount *float64                       `json:"payment_shipping_amount"`
 	DeliveryMode          string                         `json:"delivery_mode"`
 	DeliveryWarehouseCode string                         `json:"delivery_warehouse_code"`
 	FreightProtocol       string                         `json:"freight_protocol"`
@@ -381,6 +384,13 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 		selectedIDs, parseErr := miniSelectedPriceTableIDs(c.QueryParam("selected_price_table_ids"))
 		if parseErr != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": parseErr.Error()})
+		}
+		if raw := c.QueryParam("preferred_price_table_ids"); len(selectedIDs) == 0 && raw != "" {
+			preferred, err := miniSelectedPriceTableIDs(raw)
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+			}
+			selectedIDs = preferredCurrentOrderTables(priceTableOptions, preferred)
 		}
 		catalog := salesapp.OrderCatalog{Products: []salesapp.ProductOption{}, Families: []map[string]any{}, BOMSpecOptions: []salesapp.ProductBOMSpecOption{}}
 		if customerID > 0 {
@@ -590,6 +600,9 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 		if sales == nil {
 			return miniInternalError(c)
 		}
+		if c.QueryParam("lightweight") == "1" {
+			return miniEmployeeOrderCards(c, employee, sales)
+		}
 		limit, _ := strconv.Atoi(c.QueryParam("limit"))
 		if limit <= 0 {
 			limit = 30
@@ -712,7 +725,8 @@ func miniEmployeeSaveOrderCommand(req miniEmployeeOrderRequest, actor string, ed
 		}
 		items = append(items, command)
 	}
-	return salesapp.SaveOrderCommand{
+	cmd := salesapp.SaveOrderCommand{
+		RequirePaidVoucher: true, PaymentVoucherAssetID: req.PaymentVoucherAssetID,
 		SelectedPriceTableIDs: req.SelectedPriceTableIDs,
 		Actor:                 actor, EditID: editID, DocumentDate: orderDate, OrderDate: orderDate,
 		CustomerID: req.CustomerID, SourceID: req.SourceID, OrderTypeID: req.OrderTypeID,
@@ -726,7 +740,14 @@ func miniEmployeeSaveOrderCommand(req miniEmployeeOrderRequest, actor string, ed
 		ReceiverName: strings.TrimSpace(req.ReceiverName), ReceiverPhone: strings.TrimSpace(req.ReceiverPhone),
 		ReceiverAddress: strings.TrimSpace(req.ReceiverAddress), ReceiverCompany: strings.TrimSpace(req.ReceiverCompany),
 		Notes: strings.TrimSpace(req.Notes), Items: items,
-	}, nil
+	}
+	if req.PaymentGoodsAmount != nil {
+		cmd.PaymentGoodsAmount = *req.PaymentGoodsAmount
+	}
+	if req.PaymentShippingAmount != nil {
+		cmd.PaymentShippingAmount = *req.PaymentShippingAmount
+	}
+	return cmd, nil
 }
 
 func miniEmployeeAllowResponsibleFallback(cmd *salesapp.SaveOrderCommand, employee customerportalapp.CurrentContext) {
@@ -1097,7 +1118,9 @@ func miniEmployeePreserveHiddenOrderFields(cmd *salesapp.SaveOrderCommand, exist
 	cmd.LogisticsProductID = existing.LogisticsProductID
 	cmd.PaymentGoodsAmount = paymentGoodsAmount
 	cmd.PaymentShippingAmount = paymentShippingAmount
-	cmd.PaymentVoucherAssetID = existing.PaymentVoucherAssetID
+	if cmd.PaymentVoucherAssetID == 0 {
+		cmd.PaymentVoucherAssetID = existing.PaymentVoucherAssetID
+	}
 	cmd.ResponsibleType = existing.ResponsibleType
 	cmd.ResponsibleID = existing.ResponsibleID
 	cmd.ResponsibleName = existing.ResponsibleName
@@ -1314,6 +1337,12 @@ func (h miniEmployeeOrderHandler) update(c echo.Context) error {
 	if err := miniEmployeePreserveHiddenOrderFields(&cmd, form.EditData); err != nil {
 		return miniEmployeeOrderUpdateInternalError(c, "preserve_order_fields", err)
 	}
+	if req.PaymentGoodsAmount != nil {
+		cmd.PaymentGoodsAmount = *req.PaymentGoodsAmount
+	}
+	if req.PaymentShippingAmount != nil {
+		cmd.PaymentShippingAmount = *req.PaymentShippingAmount
+	}
 	if err := miniEmployeePreserveHiddenOrderItemFields(req.Items, cmd.Items, form.EditData.Items); err != nil {
 		return miniEmployeeOrderUpdateInternalError(c, "preserve_order_items", err)
 	}
@@ -1358,7 +1387,7 @@ func (h miniEmployeeOrderHandler) detail(c echo.Context) error {
 	if !ok {
 		return err
 	}
-	form, err := h.sales.OrderForm(c.Request().Context(), access.orderID)
+	form, err := h.sales.OrderDetailForm(c.Request().Context(), access.orderID)
 	if err != nil {
 		return miniInternalError(c)
 	}
@@ -1372,9 +1401,12 @@ func (h miniEmployeeOrderHandler) detail(c echo.Context) error {
 			return miniInternalError(c)
 		}
 	}
-	documents, err := h.documentSummary(c.Request().Context(), access.orderID)
-	if err != nil {
-		return miniInternalError(c)
+	var documents miniEmployeeOrderDocumentsDTO
+	if c.QueryParam("include_documents") != "false" {
+		documents, err = h.documentSummary(c.Request().Context(), access.orderID)
+		if err != nil {
+			return miniInternalError(c)
+		}
 	}
 	statusReason := miniEmployeeStatusBlockReason(access, form.EditData)
 	if _, ok := h.sales.(miniEmployeeOrderStatusUpdater); !ok {
@@ -1445,14 +1477,12 @@ func (h miniEmployeeOrderHandler) ensureMiniEmployeeOrderAccess(c echo.Context, 
 		query.Scope = "mine"
 		query.EmployeeID = employee.EmployeeID
 	}
-	result, err := h.sales.ListOrders(c.Request().Context(), query)
+	row, err := h.sales.EmployeeOrderRow(c.Request().Context(), query)
 	if err != nil {
 		return miniEmployeeOrderAccess{}, false, miniInternalError(c)
 	}
-	for _, row := range result.Rows {
-		if row.ID == orderID {
-			return miniEmployeeOrderAccess{employee: employee, orderID: orderID, row: row}, true, nil
-		}
+	if row != nil && row.ID == orderID {
+		return miniEmployeeOrderAccess{employee: employee, orderID: orderID, row: *row}, true, nil
 	}
 	return miniEmployeeOrderAccess{}, false, miniEmployeeOrderNotFound(c)
 }
@@ -2272,7 +2302,9 @@ func miniOrderKnownBusinessErrorText(err error) (string, bool) {
 		return "请填写货款金额", true
 	case "invalid payment_shipping_amount":
 		return "运费金额不正确", true
-	case "payment_voucher_asset_id required", "invalid payment_voucher_asset_id":
+	case "payment_voucher_asset_id required":
+		return "请上传付款凭证", true
+	case "invalid payment_voucher_asset_id":
 		return "付款凭证不正确", true
 	}
 	message := strings.TrimSpace(err.Error())

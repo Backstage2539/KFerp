@@ -12,3 +12,22 @@ func CurrentRead(query, schema string) string {
 	// Replace only relation tokens, not column names or functions containing them.
 	return strings.NewReplacer("FROM "+schema+".orders ", "FROM "+orders+" ", "JOIN "+schema+".orders ", "JOIN "+orders+" ", "FROM "+schema+".order_items ", "FROM "+items+" ", "JOIN "+schema+".order_items ", "JOIN "+items+" ").Replace(query)
 }
+
+// CurrentOrderRead applies pending versions only to the order bound at $1.
+// Reading the header and items through the same overlays also preserves the
+// revision that write endpoints use to reject stale edits.
+func CurrentOrderRead(query, schema string) string {
+	query = strings.NewReplacer("FROM "+schema+".orders ", "FROM effective_order ", "JOIN "+schema+".orders ", "JOIN effective_order ", "FROM "+schema+".order_items ", "FROM effective_items ", "JOIN "+schema+".order_items ", "JOIN effective_items ").Replace(query)
+	return `WITH selected_order AS MATERIALIZED (
+		SELECT src AS base, NULLIF(to_jsonb(src)->'confirmation_pending','null'::jsonb) AS pending
+		FROM ` + schema + `.orders src WHERE src.id=$1
+	), effective_order AS MATERIALIZED (
+		SELECT effective.* FROM selected_order
+		CROSS JOIN LATERAL jsonb_populate_record(base,COALESCE(pending->'order','{}'::jsonb)) effective
+	), effective_items AS MATERIALIZED (
+		SELECT i.* FROM ` + schema + `.order_items i
+		WHERE i.order_id=$1 AND EXISTS(SELECT 1 FROM selected_order WHERE pending IS NULL)
+		UNION ALL SELECT i.* FROM selected_order
+		CROSS JOIN LATERAL jsonb_populate_recordset(NULL::` + schema + `.order_items,COALESCE(NULLIF(pending->'items','null'::jsonb),'[]'::jsonb)) i
+	) ` + query
+}

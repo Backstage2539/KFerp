@@ -647,6 +647,7 @@ export function hydrateEmployeeOrderEditItems(
   customerID = 0,
   retailOrder = false,
   sampleOrderEdit = false,
+  catalogPending = false,
 ): EmployeeOrderDraftItem[] {
   if (!detailItems.length) return [createEmployeeOrderItem()]
   const available = customerProductFamilies(families, customerID)
@@ -736,6 +737,7 @@ export function hydrateEmployeeOrderEditItems(
         validation_error: '',
       })
     }
+    if (catalogPending) return historical
     if (!family || !spec) {
       return {
         ...historical,

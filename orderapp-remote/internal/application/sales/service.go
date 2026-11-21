@@ -19,6 +19,7 @@ var (
 )
 
 type SaveOrderCommand struct {
+	RequirePaidVoucher                bool
 	AmendmentID                       int64
 	DeliveryMode                      string
 	DeliveryWarehouseCode             string

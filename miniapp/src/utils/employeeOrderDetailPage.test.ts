@@ -17,10 +17,10 @@ describe('employee order detail miniapp page contract', () => {
     expect(listSource).toContain('<view v-else class="card card-disabled">')
     expect(listSource).toContain('订单编号异常，无法查看')
     expect(listSource).toContain('employeeOrderNavigationRows')
-    expect(listSource).toContain('rows.value = employeeOrderNavigationRows(response.rows)')
+    expect(listSource).toContain('const incoming = employeeOrderNavigationRows(response.rows)')
     expect(listSource).not.toContain(':url="employeeOrderDetailPagePath(row.id)"')
     expect(listSource).not.toContain('@tap="openOrderDetail(row)"')
-    expect(listSource).toContain('rememberEmployeeOrderListQuery(q.value)')
+    expect(listSource).toContain('rememberEmployeeOrderListQuery(query)')
     expect(listSource).toContain('employeeOrderListQuery()')
   })
 

@@ -147,6 +147,8 @@ describe('customer portal API helpers', () => {
 
   it('uploads a receipt to the scoped employee order endpoint', async () => {
     vi.mocked(miniUpload).mockResolvedValue({ asset: { id: 77 } })
+    await uploadEmployeeOrderPaymentVoucher('employee-token', 0, '/tmp/new.jpg')
+    expect(miniUpload).toHaveBeenCalledWith('/api/mini/employee/order/payment-voucher', '/tmp/new.jpg', 'employee-token')
     await uploadEmployeeOrderPaymentVoucher('employee-token', 42, '/tmp/receipt.jpg')
     expect(miniUpload).toHaveBeenCalledWith('/api/mini/employee/orders/42/payment-voucher', '/tmp/receipt.jpg', 'employee-token')
   })

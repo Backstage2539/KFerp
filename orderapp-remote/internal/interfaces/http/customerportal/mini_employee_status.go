@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/labstack/echo/v4"
 	salesapp "orderapp/internal/application/sales"
+	salesdomain "orderapp/internal/domain/sales"
 )
 
 type miniEmployeeOrderStatusUpdater interface {
@@ -42,6 +43,7 @@ func miniEmployeeStatusOptions(form salesapp.OrderFormData, row salesapp.OrderRo
 }
 
 type miniEmployeeOrderStatusRequest struct {
+	PaymentUnchanged      bool     `json:"payment_unchanged"`
 	EditRevision          string   `json:"edit_revision"`
 	PayStatusID           int64    `json:"pay_status_id"`
 	ShipStatusID          int64    `json:"ship_status_id"`
@@ -83,7 +85,7 @@ func (h miniEmployeeOrderHandler) updateStatus(c echo.Context) error {
 	if err = decoder.Decode(new(any)); err != io.EOF {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "请求格式不正确"})
 	}
-	form, err := h.sales.OrderForm(c.Request().Context(), access.orderID)
+	form, err := h.sales.OrderDetailForm(c.Request().Context(), access.orderID)
 	if err != nil {
 		return miniInternalError(c)
 	}
@@ -99,7 +101,17 @@ func (h miniEmployeeOrderHandler) updateStatus(c echo.Context) error {
 	if strings.TrimSpace(req.EditRevision) == "" || strings.TrimSpace(req.EditRevision) != strings.TrimSpace(form.EditData.EditRevision) {
 		return c.JSON(http.StatusConflict, map[string]string{"error": "订单已被其他操作修改，请刷新订单后再保存状态"})
 	}
-	err = updater.UpdateOrderStatus(c.Request().Context(), salesapp.UpdateOrderStatusCommand{OrderID: access.orderID, ExpectedEditRevision: strings.TrimSpace(req.EditRevision), PayStatusID: req.PayStatusID, ShipStatusID: req.ShipStatusID, PaymentMethod: req.PaymentMethod, PrepaymentAmount: req.PrepaymentAmount, PaymentGoodsAmount: req.PaymentGoodsAmount, PaymentShippingAmount: req.PaymentShippingAmount, PaymentVoucherAssetID: req.PaymentVoucherAssetID, Actor: miniEmployeeActor(access.employee)})
+	if !req.PaymentUnchanged && req.PayStatusID != form.EditData.PayStatusID && access.row.PayStatus != "无需收款" &&
+		salesdomain.IsFullyPaid(miniEmployeeOptionName(form.PayStatuses, req.PayStatusID)) {
+		voucher := form.EditData.PaymentVoucherAssetID
+		if req.PaymentVoucherAssetID != nil {
+			voucher = *req.PaymentVoucherAssetID
+		}
+		if voucher <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "请上传付款凭证"})
+		}
+	}
+	err = updater.UpdateOrderStatus(c.Request().Context(), salesapp.UpdateOrderStatusCommand{OrderID: access.orderID, PaymentUnchanged: req.PaymentUnchanged, RequirePaidVoucher: true, ExpectedEditRevision: strings.TrimSpace(req.EditRevision), PayStatusID: req.PayStatusID, ShipStatusID: req.ShipStatusID, PaymentMethod: req.PaymentMethod, PrepaymentAmount: req.PrepaymentAmount, PaymentGoodsAmount: req.PaymentGoodsAmount, PaymentShippingAmount: req.PaymentShippingAmount, PaymentVoucherAssetID: req.PaymentVoucherAssetID, Actor: miniEmployeeActor(access.employee)})
 	if err != nil {
 		var constraint *pgconn.PgError
 		if errors.As(err, &constraint) && constraint.Code == "23514" && strings.HasPrefix(constraint.Message, "待补收件信息") {

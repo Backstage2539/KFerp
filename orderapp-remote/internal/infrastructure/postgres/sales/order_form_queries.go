@@ -2308,7 +2308,7 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 	var paymentGoodsAmt, paymentShippingAmt float64
 	var outsourceMaterial, outsourceRoast, outsourcePackaging, outsourceManual, outsourceTax, outsourceOther, outsourceTotal float64
 	var paymentVoucher salesapp.SalesOrderAsset
-	err := r.pool.QueryRow(ctx, orderconfirmation.CurrentRead(q, r.schema), id).Scan(
+	err := r.pool.QueryRow(ctx, orderconfirmation.CurrentOrderRead(q, r.schema), id).Scan(
 		&d.ID,
 		&d.OrderNo,
 		&d.DocumentDate,
@@ -2415,7 +2415,7 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 	d.OutsourceTotalFee = fmt.Sprintf("%.2f", outsourceTotal)
 
 	itemsQ := orderEditItemsQuery(r.schema)
-	rows, err := r.pool.Query(ctx, orderconfirmation.CurrentRead(itemsQ, r.schema), id)
+	rows, err := r.pool.Query(ctx, orderconfirmation.CurrentOrderRead(itemsQ, r.schema), id)
 	if err != nil {
 		return nil, err
 	}

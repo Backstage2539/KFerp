@@ -26,7 +26,7 @@ func (f *miniEmployeeVoucherSalesFake) SaveSalesOrderAsset(_ context.Context, cm
 }
 
 func TestMiniEmployeePaymentVoucherUploadUsesEmployeeScopeAndActor(t *testing.T) {
-	for _, mode := range []string{"allowed", "anonymous", "customer", "read-only", "other-order", "void"} {
+	for _, mode := range []string{"allowed", "new-order", "anonymous", "customer", "read-only", "other-order", "void"} {
 		t.Run(mode, func(t *testing.T) {
 			sales := &miniEmployeeVoucherSalesFake{miniEmployeeSalesFake: miniEmployeeSalesFake{listResult: &salesapp.OrderListResult{Rows: []salesapp.OrderRow{{ID: 42, CustomerID: 8}}}}}
 			portal := employeePortalService()
@@ -52,14 +52,18 @@ func TestMiniEmployeePaymentVoucherUploadUsesEmployeeScopeAndActor(t *testing.T)
 			}
 			_, _ = file.Write([]byte("receipt"))
 			_ = form.Close()
-			req := httptest.NewRequest(http.MethodPost, "/api/mini/employee/orders/42/payment-voucher", &body)
+			path := "/api/mini/employee/orders/42/payment-voucher"
+			if mode == "new-order" {
+				path = "/api/mini/employee/order/payment-voucher"
+			}
+			req := httptest.NewRequest(http.MethodPost, path, &body)
 			req.Header.Set(echo.HeaderContentType, form.FormDataContentType())
 			if mode != "anonymous" {
 				req.Header.Set(echo.HeaderAuthorization, "Bearer token")
 			}
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
-			if mode != "allowed" {
+			if mode != "allowed" && mode != "new-order" {
 				if rec.Code < 400 || sales.uploadCalls != 0 {
 					t.Fatalf("status=%d uploads=%d body=%s", rec.Code, sales.uploadCalls, rec.Body.String())
 				}
@@ -71,7 +75,7 @@ func TestMiniEmployeePaymentVoucherUploadUsesEmployeeScopeAndActor(t *testing.T)
 			if rec.Code != http.StatusCreated || json.Unmarshal(rec.Body.Bytes(), &result) != nil || result.Asset.ID != 8 || sales.uploadCalls != 1 || sales.uploadCommand.Actor != "mini-employee:7:销售甲" || sales.uploadCommand.Kind != "payment_voucher" {
 				t.Fatalf("status=%d cmd=%+v body=%s", rec.Code, sales.uploadCommand, rec.Body.String())
 			}
-			if sales.listQuery.Scope != "mine" || sales.listQuery.EmployeeID != 7 {
+			if mode != "new-order" && (sales.listQuery.Scope != "mine" || sales.listQuery.EmployeeID != 7) {
 				t.Fatalf("query=%+v", sales.listQuery)
 			}
 		})

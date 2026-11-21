@@ -2869,8 +2869,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		payStatusID = lookupDefaultStatusID(ctx, tx, r.schema, "pay_statuses", "已付款", "已收款")
 	}
 	prepayment := 0.0
+	var previousPay, previousVoucher int64
 	if cmd.EditID > 0 {
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE((to_jsonb(o)->>'prepayment_amount')::numeric,0)::float8 FROM %s.orders o WHERE id=$1 FOR UPDATE`, r.schema), cmd.EditID).Scan(&prepayment); err != nil {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE((to_jsonb(o)->>'prepayment_amount')::numeric,0)::float8, COALESCE(o.pay_status_id,0), COALESCE(o.payment_voucher_asset_id,0) FROM %s.orders o WHERE id=$1 FOR UPDATE`, r.schema), cmd.EditID).Scan(&prepayment, &previousPay, &previousVoucher); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
 	}
@@ -2898,6 +2899,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	paymentStatus, err := lookupStatusName(ctx, tx, r.schema, "pay_statuses", payStatusID)
 	if err != nil {
 		return salesapp.SaveOrderResult{}, err
+	}
+	if cmd.RequirePaidVoucher && settlementReason != "free_sample" {
+		if err := validatePaidVoucherTx(ctx, tx, r.schema, previousPay != payStatusID, paymentStatus, previousVoucher, cmd.PaymentVoucherAssetID, cmd.Actor); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
 	}
 	if err := salesdomain.ValidatePrepayment(paymentStatus, prepayment, grandTotal); err != nil {
 		return salesapp.SaveOrderResult{}, err

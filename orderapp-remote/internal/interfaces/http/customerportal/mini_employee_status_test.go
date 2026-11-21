@@ -49,6 +49,27 @@ func TestMiniEmployeeOrderStatusUpdatesShippedOrderWithoutSavingItems(t *testing
 	}
 }
 
+func TestMiniEmployeePaidVoucherAndHistoricalShipping(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		status     int
+	}{
+		{"missing voucher", `{"edit_revision":"rev-status","pay_status_id":2,"ship_status_id":2,"payment_method":"现金"}`, 400},
+		{"shipping only", `{"edit_revision":"rev-status","ship_status_id":1,"payment_unchanged":true}`, 200},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sales := miniEmployeeStatusFixture()
+			if tc.name == "shipping only" {
+				sales.orderFormResult.EditData.PayStatusID = 2
+			}
+			rec := miniStatusRequest(echoForMiniStatus(sales), http.MethodPut, tc.body)
+			if rec.Code != tc.status || tc.status == 400 && sales.statusCalls != 0 || tc.status == 200 && !sales.statusCommand.PaymentUnchanged {
+				t.Fatalf("status=%d calls=%d command=%+v body=%s", rec.Code, sales.statusCalls, sales.statusCommand, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestMiniEmployeeOrderStatusRejectsUnrelatedFieldsAndStaleRevision(t *testing.T) {
 	for _, body := range []string{
 		`{"edit_revision":"rev-status","pay_status_id":2,"ship_status_id":2,"payment_method":"现金","items":[]}`,
@@ -114,7 +135,7 @@ func TestMiniEmployeeOrderStatusCannotBypassVoidOrFulfillmentShipping(t *testing
 	sales := miniEmployeeStatusFixture()
 	sales.listResult.Rows[0].ConfirmationRequired = true
 	sales.listResult.Rows[0].ConfirmationStatus = "accepted"
-	rec := miniStatusRequest(echoForMiniStatus(sales), http.MethodPut, `{"edit_revision":"rev-status","pay_status_id":2,"ship_status_id":2,"payment_method":"现金"}`)
+	rec := miniStatusRequest(echoForMiniStatus(sales), http.MethodPut, `{"edit_revision":"rev-status","pay_status_id":2,"ship_status_id":2,"payment_method":"现金","payment_voucher_asset_id":12}`)
 	if rec.Code != http.StatusOK || sales.statusCalls != 1 {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}

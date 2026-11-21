@@ -21,6 +21,7 @@ type UpdateOrderStatusCommand struct {
 	Actor                 string
 	Source                string
 	PaymentUnchanged      bool
+	RequirePaidVoucher    bool
 	Changed               *bool
 }
 
