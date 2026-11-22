@@ -6783,4 +6783,4 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Scope: 员工订单列表、详情、编辑性能及列表付款发货状态；凭证校验
 - Verifier: 单元、API、分页数据库、小程序构建与真机性能
 - Manual: orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md
-- Deployment: development 5daa93d387af，2026-11-22 已部署；真机验收与正式环境待完成
+- Deployment: development 与 production 均部署 5daa93d387af；正式数据库健康、登录 200、匿名接口 401，员工列表及详情只读接口 200；微信新包发布与真机验收待完成。
