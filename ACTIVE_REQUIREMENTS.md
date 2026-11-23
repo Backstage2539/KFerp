@@ -1,3 +1,8 @@
+### PR-770-MINIAPP-PRIVACY
+- 分支 `codex/miniapp-privacy-review`，负责人 Codex。小程序 576 项测试、类型检查与开发构建通过。待开发部署、手机验收及微信复审。
+- DEV-PR770-LOGIN 统一登录前主动同意并验证旧会话。DEV-PR770-ADDRESS 收件授权、撤回、真机验证及微信复审。
+- 验收覆盖账号密码、微信手机号、分享寄样、员工代录及拒绝后继续浏览。
+
 ### PR-WORKSTATION-START-SIMPLIFY-20261113
 - Branch: `codex/workstation-streamline-start-20261113`；base: `origin/main`。
 - Scope: 删除工位中“确认本批开工用料”区域，保留批次预览及必要的库存校验和缺料入口。

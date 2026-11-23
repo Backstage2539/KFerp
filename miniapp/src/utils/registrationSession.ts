@@ -1,3 +1,4 @@
+import { loginAccount, currentLoginConsent } from './loginConsent'
 import { fetchMe, loginWithCode } from '../api/customerPortal'
 import { isAuthenticationExpiredRequestError } from '../api/client'
 import { wechatLoginCode } from '../api/registration'
@@ -34,13 +35,19 @@ export async function restoreRegistrationSession(session: ReturnType<typeof useS
         }
       }
     }
+    const consent = session.consent
+    if (!currentLoginConsent(consent)) return
     const expectedToken = session.token
     try {
       const code = await wechatLoginCode()
       if (session.autoRestoreBlocked || session.token !== expectedToken) return
       const result = await loginWithCode(code)
       if (session.autoRestoreBlocked || session.token !== expectedToken) return
-      if (result.registration_complete || (result.bindings || []).some(binding => binding.status === 'approved')) {
+      if (consent !== session.consent || loginAccount(result) !== consent.account) {
+        session.clearSession()
+        return
+      }
+      if (result.account_type === 'employee' || result.registration_complete || (result.bindings || []).some(binding => binding.status === 'approved')) {
         session.setToken(result.token)
         session.applyContext(result)
       }

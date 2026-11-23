@@ -3,7 +3,7 @@ import { fetchMiniappSharePolicy } from '../api/customerPortal'
 import { applyMiniappShareMenu, refreshMiniappShareMenu } from './miniappShare'
 
 vi.mock('../api/customerPortal', () => ({ fetchMiniappSharePolicy: vi.fn() }))
-vi.mock('../stores/session', () => ({ miniappTokenStorageKey: () => 'kferp.mini.production.token' }))
+vi.mock('../stores/session', () => ({ storedLoginSession: () => ({ token: 'employee-token' }) }))
 
 beforeEach(() => {
   vi.mocked(fetchMiniappSharePolicy).mockReset()

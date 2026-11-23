@@ -23,6 +23,7 @@ import MainTabBar from '../../components/MainTabBar.vue'
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import { useSessionStore } from '../../stores/session'
+import { consentScope, hasRecipientConsent, revokeRecipientConsent } from '../../utils/recipientConsent'
 import {
   customerEntryRoute,
   customerPickerIndex as selectedCustomerPickerIndex,
@@ -89,6 +90,24 @@ const serviceDescriptions = computed(() => {
   if (hasCapability('settlement')) items.push('费用中心可查看按订单归集的本期费用明细，并下载 PDF 或 Excel。')
   return items
 })
+
+const mayWithdrawConsent = computed(() => hasRecipientConsent(session))
+
+async function withdrawRecipientConsent() {
+  const scope = consentScope(session)
+  const decision = await uni.showModal({
+    title: '撤回收件信息授权',
+    content: '撤回后，下次使用收件信息前会重新征求同意。已提交订单的配送状态不受影响。',
+    confirmText: '撤回授权',
+  })
+  if (!decision.confirm || scope !== consentScope(session)) return
+  try {
+    revokeRecipientConsent(session)
+    uni.showToast({ title: '授权已撤回', icon: 'none' })
+  } catch {
+    uni.showToast({ title: '未能撤回，请重试', icon: 'none' })
+  }
+}
 
 async function clearAndLogin() {
   if (loggingOut.value) return
@@ -313,6 +332,13 @@ onShow(() => { void refreshMiniappShareMenu() })
         <button class="secondary" @tap="openRecipientAddresses">管理收件地址</button>
       </view>
 
+      <view class="profile-card">
+        <text class="card-title">协议与隐私</text>
+        <navigator class="service-copy agreement-link" url="/pages/service-agreements/service-agreements?type=terms">用户服务协议</navigator>
+        <navigator class="service-copy agreement-link" url="/pages/service-agreements/service-agreements?type=privacy">隐私政策</navigator>
+        <button v-if="mayWithdrawConsent" class="secondary" @tap="withdrawRecipientConsent">撤回收件信息授权</button>
+      </view>
+
       <view v-if="!isEmployee && serviceDescriptions.length" class="profile-card">
         <text class="card-title">服务说明</text>
         <text v-for="item in serviceDescriptions" :key="item" class="service-copy">{{ item }}</text>
@@ -380,6 +406,7 @@ onShow(() => { void refreshMiniappShareMenu() })
 </template>
 
 <style scoped>
+.agreement-link { padding: 6rpx 0; text-decoration: underline; }
 .page {
   min-height: 100vh;
   padding: 32rpx 32rpx 160rpx;

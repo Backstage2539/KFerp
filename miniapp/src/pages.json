@@ -75,6 +75,12 @@
       }
     },
     {
+      "path": "pages/service-agreements/service-agreements",
+      "style": {
+        "navigationBarTitleText": "服务协议与隐私政策"
+      }
+    },
+    {
       "path": "pages/customer-addresses/customer-addresses",
       "style": {
         "navigationBarTitleText": "收件地址"

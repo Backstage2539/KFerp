@@ -1,5 +1,5 @@
 import { fetchMiniappSharePolicy } from '../api/customerPortal'
-import { miniappTokenStorageKey } from '../stores/session'
+import { storedLoginSession } from '../stores/session'
 
 export type MiniappSharePayload = {
   title: string
@@ -32,7 +32,7 @@ export function applyMiniappShareMenu(canShare: boolean, platform = runtimeShare
 
 export async function refreshMiniappShareMenu(platform = runtimeSharePlatform()): Promise<void> {
   try {
-    const token = String(uni.getStorageSync(miniappTokenStorageKey()) || '')
+    const token = storedLoginSession().token
     const policy = await fetchMiniappSharePolicy(token)
     applyMiniappShareMenu(policy.can_share === true, platform)
   } catch {

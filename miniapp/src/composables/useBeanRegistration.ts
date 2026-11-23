@@ -10,11 +10,13 @@ import { phoneVerifiedDestination } from '../utils/customerSwitch'
 export function useBeanRegistration(openEntry: (key: string) => void) {
   const session = useSessionStore()
   const visible = ref(false), title = ref(''), error = ref('')
+  const agreed = ref(false)
   const busy = ref(false), restoring = ref(false)
   let target = '', generation = 0
 
   function close() {
     generation++
+    agreed.value = false
     visible.value = false
     busy.value = false
     restoring.value = false
@@ -45,6 +47,7 @@ export function useBeanRegistration(openEntry: (key: string) => void) {
   }
   async function submit(detail: { code?: string; errMsg?: string }) {
     if (!visible.value || busy.value) return
+    if (!agreed.value) { error.value = '请先阅读并勾选两份协议'; return }
     if (!detail.code) { error.value = '未授权手机号，可重试或暂不查看'; return }
     const request = generation, key = target
     busy.value = true
@@ -55,8 +58,7 @@ export function useBeanRegistration(openEntry: (key: string) => void) {
       const result = await loginWithPhoneIdentify(code, detail.code)
       if (request !== generation) return
       if (!result.token) throw new Error('身份验证未完成，请重新授权手机号')
-      session.setToken(result.token)
-      session.applyContext(result)
+      session.acceptLogin(result)
       close()
       const identified = result.account_type === 'employee' || (result.bindings || []).some(binding => binding.status === 'approved')
       if (identified) uni.reLaunch({ url: phoneVerifiedDestination(result) })
@@ -67,5 +69,5 @@ export function useBeanRegistration(openEntry: (key: string) => void) {
       if (request === generation) busy.value = false
     }
   }
-  return { visible, title, error, busy, restoring, openCard, openRequired, close, submit }
+  return { agreed, visible, title, error, busy, restoring, openCard, openRequired, close, submit }
 }

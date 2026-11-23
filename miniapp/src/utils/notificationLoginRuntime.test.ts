@@ -10,7 +10,7 @@ import Select from '../pages/customer-select/customer-select.vue'
 const restore = vi.hoisted(() => vi.fn(async () => {}))
 vi.mock('../utils/registrationSession', () => ({ restoreRegistrationSession: restore }))
 const hooks = vi.hoisted(() => ({ load: [] as ((q: Record<string,string>) => void)[], show: [] as (() => void)[] }))
-const state = vi.hoisted(() => ({ token: '', bindings: [] as any[], autoRestoreBlocked: true, setToken: vi.fn(), applyContext: vi.fn() }))
+const state = vi.hoisted(() => ({ token: '', bindings: [] as any[], autoRestoreBlocked: true, acceptLogin: vi.fn(), applyContext: vi.fn() }))
 const api = vi.hoisted(() => ({ loginWithPhoneIdentify: vi.fn(), loginWithPassword: vi.fn(), fetchMiniLoginOptions: vi.fn(), fetchMe: vi.fn(), switchCurrentCustomer: vi.fn() }))
 vi.mock('@dcloudio/uni-app', () => ({ onLoad: (f: any) => hooks.load.push(f), onShow: (f: any) => hooks.show.push(f), onHide: vi.fn(), onShareAppMessage: vi.fn(), onShareTimeline: vi.fn() }))
 vi.mock('../stores/session', () => ({ useSessionStore: () => state }))
@@ -36,7 +36,7 @@ function mount(component: any, filename: string) {
 }
 function find(node: Node, predicate: (n:Node)=>boolean): Node | undefined { if(predicate(node)) return node; for(const child of node.children){const result=find(child,predicate);if(result)return result} }
 async function flush(){await Promise.resolve();await nextTick();await Promise.resolve();await nextTick()}
-beforeEach(()=>{hooks.load.length=0;hooks.show.length=0;state.token='';state.bindings=[];state.setToken.mockReset();state.applyContext.mockReset();state.autoRestoreBlocked=true;restore.mockReset();restore.mockResolvedValue();Object.values(api).forEach(f=>f.mockReset());api.fetchMiniLoginOptions.mockResolvedValue({show_password_login:false});(globalThis as any).uni={reLaunch:vi.fn(),redirectTo:vi.fn(),login:({success}:any)=>success({code:'wechat-code'})}})
+beforeEach(()=>{hooks.load.length=0;hooks.show.length=0;state.token='';state.bindings=[];state.acceptLogin.mockReset();state.applyContext.mockReset();state.autoRestoreBlocked=true;restore.mockReset();restore.mockResolvedValue();Object.values(api).forEach(f=>f.mockReset());api.fetchMiniLoginOptions.mockResolvedValue({show_password_login:false});(globalThis as any).uni={reLaunch:vi.fn(),redirectTo:vi.fn(),login:({success}:any)=>success({code:'wechat-code'})}})
 
 it('returns a phone-authenticated customer to the receipt detail',async()=>{
   const target='/pages/notification-detail/notification-detail?type=receipt&id=42'
@@ -44,10 +44,13 @@ it('returns a phone-authenticated customer to the receipt detail',async()=>{
   const {root,app}=mount(Login,'login');try{
     hooks.load[0]({return_to:encodeURIComponent(target)})
     hooks.show[0]()
+    expect(find(root,n=>n.props['open-type']==='getPhoneNumber')).toBeUndefined()
+    ;(app as any)._instance.setupState.agreed = true
+    await flush()
     const button=find(root,n=>n.props['open-type']==='getPhoneNumber')!
     await button.props.onGetphonenumber({detail:{code:'phone-code'}});await flush()
     expect(api.loginWithPhoneIdentify).toHaveBeenCalledWith('wechat-code','phone-code')
-    expect(state.setToken).toHaveBeenCalledWith('fresh')
+    expect(state.acceptLogin).toHaveBeenCalledWith(expect.objectContaining({token:'fresh'}))
     expect((globalThis as any).uni.reLaunch).toHaveBeenCalledWith({url:target})
   }finally{app.unmount()}
 })
@@ -57,6 +60,8 @@ it('returns a phone-authenticated employee to the order detail',async()=>{
   const {root,app}=mount(Login,'login');try{
     hooks.load[0]({return_to:encodeURIComponent(target)})
     hooks.show[0]()
+    ;(app as any)._instance.setupState.agreed = true
+    await flush()
     await find(root,n=>n.props['open-type']==='getPhoneNumber')!.props.onGetphonenumber({detail:{code:'phone-code'}});await flush()
     expect((globalThis as any).uni.reLaunch).toHaveBeenCalledWith({url:target})
   }finally{app.unmount()}
@@ -103,12 +108,15 @@ it('does not let a pending session restore redirect while password login is in p
     const vm = (app as any)._instance.setupState
     vm.loginName = 'customer'
     vm.password = 'secret'
+    await vm.handlePasswordLogin()
+    expect(api.loginWithPassword).not.toHaveBeenCalled()
+    vm.agreed = true
     const pending = vm.handlePasswordLogin()
     finishRestore(); await flush()
     expect((globalThis as any).uni.reLaunch).not.toHaveBeenCalled()
     finishPassword({token:'customer-token',current_customer_id:74,bindings:[{customer_id:74,status:'approved'}]})
     await pending; await flush()
-    expect(state.setToken).toHaveBeenCalledWith('customer-token')
+    expect(state.acceptLogin).toHaveBeenCalledWith(expect.objectContaining({token:'customer-token'}))
     expect((globalThis as any).uni.reLaunch).toHaveBeenCalledWith({url:'/pages/home/home'})
   } finally {app.unmount()}
 })
@@ -121,9 +129,11 @@ it('keeps phone login usable when login options cannot be loaded', async () => {
     hooks.load[0]({})
     hooks.show[0]()
     await flush()
+    ;(app as any)._instance.setupState.agreed = true
+    await flush()
     await find(root,n=>n.props['open-type']==='getPhoneNumber')!.props.onGetphonenumber({detail:{code:'phone-code'}})
     await flush()
-    expect(state.setToken).toHaveBeenCalledWith('customer-token')
+    expect(state.acceptLogin).toHaveBeenCalledWith(expect.objectContaining({token:'customer-token'}))
     expect((globalThis as any).uni.reLaunch).toHaveBeenCalledWith({url:'/pages/home/home'})
   } finally {app.unmount()}
 })

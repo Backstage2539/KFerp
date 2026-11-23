@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed,ref} from 'vue'
+import {computed,ref,watch} from 'vue'
 import {onLoad,onShow,onHide,onShareAppMessage,onShareTimeline} from '@dcloudio/uni-app'
 import {fetchSamples,fetchSample,fetchSampleOptions,assignSample,confirmSample,followupSample,type SampleRequest,type SampleOptions,type SampleReceiver} from '../../api/samples'
 import {MiniRequestError} from '../../api/client'
@@ -9,6 +9,8 @@ import {canUseEmployeePriceCenter} from '../../utils/priceCenterAccess'
 import {canConfirmSample,validSampleMoney,confirmRows,sampleTotal,sampleStatus,sampleDate,followupOptions,followupLabel} from '../../utils/samples'
 import {loginRouteFor} from '../../utils/loginReturn'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
+import RecipientConsent from '../../components/RecipientConsent.vue'
+import {consentScope,hasRecipientConsent} from '../../utils/recipientConsent'
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import {defaultMiniappShare,defaultMiniappTimelineShare,refreshMiniappShareMenu} from '../../utils/miniappShare'
@@ -22,6 +24,14 @@ const options=ref<SampleOptions>({customers:[],employees:[],specs:[],sources:[],
 const customerTypeChoices=computed(()=>options.value.customer_types.map(value=>({value,label:({retail:'零售客户',ecommerce:'电商客户',wholesale:'批发客户',channel:'渠道客户'} as Record<string,string>)[value]||value})))
 const employeeID=ref(0),customerID=ref(0),newCustomerMode=ref(false),customerSearch=ref(''),customerName=ref(''),customerType=ref(''),sourceID=ref(0),orderTypeID=ref(0)
 const receiver=ref<SampleReceiver>({name:'',phone:'',address:''}),items=ref<ReturnType<typeof confirmRows>>([]),freight=ref(0),note=ref(''),followupStatus=ref('following'),followupNote=ref('')
+const needsRecipientConsent=computed(()=>session.registrationComplete&&!staff.value&&!hasRecipientConsent(session))
+watch([()=>consentScope(session),needsRecipientConsent],()=>{
+ detail.value=null
+ rows.value=[]
+ total.value=0
+ search.value=''
+ receiver.value={name:'',phone:'',address:''}
+},{flush:'sync'})
 const selectedItems=computed(()=>items.value.filter(i=>i.selected)), totalAmount=computed(()=>sampleTotal(selectedItems.value,freight.value)), terminal=computed(()=>['won','abandoned'].includes(detail.value?.followup_status||''))
 const canConfirm=computed(()=>!!detail.value&&staff.value&&canConfirmSample(detail.value)), confirmValid=computed(()=>selectedItems.value.length>0&&selectedItems.value.every(i=>i.bom_spec_id>0&&Number.isInteger(Number(i.qty))&&Number(i.qty)>0&&Number(i.qty)<=100000&&validSampleMoney(i.unit_price))&&validSampleMoney(freight.value)&&Number.isSafeInteger(Math.round(totalAmount.value*100))&&!!receiver.value.name.trim()&&!!receiver.value.phone.trim()&&!!receiver.value.address.trim()&&(newCustomerMode.value?!!customerName.value.trim()&&!!customerType.value&&sourceID.value>0&&orderTypeID.value>0:customerID.value>0))
 const statuses=[{value:'',label:'全部'},{value:'pending_assignment',label:'待分配'},{value:'pending_contact',label:'待联系'},{value:'ordered',label:'已确认寄样'},{value:'closed',label:'跟进结束'}]
@@ -45,9 +55,12 @@ async function load(){
   if(request!==sequence)return
   if(session.accountType==='employee'&&!staff.value)throw new Error('只有销售或管理员可以处理样品工单')
   if(!staff.value&&!session.registrationComplete)throw new Error('请先在价格表中心完成昵称和手机号登记')
-  if(id.value){const value=await fetchSample(session.token,staff.value,id.value);if(request!==sequence)return;detail.value=value
-   if(staff.value){const result=await fetchSampleOptions(session.token,id.value);if(request!==sequence)return;options.value=result;employeeID.value=value.assignee_id;customerID.value=value.customer_id||options.value.suggested_customer_id||0;newCustomerMode.value=false;receiver.value={...value.receiver};items.value=confirmRows(value.items,options.value.specs||[]);freight.value=0;note.value='';customerName.value=value.nickname||value.receiver.name;sourceID.value=0;orderTypeID.value=0;customerType.value='';followupStatus.value=terminal.value?value.followup_status:'following';followupNote.value=''}
-  }else{detail.value=null;const result=await fetchSamples(session.token,staff.value,{q:search.value,status:status.value,page:page.value});if(request!==sequence)return;rows.value=result.rows||[];total.value=result.total}
+  if(!staff.value&&!hasRecipientConsent(session))return
+  const requestScope=consentScope(session), employeeView=staff.value
+  const isCurrent=()=>request===sequence&&requestScope===consentScope(session)&&employeeView===staff.value&&(employeeView||hasRecipientConsent(session))
+  if(id.value){const value=await fetchSample(session.token,employeeView,id.value);if(!isCurrent())return;detail.value=value
+   if(employeeView){const result=await fetchSampleOptions(session.token,id.value);if(!isCurrent())return;options.value=result;employeeID.value=value.assignee_id;customerID.value=value.customer_id||options.value.suggested_customer_id||0;newCustomerMode.value=false;receiver.value={...value.receiver};items.value=confirmRows(value.items,options.value.specs||[]);freight.value=0;note.value='';customerName.value=value.nickname||value.receiver.name;sourceID.value=0;orderTypeID.value=0;customerType.value='';followupStatus.value=terminal.value?value.followup_status:'following';followupNote.value=''}
+  }else{detail.value=null;const result=await fetchSamples(session.token,employeeView,{q:search.value,status:status.value,page:page.value});if(!isCurrent())return;rows.value=result.rows||[];total.value=result.total}
  }catch(e){if(request!==sequence)return;detail.value=null;rows.value=[];error.value=e instanceof Error?e.message:'加载失败，请重试'}finally{if(request===sequence)loading.value=false}
 }
 async function run(action:()=>Promise<SampleRequest>,success:string){if(busy.value)return;const request=sequence,requestID=id.value,token=session.token;busy.value=true;error.value='';try{const result=await action();if(request!==sequence||requestID!==id.value||token!==session.token)return;detail.value=result;uni.showToast({title:success,icon:'success'});await load()}catch(e){if(request!==sequence||requestID!==id.value||token!==session.token)return;error.value=e instanceof Error?e.message:'操作失败，请重试';if(e instanceof MiniRequestError&&e.statusCode===409)uni.showToast({title:'工单已更新，请重新加载后处理',icon:'none'})}finally{busy.value=false}}
@@ -61,7 +74,8 @@ onShow(()=>{void load()})
 <template><view class="page pull-up-brand-page" @touchstart="handlePullUpBrandTouchStart" @touchmove="handlePullUpBrandTouchMove" @touchend="handlePullUpBrandTouchEnd" @touchcancel="handlePullUpBrandTouchCancel"><EnvironmentBadge/><view class="heading"><text class="title">{{staff?'样品工单':'我的样品申请'}}</text><button size="mini" @tap="home">{{staff?'员工首页':'价格表中心'}}</button></view>
 <button v-if="id" class="back" @tap="list">返回申请列表</button>
 <view v-if="error" class="error"><text>{{error}}</text><button :disabled="busy" @tap="load">重新加载</button><button v-if="!session.token" @tap="login">登录</button></view>
-<text v-if="loading" class="state">正在加载…</text>
+<RecipientConsent v-if="needsRecipientConsent" @accepted="load" @declined="home"/>
+<text v-else-if="loading" class="state">正在加载…</text>
 <template v-else-if="!id"><view class="filters"><input v-model="search" placeholder="搜索申请编号、客户或电话" confirm-type="search" @confirm="reloadList"/><button size="mini" @tap="reloadList">搜索</button><picker :range="statuses" range-key="label" @change="changeStatus"><view class="picker">{{statuses.find(s=>s.value===status)?.label||'全部'}} ▾</view></picker></view>
 <text v-if="!rows.length&&!error" class="state">暂无样品申请</text><view v-for="row in rows" :key="row.id" class="card clickable" @tap="open(row)"><view class="line"><text class="strong">{{row.number}}</text><text class="tag">{{sampleStatus(row.status)}}</text></view><text>{{row.publication_name}} · {{row.publication_version}}</text><text class="muted">{{row.items.map(i=>i.name).join('、')}}</text><text>{{row.receiver.name}} · {{row.receiver.phone}}</text><text v-if="staff" class="muted">负责人：{{row.assignee_name||'待分配'}} · {{followupLabel(row.followup_status)}}</text><text class="muted">{{sampleDate(row.created_at)}} →</text></view>
 <view v-if="total" class="pagination"><button size="mini" :disabled="page<=1" @tap="changePage(-1)">上一页</button><text>{{page}} / {{Math.ceil(total/20)}} · {{total}} 份</text><button size="mini" :disabled="page*20>=total" @tap="changePage(1)">下一页</button></view></template>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
 import {
   defaultMiniappShare,
@@ -7,8 +7,10 @@ import {
   refreshMiniappShareMenu,
 } from '../../utils/miniappShare'
 import { buildAPIURL } from '../../api/client'
-import { createMallOrder, fetchMallPage, type MallPageResponse } from '../../api/customerPortal'
+import { createMallOrder, fetchMallPage, fetchMe, type MallPageResponse } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
+import RecipientConsent from '../../components/RecipientConsent.vue'
+import { consentScope, hasRecipientConsent } from '../../utils/recipientConsent'
 import MainTabBar from '../../components/MainTabBar.vue'
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
@@ -44,6 +46,12 @@ const loading = ref(false)
 const submitting = ref(false)
 const errorMessage = ref('')
 const recipient = ref({ name: '', phone: '', address: '', note: '' })
+const requestingConsent = ref(false)
+const recipientAllowed = computed(() => hasRecipientConsent(session))
+watch([() => consentScope(session), recipientAllowed], () => {
+  recipient.value = { name: '', phone: '', address: '', note: '' }
+  requestingConsent.value = false
+}, { flush: 'sync' })
 
 const products = computed(() => visibleMallProducts(page.value?.products || []))
 const activeThemeKey = computed(() => page.value?.theme_key || session.themeKey)
@@ -60,8 +68,20 @@ async function loadMall() {
   }
   loading.value = true
   errorMessage.value = ''
+  const token = session.token
   try {
-    const data = await fetchMallPage(session.token)
+    if (!consentScope(session)) {
+      const identity = await fetchMe(token)
+      if (token !== session.token) return
+      session.applyContext(identity)
+    }
+    const scope = consentScope(session)
+    if (!scope) {
+      uni.reLaunch({ url: '/pages/login/login' })
+      return
+    }
+    const data = await fetchMallPage(token)
+    if (token !== session.token || scope !== consentScope(session)) return
     page.value = data
     session.applyContext({
       mini_user_id: session.miniUserID,
@@ -71,6 +91,11 @@ async function loadMall() {
       miniapp_entry_mode: data.miniapp_entry_mode || session.entryMode,
       bindings: session.bindings,
       capabilities: session.capabilities,
+      account_type: session.accountType,
+      employee_id: session.employeeID,
+      employee_name: session.employeeName,
+      roles: session.roles,
+      permissions: session.permissions,
     })
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '商城加载失败'
@@ -111,6 +136,7 @@ function setMallSalesUnit(product: MallProduct, event: { detail?: { value?: numb
 }
 
 async function submitOrder() {
+  if (submitting.value || !hasRecipientConsent(session)) return
   const payload = buildMallOrderPayload(recipient.value, cart.value)
   if (!payload.recipient_name || !payload.recipient_phone || !payload.recipient_address) {
     errorMessage.value = '请填写收货信息'
@@ -122,8 +148,11 @@ async function submitOrder() {
   }
   submitting.value = true
   errorMessage.value = ''
+  const token = session.token
+  const scope = consentScope(session)
   try {
-    const order = await createMallOrder(session.token, payload)
+    const order = await createMallOrder(token, payload)
+    if (token !== session.token || scope !== consentScope(session) || !hasRecipientConsent(session)) return
     cart.value = []
     recipient.value.note = ''
     uni.showToast({ title: order.order_no || '已提交', icon: 'success' })
@@ -216,7 +245,7 @@ onShow(() => { void refreshMiniappShareMenu() })
           </view>
         </view>
 
-        <view class="form">
+        <view v-if="recipientAllowed" class="form">
           <input v-model="recipient.name" class="input" placeholder="收件人" />
           <input v-model="recipient.phone" class="input" placeholder="手机号" />
           <input v-model="recipient.address" class="input" placeholder="收货地址" />
@@ -225,6 +254,8 @@ onShow(() => { void refreshMiniappShareMenu() })
             {{ submitting ? '提交中' : '提交订单' }}
           </button>
         </view>
+        <RecipientConsent v-else-if="requestingConsent" @accepted="requestingConsent = false" @declined="requestingConsent = false" />
+        <button v-else class="submit" @tap="requestingConsent = true">填写收货信息</button>
       </view>
     </view>
 

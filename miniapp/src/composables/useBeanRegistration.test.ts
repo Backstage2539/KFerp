@@ -8,7 +8,7 @@ import { registerVisitor, wechatLoginCode } from '../api/registration'
 import { restoreRegistrationSession } from '../utils/registrationSession'
 import { useBeanRegistration } from './useBeanRegistration'
 
-const session = { token: '', miniUserID: 0, bindings: [] as Array<{customer_id:number;status:string}>, accountType: '', roles: [] as string[], registrationComplete: false, registration: null, setToken: vi.fn(), applyContext: vi.fn() }
+const session = { token: '', miniUserID: 0, bindings: [] as Array<{customer_id:number;status:string}>, accountType: '', roles: [] as string[], registrationComplete: false, registration: null, acceptLogin: vi.fn() }
 const card = { key: 'a'.repeat(32), name: '咖啡豆标准', visibility: 'registered', version: 'v1', updated_at: '' }
 const response = { token: 'verified', registration_complete: true, current_customer_id: 0, bindings: [{customer_id: 1}, {customer_id: 2}] }
 function deferred<T>() { let resolve!: (value:T)=>void; const promise = new Promise<T>(r => {resolve=r}); return {promise,resolve} }
@@ -27,9 +27,10 @@ describe('price card inline registration', () => {
     const navigate = vi.fn(), form = useBeanRegistration(navigate)
     await form.openCard(card)
     expect(form.visible.value).toBe(true); expect(form.title.value).toBe(card.name); expect(navigate).not.toHaveBeenCalled()
+    form.agreed.value = true
     await form.submit({code:'phone-code'})
     expect(loginWithPhoneIdentify).toHaveBeenCalledWith('wx-code','phone-code')
-    expect(session.setToken).toHaveBeenCalledWith('verified'); expect(session.applyContext).toHaveBeenCalledWith(response)
+    expect(session.acceptLogin).toHaveBeenCalledWith(response)
     expect(navigate).toHaveBeenCalledTimes(1); expect(navigate).toHaveBeenCalledWith(card.key); expect(form.visible.value).toBe(false)
   })
   it.each(['sales','admin'])('lets a %s employee open registered center cards without collecting phone',async role=>{session.accountType='employee';session.roles=[role];const navigate=vi.fn(),form=useBeanRegistration(navigate);await form.openCard(card);expect(navigate).toHaveBeenCalledWith(card.key);expect(form.visible.value).toBe(false);expect(loginWithPhoneIdentify).not.toHaveBeenCalled()})
@@ -50,12 +51,15 @@ describe('price card inline registration', () => {
     const wait = deferred<typeof response>(); vi.mocked(loginWithPhoneIdentify).mockReturnValue(wait.promise as never)
     const navigate = vi.fn(), form = useBeanRegistration(navigate)
     await form.openCard(card); await form.openCard({...card,key:'b'.repeat(32)})
+    form.agreed.value = true
     const first = form.submit({code:'once'}); await Promise.resolve()
+    form.agreed.value = true
     await form.submit({code:'once'}); expect(loginWithPhoneIdentify).toHaveBeenCalledTimes(1)
     wait.resolve(response); await first; expect(navigate).toHaveBeenCalledTimes(1); expect(navigate).toHaveBeenCalledWith(card.key)
   })
   it('does not request a phone exchange when authorization is rejected', async () => {
     const navigate=vi.fn(), form=useBeanRegistration(navigate); await form.openCard(card)
+    form.agreed.value = true
     await form.submit({errMsg:'getPhoneNumber:fail user deny'})
     expect(loginWithPhoneIdentify).not.toHaveBeenCalled(); expect(form.visible.value).toBe(true)
     form.close(); expect(form.visible.value).toBe(false); expect(navigate).not.toHaveBeenCalled()
@@ -63,7 +67,9 @@ describe('price card inline registration', () => {
   it('keeps failures in the sheet and allows a fresh authorization retry', async () => {
     vi.mocked(loginWithPhoneIdentify).mockRejectedValueOnce(new Error('凭证失效，请重试'))
     const navigate=vi.fn(), form=useBeanRegistration(navigate); await form.openCard(card);
+    form.agreed.value = true
     await form.submit({code:'old'}); expect(form.error.value).toContain('凭证失效'); expect(form.busy.value).toBe(false)
+    form.agreed.value = true
     await form.submit({code:'fresh'}); expect(navigate).toHaveBeenCalledTimes(1)
   })
   it('does not reopen or navigate when the user leaves during session restoration', async () => {
@@ -75,8 +81,9 @@ describe('price card inline registration', () => {
   it('ignores a registration response arriving after cancellation', async () => {
     const wait=deferred<typeof response>(); vi.mocked(loginWithPhoneIdentify).mockReturnValue(wait.promise as never)
     const navigate=vi.fn(), form=useBeanRegistration(navigate); form.openRequired(card.key,card.name);
+    form.agreed.value = true
     const saving=form.submit({code:'phone'}); await Promise.resolve(); form.close(); wait.resolve(response); await saving
-    expect(navigate).not.toHaveBeenCalled(); expect(session.setToken).not.toHaveBeenCalled()
+    expect(navigate).not.toHaveBeenCalled(); expect(session.acceptLogin).not.toHaveBeenCalled()
   })
   it('stays on the directory when session restoration fails instead of asking for phone again', async () => {
     vi.mocked(restoreRegistrationSession).mockRejectedValue(new Error('网络暂不可用'))
@@ -96,6 +103,7 @@ describe('phone authorization distinguishes customer from visitor', () => {
     vi.mocked(loginWithPhoneIdentify).mockResolvedValue({token:'employee',account_type:'employee',current_customer_id:0,bindings:[]} as never)
     const open=vi.fn(), form=useBeanRegistration(open)
     form.openRequired(card.key,card.name)
+    form.agreed.value = true
     await form.submit({code:'phone'})
     expect(uni.reLaunch).toHaveBeenCalledWith({url:'/pages/home/home'})
     expect(open).not.toHaveBeenCalled()
@@ -104,6 +112,7 @@ describe('phone authorization distinguishes customer from visitor', () => {
     vi.mocked(loginWithPhoneIdentify).mockResolvedValue({token:'customer',registration_complete:true,current_customer_id:74,bindings:[{customer_id:74,status:'approved'}]} as never)
     const open=vi.fn(), form=useBeanRegistration(open)
     form.openRequired(card.key,card.name)
+    form.agreed.value = true
     await form.submit({code:'phone'})
     expect(uni.reLaunch).toHaveBeenCalledWith({url:'/pages/home/home'})
     expect(open).not.toHaveBeenCalled()
@@ -112,6 +121,7 @@ describe('phone authorization distinguishes customer from visitor', () => {
     vi.mocked(loginWithPhoneIdentify).mockResolvedValue({token:'customer',registration_complete:true,current_customer_id:0,bindings:[{customer_id:1,status:'approved'},{customer_id:2,status:'approved'}]} as never)
     const open=vi.fn(), form=useBeanRegistration(open)
     form.openRequired(card.key,card.name)
+    form.agreed.value = true
     await form.submit({code:'phone'})
     expect(uni.reLaunch).toHaveBeenCalledWith({url:'/pages/customer-select/customer-select?return_to=%2Fpages%2Fhome%2Fhome'})
     expect(open).not.toHaveBeenCalled()
@@ -120,6 +130,7 @@ describe('phone authorization distinguishes customer from visitor', () => {
     vi.mocked(loginWithPhoneIdentify).mockResolvedValue({token:'visitor',registration_complete:true,current_customer_id:0,bindings:[]} as never)
     const open=vi.fn(), form=useBeanRegistration(open)
     form.openRequired(card.key,card.name);
+    form.agreed.value = true
     await form.submit({code:'phone'})
     expect(open).toHaveBeenCalledWith(card.key)
     expect(uni.reLaunch).not.toHaveBeenCalled()
@@ -133,9 +144,19 @@ describe('phone identity first', () => {
     vi.mocked(loginWithPhoneIdentify).mockResolvedValue({token:'customer',current_customer_id:74,bindings:[{customer_id:74,status:'approved'}]} as never)
     const open=vi.fn(), form=useBeanRegistration(open)
     form.openRequired(card.key,card.name)
+    form.agreed.value = true
     await form.submit({code:'phone'})
     expect(loginWithPhoneIdentify).toHaveBeenCalledWith('wx','phone')
     expect(registerVisitor).not.toHaveBeenCalled()
     expect(uni.reLaunch).toHaveBeenCalledWith({url:'/pages/home/home'})
   })
+})
+
+it('does not request a login code from a share sheet before agreement', async () => {
+  vi.resetAllMocks()
+  const form = useBeanRegistration(vi.fn())
+  form.openRequired(card.key, card.name)
+  await form.submit({code:'phone'})
+  expect(wechatLoginCode).not.toHaveBeenCalled()
+  expect(loginWithPhoneIdentify).not.toHaveBeenCalled()
 })

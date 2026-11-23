@@ -38,6 +38,8 @@ import {
   type EmployeeOrderProductSpec,
 } from '../../api/customerPortal'
 import { isAuthenticationExpiredRequestError, MiniRequestError } from '../../api/client'
+import EmployeeRecipientGate from '../../components/EmployeeRecipientGate.vue'
+import { consentScope, hasRecipientConsent } from '../../utils/recipientConsent'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
@@ -76,6 +78,7 @@ import { useSessionStore } from '../../stores/session'
 import { takeOrderForEditor } from '../../utils/employeeOrderHandoff'
 
 const session = useSessionStore()
+const recipientAllowed = computed(() => hasRecipientConsent(session))
 const {
   pullUpBrandRevealed,
   handlePullUpBrandTouchStart,
@@ -116,6 +119,7 @@ const canCreateCustomer = computed(() => session.permissions.includes('customers
 let customerEditorIntentSequence = 0
 let customerContextLoadPromise: Promise<boolean> | undefined
 let productCatalogLoadSequence = 0
+let recipientRevision = 0
 let employeeOrderPageHasShown = false
 
 function emptyShippingSnapshot(): EmployeeOrderShippingSnapshot {
@@ -375,6 +379,7 @@ function closeCustomerSelector() {
 }
 
 async function loadCustomerProductCatalog(targetCustomerID: number): Promise<boolean> {
+  if (!recipientAllowed.value) return false
   const sequence = ++productCatalogLoadSequence
   productCatalogLoading.value = true
   try {
@@ -470,11 +475,15 @@ async function refreshCurrentProductCatalog(): Promise<boolean> {
 }
 
 async function ensureCustomerContext(): Promise<boolean> {
+  if (!recipientAllowed.value) return false
   if (customerContext.value) return true
   if (!customerContextLoadPromise) {
     customerContextLoadPromise = (async () => {
       try {
-        customerContext.value = await fetchEmployeeCustomers(session.token)
+        const revision = recipientRevision
+        const data = await fetchEmployeeCustomers(session.token)
+        if (revision !== recipientRevision) return false
+        customerContext.value = data
         return true
       } catch (cause) {
         uni.showToast({ title: cause instanceof Error ? cause.message : '客户维护数据加载失败', icon: 'none' })
@@ -682,8 +691,11 @@ async function restoreDraft(draft: EmployeeOrderDraft) {
 }
 
 async function loadDraft() {
+  if (!recipientAllowed.value) return
   if (isEditMode.value) return
+  const revision = recipientRevision
   const response = await fetchEmployeeOrderDraft(session.token)
+  if (revision !== recipientRevision) return
   if (response.draft) await restoreDraft(response.draft)
 }
 
@@ -720,6 +732,8 @@ async function openEditCatalog() {
 }
 
 async function loadForm() {
+  if (!recipientAllowed.value) return
+  const revision = recipientRevision
   editingSampleOrder.value = false
   prepaymentRate.value = 0
   loading.value = true
@@ -739,6 +753,7 @@ async function loadForm() {
         throw new Error(detailResponse.edit_block_reason || detailResponse.order.edit_block_reason || '订单当前不能编辑')
       }
     }
+    if (revision !== recipientRevision) return
     const targetCustomerID = Number(detailResponse?.order.customer_id || 0)
     const edit = isEditMode.value ? detailResponse?.order : undefined
     pendingEditCatalog.value = edit
@@ -751,6 +766,7 @@ async function loadForm() {
       ship_statuses: detailResponse?.status_options?.ship_statuses || [],
       product_families: [],
     } : await fetchEmployeeOrderForm(session.token, targetCustomerID, [], storedPriceTables(detailResponse?.order))
+    if (revision !== recipientRevision) return
     formData.value = {
       ...data,
       customers: data.customers || [],
@@ -824,6 +840,7 @@ async function loadForm() {
     form.value.selected_price_table_ids = data.selected_price_table_ids || []
     if (!isEditMode.value && !isCopyMode.value) await loadDraft()
   } catch (cause) {
+    if (revision !== recipientRevision) return
     authExpired.value = !session.token || isAuthenticationExpiredRequestError(cause)
     if (authExpired.value) session.clearSession()
     formData.value = undefined
@@ -831,11 +848,12 @@ async function loadForm() {
       ? '登录已失效，请重新登录'
       : (cause instanceof Error ? cause.message : '录单数据加载失败')
   } finally {
-    loading.value = false
+    if (revision === recipientRevision) loading.value = false
   }
 }
 
 async function saveDraft() {
+  if (!recipientAllowed.value) return
   if (isEditMode.value) return
   if (productCatalogLoading.value) return
   if (clearingDraft.value) return
@@ -965,6 +983,7 @@ function isPriceCatalogInvalidationError(cause: unknown): boolean {
 }
 
 async function submit() {
+  if (!recipientAllowed.value) return
   if (clearingDraft.value || saving.value || voucherUploading.value) return
   if (productCatalogLoading.value) return
   if (!validateOrder()) return
@@ -1053,6 +1072,21 @@ async function submit() {
   }
 }
 
+watch(() => recipientAllowed.value ? consentScope(session) : '', (allowed) => {
+  recipientRevision++
+  productCatalogLoadSequence++
+  customerEditorIntentSequence++
+  customerContextLoadPromise = undefined
+  formData.value = undefined
+  form.value = createOrderForm()
+  customerEditorOpen.value = false
+  customerContext.value = undefined
+  draftRecord.value = null
+  productCatalogLoading.value = false
+  pendingEditCatalog.value = undefined
+  if (allowed) void loadForm()
+}, { flush: 'sync' })
+
 onLoad((options) => {
   editOrderID.value = Number(options?.edit_id || 0)
   copyOrderID.value = Number(options?.copy_id || 0)
@@ -1062,6 +1096,7 @@ onLoad((options) => {
 })
 
 onShow(() => {
+  if (!recipientAllowed.value) return
   if (!employeeOrderPageHasShown) {
     employeeOrderPageHasShown = true
     return
@@ -1084,6 +1119,8 @@ onShow(() => { void refreshMiniappShareMenu() })
     @touchcancel="handlePullUpBrandTouchCancel"
   >
     <EnvironmentBadge />
+    <EmployeeRecipientGate v-if="!recipientAllowed" />
+    <template v-else>
     <view class="panel">
       <view class="title-row">
         <text class="title">{{ isEditMode ? '编辑销售订单' : (isCopyMode ? '复制销售订单' : '新建销售订单') }}</text>
@@ -1371,6 +1408,7 @@ onShow(() => { void refreshMiniappShareMenu() })
       @close="closeCustomerEditor"
       @saved="customerSaved"
     />
+    </template>
   </view>
 </template>
 

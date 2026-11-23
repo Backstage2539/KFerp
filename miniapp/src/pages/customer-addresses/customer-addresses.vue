@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
-import { onLoad, onShareAppMessage, onShareTimeline, onShow } from '@dcloudio/uni-app'
+import { computed, reactive, ref, shallowRef, watch } from 'vue'
+import { onHide, onLoad, onShareAppMessage, onShareTimeline, onShow, onUnload } from '@dcloudio/uni-app'
 import {
   createRecipientAddress,
   deleteRecipientAddress,
@@ -11,11 +11,14 @@ import {
   type CustomerRecipientAddressPayload,
 } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
+import RecipientConsent from '../../components/RecipientConsent.vue'
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import { useCustomerOrderDraftStore, type CustomerOrderMode, type CustomerOrderRecipient } from '../../stores/customerOrderDraft'
 import { useSessionStore } from '../../stores/session'
 import { defaultMiniappShare, defaultMiniappTimelineShare, refreshMiniappShareMenu } from '../../utils/miniappShare'
+import { consentScope, hasRecipientConsent } from '../../utils/recipientConsent'
+import { restoreRegistrationSession } from '../../utils/registrationSession'
 
 const session = useSessionStore()
 const orderDraft = useCustomerOrderDraftStore()
@@ -38,6 +41,65 @@ const requestedAddressID = ref(0)
 const orderEditorInitialized = ref(false)
 const form = reactive(emptyForm())
 const isOrderFlow = computed(() => orderMode.value === 'direct_ship' || orderMode.value === 'product_order')
+const context = computed(() => [session.token, session.currentCustomerID, consentScope(session)] as const)
+const authorizedContext = shallowRef<typeof context.value | null>(null)
+const hasConsent = computed(() => !!session.token && hasRecipientConsent(session))
+const consentGranted = computed(() => hasConsent.value && authorizedContext.value === context.value)
+let accessRevision = 0
+let pageVisible = false
+
+function clearAccess() {
+  accessRevision++
+  authorizedContext.value = null
+  rows.value = []
+  loading.value = false
+  saving.value = false
+  errorMessage.value = ''
+  orderEditorInitialized.value = false
+  resetForm()
+}
+
+function canAccess(revision = accessRevision) {
+  return revision === accessRevision && consentGranted.value
+}
+
+function refreshAccess() {
+  if (!session.token) {
+    clearAccess()
+    uni.reLaunch({ url: '/pages/login/login' })
+    return
+  }
+  if (!hasConsent.value) {
+    clearAccess()
+    return
+  }
+  if (consentGranted.value && loading.value) return
+  authorizedContext.value = context.value
+  void load()
+}
+
+async function enterPage() {
+  if (session.token && !consentScope(session)) {
+    try {
+      await restoreRegistrationSession(session)
+    } catch (error) {
+      if (pageVisible) errorMessage.value = error instanceof Error ? error.message : '账户加载失败，请稍后重试'
+      return
+    }
+  }
+  if (pageVisible) refreshAccess()
+}
+
+function declineAccess() {
+  clearAccess()
+  uni.navigateBack({ fail: () => uni.reLaunch({ url: '/pages/index/index' }) })
+}
+
+watch([context, hasConsent], () => {
+  if (consentGranted.value) return
+  clearAccess()
+  if (pageVisible) refreshAccess()
+})
 
 function emptyForm() {
   return { id: 0, recipient_name: '', phone: '', company: '', province: '', city: '', district: '', detail_address: '', is_default: false, revision: 0 }
@@ -56,20 +118,19 @@ function fillForm(row: Partial<CustomerOrderRecipient>) {
 }
 
 async function load() {
-  if (!session.token) {
-    uni.reLaunch({ url: '/pages/login/login' })
-    return
-  }
+  const revision = accessRevision
+  if (!canAccess(revision)) return
   loading.value = true
   errorMessage.value = ''
   try {
     const data = await fetchRecipientAddresses(session.token)
+    if (!canAccess(revision)) return
     rows.value = data.rows || []
     initializeOrderEditor()
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '收件地址加载失败'
+    if (canAccess(revision)) errorMessage.value = error instanceof Error ? error.message : '收件地址加载失败'
   } finally {
-    loading.value = false
+    if (revision === accessRevision) loading.value = false
   }
 }
 
@@ -86,19 +147,23 @@ function initializeOrderEditor() {
 }
 
 function startCreate() {
+  if (!canAccess()) return
   resetForm()
   form.is_default = rows.value.length === 0
   editing.value = true
 }
 
 function startEdit(row: CustomerRecipientAddress) {
+  if (!canAccess()) return
   fillForm(row)
 }
 
 async function parseRecipient() {
-  if (!pastedRecipient.value.trim()) return
+  const revision = accessRevision
+  if (!canAccess(revision) || !pastedRecipient.value.trim()) return
   try {
     const parsed = await parseEmployeeCustomerRecipient(session.token, pastedRecipient.value)
+    if (!canAccess(revision)) return
     form.recipient_name = parsed.recipient_name || form.recipient_name
     form.phone = parsed.phone || form.phone
     form.province = parsed.province || ''
@@ -106,11 +171,12 @@ async function parseRecipient() {
     form.district = parsed.district || ''
     form.detail_address = parsed.detail_address || parsed.address || ''
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '收件信息解析失败'
+    if (canAccess(revision)) errorMessage.value = error instanceof Error ? error.message : '收件信息解析失败'
   }
 }
 
 function formPayload(): CustomerRecipientAddressPayload | null {
+  if (!canAccess()) return null
   if (!form.recipient_name.trim() || !form.phone.trim() || !form.detail_address.trim()) {
     errorMessage.value = '请填写收件人、联系电话和详细地址'
     return null
@@ -136,6 +202,7 @@ function useOnlyThisOrder() {
 }
 
 async function save(saveAndUse = false) {
+  const revision = accessRevision
   if (saving.value) return
   const payload = formPayload()
   if (!payload) return
@@ -145,6 +212,7 @@ async function save(saveAndUse = false) {
     const saved = form.id
       ? await updateRecipientAddress(session.token, form.id, payload)
       : await createRecipientAddress(session.token, payload)
+    if (!canAccess(revision)) return
     uni.showToast({ title: '收件客户已保存', icon: 'success' })
     if (saveAndUse && isOrderFlow.value) {
       stageForOrder(saved)
@@ -153,21 +221,24 @@ async function save(saveAndUse = false) {
     resetForm()
     await load()
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '收件地址保存失败'
+    if (canAccess(revision)) errorMessage.value = error instanceof Error ? error.message : '收件地址保存失败'
   } finally {
-    saving.value = false
+    if (revision === accessRevision) saving.value = false
   }
 }
 
 async function remove(row: CustomerRecipientAddress) {
+  const revision = accessRevision
+  if (!canAccess(revision)) return
   const answer = await uni.showModal({ title: '删除收件地址', content: `确认删除 ${row.recipient_name} 的地址？` })
-  if (!answer.confirm) return
+  if (!answer.confirm || !canAccess(revision)) return
   try {
     await deleteRecipientAddress(session.token, row)
+    if (!canAccess(revision)) return
     if (form.id === row.id) resetForm()
     await load()
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '收件地址删除失败'
+    if (canAccess(revision)) errorMessage.value = error instanceof Error ? error.message : '收件地址删除失败'
   }
 }
 
@@ -180,7 +251,16 @@ onLoad((options) => {
   requestedAddressID.value = Math.max(0, Number(options?.address_id || 0))
   fulfillmentMode.value = options?.fulfillment_mode === 'stock' || options?.fulfillment_mode === 'on_demand' ? options.fulfillment_mode : undefined
 })
-onShow(() => { void load(); void refreshMiniappShareMenu() })
+onShow(() => {
+  pageVisible = true
+  void enterPage()
+  void refreshMiniappShareMenu()
+})
+onHide(() => { pageVisible = false })
+onUnload(() => {
+  pageVisible = false
+  clearAccess()
+})
 onShareAppMessage(defaultMiniappShare)
 onShareTimeline(defaultMiniappTimelineShare)
 </script>
@@ -188,35 +268,38 @@ onShareTimeline(defaultMiniappTimelineShare)
 <template>
   <view class="page pull-up-brand-page" @touchstart="handlePullUpBrandTouchStart" @touchmove="handlePullUpBrandTouchMove" @touchend="handlePullUpBrandTouchEnd" @touchcancel="handlePullUpBrandTouchCancel">
     <EnvironmentBadge />
-    <view class="header">
-      <text class="title">{{ isOrderFlow ? '维护收件客户' : '收件地址' }}</text>
-      <text class="muted">当前客户的所有账号共用</text>
-    </view>
-    <button v-if="!isOrderFlow && !editing" class="primary" @tap="startCreate">新增收件地址</button>
-    <view v-if="editing" class="panel form">
-      <textarea v-model="pastedRecipient" class="textarea" placeholder="粘贴收件人、电话和地址" />
-      <button class="secondary" @tap="parseRecipient">解析收件信息</button>
-      <input v-model="form.recipient_name" class="input" placeholder="收件人" />
-      <input v-model="form.phone" class="input" placeholder="联系电话" />
-      <input v-model="form.company" class="input" placeholder="公司/门店（可选）" />
-      <view class="region"><input v-model="form.province" class="input" placeholder="省" /><input v-model="form.city" class="input" placeholder="市" /><input v-model="form.district" class="input" placeholder="区/县" /></view>
-      <input v-model="form.detail_address" class="input" placeholder="详细地址" />
-      <label class="switch-row"><text>设为默认地址</text><switch :checked="form.is_default" color="#28624a" @change="setDefault" /></label>
-      <view v-if="isOrderFlow" class="order-actions">
-        <button class="secondary" :disabled="saving" @tap="useOnlyThisOrder">仅本单使用</button>
-        <button class="primary" :disabled="saving" @tap="save(true)">保存并使用</button>
+    <RecipientConsent v-if="!consentGranted" @accepted="refreshAccess" @declined="declineAccess" />
+    <template v-else>
+      <view class="header">
+        <text class="title">{{ isOrderFlow ? '维护收件客户' : '收件地址' }}</text>
+        <text class="muted">当前客户的所有账号共用</text>
       </view>
-      <view v-else class="actions"><button class="secondary" @tap="resetForm">取消</button><button class="primary" :disabled="saving" @tap="save(false)">保存</button></view>
-    </view>
-    <text v-if="loading" class="muted">加载中...</text>
-    <template v-if="!isOrderFlow">
-      <view v-for="row in rows" :key="row.id" class="panel address-card">
-        <view class="address-head"><text class="name">{{ row.recipient_name }} · {{ row.phone }}</text><text v-if="row.is_default" class="badge">默认</text></view>
-        <text v-if="row.company" class="muted">{{ row.company }}</text>
-        <text>{{ row.province }}{{ row.city }}{{ row.district }}{{ row.detail_address }}</text>
-        <view class="actions"><button class="secondary compact" @tap="startEdit(row)">编辑</button><button class="danger compact" @tap="remove(row)">删除</button></view>
+      <button v-if="!isOrderFlow && !editing" class="primary" @tap="startCreate">新增收件地址</button>
+      <view v-if="editing" class="panel form">
+        <textarea v-model="pastedRecipient" class="textarea" placeholder="粘贴收件人、电话和地址" />
+        <button class="secondary" @tap="parseRecipient">解析收件信息</button>
+        <input v-model="form.recipient_name" class="input" placeholder="收件人" />
+        <input v-model="form.phone" class="input" placeholder="联系电话" />
+        <input v-model="form.company" class="input" placeholder="公司/门店（可选）" />
+        <view class="region"><input v-model="form.province" class="input" placeholder="省" /><input v-model="form.city" class="input" placeholder="市" /><input v-model="form.district" class="input" placeholder="区/县" /></view>
+        <input v-model="form.detail_address" class="input" placeholder="详细地址" />
+        <label class="switch-row"><text>设为默认地址</text><switch :checked="form.is_default" color="#28624a" @change="setDefault" /></label>
+        <view v-if="isOrderFlow" class="order-actions">
+          <button class="secondary" :disabled="saving" @tap="useOnlyThisOrder">仅本单使用</button>
+          <button class="primary" :disabled="saving" @tap="save(true)">保存并使用</button>
+        </view>
+        <view v-else class="actions"><button class="secondary" @tap="resetForm">取消</button><button class="primary" :disabled="saving" @tap="save(false)">保存</button></view>
       </view>
-      <text v-if="!loading && !rows.length" class="muted empty">暂无收件地址</text>
+      <text v-if="loading" class="muted">加载中...</text>
+      <template v-if="!isOrderFlow">
+        <view v-for="row in rows" :key="row.id" class="panel address-card">
+          <view class="address-head"><text class="name">{{ row.recipient_name }} · {{ row.phone }}</text><text v-if="row.is_default" class="badge">默认</text></view>
+          <text v-if="row.company" class="muted">{{ row.company }}</text>
+          <text>{{ row.province }}{{ row.city }}{{ row.district }}{{ row.detail_address }}</text>
+          <view class="actions"><button class="secondary compact" @tap="startEdit(row)">编辑</button><button class="danger compact" @tap="remove(row)">删除</button></view>
+        </view>
+        <text v-if="!loading && !rows.length" class="muted empty">暂无收件地址</text>
+      </template>
     </template>
     <text v-if="errorMessage" class="error">{{ errorMessage }}</text>
     <view class="pull-up-brand-footer-anchor"><PullUpBrandFooter :revealed="pullUpBrandRevealed" /></view>

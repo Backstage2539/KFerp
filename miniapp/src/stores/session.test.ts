@@ -56,3 +56,31 @@ describe('miniapp session storage boundary', () => {
     expect(useSessionStore().autoRestoreBlocked).toBe(false)
   })
 })
+
+it('requires fresh agreement before exposing a legacy token or using WeChat restoration', async () => {
+  vi.stubEnv('VITE_KFERP_ENVIRONMENT', 'development')
+  vi.stubEnv('VITE_KFERP_API_BASE', 'https://dev.qacoohee.com/app')
+  const storage = new Map<string, unknown>([[miniappTokenStorageKey(), 'legacy-login']])
+  vi.stubGlobal('uni', { getStorageSync: (key: string) => storage.get(key), removeStorageSync: (key: string) => storage.delete(key), setStorageSync: vi.fn() })
+  setActivePinia(createPinia())
+  expect(useSessionStore().token).toBe('')
+})
+
+it('records the accepting account and version together with the session, forgets an obsolete version and fails closed on storage error', () => {
+  vi.stubEnv('VITE_KFERP_ENVIRONMENT', 'development')
+  vi.stubEnv('VITE_KFERP_API_BASE', 'https://dev.qacoohee.com/app')
+  const storage = new Map<string, any>()
+  vi.stubGlobal('uni', { getStorageSync: (key: string) => storage.get(key), removeStorageSync: (key: string) => storage.delete(key), setStorageSync: (key:string, value:unknown) => storage.set(key,value) })
+  setActivePinia(createPinia())
+  const employee = {account_type:'employee',employee_id:5,mini_user_id:0,token:'new',current_customer_id:0,bindings:[],capabilities:[]}
+  useSessionStore().acceptLogin(employee)
+  setActivePinia(createPinia())
+  expect(useSessionStore().token).toBe('new')
+  expect(useSessionStore().consent).toMatchObject({account:'employee-5',version:'2026-11-24',acceptedAt:expect.any(Number)})
+  storage.get(miniappTokenStorageKey()).consent.version = 'old'
+  setActivePinia(createPinia())
+  expect(useSessionStore().token).toBe('')
+  uni.setStorageSync = () => { throw new Error('full') }
+  expect(() => useSessionStore().acceptLogin(employee)).toThrow('full')
+  expect(useSessionStore().token).toBe('')
+})
