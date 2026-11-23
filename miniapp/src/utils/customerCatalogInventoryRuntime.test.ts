@@ -20,6 +20,9 @@ vi.mock('../api/customerPortal', () => ({
   cancelDirectShipRequest: vi.fn(), createDirectShipRequest: api.createDirectShip, createProductOrder: api.createProductOrder,
   previewDirectShipRequest: api.previewDirectShip, previewProductOrder: api.previewProductOrder,
 }))
+vi.mock('../components/RecipientConsent.vue', () => ({
+  default: { render: () => null },
+}))
 vi.mock('@dcloudio/uni-app', () => ({ onShow: vi.fn(), onHide: vi.fn() }))
 
 type Node = { type: string; children: Node[]; parent?: Node; props: Record<string, any>; text?: string; [key: string]: any }
@@ -38,7 +41,7 @@ clientRender(ReadOnlyShip, 'CustomerDirectShipReadOnly')
 clientRender(ProductPicker, 'ProductFamilyPickerSheet')
 function mount(component: any, props: Record<string, unknown>, prepare?: (pinia: ReturnType<typeof createPinia>) => void) {
   const root: Node = { type: 'root', children: [], props: {} }
-  const app = renderer.createApp({ setup: () => () => h(component, { token: 'isolated', customerId: 901, ...props }) })
+  const app = renderer.createApp({ setup: () => () => h(component, { token: 'isolated', customerId: 901, ...(component === DirectShip ? { recipientAccess: true } : {}), ...props }) })
   const pinia = createPinia()
   app.use(pinia); prepare?.(pinia); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root)
   return { app, root }
@@ -135,7 +138,7 @@ it('real stock-purchase entry previews and submits retained goods without a reci
   api.productCatalog.mockResolvedValue({ current_customer_id: 901, product_families: [purchaseFamily], price_tables: [{ id: 71, table_name: '测试价格表' }], fulfillment_settings: purchaseSettings })
   api.previewProductOrder.mockResolvedValue({ can_submit: true, total_amount: 20, price_quote_token: 'retained-price-token', items: [] })
   api.createProductOrder.mockResolvedValue({ id: 90101 })
-  const { app, root } = mount(DirectShip, { orderMode: 'product_order', stockPurchase: true })
+  const { app, root } = mount(DirectShip, { orderMode: 'product_order', stockPurchase: true, recipientAccess: false })
   try {
     await settle()
     expect(text(root)).toContain('提交购货订单')
@@ -151,6 +154,7 @@ it('real stock-purchase entry previews and submits retained goods without a reci
     expect(submit.props.disabled).toBe(false)
     await submit.props.onTap()
     await settle()
+    expect(api.recipients).not.toHaveBeenCalled()
     expect(api.createProductOrder).toHaveBeenCalledTimes(1)
     expect(api.previewProductOrder).toHaveBeenCalled()
     const command = api.createProductOrder.mock.calls[0][1]
@@ -158,6 +162,37 @@ it('real stock-purchase entry previews and submits retained goods without a reci
     expect(command.fulfillment_mode).toBeUndefined()
     expect(api.previewDirectShip).not.toHaveBeenCalled()
     expect(uni.navigateBack).toHaveBeenCalledOnce()
+  } finally { app.unmount() }
+})
+
+it('opens shipping drafts and fetches the address book only after consent, and drops a late response on withdrawal', async () => {
+  api.directCatalog.mockResolvedValue({ current_customer_id: 901, fulfillment_mode: 'stock', fulfillment_settings: purchaseSettings, product_families: [purchaseFamily], price_tables: [] })
+  let resolveAddresses!: (value: unknown) => void
+  api.recipients.mockImplementation(() => new Promise(resolve => { resolveAddresses = resolve }))
+  const allowed = Vue.ref(false)
+  const root: Node = { type: 'root', children: [], props: {} }, pinia = createPinia()
+  purchaseDraft(pinia, 'direct_ship', 'ship')
+  const restore = vi.spyOn(useCustomerOrderDraftStore(pinia), 'restoreDraft')
+  const app = renderer.createApp({ setup: () => () => h(DirectShip, { token: 'isolated', customerId: 901, entryMode: 'stock', recipientAccess: allowed.value }) })
+  app.use(pinia); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root)
+  try {
+    await settle()
+    expect(api.directCatalog).toHaveBeenCalled()
+    expect(restore).not.toHaveBeenCalled()
+    expect(api.recipients).not.toHaveBeenCalled()
+    expect(find(root, node => node.type === 'button' && node.props.class === 'primary submit')).toHaveLength(0)
+    allowed.value = true
+    await settle()
+    expect(restore).toHaveBeenCalled()
+    expect(api.recipients).toHaveBeenCalledTimes(1)
+    allowed.value = false
+    await settle()
+    resolveAddresses({ rows: [{ recipient_name: '旧收件人', phone: '123', detail_address: '旧地址', is_default: true }] })
+    await settle()
+    expect(text(root)).not.toContain('旧收件人')
+    expect(find(root, node => node.type === 'button' && node.props.class === 'primary submit')).toHaveLength(0)
+    expect(api.previewDirectShip).not.toHaveBeenCalled()
+    expect(api.createDirectShip).not.toHaveBeenCalled()
   } finally { app.unmount() }
 })
 
@@ -421,7 +456,7 @@ it('preview discards an old catalog when the customer and token change', async (
     : Promise.resolve({ current_customer_id: 902, fulfillment_mode: 'stock', fulfillment_settings: purchaseSettings, product_families: [{ ...purchaseFamily, name: '新客户商品' }], price_tables: [] }))
   const identity = Vue.reactive({ token: 'old-token', customerId: 901 })
   const root: Node = { type: 'root', children: [], props: {} }, pinia = createPinia()
-  const app = renderer.createApp({ setup: () => () => h(DirectShip, { ...identity, entryMode: 'stock', readOnly: true }) })
+  const app = renderer.createApp({ setup: () => () => h(DirectShip, { recipientAccess: true, ...identity, entryMode: 'stock', readOnly: true }) })
   app.use(pinia); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root)
   try {
     await settle()
@@ -441,7 +476,7 @@ it('changing a normal customer session to preview rejects the old in-flight cata
     : Promise.resolve({ current_customer_id: 901, fulfillment_mode: 'stock', fulfillment_settings: purchaseSettings, product_families: [{ ...purchaseFamily, name: '只读商品' }], price_tables: [] }))
   const identity = Vue.reactive({ token: 'customer-token', customerId: 901, readOnly: false })
   const root: Node = { type: 'root', children: [], props: {} }, pinia = createPinia()
-  const app = renderer.createApp({ setup: () => () => h(DirectShip, { ...identity, entryMode: 'stock' }) })
+  const app = renderer.createApp({ setup: () => () => h(DirectShip, { recipientAccess: true, ...identity, entryMode: 'stock' }) })
   app.use(pinia); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root)
   try {
     await settle()
@@ -462,7 +497,7 @@ it('leaving preview rejects an old preview catalog for the same customer', async
     : Promise.resolve({ current_customer_id: 901, fulfillment_mode: 'stock', fulfillment_settings: purchaseSettings, product_families: [{ ...purchaseFamily, name: '客户新商品' }], price_tables: [] }))
   const identity = Vue.reactive({ token: 'preview-token', customerId: 901, readOnly: true })
   const root: Node = { type: 'root', children: [], props: {} }, pinia = createPinia()
-  const app = renderer.createApp({ setup: () => () => h(DirectShip, { ...identity, entryMode: 'stock' }) })
+  const app = renderer.createApp({ setup: () => () => h(DirectShip, { recipientAccess: true, ...identity, entryMode: 'stock' }) })
   app.use(pinia); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root)
   try {
     await settle()
@@ -481,7 +516,7 @@ it('switching to preview removes real customer in-memory draft content', async (
   const root: Node = { type: 'root', children: [], props: {} }, pinia = createPinia()
   purchaseDraft(pinia, 'direct_ship', 'ship')
   const store = useCustomerOrderDraftStore(pinia)
-  const app = renderer.createApp({ setup: () => () => h(DirectShip, { ...identity, entryMode: 'stock' }) })
+  const app = renderer.createApp({ setup: () => () => h(DirectShip, { recipientAccess: true, ...identity, entryMode: 'stock' }) })
   app.use(pinia); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root)
   try {
     await settle()
@@ -499,7 +534,7 @@ it('preview to customer transition supports recipient handoff', async () => {
   api.directCatalog.mockResolvedValue({ current_customer_id: 901, fulfillment_mode: 'stock', fulfillment_settings: purchaseSettings, product_families: [purchaseFamily], price_tables: [] })
   const identity = Vue.reactive({ token: 'preview-token', customerId: 901, readOnly: true })
   const root: Node = { type: 'root', children: [], props: {} }, pinia = createPinia()
-  const app = renderer.createApp({ setup: () => () => h(DirectShip, { ...identity, entryMode: 'stock' }) })
+  const app = renderer.createApp({ setup: () => () => h(DirectShip, { recipientAccess: true, ...identity, entryMode: 'stock' }) })
   app.use(pinia); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root)
   try {
     await settle()
@@ -522,7 +557,7 @@ it('a successful old submission cannot clear or navigate the newly previewed ses
   const root: Node = { type: 'root', children: [], props: {} }, pinia = createPinia()
   purchaseDraft(pinia, 'stock_purchase', 'customer_stock')
   const store = useCustomerOrderDraftStore(pinia), clear = vi.spyOn(store, 'clearDraft')
-  const app = renderer.createApp({ setup: () => () => h(DirectShip, { ...identity, orderMode: 'product_order', stockPurchase: true }) })
+  const app = renderer.createApp({ setup: () => () => h(DirectShip, { recipientAccess: true, ...identity, orderMode: 'product_order', stockPurchase: true }) })
   app.use(pinia); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root)
   try {
     await settle()
@@ -544,7 +579,7 @@ it('leaving preview restores the customer draft recipient', async () => {
   const identity = Vue.reactive({ token: 'preview-token', customerId: 901, readOnly: true })
   const root: Node = { type: 'root', children: [], props: {} }, pinia = createPinia()
   useCustomerOrderDraftStore(pinia).saveDraft(901, 'direct_ship', { order_date: '2026-11-11', recipient: {recipient_name:'保留收件人',phone:'123',detail_address:'收件地址'}, note:'', lines: [selectDirectShipDraftProduct(createDirectShipDraftLine('saved'), purchaseFamily)!], idempotency_key:'restore-recipient', fulfillment_mode:'stock' }, 'stock')
-  const app = renderer.createApp({ setup: () => () => h(DirectShip, { ...identity, entryMode: 'stock' }) })
+  const app = renderer.createApp({ setup: () => () => h(DirectShip, { recipientAccess: true, ...identity, entryMode: 'stock' }) })
   app.use(pinia); app.provide(ssrContextKey, { modules: new Set() }); app.mount(root)
   try {
     await settle(); identity.token = 'customer-token'; identity.readOnly = false; await settle()

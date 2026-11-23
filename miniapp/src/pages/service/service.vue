@@ -56,6 +56,7 @@ import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import { useProcessingPrefillStore } from '../../stores/processingPrefill'
 import { useSessionStore } from '../../stores/session'
+import { hasRecipientConsent } from '../../utils/recipientConsent'
 import PriceListContent from '../../components/PriceListContent.vue'
 import { priceListSearchScope } from '../../utils/priceListSearch'
 import { configuredMiniappEnvironment } from '../../config/environment'
@@ -95,6 +96,7 @@ type PickerOption<T = unknown> = {
 }
 
 const session = useSessionStore()
+const orderRecipientAccess = computed(() => session.isCustomerPreview || hasRecipientConsent(session))
 const {
   pullUpBrandRevealed,
   handlePullUpBrandTouchStart,
@@ -979,6 +981,7 @@ onShow(() => { void refreshMiniappShareMenu() })
         :customer-id="session.currentCustomerID"
         :entry-mode="directShipEntryMode"
         :read-only="session.isCustomerPreview"
+        :recipient-access="orderRecipientAccess"
       />
       <CustomerDirectShipPanel
         v-else-if="serviceKey === 'productOrder'"
@@ -988,6 +991,7 @@ onShow(() => { void refreshMiniappShareMenu() })
         order-mode="product_order"
         :stock-purchase="stockPurchase"
         :read-only="session.isCustomerPreview"
+        :recipient-access="orderRecipientAccess"
       />
       <CustomerProcessingPanel
         v-else-if="serviceKey === 'processing'"

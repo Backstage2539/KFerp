@@ -53,7 +53,7 @@ export const useCustomerOrderDraftStore = defineStore('customer-order-draft', {
     saveDraft(customerID: number, orderMode: CustomerOrderMode, draft: CustomerOrderDraft, fulfillmentMode?: FulfillmentMode) {
       this.drafts[draftKey(customerID, orderMode, fulfillmentMode || draft.fulfillment_mode)] = clone(draft)
     },
-    restoreDraft(customerID: number, orderMode: CustomerOrderMode, fulfillmentMode?: FulfillmentMode): CustomerOrderDraft | null {
+    restoreDraft(customerID: number, orderMode: CustomerOrderMode, fulfillmentMode?: FulfillmentMode, includeRecipient = true): CustomerOrderDraft | null {
       let draft = this.drafts[draftKey(customerID, orderMode, fulfillmentMode)]
       if (!draft && orderMode === 'direct_ship') {
         const legacy = this.drafts[draftKey(customerID, orderMode)]
@@ -61,7 +61,8 @@ export const useCustomerOrderDraftStore = defineStore('customer-order-draft', {
         if (!fulfillmentMode && !draft) draft = this.drafts[draftKey(customerID, orderMode, 'stock')] || this.drafts[draftKey(customerID, orderMode, 'on_demand')]
       }
       if (draft && fulfillmentMode && draft.fulfillment_mode && draft.fulfillment_mode !== fulfillmentMode) return null
-      return draft ? clone(draft) : null
+      if (!draft) return null
+      return clone(includeRecipient ? draft : { ...draft, recipient: null })
     },
     clearDraft(customerID: number, orderMode: CustomerOrderMode, fulfillmentMode?: FulfillmentMode) {
       delete this.drafts[draftKey(customerID, orderMode, fulfillmentMode)]

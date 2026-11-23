@@ -1,6 +1,7 @@
 <script setup lang="ts">
-defineProps<{visible:boolean; title:string; busy:boolean; error:string}>()
-const emit = defineEmits<{ close: []; authorize: [detail:{code?:string;errMsg?:string}] }>()
+import LoginAgreement from './LoginAgreement.vue'
+defineProps<{agreed:boolean; visible:boolean; title:string; busy:boolean; error:string}>()
+const emit = defineEmits<{ close: []; agree: [checked: boolean]; authorize: [detail:{code?:string;errMsg?:string}] }>()
 function close() { emit('close') }
 function authorize(event: {detail:{code?:string;errMsg?:string}}) { emit('authorize', event.detail) }
 </script>
@@ -11,8 +12,10 @@ function authorize(event: {detail:{code?:string;errMsg?:string}}) { emit('author
       <view class="heading"><text class="title">登记后查看价格表</text><button class="close" aria-label="关闭登记" @tap="close">×</button></view>
       <text class="target">{{ title }}</text>
       <text class="hint">授权手机号后识别身份，访客可继续浏览。</text>
+      <LoginAgreement :checked="agreed" :disabled="busy" @change="emit('agree', $event)" />
       <text v-if="error" class="error">{{ error }}</text>
-      <button class="authorize" :class="{inactive: busy}" open-type="getPhoneNumber" :disabled="busy" :loading="busy" @getphonenumber="authorize">{{ busy ? '正在打开价格表…' : '授权手机号并查看' }}</button>
+      <button v-if="agreed" class="authorize" :class="{inactive: busy}" open-type="getPhoneNumber" :disabled="busy" :loading="busy" @getphonenumber="authorize">{{ busy ? '正在打开价格表…' : '授权手机号并查看' }}</button>
+      <button v-else class="authorize inactive" disabled>授权手机号并查看</button>
       <text class="privacy">手机号用于身份验证与业务联系。</text>
       <button class="later" :disabled="busy" @tap="close">暂不查看</button>
     </view>

@@ -80,7 +80,7 @@ describe('employee mini order entry page contract', () => {
     expect(customerEditorSource).toContain('if (saving.value) return')
     expect(customerEditorSource).toContain('responsible_employee_id: Number(customer?.responsible_employee_id || 0)')
     expect(customerEditorSource).toContain("selectedEmployeeName() || '请选择负责人'")
-    expect(customerEditorSource).toContain('() => [props.visible, props.customerId, props.token] as const')
+    expect(customerEditorSource).toContain('() => [canUseRecipient(), props.customerId, props.token] as const')
     expect(customerEditorSource).not.toContain('() => [props.visible, props.customerId, props.context] as const')
   })
 
@@ -95,9 +95,9 @@ describe('employee mini order entry page contract', () => {
     expect(customerEditorSource).toContain('sequence !== recipientParseSequence')
     expect(customerEditorSource).toContain('Number(props.customerId || 0) !== targetCustomerID')
     expect(customerEditorSource).toContain('recipientPaste.value.trim() !== text')
-    expect(customerEditorSource).toContain('if (!text || recipientParsing.value || saving.value) return')
+    expect(customerEditorSource).toContain('if (!canUseRecipient() || !text || recipientParsing.value || saving.value) return')
     expect(customerEditorSource).toContain(':disabled="recipientParsing || saving || !recipientPaste.trim()"')
-    expect(customerEditorSource).toContain('if (recipientParsing.value) return')
+    expect(customerEditorSource).toContain('if (!canUseRecipient() || recipientParsing.value) return')
     expect(customerEditorSource).toContain(':disabled="saving || recipientParsing"')
     const parserSource = customerEditorSource.slice(
       customerEditorSource.indexOf('async function parseRecipient()'),

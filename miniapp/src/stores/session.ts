@@ -1,7 +1,8 @@
+import { currentLoginConsent, loginAccount, loginPolicyVersion, type LoginConsent } from '../utils/loginConsent'
 import type { RegistrationProfile } from '../api/registration'
 import { markPreviewToken, unmarkPreviewToken } from '../api/client'
 import { defineStore } from 'pinia'
-import type { CustomerBinding, MiniappEntryMode, MeResponse } from '../api/customerPortal'
+import type { CustomerBinding, MiniappEntryMode, MeResponse, LoginResponse } from '../api/customerPortal'
 import {
   configuredMiniappEnvironment,
   miniappStorageKey,
@@ -17,15 +18,19 @@ export function miniappTokenStorageKey(environment?: MiniappBuildEnvironment): s
   return miniappStorageKey('token', configuredMiniappEnvironment())
 }
 
-function storedMiniappToken(): string {
-  const token = uni.getStorageSync(miniappTokenStorageKey()) || ''
+export function storedLoginSession(): { token: string; consent: LoginConsent | null } {
+  const record = uni.getStorageSync(miniappTokenStorageKey())
   if (uni.getStorageSync(legacyTokenKey)) uni.removeStorageSync(legacyTokenKey)
-  return token
+  if (currentLoginConsent(record?.consent) && typeof record.token === 'string') {
+    return { token: record.token, consent: record.consent }
+  }
+  if (record) uni.removeStorageSync(miniappTokenStorageKey())
+  return { token: '', consent: null }
 }
 
 export const useSessionStore = defineStore('session', {
   state: () => ({
-    token: storedMiniappToken(),
+    ...storedLoginSession(),
     previewEmployeeToken: '',
     autoRestoreBlocked: !!uni.getStorageSync(miniappStorageKey('signed-out', configuredMiniappEnvironment())),
  registration: null as RegistrationProfile|null,
@@ -49,13 +54,22 @@ export const useSessionStore = defineStore('session', {
     isCustomerPreview: (state) => !!state.previewEmployeeToken,
   },
   actions: {
-    setToken(token: string) {
+    acceptLogin(response: LoginResponse) {
+      const account = loginAccount(response)
+      if (!account || !response.token) throw new Error('无法确认登录身份，请重新登录')
+      const consent = { account, version: loginPolicyVersion, acceptedAt: Date.now() }
+      this.setToken(response.token, consent)
+      this.applyContext(response)
+    },
+    setToken(token: string, accepted?: LoginConsent) {
+      const consent = accepted ?? this.consent
+      uni.setStorageSync(miniappTokenStorageKey(), { token, consent })
+      this.consent = consent
       if (this.previewEmployeeToken) unmarkPreviewToken(this.token)
       this.previewEmployeeToken = ''
       this.token = token
       this.autoRestoreBlocked = false
       uni.removeStorageSync(miniappStorageKey('signed-out', configuredMiniappEnvironment()))
-      uni.setStorageSync(miniappTokenStorageKey(), token)
     },
     beginCustomerPreview(token: string, context: Omit<MeResponse, 'current_customer_name'> & {current_customer_name?: string}) {
       if (this.accountType !== 'employee' || !this.roles.includes('admin') || !this.token || !token || context.account_type !== 'preview' || !context.current_customer_id) {
@@ -77,6 +91,7 @@ export const useSessionStore = defineStore('session', {
     logout() {
       if (this.previewEmployeeToken) unmarkPreviewToken(this.token)
       this.previewEmployeeToken = ''
+      this.consent = null
       this.autoRestoreBlocked = true
       uni.setStorageSync(miniappStorageKey('signed-out', configuredMiniappEnvironment()), true)
       this.clearSession(true)
@@ -106,7 +121,9 @@ export const useSessionStore = defineStore('session', {
       this.employeeName = ''
       this.roles = []
       this.permissions = []
-      uni.removeStorageSync(miniappTokenStorageKey())
+      if (!preserveRegistrationHint) this.consent = null
+      if (this.consent) uni.setStorageSync(miniappTokenStorageKey(), { token: '', consent: { ...this.consent } })
+      else uni.removeStorageSync(miniappTokenStorageKey())
     },
     applyContext(context: {
  registration_complete?:boolean

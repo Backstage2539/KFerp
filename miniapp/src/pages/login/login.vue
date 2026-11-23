@@ -10,6 +10,7 @@ import { restoreRegistrationSession } from '../../utils/registrationSession'
 import { safeLoginReturn } from '../../utils/loginReturn'
 import { loginWithPhoneIdentify, loginWithPassword, fetchMiniLoginOptions, type LoginResponse } from '../../api/customerPortal'
 import { MiniRequestError } from '../../api/client'
+import LoginAgreement from '../../components/LoginAgreement.vue'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
@@ -26,6 +27,7 @@ const {
   handlePullUpBrandTouchEnd,
   handlePullUpBrandTouchCancel,
 } = usePullUpBrandGesture()
+const agreed = ref(false)
 const loading = ref(false)
 const errorMessage = ref('')
 const showPasswordLogin = ref(false)
@@ -61,13 +63,12 @@ function requestLoginCode(): Promise<string> {
 }
 
 function completeLogin(response: LoginResponse) {
-  session.setToken(response.token)
-  session.applyContext(response)
+  session.acceptLogin(response)
   uni.reLaunch({ url: phoneVerifiedDestination(response, returnTo.value) })
 }
 
 async function handlePhoneLogin(event: { detail?: { code?: string; errMsg?: string } }) {
-  if (loading.value) return
+  if (!agreed.value || loading.value) return
 
   const phoneCode = String(event?.detail?.code || '').trim()
   if (!phoneCode) {
@@ -92,7 +93,7 @@ async function handlePhoneLogin(event: { detail?: { code?: string; errMsg?: stri
 }
 
 async function handlePasswordLogin() {
-  if (loading.value || !showPasswordLogin.value) return
+  if (!agreed.value || loading.value || !showPasswordLogin.value) return
   const name = loginName.value.trim(), secret = password.value
   if (!name || !secret) { errorMessage.value = '请输入用户名和密码'; return }
   const attempt = ++loginAttempt
@@ -125,7 +126,7 @@ onShow(async () => {
   try {
     await restoreRegistrationSession(session)
     if (attempt === loginAttempt && !loading.value && canRestoreRegistration() && session.token && (session.accountType === 'employee' || session.bindings.some(binding => binding.status === 'approved'))) {
-      completeLogin({ token: session.token, mini_user_id: session.miniUserID, current_customer_id: session.currentCustomerID, bindings: session.bindings, capabilities: session.capabilities, registration_complete: session.registrationComplete, registration: session.registration || undefined, account_type: session.accountType })
+      uni.reLaunch({ url: phoneVerifiedDestination({ current_customer_id: session.currentCustomerID, account_type: session.accountType, bindings: session.bindings }, returnTo.value) })
     }
   } catch (error) {
     if (attempt === loginAttempt && hadToken && canRestoreRegistration()) errorMessage.value = error instanceof Error ? error.message : '登录状态恢复失败'
@@ -154,11 +155,13 @@ onShow(async () => {
       <text>授权手机号后可直接登录已绑定的客户账号。</text>
     </view>
     <view class="panel">
+      <LoginAgreement :checked="agreed" :disabled="loading" @change="agreed = $event" />
       <view class="login-block">
         <text>授权手机号后，自动识别员工、客户或访客身份。</text>
-        <button class="login-button" open-type="getPhoneNumber" :loading="loading" :disabled="loading" @getphonenumber="handlePhoneLogin">
+        <button v-if="agreed" class="login-button" open-type="getPhoneNumber" :loading="loading" :disabled="loading" @getphonenumber="handlePhoneLogin">
           授权手机号登录
         </button>
+        <button v-else class="login-button" @tap="errorMessage = '请先阅读并勾选两份协议'">授权手机号登录</button>
       </view>
 
       <view v-if="showPasswordLogin" class="login-block">
@@ -166,7 +169,7 @@ onShow(async () => {
         <template v-if="passwordExpanded">
           <input v-model="loginName" class="input" placeholder="用户名或手机号" />
           <input v-model="password" class="input" password placeholder="密码" />
-          <button class="login-button" :loading="loading" :disabled="loading" @tap="handlePasswordLogin">登录</button>
+          <button class="login-button" :loading="loading" :disabled="loading || !agreed" @tap="handlePasswordLogin">登录</button>
         </template>
       </view>
       <text v-if="errorMessage" class="error">{{ errorMessage }}</text>

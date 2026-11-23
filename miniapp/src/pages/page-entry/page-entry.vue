@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import SampleApplication from '../../components/SampleApplication.vue'
+import RecipientConsent from '../../components/RecipientConsent.vue'
+import { consentScope, hasRecipientConsent } from '../../utils/recipientConsent'
 import type { BeanListProductSummary } from '../../api/customerPortal'
 import {canOpenPageEntry,pageEntryAccessAction} from '../../utils/priceCenterAccess'
 import {restoreRegistrationSession} from '../../utils/registrationSession'
@@ -49,6 +51,8 @@ const {
 } = usePullUpBrandGesture()
 let sequence = 0
 const sampleEnabled=ref(false), sampleOpen=ref(false), selectedKeys=ref<string[]>([]), sampleVersion=ref(0)
+const canOpenSampleForm=computed(()=>hasRecipientConsent(session))
+watch(()=>consentScope(session),()=>{sampleOpen.value=false},{flush:'sync'})
 let openSampleAfterRegistration=false
 const sampleItems=computed(()=>(publication.value?.groups||[]).flatMap(g=>g.items).filter(item=>!!item.sample_key&&selectedKeys.value.includes(item.sample_key)))
 function toggleSample(item:BeanListProductSummary){if(!item.sample_key)return;selectedKeys.value=selectedKeys.value.includes(item.sample_key)?selectedKeys.value.filter(k=>k!==item.sample_key):[...selectedKeys.value,item.sample_key]}
@@ -124,12 +128,13 @@ onLoad((query) => {
   entry.value = String(query?.entry || '')
 })
 onShow(() => {
-  if(!registration.visible.value) void load()
+  const readingSampleConsent = sampleOpen.value && publication.value && !canOpenSampleForm.value
+  if(!registration.visible.value && !readingSampleConsent) void load()
   void refreshMiniappShareMenu()
 })
 onHide(() => {
   sequence++
-  sampleOpen.value=false
+  if(canOpenSampleForm.value)sampleOpen.value=false
 })
 onUnload(()=>registration.close())
 onShareAppMessage(defaultMiniappShare)
@@ -165,14 +170,21 @@ onShareTimeline(defaultMiniappTimelineShare)
       <template #product-action="{item}"><button v-if="sampleEnabled&&session.accountType!=='employee'&&item.sample_key" size="mini" :class="['sample-select',{selected:selectedKeys.includes(item.sample_key)}]" @tap="toggleSample(item)">{{selectedKeys.includes(item.sample_key)?'✓ 已选样品':'选择样品'}}</button></template>
     </PriceListContent>
     <view v-if="sampleEnabled&&session.accountType!=='employee'&&publication" class="sample-bar"><text>已选 {{sampleItems.length}} 项</text><button class="sample-submit" :disabled="!sampleItems.length||loading" @tap="applySamples">申请样品</button></view>
-    <SampleApplication v-if="sampleOpen&&publication" :entry-key="entry" :publication-id="publication.id" :items="sampleItems" @close="sampleOpen=false" @submitted="selectedKeys=[]"/>
+    <view v-if="sampleOpen&&publication&&!canOpenSampleForm" class="sample-consent">
+      <scroll-view scroll-y class="sample-consent-sheet">
+        <RecipientConsent @declined="sampleOpen=false"/>
+      </scroll-view>
+    </view>
+    <SampleApplication v-else-if="sampleOpen&&publication&&canOpenSampleForm" :entry-key="entry" :publication-id="publication.id" :items="sampleItems" @close="sampleOpen=false" @submitted="selectedKeys=[]"/>
     <view class="pull-up-brand-footer-anchor">
       <PullUpBrandFooter :revealed="pullUpBrandRevealed" />
     </view>
-    <BeanRegistrationSheet :visible="registration.visible.value" :title="registration.title.value" :busy="registration.busy.value" :error="registration.error.value" @authorize="registration.submit" @close="cancelRegistration"/>
+    <BeanRegistrationSheet :agreed="registration.agreed.value" @agree="registration.agreed.value = $event" :visible="registration.visible.value" :title="registration.title.value" :busy="registration.busy.value" :error="registration.error.value" @authorize="registration.submit" @close="cancelRegistration"/>
   </view>
 </template>
 <style scoped>
+.sample-consent{position:fixed;inset:0;z-index:1200;display:flex;align-items:flex-end;background:#162e2580}
+.sample-consent-sheet{box-sizing:border-box;width:100%;max-height:80vh;padding:24rpx 24rpx calc(24rpx + env(safe-area-inset-bottom));border-radius:28rpx 28rpx 0 0;background:#fffdf8}
 .sample-hint{display:block;font-size:24rpx;color:#58725e;line-height:1.7;padding:14rpx 0 24rpx}.sample-select{margin:12rpx 0;font-size:23rpx;line-height:2;background:#eef4e9;color:#356144}.sample-select.selected{background:#dcebd6}.sample-bar{position:sticky;bottom:20rpx;display:flex;align-items:center;justify-content:space-between;background:#fffdf8;padding:18rpx 24rpx;margin-top:24rpx;border:1rpx solid #d9e3da;border-radius:16rpx;color:#285d3e;font-size:28rpx;box-shadow:0 4rpx 22rpx #253d3115}.sample-submit{margin:0;font-size:27rpx;background:#285d3e;color:#fff}
 .page{min-height:100vh;background:#f5f2ec;padding:24rpx;box-sizing:border-box}.state{display:flex;flex-direction:column;gap:24rpx;text-align:center;padding:80rpx 30rpx}.sheet{padding:40rpx 28rpx;border-radius:24rpx;background:#fffdf8}.title{display:block;font-size:42rpx;font-weight:800;text-align:center}.category{font-size:32rpx;font-weight:700}.article-block{margin-top:30rpx}.paragraph{white-space:pre-wrap;line-height:1.8}.article-image{width:100%;display:block}.muted{display:block;font-size:24rpx;line-height:1.7;margin-top:12rpx;color:#7c877e}
 </style>

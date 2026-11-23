@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useSessionStore } from '../stores/session'
+import { hasRecipientConsent } from '../utils/recipientConsent'
 import { computed, reactive, ref, watch } from 'vue'
 import {
   createEmployeeCustomer,
@@ -26,6 +28,8 @@ const emit = defineEmits<{
   saved: [customer: EmployeeCustomer]
 }>()
 
+const session = useSessionStore()
+const canUseRecipient = () => props.visible && props.token === session.token && hasRecipientConsent(session)
 const loading = ref(false)
 const saving = ref(false)
 const recipientParsing = ref(false)
@@ -119,7 +123,7 @@ async function loadCustomer() {
   recipientParseSequence += 1
   recipientParsing.value = false
   recipientPaste.value = ''
-  if (!props.visible) {
+  if (!canUseRecipient()) {
     loading.value = false
     errorMessage.value = ''
     return
@@ -154,7 +158,7 @@ function requestClose() {
 
 async function parseRecipient() {
   const text = recipientPaste.value.trim()
-  if (!text || recipientParsing.value || saving.value) return
+  if (!canUseRecipient() || !text || recipientParsing.value || saving.value) return
 
   const sequence = ++recipientParseSequence
   const targetCustomerID = Number(props.customerId || 0)
@@ -180,7 +184,7 @@ async function parseRecipient() {
 }
 
 async function save() {
-  if (recipientParsing.value) return
+  if (!canUseRecipient() || recipientParsing.value) return
   if (!form.name.trim()) {
     uni.showToast({ title: '请填写客户名称', icon: 'none' })
     return
@@ -232,7 +236,7 @@ async function save() {
 }
 
 watch(
-  () => [props.visible, props.customerId, props.token] as const,
+  () => [canUseRecipient(), props.customerId, props.token] as const,
   () => void loadCustomer(),
   { immediate: true },
 )

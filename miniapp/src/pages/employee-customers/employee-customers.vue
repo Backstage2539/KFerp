@@ -7,6 +7,8 @@ import {
   refreshMiniappShareMenu,
 } from '../../utils/miniappShare'
 import EmployeeCustomerEditor from '../../components/EmployeeCustomerEditor.vue'
+import EmployeeRecipientGate from '../../components/EmployeeRecipientGate.vue'
+import { consentScope, hasRecipientConsent } from '../../utils/recipientConsent'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
@@ -19,6 +21,7 @@ import { isAuthenticationExpiredRequestError } from '../../api/client'
 import { useSessionStore } from '../../stores/session'
 
 const session = useSessionStore()
+const recipientAllowed = computed(() => hasRecipientConsent(session))
 const {
   pullUpBrandRevealed,
   handlePullUpBrandTouchStart,
@@ -47,6 +50,7 @@ function goToLogin() {
 }
 
 async function loadCustomers(append = false) {
+  if (!recipientAllowed.value) { uni.stopPullDownRefresh(); return }
   const sequence = ++customerListSequence
   const nextPage = append ? page.value + 1 : 1
   if (append) loadingMore.value = true
@@ -133,6 +137,12 @@ watch(query, () => {
   customerSearchTimer = setTimeout(reloadCustomers, 300)
 })
 
+watch(() => recipientAllowed.value ? consentScope(session) : '', (allowed) => {
+  customerListSequence++
+  context.value = undefined
+  editorOpen.value = false
+  if (allowed) reloadCustomers()
+}, { flush: 'sync' })
 onLoad(reloadCustomers)
 onPullDownRefresh(reloadCustomers)
 
@@ -150,6 +160,8 @@ onShow(() => { void refreshMiniappShareMenu() })
     @touchcancel="handlePullUpBrandTouchCancel"
   >
     <EnvironmentBadge />
+    <EmployeeRecipientGate v-if="!recipientAllowed" />
+    <template v-else>
     <view class="head">
       <view>
         <text class="title">客户维护</text>
@@ -211,6 +223,7 @@ onShow(() => { void refreshMiniappShareMenu() })
       @close="closeEditor"
       @saved="customerSaved"
     />
+    </template>
   </view>
 </template>
 
