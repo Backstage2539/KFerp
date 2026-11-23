@@ -1,5 +1,5 @@
 ### PR-770-MINIAPP-PRIVACY
-- 分支 `codex/miniapp-privacy-review`，负责人 Codex。小程序 576 项测试、类型检查与开发构建通过。待开发部署、手机验收及微信复审。
+- 分支 `codex/miniapp-privacy-review`，负责人 Codex。小程序 576 项测试、类型检查与开发构建通过。员工和客户手机验收已获 Van 确认，正式候选包的 572 项测试通过。微信复审待取得平台版本记录。
 - DEV-PR770-LOGIN 统一登录前主动同意并验证旧会话。DEV-PR770-ADDRESS 收件授权、撤回、真机验证及微信复审。
 - 验收覆盖账号密码、微信手机号、分享寄样、员工代录及拒绝后继续浏览。
 
