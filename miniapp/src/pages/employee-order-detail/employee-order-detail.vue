@@ -17,6 +17,9 @@ import {
   fetchEmployeeShareSettings,
   generateEmployeeOrderDocument,
   updateEmployeeOrderStatus,
+  cancelEmployeeOrder,
+  employeeCancelReasons,
+  type EmployeeCancelReason,
   type EmployeeOrderDetail,
   type EmployeeOrderDetailResponse,
   type EmployeeOrderStatusOptions,
@@ -68,6 +71,33 @@ let lastRead: { response: EmployeeOrderDetailResponse; token: string; at: number
 const errorMessage = ref('')
 const authExpired = ref(false)
 const sharingKey = ref('')
+const canCancel = ref(false)
+const choosingCancelReason = ref(false)
+const cancelling = ref(false)
+const cancelError = ref('')
+
+async function submitCancellation(reason: EmployeeCancelReason) {
+  if (cancelling.value || !choosingCancelReason.value || !canCancel.value || !order.value) return
+  cancelling.value = true
+  cancelError.value = ''
+  const token = session.token
+  try {
+    await cancelEmployeeOrder(token, order.value.id, reason)
+    if (session.token !== token) return
+    choosingCancelReason.value = false
+    canCancel.value = false
+    uni.showToast({ title: '订单已取消', icon: 'success' })
+    await loadDetail()
+  } catch (cause) {
+    if (session.token !== token) return
+    choosingCancelReason.value = false
+    cancelError.value = cause instanceof Error ? cause.message : '取消结果未确认，请刷新查看订单状态'
+    await loadDetail()
+  } finally {
+    cancelling.value = false
+  }
+}
+
 const canEdit = ref(false)
 const editBlockReason = ref('')
 const canUpdateStatus = ref(false)
@@ -136,6 +166,8 @@ async function choosePaymentVoucher() {
 function applyDetail(response: EmployeeOrderDetailResponse) {
   lastRead = { response, token: session.token, at: Date.now() }
   order.value = response.order
+  canCancel.value = Boolean(response.can_cancel) && !response.order.is_void
+  if (!canCancel.value) choosingCancelReason.value = false
   documentsLoaded.value = false
   documents.value = {}
   canEdit.value = Boolean(response.can_edit ?? response.order.can_edit)
@@ -368,7 +400,7 @@ onShow(() => { void refreshMiniappShareMenu() })
       <view class="section status-section">
         <view class="status-heading">
           <text class="section-title">订单状态</text>
-          <button v-if="canUpdateStatus && !statusEditing" class="status-edit-button" @tap="startStatusEdit">{{ order.delivery_mode === 'customer_stock' ? '编辑付款状态' : '编辑付款与发货状态' }}</button>
+          <button v-if="canUpdateStatus && !statusEditing" :disabled="choosingCancelReason || cancelling" class="status-edit-button" @tap="startStatusEdit">{{ order.delivery_mode === 'customer_stock' ? '编辑付款状态' : '编辑付款与发货状态' }}</button>
         </view>
         <text v-if="order.is_void" class="void-status">已作废</text>
         <PaymentSummary :order="order" />
@@ -449,8 +481,15 @@ onShow(() => { void refreshMiniappShareMenu() })
         <view class="hero-actions">
           <OrderDetailsCopyButton :order-id="order.id" employee />
           <button class="copy-order-button" @tap="openCopy">复制订单</button>
-          <button v-if="canEdit" class="edit-order-button" @tap="openEditor">编辑订单</button>
+          <button v-if="canEdit" :disabled="choosingCancelReason || cancelling" class="edit-order-button" @tap="openEditor">编辑订单</button>
+          <button v-if="canCancel && !choosingCancelReason && !statusEditing" class="cancel-order-button" @tap="choosingCancelReason = true; cancelError = ''">取消订单</button>
         </view>
+        <view v-if="choosingCancelReason" class="cancel-reasons">
+          <text>选择原因后将取消整张订单</text>
+          <button v-for="reason in employeeCancelReasons" :key="reason.value" :disabled="cancelling" @tap="submitCancellation(reason.value)">{{ reason.label }}</button>
+          <button :disabled="cancelling" @tap="choosingCancelReason = false">保留订单</button>
+        </view>
+        <text v-if="cancelError && !order.is_void" class="status-error">{{ cancelError }}</text>
         <text v-if="!canEdit && editBlockReason" class="edit-block-reason">{{ editBlockReason }}</text>
       </view>
 
@@ -555,6 +594,10 @@ onShow(() => { void refreshMiniappShareMenu() })
 .date-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10rpx; margin-top: 14rpx; color: #68766f; font-size: 23rpx; }
 .hero-actions { display: flex; flex-wrap: wrap; gap: 14rpx; margin-top: 20rpx; }
 .hero-actions button { flex: 1; width: auto; margin: 0; font-size: 25rpx; }
+.cancel-order-button { color: #a7352a; background: #fff; border: 1rpx solid #deb9b5; }
+.cancel-reasons { margin-top: 20rpx; display: grid; grid-template-columns: 1fr 1fr; gap: 12rpx; }
+.cancel-reasons text { grid-column: span 2; font-size: 26rpx; }
+.cancel-reasons button { width: 100%; font-size: 26rpx; }
 .edit-order-button, .copy-order-button { border: 1rpx solid #28624a; background: #fff; color: #28624a; }
 .edit-block-reason { display: block; margin-top: 18rpx; padding: 14rpx 16rpx; border-radius: 10rpx; background: #f5f1e8; color: #745b2d; font-size: 22rpx; line-height: 1.5; }
 .section-title { display: block; margin-bottom: 20rpx; font-size: 30rpx; font-weight: 800; }

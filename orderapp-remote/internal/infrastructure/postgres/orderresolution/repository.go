@@ -95,7 +95,7 @@ func (r Repository) load(ctx context.Context, q querier, id int64) (domain.Conte
 			return c, err
 		}
 		if partial {
-			return c, fmt.Errorf("关联账单存在部分收款，请先核对或撤销收款后再处理订单")
+			return c, errPartialBillPayment
 		}
 	}
 	var raw []byte
@@ -400,7 +400,6 @@ func (r Repository) Submit(ctx context.Context, id int64, cmd domain.Command, ac
 	if err != nil {
 		return out, err
 	}
-	digest := hash(body)
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return out, err
@@ -416,7 +415,7 @@ func (r Repository) Submit(ctx context.Context, id int64, cmd domain.Command, ac
 	var priorHash string
 	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,request_hash FROM %s.order_resolution_requests WHERE order_id=$1 AND idempotency_key=$2`, r.schema), id, cmd.IdempotencyKey).Scan(&priorID, &priorHash)
 	if err == nil {
-		if priorHash != digest {
+		if priorHash != hash(body) {
 			return out, fmt.Errorf("重复提交标识对应的内容不同")
 		}
 		out, err = r.result(ctx, tx, priorID)
@@ -436,6 +435,13 @@ func (r Repository) Submit(ctx context.Context, id int64, cmd domain.Command, ac
 	if err != nil {
 		return out, err
 	}
+	return r.submitPlan(ctx, tx, id, current, cmd, body, plan, actor)
+}
+
+// submitPlan records the validated plan, applies it and commits its audit in the caller's locked transaction.
+func (r Repository) submitPlan(ctx context.Context, tx pgx.Tx, id int64, current domain.Context, cmd domain.Command, body []byte, plan domain.Plan, actor string) (Result, error) {
+	var out Result
+	var err error
 	if current.FulfillmentMode != "" && one(cmd.Action, "close", "cancel", "amend") {
 		linked := false
 		for _, d := range current.Dependencies {
@@ -457,7 +463,7 @@ func (r Repository) Submit(ctx context.Context, id int64, cmd domain.Command, ac
 		return out, err
 	}
 	if pending {
-		return out, fmt.Errorf("已有订单处理单待完成，请先处理或撤回")
+		return out, errPendingResolution
 	}
 	// Freeze only the legacy status-derived cash gap. Subsequent fully-paid
 	// statuses refer to the adjusted receivable, never the original gross amount.
@@ -470,7 +476,7 @@ func (r Repository) Submit(ctx context.Context, id int64, cmd domain.Command, ac
 	if len(plan.Tasks) > 0 {
 		state = "pending"
 	}
-	if err = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.order_resolution_requests(order_id,idempotency_key,request_hash,command_json,plan_json,status,actor,context_json)VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, r.schema), id, cmd.IdempotencyKey, digest, body, planRaw, state, actor, contextRaw).Scan(&out.ID); err != nil {
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.order_resolution_requests(order_id,idempotency_key,request_hash,command_json,plan_json,status,actor,context_json)VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, r.schema), id, cmd.IdempotencyKey, hash(body), body, planRaw, state, actor, contextRaw).Scan(&out.ID); err != nil {
 		return out, err
 	}
 	for _, t := range plan.Tasks {
@@ -512,7 +518,7 @@ func (r Repository) checkPeriod(ctx context.Context, q querier, date string) err
 		return err
 	}
 	if closed {
-		return fmt.Errorf("所选账期已结账，请选择开放账期或申请历史更正")
+		return errClosedPostingPeriod
 	}
 	return nil
 }

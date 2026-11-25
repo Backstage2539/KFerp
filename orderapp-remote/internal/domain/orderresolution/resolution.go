@@ -140,6 +140,11 @@ type Plan struct {
 	Tasks       []Task       `json:"tasks"`
 }
 
+// IsPresetCancelReason identifies the reasons that can be recorded without a note.
+func IsPresetCancelReason(reason string) bool {
+	return oneOf(reason, "customer_cancel", "entry_error", "duplicate")
+}
+
 // Preview never changes the source order and never chooses a disposition for the user.
 func preview(c Context, cmd Command) (Plan, error) {
 	p := Plan{Status: c.Status, Lines: []LineEffect{}, Tasks: []Task{}}
@@ -147,7 +152,7 @@ func preview(c Context, cmd Command) (Plan, error) {
 	if !oneOf(cmd.Action, "hold", "resume", "close", "reopen", "cancel", "amend", "return", "credit") {
 		return fail("请选择处理操作")
 	}
-	if !oneOf(cmd.Reason, "customer_cancel", "entry_error", "duplicate", "other") || (cmd.Reason == "other" && strings.TrimSpace(cmd.Note) == "") {
+	if !IsPresetCancelReason(cmd.Reason) && !(cmd.Reason == "other" && strings.TrimSpace(cmd.Note) != "") {
 		return fail("请选择原因，其他原因须填写说明")
 	}
 	if c.Void {

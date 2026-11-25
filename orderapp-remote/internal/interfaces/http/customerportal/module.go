@@ -63,18 +63,19 @@ type EmployeeWarehouseReader interface {
 	ListWarehouses(context.Context, stockapp.WarehouseListQuery) ([]stockapp.WarehouseRow, error)
 }
 type Dependencies struct {
-	EmployeeWarehouses       EmployeeWarehouseReader
-	CustomerPortal           Service
-	CustomerFulfillment      MiniCustomerFulfillment
-	Authz                    supporthttp.AuthzService
-	MessageCenter            MessagePublisher
-	BeanListPDFRenderer      BeanListPDFRenderer
-	SalesDocuments           SalesDocuments
-	EmployeeSales            EmployeeSales
-	CustomerMaintenance      CustomerMaintenance
-	EmployeeShareSettings    EmployeeShareSettingsStore
-	AssetDir                 string
-	DisableMiniPasswordLogin bool
+	EmployeeWarehouses        EmployeeWarehouseReader
+	CustomerPortal            Service
+	CustomerFulfillment       MiniCustomerFulfillment
+	Authz                     supporthttp.AuthzService
+	MessageCenter             MessagePublisher
+	BeanListPDFRenderer       BeanListPDFRenderer
+	SalesDocuments            SalesDocuments
+	EmployeeOrderCancellation EmployeeOrderCancellation
+	EmployeeSales             EmployeeSales
+	CustomerMaintenance       CustomerMaintenance
+	EmployeeShareSettings     EmployeeShareSettingsStore
+	AssetDir                  string
+	DisableMiniPasswordLogin  bool
 }
 
 type MessagePublisher interface {

@@ -1,3 +1,9 @@
+### PR-773-MINI-ORDER-CANCEL
+
+- 分支 `codex/mini-order-cancel-20261125`。负责人 Codex，业务验收人 Van。
+- DEV-PR773-CANCEL 完成快速取消事务、权限和审计。DEV-PR773-MINI 完成员工详情原因选择、刷新和手册。
+- 本地验证通过，目标为开发环境。证据见 `orderapp-remote/docs/acceptance/2026-11-25-mini-order-cancel.md`。
+
 ### PR-770-MINIAPP-PRIVACY
 - 分支 `codex/miniapp-privacy-review`，负责人 Codex。小程序 576 项测试、类型检查与开发构建通过。待开发部署、手机验收及微信复审。
 - DEV-PR770-LOGIN 统一登录前主动同意并验证旧会话。DEV-PR770-ADDRESS 收件授权、撤回、真机验证及微信复审。
