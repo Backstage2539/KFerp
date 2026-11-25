@@ -286,6 +286,7 @@ type InlineUpdateCommand struct {
 }
 
 type OrderListQuery struct {
+	MatchedOrderIDs       []int64 // nil disables the batch filter; an empty match set returns no orders.
 	FulfillmentQueue      string
 	OrderID               int64
 	Q                     string

@@ -6,6 +6,7 @@ import (
 	d "orderapp/internal/domain/shippingreturn"
 	fp "orderapp/internal/infrastructure/postgres/freight"
 	sp "orderapp/internal/infrastructure/postgres/sales"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -30,6 +31,10 @@ func TestShippingReturnRepeatAfterReceiptRematchesWithoutShipping(t *testing.T) 
 	}
 	if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.orders SET process_status_id=(SELECT id FROM %[1]s.order_process_statuses WHERE name='无需生产' LIMIT 1) WHERE id=%d`, schema, oid)); err != nil {
 		t.Fatal(err)
+	}
+	live, err := r.ShippingReturnBatch(ctx, before.ID)
+	if err != nil || len(live.Rows) != 1 || len(live.Rows[0].Candidates) != 1 || !live.Rows[0].Candidates[0].CanSelect || !strings.HasPrefix(live.Rows[0].Error, "上次回填提示：") {
+		t.Fatalf("current readiness and previous failed attempt must be distinguishable: %+v %v", live, err)
 	}
 	after, err := r.ImportShippingReturn(ctx, "tester", "return.xlsx", "rematch-hash", cfg, rows)
 	if err != nil || after.ID != before.ID || after.Pending != 1 || len(after.OrderIDs) != 0 {

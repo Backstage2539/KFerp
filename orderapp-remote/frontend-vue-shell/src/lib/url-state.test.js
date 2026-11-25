@@ -14,7 +14,7 @@ test('relativeURLForHistory preserves hash fragments', () => {
 })
 
 test('viewNavigationURL clears stale view params when opening a new entry view', () => {
-  const url = new URL('https://erp.qacoohee.com/vue-shell?view=customers&edit_id=153&q=%E4%B8%89%E5%BE%84&scope=orders&highlight_order_id=152')
+  const url = new URL('https://erp.qacoohee.com/vue-shell?view=customers&edit_id=153&q=%E4%B8%89%E5%BE%84&scope=orders&highlight_order_id=152&shipping_return_batch_id=18')
 
   const next = viewNavigationURL(url, 'order')
 
@@ -23,6 +23,7 @@ test('viewNavigationURL clears stale view params when opening a new entry view',
   assert.equal(next.searchParams.has('q'), false)
   assert.equal(next.searchParams.has('scope'), false)
   assert.equal(next.searchParams.has('highlight_order_id'), false)
+  assert.equal(next.searchParams.has('shipping_return_batch_id'), false)
 })
 
 test('leaving amendment entry clears its source and amendment identifiers',()=>{

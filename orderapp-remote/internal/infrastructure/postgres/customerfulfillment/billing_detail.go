@@ -11,6 +11,19 @@ import (
 	app "orderapp/internal/application/customerfulfillment"
 )
 
+// A grouped adjustment belongs to the exact parcels whose costs were confirmed
+// together. An older single-parcel entry still identifies its own shipment.
+func freightSourceTrackingSQL(schema string) string {
+	return fmt.Sprintf(`CASE WHEN fe.shipping_return_group_id IS NULL THEN coalesce(fs.tracking_no,'') ELSE coalesce((
+		SELECT string_agg(s.tracking_no, E'\n' ORDER BY e.id)
+		FROM %[1]s.freight_actual_entries e JOIN %[1]s.freight_actual_shipments s ON s.id=e.shipment_id
+		WHERE e.shipping_return_group_id=fe.shipping_return_group_id
+		  AND s.order_id=fs.order_id AND s.customer_id=fs.customer_id
+	),'') END`, schema)
+}
+
+const splitShipmentTrackingSQL = `LEFT JOIN LATERAL regexp_split_to_table(trim(so.tracking_no),'[[:space:],;，；、]+') WITH ORDINALITY parcel(no,position) ON true`
+
 // billingLineDetail reads only sources belonging to the bill's customer.
 // It is used within the issuing transaction and, for older bills, read-only.
 func (r *Repository) billingLineDetail(ctx context.Context, q billingReader, customerID int64, line app.SettlementLineSummary, source string) (*app.BillingLineDetail, error) {
@@ -29,7 +42,7 @@ func (r *Repository) billingLineDetail(ctx context.Context, q billingReader, cus
 			orderID = feeSourceID
 		}
 		if feeSource == "freight_actual" && relationExists(ctx, q, r.schema+".freight_actual_entries") && relationExists(ctx, q, r.schema+".freight_actual_shipments") {
-			err = q.QueryRow(ctx, fmt.Sprintf(`SELECT s.order_id,coalesce(s.tracking_no,'') FROM %[1]s.freight_actual_entries e JOIN %[1]s.freight_actual_shipments s ON s.id=e.shipment_id WHERE e.id=$1 AND s.customer_id=$2`, r.schema), feeSourceID, customerID).Scan(&orderID, &fee.TrackingNo)
+			err = q.QueryRow(ctx, fmt.Sprintf(`SELECT fs.order_id,%[2]s FROM %[1]s.freight_actual_entries fe JOIN %[1]s.freight_actual_shipments fs ON fs.id=fe.shipment_id WHERE fe.id=$1 AND fs.customer_id=$2`, r.schema, freightSourceTrackingSQL(r.schema)), feeSourceID, customerID).Scan(&orderID, &fee.TrackingNo)
 			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				return nil, err
 			}
@@ -69,10 +82,10 @@ func (r *Repository) billingLineDetail(ctx context.Context, q billingReader, cus
 	if order.ID > 0 && (line.ChargeType == "shipping" || line.ChargeType == "direct_ship_service") && relationExists(ctx, q, r.schema+".order_shipment_orders") {
 		join, fields := "", "''::text,''::text"
 		if relationExists(ctx, q, r.schema+".shipping_return_rows") {
-			join = fmt.Sprintf(`LEFT JOIN LATERAL (SELECT payload FROM %s.shipping_return_rows sr WHERE sr.status='applied' AND sr.selected_order_id=so.order_id AND sr.payload->>'tracking_no'=so.tracking_no ORDER BY sr.id DESC LIMIT 1) sr ON true`, r.schema)
+			join = fmt.Sprintf(`LEFT JOIN LATERAL (SELECT payload FROM %s.shipping_return_rows sr WHERE sr.status='applied' AND sr.selected_order_id=so.order_id AND sr.payload->>'tracking_no'=parcel.no ORDER BY sr.id DESC LIMIT 1) sr ON true`, r.schema)
 			fields = `coalesce(sr.payload->>'pickup_time',''),coalesce(sr.payload->>'settlement_weight_kg','')`
 		}
-		rows, err := q.Query(ctx, fmt.Sprintf(`SELECT coalesce(so.tracking_no,''),coalesce(to_char(so.shipped_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI:SS'),''),%[3]s FROM %[1]s.order_shipment_orders so %[2]s WHERE so.order_id=$1 ORDER BY so.id`, r.schema, join, fields), order.ID)
+		rows, err := q.Query(ctx, fmt.Sprintf(`SELECT coalesce(parcel.no,''),coalesce(to_char(so.shipped_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI:SS'),''),%[3]s FROM %[1]s.order_shipment_orders so %[4]s %[2]s WHERE so.order_id=$1 ORDER BY so.id,parcel.position`, r.schema, join, fields, splitShipmentTrackingSQL), order.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -139,16 +152,16 @@ func (r *Repository) billingLineDetail(ctx context.Context, q billingReader, cus
 			return nil, err
 		}
 	}
-	if fee.TrackingNo != "" {
+	for _, tracking := range strings.Fields(fee.TrackingNo) {
 		found := false
 		for _, s := range shipments {
-			if s.TrackingNo == fee.TrackingNo {
+			if s.TrackingNo == tracking {
 				found = true
 				break
 			}
 		}
 		if !found {
-			shipments = append(shipments, app.AccountShipment{OrderID: order.ID, OrderNo: order.OrderNo, TrackingNo: fee.TrackingNo, Source: "快递费用记录"})
+			shipments = append(shipments, app.AccountShipment{OrderID: order.ID, OrderNo: order.OrderNo, TrackingNo: tracking, Source: "快递费用记录"})
 		}
 	}
 	detail := app.BuildBillingLineDetail(line, order, fee, shipments, source)

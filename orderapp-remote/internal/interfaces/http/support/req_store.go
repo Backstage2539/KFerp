@@ -203,7 +203,7 @@ func seedReqRow(ctx context.Context, pool *pgxpool.Pool, schema string, row reqS
 	}
 	// Delivery and Van's review happen after startup. Preserve their actual
 	// progress when subsequent restarts re-run the built-in requirement seeds.
-	if row.code == "PR-768-ORDER-OTHER-FEE" || strings.HasPrefix(row.code, "DEV-PR768-") {
+	if row.code == "PR-771-SHIPPING-RETURN-BATCH-SELECTION" || strings.HasPrefix(row.code, "DEV-PR771-") || row.code == "PR-768-ORDER-OTHER-FEE" || strings.HasPrefix(row.code, "DEV-PR768-") {
 		_, err := pool.Exec(ctx, fmt.Sprintf("INSERT INTO %s.%s(code,title,status,assignee,evidence) VALUES($1,$2,$3,$4,$5) ON CONFLICT(code) DO NOTHING", schema, row.table), row.code, row.title, row.status, row.assignee, row.evidence)
 		return err
 	}
@@ -304,6 +304,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-PRICE-LIST-SPEC-IDENTITY-20261111", title: "保留成本异常商品规格信息并修复勾选警告", status: "done", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PRICE-LIST-COST-VERIFY-20261111", title: "验证价格表成本与规格并更新手册", status: "done", assignee: "Codex"},
 		{table: "req_product", code: "PR-767-FINANCE-DAILY-LEDGER", title: "财务每日经营流水与利润曲线", status: "review", assignee: "Van"},
+		{table: "req_product", code: "PR-771-SHIPPING-RETURN-BATCH-SELECTION", title: "寄件回传候选、批次订单筛选与多票确认", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-25-shipping-return-batch.md"},
+		{table: "req_dev", code: "DEV-PR771-READ", title: "只读批次候选、关联订单及分页筛选", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-11-25-shipping-return-batch.md"},
+		{table: "req_dev", code: "DEV-PR771-CONFIRM", title: "同批多票原子发货、费用保护及幂等", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-11-25-shipping-return-batch.md"},
+		{table: "req_dev", code: "DEV-PR771-UI", title: "回传明细、订单筛选和选票确认交互", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-11-25-shipping-return-batch.md"},
 		{table: "req_product", code: "PR-770-MINIAPP-PRIVACY", title: "小程序登录协议与收件隐私整改", status: "review", assignee: "Van"},
 		{table: "req_dev", code: "DEV-PR770-LOGIN", title: "全角色登录协议与会话确认", status: "review", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PR770-ADDRESS", title: "首次收件授权、撤回及微信复审", status: "doing", assignee: "Codex"},

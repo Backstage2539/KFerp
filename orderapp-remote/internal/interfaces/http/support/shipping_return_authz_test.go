@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	authzapp "orderapp/internal/application/authz"
+	"strings"
 	"testing"
 )
 
@@ -28,8 +29,8 @@ func TestShippingReturnRejectsCustomerEvenWithOrderPermissions(t *testing.T) {
 			return func(c echo.Context) error { c.Set("employee_id", int64(7)); return next(c) }
 		})
 		e.Use(AuthorizationMiddleware(authz))
-		for _, item := range []struct{ method, path string }{{"POST", "/api/orders/shipping-return-rematch"}, {"GET", "/api/orders/shipping-return-candidates"}, {"GET", "/api/orders/shipping-return-templates"}, {"POST", "/api/orders/1/shipping-return-selection"}, {"POST", "/api/orders/shipping-tracking-excel"}, {"PUT", "/api/settings/logistics/shipping-return-templates"}} {
-			e.Add(item.method, item.path, func(c echo.Context) error { return c.NoContent(200) })
+		for _, item := range []struct{ method, path string }{{"GET", "/api/orders/shipping-return-batches/6"}, {"GET", "/api/orders?shipping_return_batch_id=6"}, {"POST", "/api/orders/shipping-return-rematch"}, {"GET", "/api/orders/shipping-return-candidates"}, {"GET", "/api/orders/shipping-return-templates"}, {"POST", "/api/orders/1/shipping-return-selection"}, {"POST", "/api/orders/shipping-tracking-excel"}, {"PUT", "/api/settings/logistics/shipping-return-templates"}} {
+			e.Add(item.method, strings.SplitN(item.path, "?", 2)[0], func(c echo.Context) error { return c.NoContent(200) })
 			out := httptest.NewRecorder()
 			e.ServeHTTP(out, httptest.NewRequest(item.method, item.path, nil))
 			want := 200

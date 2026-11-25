@@ -359,6 +359,11 @@ func orderListWhere(schema string, query salesapp.OrderListQuery) ([]string, []a
 	args := make([]any, 0)
 	argn := 1
 
+	if query.MatchedOrderIDs != nil {
+		where = append(where, fmt.Sprintf("o.id = ANY($%d::bigint[])", argn))
+		args = append(args, query.MatchedOrderIDs)
+		argn++
+	}
 	if query.OrderID > 0 {
 		where = append(where, fmt.Sprintf("o.id = $%d", argn))
 		args = append(args, query.OrderID)

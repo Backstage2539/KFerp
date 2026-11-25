@@ -7,12 +7,13 @@ import (
 )
 
 type ShippingReturnRepository interface {
+	ShippingReturnBatch(context.Context, int64) (d.Batch, error)
 	RematchShippingReturn(context.Context, string, int64, []int64) (d.Batch, error)
 	ShippingReturnTemplates(context.Context) ([]d.Template, error)
 	SaveShippingReturnTemplates(context.Context, string, []d.Template) error
 	ImportShippingReturn(context.Context, string, string, string, d.Template, []d.Row) (d.Batch, error)
 	ShippingReturnCandidates(context.Context, int64) ([]d.Row, error)
-	SelectShippingReturn(context.Context, string, int64, int64, string) (FillShipmentTrackingResult, error)
+	SelectShippingReturns(context.Context, string, int64, []int64, string) (FillShipmentTrackingResult, error)
 }
 
 func (s *Service) ShippingReturns() (ShippingReturnRepository, error) {

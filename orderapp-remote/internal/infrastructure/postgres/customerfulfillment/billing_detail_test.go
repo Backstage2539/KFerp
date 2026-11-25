@@ -118,6 +118,45 @@ func TestBillingDetailUsesOnlyFreightSourceWaybill(t *testing.T) {
 	if detail.OrderNo != "SO-TWO-WAYBILLS" || len(detail.Shipments) != 1 || detail.Shipments[0].TrackingNo != "SF-A" || detail.Shipments[0].SettlementWeightKG != "1.2" || detail.Shipments[0].ShippedAt != "2026-10-26 10:00" {
 		t.Fatalf("unexpected detail: %+v", detail)
 	}
+	// A single fee adjustment covering a multi-parcel return must show exactly its source parcels.
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %[1]s.freight_actual_entries ADD COLUMN IF NOT EXISTS shipping_return_group_id bigint;
+UPDATE %[1]s.freight_actual_entries SET shipping_return_group_id=12 WHERE id=21`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.freight_actual_shipments(id,carrier_id,order_id,customer_id,tracking_no) VALUES(12,1,$1,$2,'SF-B')`, schema), orderID, customerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.freight_actual_entries(id,shipment_id,request_key,actual_cents,target_cents,delta_cents,previous_actual_cents,previous_billed_cents,reason,created_by,shipping_return_group_id) VALUES(22,12,'group-p2',550,0,0,0,0,'test','test',12);
+UPDATE %[1]s.order_shipment_orders SET tracking_no=E'SF-A\nSF-B' WHERE id=1;
+UPDATE %[1]s.order_shipment_orders SET tracking_no='SF-OTHER' WHERE id=2;`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.shipping_return_rows(id,status,selected_order_id,payload) VALUES(2,'applied',$1,'{"tracking_no":"SF-B","pickup_time":"2026-10-26 10:01","settlement_weight_kg":"2.3"}')`, schema), orderID); err != nil {
+		t.Fatal(err)
+	}
+	detail, err = repo.billingLineDetail(ctx, pool, customerID, line, "出账快照")
+	if err != nil || len(detail.Shipments) != 2 || detail.Shipments[0].TrackingNo != "SF-A" || detail.Shipments[1].TrackingNo != "SF-B" || detail.Shipments[1].SettlementWeightKG != "2.3" {
+		t.Fatalf("group fee detail %+v: %v", detail, err)
+	}
+
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_service_capabilities(customer_id,capability_code,enabled) VALUES($1,'settlement',true)`, schema), customerID); err != nil {
+		t.Fatal(err)
+	}
+	query := app.BillingQuery{CustomerID: customerID, FeeType: "shipping"}
+	unbilled, err := repo.ListUnbilledCharges(ctx, query)
+	if err != nil || len(unbilled.Rows) != 1 || unbilled.Rows[0].SourceNo != "SF-A\nSF-B" {
+		t.Fatalf("unbilled group %+v %v", unbilled, err)
+	}
+	command := app.BillingPreviewCommand{CustomerID: customerID, Sources: []app.BillingSource{{ChargeType: "shipping", SourceType: "customer_fee_item", SourceID: feeID}}}
+	preview, err := repo.PreviewBilling(ctx, command)
+	if err != nil || len(preview.Lines) != 1 || preview.Lines[0].SourceNo != "SF-A\nSF-B" {
+		t.Fatalf("group preview %+v %v", preview, err)
+	}
+	bill, err := repo.IssueBilling(ctx, app.IssueBillingCommand{BillingPreviewCommand: command, PreviewVersion: preview.PreviewVersion, IdempotencyKey: "two-tracking-snapshot"})
+	if err != nil || bill.TotalAmountCents != 1110 || len(bill.Lines) != 1 || bill.Lines[0].SourceNo != "SF-A\nSF-B" || len(bill.Lines[0].Detail.Shipments) != 2 {
+		t.Fatalf("group snapshot %+v %v", bill, err)
+	}
+
 }
 
 func TestBillingDefaultSealMatchesPreviewAndRespectsSavedEmptyLayout(t *testing.T) {

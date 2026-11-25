@@ -29,6 +29,7 @@ const viewScopedParams = [
   'item_type',
   'batch',
   'ship_ready',
+  'shipping_return_batch_id',
   'scope',
   'highlight_order_id',
   'tab',

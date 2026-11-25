@@ -103,8 +103,36 @@
         <span>{{ shippingMessage }}</span>
         <a v-if="shippingExcelUrl" :href="shippingExcelUrl" target="_blank" rel="noopener">下载 Excel</a>
       </div>
-      <button v-if="returnBatchID" class="secondary" type="button" :disabled="trackingExcelLoading" @click="rematchShippingReturn">重新匹配</button>
-      <details v-if="returnReport.length"><summary>本次回传明细（{{returnReport.length}}）</summary><p v-for="r in returnReport" :key="r.row_no">第 {{r.row_no}} 行 · {{r.tracking_no||'无单号'}} · {{r.status==='applied'?'已回填':r.status==='pending'?'待选择':r.status==='unmatched'?'未匹配':'已跳过'}} · 揽件时间：{{r.pickup_time||'未记录'}} · 结算重量：{{r.settlement_weight_kg ? `${r.settlement_weight_kg} kg` : '未记录'}} {{r.error}}</p></details>
+      <div v-if="returnBatchID" class="return-batch-tools">
+        <label>
+          <input type="checkbox" v-model="onlyReturnMatches" @change="loadPage(1)" />
+          只看本次匹配订单（{{ batchMatches.orderCount }}）
+        </label>
+        <button class="secondary" type="button" :disabled="trackingExcelLoading" @click="rematchShippingReturn">重新匹配</button>
+      </div>
+      <details v-if="returnReport.length" class="return-report">
+        <summary>本次回传明细（{{ returnReport.length }}）<span v-if="returnBatchID"> · {{ batchMatches.pendingCount }} 条待选择 · {{ batchMatches.orderCount }} 个匹配订单</span></summary>
+        <ul>
+          <li v-for="r in returnReport" :key="r.id || r.row_no">
+            <div class="return-row">
+              <span>第 {{ r.row_no }} 行 · <strong>{{ r.tracking_no || '无单号' }}</strong></span>
+              <span :class="['return-status', r.status]">{{ returnStatusLabels[r.status] || '已跳过' }}</span>
+              <span>揽件时间：{{r.pickup_time||'未记录'}}</span>
+              <span>结算重量：{{r.settlement_weight_kg ? r.settlement_weight_kg + ' kg' : '未记录'}}</span>
+            </div>
+            <p v-if="r.error" class="return-reason">{{ r.error }}</p>
+            <p v-if="r.status === 'applied' && r.order_id">已回填订单 <button class="order-link" type="button" @click="openOrderDetailDrawer({ id: r.order_id, order_no: r.order_no })">{{ r.order_no || '#' + r.order_id }}</button></p>
+            <div v-for="c in r.candidates" :key="c.order_id" class="return-candidate">
+              <span>候选订单 <button type="button" class="order-link" @click="openOrderDetailDrawer({ id: c.order_id, order_no: c.order_no, customer: c.customer_name })">{{ c.order_no || '#' + c.order_id }}</button></span>
+              <span>{{ c.customer_name }}<template v-if="c.order_date"> · {{ c.order_date }}</template></span>
+              <small :class="{ ready: c.can_select }">{{ c.can_select ? '可发货' : (c.block_reason || '尚未满足发货条件') }}</small>
+              <button type="button" class="pick-return" @click="openReturnPicker(c, true)">核对快递单</button>
+            </div>
+          </li>
+        </ul>
+      </details>
+      <ShippingReturnPicker v-if="returnPicker" :rows="pickerRows" :order-id="returnPicker.id" :order-no="returnPicker.no"
+        :can-write="canManageShippingReturns" @close="returnPicker = null" @saved="returnSelectionSaved" />
       <div v-if="shippingError" class="notice error">{{ shippingError }}</div>
       <div class="bulk-order-bar">
         <button class="secondary" type="button" @click="openBatchStatus" :disabled="!selectedOrderIDs.length">批量修改状态（{{ selectedOrderIDs.length }}）</button>
@@ -201,7 +229,9 @@
                 <div v-if="isCustomerStockOrder(row)" class="shipping-summary">留厂库存 · 无需发货</div>
                 <div v-else class="shipping-summary">
                   <span>{{ senderDisplay(row) }}</span>
-                  <ShippingReturnPicker :rows="returnCandidates.filter(x=>Number(x.order_id)===Number(row.id))" :order-id="Number(row.id)" :order-no="row.order_no" @saved="load" />
+                  <button v-if="visibleReturnCandidates.get(Number(row.id))?.length" type="button" class="pick-return" @click.stop="openReturnPicker(row, onlyReturnMatches)">
+                    选择快递单（{{ visibleReturnCandidates.get(Number(row.id)).length }}）
+                  </button>
                   <strong :title="row.ship_tracking_no || ''">{{ formatTrackingSummary(row.ship_tracking_no) }}</strong>
                 </div>
               </td>
@@ -255,7 +285,7 @@
             </tr>
             </template>
             <tr v-if="!rows.length">
-              <td colspan="10" class="muted">暂无订单</td>
+              <td colspan="10" class="muted">{{ onlyReturnMatches ? '当前筛选条件下没有本次匹配的订单' : '暂无订单' }}</td>
             </tr>
           </tbody>
         </table>
@@ -475,7 +505,7 @@ import OrderReceipts from '../components/OrderReceipts.vue'
 import { receiptActorIdentity } from '../lib/order-receipt.js'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
-import { shippingReturnUploadMessage } from '../lib/shipping-return-upload.js'
+import { shippingReturnBatchMatches, shippingReturnUploadMessage } from '../lib/shipping-return-upload.js'
 import PaginationControls from '../components/PaginationControls.vue'
 import { combinedDocumentSelectionSummary, selectedOrdersShareSameCustomer } from '../lib/combined-order-documents'
 import { customerFulfillmentOrderFees } from '../lib/customer-fulfillment'
@@ -489,6 +519,7 @@ import { orderListSelectionState, selectableOrderIDs, toggleOrderPageSelection }
 import { formatTrackingSummary, isOrderShipReady, trackingInputSummary, isNonCourierShipMethod, orderDeliveryLabel } from '../lib/order-shipping'
 import { orderTypeLabels, inlineOrderItems, inlineOrderTotals, shouldToggleOrderRow, createOrderInlineDetails } from '../lib/order-list-inline'
 import { orderListScopeForRequest } from '../lib/order-scope'
+import { actorHasFullViewAccess } from '../lib/menu-permissions.js'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 import { replaceHistoryURL } from '../lib/url-state'
 import DeliveryNoteView from './DeliveryNoteView.vue'
@@ -622,6 +653,11 @@ function applyUrlFilters() {
   filters.ship_status_id = Number(params.get('ship_status_id') || 0)
   filters.process_status_id = Number(params.get('process_status_id') || 0)
   filters.ship_ready = params.get('ship_ready') === '1'
+  const batchID = Number(params.get('shipping_return_batch_id'))
+  if (Number.isSafeInteger(batchID) && batchID > 0) {
+    returnBatchID.value = batchID
+    onlyReturnMatches.value = true
+  }
   filters.limit = normalizePageSize(params.get('limit') || filters.limit)
   page.value = Math.max(1, Number(params.get('page') || 1))
 }
@@ -636,6 +672,7 @@ function buildUrl(nextPage) {
   }
   if (filters.customer_id) url.searchParams.set('customer_id', String(filters.customer_id))
   if (filters.order_id) url.searchParams.set('order_id', String(filters.order_id))
+  if (onlyReturnMatches.value && returnBatchID.value) url.searchParams.set('shipping_return_batch_id', String(returnBatchID.value))
   if (filters.ship_ready) url.searchParams.set('ship_ready', '1')
   if (filters.scope && filters.scope !== 'all') url.searchParams.set('scope', filters.scope)
   url.searchParams.set('page', String(nextPage))
@@ -658,6 +695,8 @@ function updateBrowserUrl(nextPage) {
   else url.searchParams.delete('customer_id')
   if (filters.order_id) url.searchParams.set('order_id', String(filters.order_id))
   else url.searchParams.delete('order_id')
+  if (onlyReturnMatches.value && returnBatchID.value) url.searchParams.set('shipping_return_batch_id', String(returnBatchID.value))
+  else url.searchParams.delete('shipping_return_batch_id')
   if (filters.ship_ready) url.searchParams.set('ship_ready', '1')
   else url.searchParams.delete('ship_ready')
   if (filters.scope && filters.scope !== 'all') url.searchParams.set('scope', filters.scope)
@@ -1095,6 +1134,40 @@ const returnTemplateID = ref('sf-recipient')
 const returnCandidates = ref([])
 const returnReport = ref([])
 const returnBatchID = ref(0)
+const onlyReturnMatches = ref(false)
+const returnPicker = ref(null)
+const returnStatusLabels = { pending: '待选择', unmatched: '未匹配', applied: '已回填', skipped: '已跳过' }
+const batchMatches = computed(() => shippingReturnBatchMatches(returnReport.value, returnBatchID.value))
+const allReturnCandidates = computed(() => {
+  const byOrder = new Map()
+  for (const row of returnCandidates.value) {
+    const id = Number(row.order_id)
+    if (!byOrder.has(id)) byOrder.set(id, [])
+    byOrder.get(id).push(row)
+  }
+  return byOrder
+})
+const visibleReturnCandidates = computed(() => onlyReturnMatches.value ? batchMatches.value.candidatesByOrder : allReturnCandidates.value)
+const pickerRows = computed(() => {
+  const byOrder = returnPicker.value?.batchOnly ? batchMatches.value.candidatesByOrder : allReturnCandidates.value
+  return byOrder.get(returnPicker.value?.id) || []
+})
+const canManageShippingReturns = computed(() => {
+  const actor = props.actor
+  return !props.customerAccountActor && actor?.account_type !== 'channel_customer'
+    && Boolean(actorHasFullViewAccess(actor) || actor?.permissions?.includes('*') || actor?.permissions?.includes('orders.write'))
+})
+
+function openReturnPicker(order, batchOnly) {
+  returnPicker.value = { id: Number(order.order_id || order.id), no: order.order_no, batchOnly }
+}
+
+async function returnSelectionSaved() {
+  const no = returnPicker.value?.no
+  returnPicker.value = null
+  shippingMessage.value = `已确认发货 · ${no || '运单已回填'}`
+  await load()
+}
 function openShippingReturnManual() {
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'shippingReturnManual', returnNavigation: { key: 'orders', label: '返回订单列表' } } }))
 }
@@ -1124,6 +1197,8 @@ async function uploadTrackingExcel() {
     const data = await apiSend('/api/orders/shipping-tracking-excel', { body })
     returnReport.value = data.rows || []
     returnBatchID.value = Number(data.batch_id || 0)
+    if (!returnBatchID.value) onlyReturnMatches.value = false
+    if (onlyReturnMatches.value) page.value = 1
     shippingMessage.value = shippingReturnUploadMessage(data)
     trackingExcelFile.value = null
     await load()
@@ -1155,17 +1230,37 @@ async function load(silent = false) {
       if (err.status === 403) return {}
       throw err
     })
-    const [data, templates, candidates] = await Promise.all([
-      apiGet(buildUrl(page.value)),
-      readReturnData('/api/orders/shipping-return-templates'),
-      readReturnData('/api/orders/shipping-return-candidates'),
+    const [ordersResult, batchResult] = await Promise.allSettled([
+      Promise.all([
+        apiGet(buildUrl(page.value)),
+        readReturnData('/api/orders/shipping-return-templates'),
+        onlyReturnMatches.value ? {} : readReturnData('/api/orders/shipping-return-candidates'),
+      ]),
+      returnBatchID.value ? readReturnData(`/api/orders/shipping-return-batches/${returnBatchID.value}`) : null,
     ])
     if (token !== loadSequence) return
+    if (batchResult.status === 'rejected' && batchResult.reason.status === 404) {
+      returnBatchID.value = 0
+      onlyReturnMatches.value = false
+      returnReport.value = []
+      returnPicker.value = null
+      shippingMessage.value = ''
+      shippingError.value = '回传批次不存在，已清除本次匹配筛选。'
+      page.value = 1
+      updateBrowserUrl(1)
+      await load(silent)
+      return
+    }
+    if (batchResult.status === 'rejected') throw batchResult.reason
+    if (ordersResult.status === 'rejected') throw ordersResult.reason
+    const [data, templates, candidates] = ordersResult.value
+    const batch = batchResult.value
     const currentDetailID = Number(activeOrderDetail.value?.id || 0)
     const previousDrawerTrackingNo = activeOrderDetail.value?.ship_tracking_no || ''
     rows.value = data.rows || []
     returnTemplates.value = templates.templates || []
     returnCandidates.value = candidates.rows || []
+    if (batch) returnReport.value = batch.rows || []
     if (currentDetailID) {
       const refreshed = rows.value.find((row) => Number(row.id) === currentDetailID)
       if (refreshed) {
@@ -1224,7 +1319,7 @@ watch(() => props.viewParams, async () => {
 
 async function refreshConfirmationOrder() { const id=activeOrderDetail.value?.id; await load(); if(id) await loadOrderDetail(id) }
 let stopConfirmationRefresh
-onConfirmationMount(() => { stopConfirmationRefresh=visibleOrderRefresh(() => loading.value || inlineDetail.id ? undefined : load(true)) })
+onConfirmationMount(() => { stopConfirmationRefresh=visibleOrderRefresh(() => loading.value || inlineDetail.id || returnPicker.value || trackingExcelLoading.value ? undefined : load(true)) })
 onConfirmationUnmount(() => { inlineOrders.reset(); stopConfirmationRefresh?.() })
 </script>
 
@@ -1293,6 +1388,22 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .secondary { background: #fff; color: #1f1f1f; }
 .summary { display: flex; gap: 14px; margin-top: 10px; color: #555; }
 .shipping-bar { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.return-batch-tools, .return-row, .return-candidate { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; }
+.return-batch-tools { margin: 12px 0; }
+.return-batch-tools label { display: inline-flex; gap: 7px; align-items: center; cursor: pointer; }
+.return-batch-tools input { width: 17px; height: 17px; margin: 0; accent-color: #286248; }
+.return-report { margin: 12px 0; font-size: 14px; }
+.return-report summary { cursor: pointer; font-weight: 600; }
+.return-report summary span, .return-row > span:nth-child(n+3) { font-weight: normal; color: #636b66; }
+.return-report ul { padding: 0; list-style: none; border-top: 1px solid #d9dfda; }
+.return-report li { padding: 9px 4px; border-bottom: 1px solid #d9dfda; }
+.return-report p, .return-candidate { margin: 5px 0 0; }
+.return-status { font-size: 12px; padding: 2px 6px; border-radius: 4px; background: #f0f1ef; }
+.return-status.pending { background: #fff3d6; color: #744900; }
+.return-status.applied { background: #e5f3e9; color: #225f3c; }
+.return-reason, .return-candidate small { color: #744920; }
+.return-candidate small.ready { color: #286248; }
+button.pick-return { color: #286248; background: #edf6f0; border: 1px solid #b7d0bf; border-radius: 5px; padding: 4px 8px; height: auto; font-size: 13px; }
 .shipping-bar h3 { margin: 0 0 4px; font-size: 17px; }
 .shipping-bar p { margin: 0; color: #666; font-size: 13px; }
 .shipping-actions { align-self: end; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; justify-content: flex-end; }

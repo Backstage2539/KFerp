@@ -61,3 +61,13 @@ func TestOrderFeeGroupIncludesOtherFeeInOrderAmountOnce(t *testing.T) {
 		t.Fatalf("customer order charges: %+v, %+v", groups, summary)
 	}
 }
+
+func TestBillingGroupShowsOnlySelectedPackages(t *testing.T) {
+	order := AccountOrder{ID: 12}
+	fee := AccountFee{TrackingNo: "SF-A\nSF-C"}
+	shipments := []AccountShipment{{OrderID: 12, TrackingNo: "SF-A"}, {OrderID: 12, TrackingNo: "SF-B"}, {OrderID: 12, TrackingNo: "SF-C"}}
+	detail := BuildBillingLineDetail(SettlementLineSummary{ChargeType: "shipping"}, order, fee, shipments, "出账快照")
+	if len(detail.Shipments) != 2 || detail.Shipments[0].TrackingNo != "SF-A" || detail.Shipments[1].TrackingNo != "SF-C" {
+		t.Fatalf("group packages %+v", detail.Shipments)
+	}
+}

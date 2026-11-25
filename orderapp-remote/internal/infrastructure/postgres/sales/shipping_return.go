@@ -265,7 +265,7 @@ func (r Repository) ImportShippingReturn(ctx context.Context, actor, name, hash 
 		return b, e
 	}
 	for _, a := range auto {
-		_, err := r.selectShippingReturn(ctx, actor, a.oid, a.rid, a.version, true)
+		_, err := r.selectShippingReturn(ctx, actor, a.oid, []int64{a.rid}, a.version, true)
 		if err != nil {
 			_, e = r.pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.shipping_return_rows SET result=$2 WHERE id=$1`, r.schema), a.rid, err.Error())
 			if e != nil {
@@ -356,151 +356,89 @@ func (r Repository) backfillReturnWeightsTx(ctx context.Context, tx pgx.Tx, acto
 	}
 	return len(changes), skipped, nil
 }
-func (r Repository) returnBatch(ctx context.Context, id int64) (d.Batch, error) {
-	b := d.Batch{ID: id, Rows: []d.Row{}}
-	rows, e := r.pool.Query(ctx, fmt.Sprintf(`SELECT r.id,r.payload,r.status,coalesce(r.selected_order_id,0),r.result,(SELECT count(*) FROM %[1]s.shipping_return_candidates c WHERE c.row_id=r.id) FROM %[1]s.shipping_return_rows r WHERE batch_id=$1 ORDER BY id`, r.schema), id)
-	if e != nil {
-		return b, e
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var v d.Row
-		var raw []byte
-		var reason, status string
-		var oid, rid, n int64
-		if e = rows.Scan(&rid, &raw, &status, &oid, &reason, &n); e != nil {
-			return b, e
-		}
-		if e = json.Unmarshal(raw, &v); e != nil {
-			return b, e
-		}
-		v.ID = rid
-		v.Status = status
-		v.OrderID = oid
-		if reason != "" {
-			v.Error = reason
-		}
-		switch {
-		case status == "applied":
-			b.Updated++
-			b.OrderIDs = append(b.OrderIDs, oid)
-		case status == "pending" && n > 0:
-			b.Pending++
-		case status == "pending":
-			v.Status = "unmatched"
-			if v.Error == "" {
-				v.Error = "未匹配待回填订单"
-			}
-			b.Skipped++
-		default:
-			b.Skipped++
-		}
-		b.Rows = append(b.Rows, v)
-	}
-	b.Total = len(b.Rows)
-	return b, rows.Err()
-}
-func (r Repository) ShippingReturnCandidates(ctx context.Context, oid int64) ([]d.Row, error) {
-	return r.liveShippingReturnCandidates(ctx, r.pool, oid)
+func (r Repository) SelectShippingReturn(ctx context.Context, actor string, oid, rid int64, version string) (app.FillShipmentTrackingResult, error) {
+	return r.SelectShippingReturns(ctx, actor, oid, []int64{rid}, version)
 }
 
-// Read from current orders, including matches whose inventory is not yet ready.
-// A GET neither reserves stock nor persists stale recipient-match snapshots.
-func (r Repository) liveShippingReturnCandidates(ctx context.Context, q progresspg.Querier, oid int64) ([]d.Row, error) {
-	query := returnOrderSQL(r.schema)
-	args := []any{}
-	if oid > 0 {
-		query += " AND o.id=$1"
-		args = append(args, oid)
-	}
-	orders, err := q.Query(ctx, query, args...)
+func (r Repository) SelectShippingReturns(ctx context.Context, actor string, oid int64, ids []int64, version string) (app.FillShipmentTrackingResult, error) {
+	return r.selectShippingReturn(ctx, actor, oid, ids, version, false)
+}
+
+type shippingReturnSelection struct {
+	items       []d.Row
+	carrierID   int64
+	trackingNos []string
+	replayed    bool
+}
+
+func (r Repository) lockReturnSelection(ctx context.Context, tx pgx.Tx, oid int64, ids []int64) (shippingReturnSelection, error) {
+	var group shippingReturnSelection
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT r.id,r.batch_id,r.payload,coalesce((b.template->>'carrier_id')::bigint,0),r.status,coalesce(r.selected_order_id,0)
+		FROM %[1]s.shipping_return_rows r JOIN %[1]s.shipping_return_batches b ON b.id=r.batch_id
+		WHERE r.id=ANY($1) ORDER BY r.id FOR UPDATE OF r`, r.schema), ids)
 	if err != nil {
-		return nil, err
-	}
-	targets := map[string][]returnOrder{}
-	ids := []int64{}
-	for orders.Next() {
-		var o returnOrder
-		if err = orders.Scan(&o.id, &o.name, &o.phone, &o.version); err != nil {
-			orders.Close()
-			return nil, err
-		}
-		if key := d.PhoneMatchKey(o.phone); key != "" {
-			targets[key] = append(targets[key], o)
-			ids = append(ids, o.id)
-		}
-	}
-	err = orders.Err()
-	orders.Close()
-	if err != nil {
-		return nil, err
-	}
-	progress, err := progresspg.Load(ctx, q, r.schema, ids)
-	if err != nil {
-		return nil, err
-	}
-	dates := map[int64][2]string{}
-	meta, err := q.Query(ctx, fmt.Sprintf(`SELECT id,order_no,coalesce(to_char(order_date,'YYYY-MM-DD'),'') FROM %s.orders WHERE id=ANY($1)`, r.schema), ids)
-	if err != nil {
-		return nil, err
-	}
-	for meta.Next() {
-		var id int64
-		var no, date string
-		if err = meta.Scan(&id, &no, &date); err != nil {
-			meta.Close()
-			return nil, err
-		}
-		dates[id] = [2]string{no, date}
-	}
-	err = meta.Err()
-	meta.Close()
-	if err != nil {
-		return nil, err
-	}
-	rows, err := q.Query(ctx, fmt.Sprintf(`SELECT r.id,r.payload FROM %[1]s.shipping_return_rows r
-      WHERE r.status='pending' AND NOT EXISTS(SELECT 1 FROM %[1]s.orders o WHERE o.ship_tracking_no=r.payload->>'tracking_no'
-        UNION ALL SELECT 1 FROM %[1]s.order_shipping_trackings t WHERE t.tracking_no=r.payload->>'tracking_no') ORDER BY r.id DESC`, r.schema))
-	if err != nil {
-		return nil, err
+		return group, err
 	}
 	defer rows.Close()
-	out := []d.Row{}
+	var batchID int64
+	applied := 0
+	seen := make(map[string]bool, len(ids))
 	for rows.Next() {
-		var item d.Row
+		var id, batch, carrier, selected int64
 		var raw []byte
-		var id int64
-		if err = rows.Scan(&id, &raw); err != nil {
-			return nil, err
+		var status string
+		if err := rows.Scan(&id, &batch, &raw, &carrier, &status, &selected); err != nil {
+			return group, err
 		}
-		if err = json.Unmarshal(raw, &item); err != nil {
-			return nil, err
+		if batchID != 0 && (batchID != batch || carrier != group.carrierID) {
+			return group, fmt.Errorf("仅可合并同批次、同一快递公司的运单")
 		}
-		if item.Error != "" {
-			continue
+		batchID, group.carrierID = batch, carrier
+		if carrier <= 0 {
+			return group, fmt.Errorf("请在物流回传模板中选择快递公司")
 		}
-		for _, o := range targets[d.PhoneMatchKey(item.Phone)] {
-			if !d.RecipientMatches(item.Receiver, item.Phone, o.name, o.phone) {
-				continue
-			}
-			v := item
-			v.ID, v.OrderID, v.Version = id, o.id, o.version
-			v.OrderNo, v.OrderDate = dates[o.id][0], dates[o.id][1]
-			v.BlockReason = "订单尚未满足发货条件"
-			if p := progress[o.id]; p != nil {
-				v.CanSelect = p.CanShip
-				v.BlockReason = p.BlockReason
-			}
-			out = append(out, v)
+		var item d.Row
+		if err := json.Unmarshal(raw, &item); err != nil {
+			return group, err
 		}
+		if item.Error != "" || seen[item.TrackingNo] || item.TrackingNo == "" {
+			return group, fmt.Errorf("运单无效或重复，请重新核对")
+		}
+		seen[item.TrackingNo] = true
+		switch {
+		case status == "applied" && selected == oid:
+			applied++
+		case status != "pending":
+			return group, fmt.Errorf("快递单已被使用或已跳过")
+		}
+		item.ID = id
+		group.items = append(group.items, item)
+		group.trackingNos = append(group.trackingNos, item.TrackingNo)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return group, err
+	}
+	if len(group.items) != len(ids) {
+		return group, fmt.Errorf("选中的寄件行不存在")
+	}
+	if applied != 0 {
+		var n int
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.shipping_return_rows WHERE selected_order_id=$1 AND status='applied'`, r.schema), oid).Scan(&n); err != nil {
+			return group, err
+		}
+		if applied != n || applied != len(ids) {
+			return group, fmt.Errorf("部分运单已处理，所选运单与原确认不一致")
+		}
+		group.replayed = true
+	}
+	return group, nil
 }
-func (r Repository) SelectShippingReturn(ctx context.Context, actor string, oid, rid int64, version string) (app.FillShipmentTrackingResult, error) {
-	return r.selectShippingReturn(ctx, actor, oid, rid, version, false)
-}
-func (r Repository) selectShippingReturn(ctx context.Context, actor string, oid, rid int64, version string, automatic bool) (app.FillShipmentTrackingResult, error) {
+
+func (r Repository) selectShippingReturn(ctx context.Context, actor string, oid int64, ids []int64, version string, automatic bool) (app.FillShipmentTrackingResult, error) {
 	out := app.FillShipmentTrackingResult{}
+	if !d.ValidSelectionIDs(ids) || oid <= 0 || version == "" {
+		return out, fmt.Errorf("请选择有效且不重复的快递单")
+	}
 	tx, e := r.pool.Begin(ctx)
 	if e != nil {
 		return out, e
@@ -509,18 +447,9 @@ func (r Repository) selectShippingReturn(ctx context.Context, actor string, oid,
 	if _, e = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('freight-actual-posting'))`); e != nil {
 		return out, e
 	}
-	var raw, cfg []byte
-	var status string
-	var selected int64
-	e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT r.payload,b.template,r.status,coalesce(r.selected_order_id,0) FROM %[1]s.shipping_return_rows r JOIN %[1]s.shipping_return_batches b ON b.id=r.batch_id WHERE r.id=$1 FOR UPDATE OF r`, r.schema), rid).Scan(&raw, &cfg, &status, &selected)
-	if e != nil {
+	group, e := r.lockReturnSelection(ctx, tx, oid, ids)
+	if e != nil || group.replayed {
 		return out, e
-	}
-	if status == "applied" && selected == oid {
-		return out, nil
-	}
-	if status != "pending" {
-		return out, fmt.Errorf("快递单已被使用")
 	}
 	// Import and selection share this lock. Recheck uniqueness inside it because
 	// another uploaded batch may have introduced candidates after the initial scan.
@@ -531,7 +460,7 @@ func (r Repository) selectShippingReturn(ctx context.Context, actor string, oid,
 		}
 		rowCount, orderCount := 0, 0
 		for _, c := range matches {
-			if c.ID == rid {
+			if c.ID == ids[0] {
 				rowCount++
 			}
 			if c.OrderID == oid {
@@ -541,14 +470,6 @@ func (r Repository) selectShippingReturn(ctx context.Context, actor string, oid,
 		if rowCount != 1 || orderCount != 1 {
 			return out, fmt.Errorf("出现多个匹配，请选择快递单")
 		}
-	}
-	var item d.Row
-	var t d.Template
-	if e = json.Unmarshal(raw, &item); e != nil {
-		return out, e
-	}
-	if e = json.Unmarshal(cfg, &t); e != nil {
-		return out, e
 	}
 	var current string
 	e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT md5(to_jsonb(o)::text) FROM %s.orders o WHERE id=$1 FOR UPDATE`, r.schema), oid).Scan(&current)
@@ -570,50 +491,50 @@ func (r Repository) selectShippingReturn(ctx context.Context, actor string, oid,
 	if progress[oid] == nil || !progress[oid].CanShip {
 		return out, fmt.Errorf("本单实物库存尚未全部分配或履约状态不允许发货，请先处理订单库存后刷新")
 	}
-	if !d.RecipientMatches(item.Receiver, item.Phone, eligible.name, eligible.phone) {
-		return out, fmt.Errorf("收件信息已变化")
+	for _, item := range group.items {
+		if !d.RecipientMatches(item.Receiver, item.Phone, eligible.name, eligible.phone) {
+			return out, fmt.Errorf("运单 %s 收件信息已变化", item.TrackingNo)
+		}
 	}
-	if t.CarrierID <= 0 {
-		return out, fmt.Errorf("请在物流回传模板中选择快递公司")
-	}
+	tracking := app.TrackingNumbersSummary(group.trackingNos)
 	var occupied bool
-	e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.orders o LEFT JOIN %[1]s.order_shipping_trackings x ON x.order_id=o.id WHERE o.id<>$1 AND (x.tracking_no=$2 OR o.ship_tracking_no=$2))`, r.schema), oid, item.TrackingNo).Scan(&occupied)
+	e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.orders o LEFT JOIN %[1]s.order_shipping_trackings x ON x.order_id=o.id WHERE o.id<>$1 AND (x.tracking_no=ANY($2) OR o.ship_tracking_no=ANY($2)))`, r.schema), oid, group.trackingNos).Scan(&occupied)
 	if e != nil {
 		return out, e
 	}
 	if occupied {
 		return out, fmt.Errorf("该运单已绑定其他订单，请核对")
 	}
-	if _, e = appendOrderTrackingNumbersTx(ctx, tx, r.schema, oid, item.TrackingNo, "shipping_return", actor); e != nil {
+	if _, e = appendOrderTrackingNumbersTx(ctx, tx, r.schema, oid, tracking, "shipping_return", actor); e != nil {
 		return out, e
 	}
 	shipped := lookupDefaultStatusID(ctx, tx, r.schema, "ship_statuses", "已发货")
 	if shipped <= 0 {
 		return out, fmt.Errorf("未配置已发货状态")
 	}
-	_, e = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET ship_status_id=$2,logistics_company_id=$3 WHERE id=$1`, r.schema), oid, shipped, t.CarrierID)
+	_, e = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET ship_status_id=$2,logistics_company_id=$3 WHERE id=$1`, r.schema), oid, shipped, group.carrierID)
 	if e != nil {
 		return out, e
 	}
-	reason, e := freight.NewRepository(r.pool, r.schema).ConfirmActualCostTx(ctx, tx, oid, t.CarrierID, item.TrackingNo, item.ActualCents, fmt.Sprintf("shipping-return:%d", rid), actor)
+	reason, e := freight.NewRepository(r.pool, r.schema).ConfirmShippingReturnCostsTx(ctx, tx, oid, group.carrierID, group.items, actor)
 	if e != nil {
 		return out, e
 	}
 	var shipmentID int64
-	e = tx.QueryRow(ctx, fmt.Sprintf(`WITH changed AS(UPDATE %[1]s.order_shipment_orders SET tracking_no=$2,shipped_at=now() WHERE id=(SELECT id FROM %[1]s.order_shipment_orders WHERE order_id=$1 ORDER BY id DESC LIMIT 1)RETURNING shipment_id) UPDATE %[1]s.order_shipments SET status='shipped' WHERE id IN(SELECT shipment_id FROM changed) RETURNING id`, r.schema), oid, item.TrackingNo).Scan(&shipmentID)
+	e = tx.QueryRow(ctx, fmt.Sprintf(`WITH changed AS(UPDATE %[1]s.order_shipment_orders SET tracking_no=$2,shipped_at=now() WHERE id=(SELECT id FROM %[1]s.order_shipment_orders WHERE order_id=$1 ORDER BY id DESC LIMIT 1)RETURNING shipment_id) UPDATE %[1]s.order_shipments SET status='shipped' WHERE id IN(SELECT shipment_id FROM changed) RETURNING id`, r.schema), oid, tracking).Scan(&shipmentID)
 	if e != nil && e != pgx.ErrNoRows {
 		return out, e
 	}
 	if e = r.deductOrderAllocatedStockTx(ctx, tx, oid, actor); e != nil {
 		return out, e
 	}
-	if e = r.insertShippingAuditTx(ctx, tx, actor, oid, "shipping_return", item.TrackingNo+" · "+reason); e != nil {
+	if e = r.insertShippingAuditTx(ctx, tx, actor, oid, "shipping_return", tracking+" · "+reason); e != nil {
 		return out, e
 	}
-	if e = recordShipmentNotices(ctx, tx, r.schema, oid, shipmentID, item.TrackingNo); e != nil {
+	if e = recordShipmentNotices(ctx, tx, r.schema, oid, shipmentID, tracking); e != nil {
 		return out, e
 	}
-	_, e = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.shipping_return_rows SET status='applied',selected_order_id=$2,result=$3 WHERE id=$1`, r.schema), rid, oid, reason)
+	_, e = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.shipping_return_rows SET status='applied',selected_order_id=$2,result=$3 WHERE id=ANY($1)`, r.schema), ids, oid, reason)
 	if e != nil {
 		return out, e
 	}

@@ -44,6 +44,9 @@ func TestParse(t *testing.T) {
 			valid++
 		}
 	}
+	if got := rows[5].Error; got != "S 列应收金额为空" {
+		t.Fatalf("第 7 行未指出实际缺失的列: %q", got)
+	}
 	if valid != 6 || len(rows) != 9 || rows[0].ActualCents != 0 {
 		t.Fatalf("%+v", rows)
 	}

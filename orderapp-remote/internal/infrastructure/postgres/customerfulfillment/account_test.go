@@ -79,7 +79,7 @@ func TestCustomerAccountHistorySummaryFeesAndIsolation(t *testing.T) {
 	}
 	if _, err = pool.Exec(ctx, fmt.Sprintf(`
 CREATE TABLE %[1]s.freight_actual_shipments(id bigint,tracking_no text,order_id bigint,customer_id bigint);
-CREATE TABLE %[1]s.freight_actual_entries(id bigint,shipment_id bigint);
+CREATE TABLE %[1]s.freight_actual_entries(id bigint,shipment_id bigint,shipping_return_group_id bigint);
 INSERT INTO %[1]s.freight_actual_shipments VALUES(41,'SF208',208,1),(42,'SF209',208,1);
 INSERT INTO %[1]s.freight_actual_entries VALUES(51,41),(52,42);
 INSERT INTO %[1]s.customer_fee_items(id,customer_id,source_type,source_id,fee_type,note,amount,currency,occurred_at,settlement_batch_id,status) VALUES(4,1,'freight_actual',51,'shipping','寄件实际运费',9.10,'CNY','2026-09-09',0,'unsettled'),(5,1,'freight_actual',52,'shipping','寄件实际运费',5.50,'CNY','2026-09-09',0,'unsettled');

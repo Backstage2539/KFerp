@@ -33,7 +33,7 @@ func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 				// The handler additionally checks the stored step's role and ownership.
 				return next(c)
 			}
-			if isInternalCustomerStockRequest(path) {
+			if isInternalCustomerStockRequest(path) || (path == "/api/orders" && c.QueryParam("shipping_return_batch_id") != "") {
 				actor, ok, err := CurrentActor(c, authz)
 				if err != nil || !ok {
 					return permissionJSONError(c, http.StatusUnauthorized, map[string]string{"error": "auth required"})

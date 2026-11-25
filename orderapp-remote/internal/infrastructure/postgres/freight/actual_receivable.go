@@ -85,58 +85,100 @@ func (r *Repository) ReceivableState(ctx context.Context, tx interface {
 	return s, rows.Err()
 }
 func (r *Repository) ConfirmActualCostTx(ctx context.Context, tx pgx.Tx, oid, carrier int64, tracking string, actual int64, key, actor string) (string, error) {
-	var oldKey string
-	e := tx.QueryRow(ctx, fmt.Sprintf(`SELECT request_key FROM %s.freight_actual_entries WHERE request_key=$1`, r.schema), key).Scan(&oldKey)
+	var priorGroup int64
+	e := tx.QueryRow(ctx, fmt.Sprintf(`SELECT coalesce(shipping_return_group_id,0) FROM %s.freight_actual_entries WHERE request_key=$1`, r.schema), key).Scan(&priorGroup)
 	if e == nil {
+		if priorGroup > 0 {
+			return "", fmt.Errorf("多票寄件须按原组合核对")
+		}
 		return "已处理", nil
 	}
 	if e != pgx.ErrNoRows {
 		return "", e
 	}
-	if e = r.lockOrderReceivable(ctx, tx, oid); e != nil {
-		return "", e
-	}
-	s, e := r.ReceivableState(ctx, tx, oid)
+	posting, e := r.prepareActualPosting(ctx, tx, oid, carrier, actual, actor)
 	if e != nil {
 		return "", e
 	}
-	d, e := domain.ConfirmActualReceivable(domain.ActualReceivableInput{Actual: actual, Surcharge: s.Surcharge, Current: s.Current, Paid: s.Paid, Free: s.Free, UnknownPayment: s.Unknown})
+	e = r.recordActualCostTx(ctx, tx, posting, tracking, actual, key, posting.decision.TargetCents-posting.state.Current)
+	return posting.decision.Reason, e
+}
+
+type actualPosting struct {
+	orderID, customerID, carrierID int64
+	groupID                        int64
+	actor                          string
+	state                          ReceivableState
+	decision                       domain.ActualReceivableDecision
+}
+
+func (r *Repository) prepareActualPosting(ctx context.Context, tx pgx.Tx, oid, carrier, total int64, actor string) (actualPosting, error) {
+	p := actualPosting{orderID: oid, carrierID: carrier, actor: actor}
+	if err := r.lockOrderReceivable(ctx, tx, oid); err != nil {
+		return p, err
+	}
+	var err error
+	p.state, err = r.ReceivableState(ctx, tx, oid)
+	if err != nil {
+		return p, err
+	}
+	p.decision, err = domain.ConfirmActualReceivable(domain.ActualReceivableInput{
+		Actual: total, Surcharge: p.state.Surcharge, Current: p.state.Current, Paid: p.state.Paid, Free: p.state.Free, UnknownPayment: p.state.Unknown,
+	})
+	if err != nil {
+		return p, err
+	}
+	var grouped bool
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT customer_id,EXISTS(
+		SELECT 1 FROM %[1]s.freight_actual_entries e JOIN %[1]s.freight_actual_shipments s ON s.id=e.shipment_id
+		WHERE s.order_id=$1 AND e.shipping_return_group_id IS NOT NULL)
+		FROM %[1]s.orders WHERE id=$1`, r.schema), oid).Scan(&p.customerID, &grouped)
+	if err != nil {
+		return p, err
+	}
+	if grouped {
+		return p, fmt.Errorf("多票寄件须核对整组费用")
+	}
+	return p, nil
+}
+
+func (r *Repository) recordActualCostTx(ctx context.Context, tx pgx.Tx, p actualPosting, tracking string, actual int64, key string, delta int64) error {
+	var sid, owner, customer, prevActual, prevBilled int64
+	e := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.freight_actual_shipments(carrier_id,tracking_no,order_id,customer_id)VALUES($1,$2,$3,$4) ON CONFLICT(carrier_id,tracking_no) DO UPDATE SET tracking_no=excluded.tracking_no RETURNING id,order_id,customer_id,actual_cents,billed_cents`, r.schema), p.carrierID, tracking, p.orderID, p.customerID).Scan(&sid, &owner, &customer, &prevActual, &prevBilled)
 	if e != nil {
-		return "", e
+		return e
 	}
-	var cid int64
-	if e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT customer_id FROM %s.orders WHERE id=$1`, r.schema), oid).Scan(&cid); e != nil {
-		return "", e
-	}
-	var sid, owner, prevActual, prevBilled int64
-	e = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.freight_actual_shipments(carrier_id,tracking_no,order_id,customer_id)VALUES($1,$2,$3,$4) ON CONFLICT(carrier_id,tracking_no) DO UPDATE SET tracking_no=excluded.tracking_no RETURNING id,order_id,actual_cents,billed_cents`, r.schema), carrier, tracking, oid, cid).Scan(&sid, &owner, &prevActual, &prevBilled)
-	if e != nil {
-		return "", e
-	}
-	if owner != oid {
-		return "", fmt.Errorf("运单已经关联其他订单")
+	if owner != p.orderID || customer != p.customerID {
+		return fmt.Errorf("运单已经关联其他订单")
 	}
 	if e = r.lockShipmentFees(ctx, tx, sid); e != nil {
-		return "", e
+		return e
 	}
-	delta := d.TargetCents - s.Current
+
 	var eid int64
-	e = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.freight_actual_entries(shipment_id,request_key,actual_cents,target_cents,delta_cents,previous_actual_cents,previous_billed_cents,reason,created_by)VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)RETURNING id`, r.schema), sid, key, actual, prevBilled+delta, delta, prevActual, prevBilled, d.Reason, actor).Scan(&eid)
+	e = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.freight_actual_entries(shipment_id,request_key,actual_cents,target_cents,delta_cents,previous_actual_cents,previous_billed_cents,reason,created_by,shipping_return_group_id)VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10::bigint,0))RETURNING id`, r.schema), sid, key, actual, prevBilled+delta, delta, prevActual, prevBilled, p.decision.Reason, p.actor, p.groupID).Scan(&eid)
 	if e != nil {
-		return "", e
+		return e
 	}
 	if delta != 0 {
-		_, e = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_fee_items(customer_id,source_type,source_id,fee_type,amount,note)VALUES($1,'freight_actual',$2,'shipping',$3,$4)`, r.schema), cid, eid, float64(delta)/100, "寄件实际运费调整 · "+tracking)
+		note := "寄件实际运费调整 · " + tracking
+		if p.groupID != 0 {
+			note = "多票寄件整单运费调整"
+		}
+		_, e = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_fee_items(customer_id,source_type,source_id,fee_type,amount,note)VALUES($1,'freight_actual',$2,'shipping',$3,$4)`, r.schema), p.customerID, eid, float64(delta)/100, note)
 		if e != nil {
-			return "", e
+			return e
 		}
 	}
 	_, e = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.freight_actual_shipments SET actual_cents=$2,billed_cents=$3,revision=revision+1 WHERE id=$1`, r.schema), sid, actual, prevBilled+delta)
 	if e != nil {
-		return "", e
+		return e
 	}
-	e = r.Audit(ctx, tx, actor, "freight_actual", eid, "confirm", s, map[string]any{"actual_cents": actual, "target_cents": d.TargetCents, "delta_cents": delta, "reason": d.Reason, "request_key": key})
-	return d.Reason, e
+	after := map[string]any{"actual_cents": actual, "target_cents": p.decision.TargetCents, "delta_cents": delta, "reason": p.decision.Reason, "request_key": key}
+	if p.groupID > 0 {
+		after["shipping_return_group_id"] = p.groupID
+	}
+	return r.Audit(ctx, tx, p.actor, "freight_actual", eid, "confirm", p.state, after)
 }
 
 // Lock fee membership before its payment batches. NOWAIT prevents a deadlock
