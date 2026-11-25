@@ -203,7 +203,7 @@ func seedReqRow(ctx context.Context, pool *pgxpool.Pool, schema string, row reqS
 	}
 	// Delivery and Van's review happen after startup. Preserve their actual
 	// progress when subsequent restarts re-run the built-in requirement seeds.
-	if row.code == "PR-771-SHIPPING-RETURN-BATCH-SELECTION" || strings.HasPrefix(row.code, "DEV-PR771-") || row.code == "PR-773-MINI-ORDER-CANCEL" || strings.HasPrefix(row.code, "DEV-PR773-") || row.code == "PR-768-ORDER-OTHER-FEE" || strings.HasPrefix(row.code, "DEV-PR768-") || row.code == "PR-WECHAT-AUTOBIND-20261122" || strings.HasPrefix(row.code, "DEV-WECHAT-AUTOBIND-") {
+	if row.code == "PR-774-EMPLOYEE-CUSTOMER-CONTACT" || strings.HasPrefix(row.code, "DEV-PR774-") || row.code == "PR-771-SHIPPING-RETURN-BATCH-SELECTION" || strings.HasPrefix(row.code, "DEV-PR771-") || row.code == "PR-773-MINI-ORDER-CANCEL" || strings.HasPrefix(row.code, "DEV-PR773-") || row.code == "PR-768-ORDER-OTHER-FEE" || strings.HasPrefix(row.code, "DEV-PR768-") || row.code == "PR-WECHAT-AUTOBIND-20261122" || strings.HasPrefix(row.code, "DEV-WECHAT-AUTOBIND-") {
 		_, err := pool.Exec(ctx, fmt.Sprintf("INSERT INTO %s.%s(code,title,status,assignee,evidence) VALUES($1,$2,$3,$4,$5) ON CONFLICT(code) DO NOTHING", schema, row.table), row.code, row.title, row.status, row.assignee, row.evidence)
 		return err
 	}
@@ -304,6 +304,9 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-PRICE-LIST-SPEC-IDENTITY-20261111", title: "保留成本异常商品规格信息并修复勾选警告", status: "done", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PRICE-LIST-COST-VERIFY-20261111", title: "验证价格表成本与规格并更新手册", status: "done", assignee: "Codex"},
 		{table: "req_product", code: "PR-767-FINANCE-DAILY-LEDGER", title: "财务每日经营流水与利润曲线", status: "review", assignee: "Van"},
+		{table: "req_product", code: "PR-774-EMPLOYEE-CUSTOMER-CONTACT", title: "员工新增客户的联系人、联系电话和联系地址必填", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-25-employee-customer-contact.md"},
+		{table: "req_dev", code: "DEV-PR774-VALIDATE", title: "客户创建服务和员工维护接口校验联系资料", status: "done", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR774-UI", title: "小程序、网页录单及客户档案必填提示", status: "done", assignee: "Codex"},
 		{table: "req_product", code: "PR-771-SHIPPING-RETURN-BATCH-SELECTION", title: "寄件回传候选、批次订单筛选与多票确认", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-25-shipping-return-batch.md"},
 		{table: "req_dev", code: "DEV-PR771-READ", title: "只读批次候选、关联订单及分页筛选", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-11-25-shipping-return-batch.md"},
 		{table: "req_dev", code: "DEV-PR771-CONFIRM", title: "同批多票原子发货、费用保护及幂等", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-11-25-shipping-return-batch.md"},

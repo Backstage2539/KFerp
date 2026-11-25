@@ -53,3 +53,12 @@ test('late parsing results update only target fields unchanged since request sta
     address: '手工地址',
   })
 })
+
+test('required contact fields use the personal phone and address on create', async () => {
+  const {newCustomerContactError} = await import('./customer-recipient-merge.js')
+  const valid = {contact:'测试联系人', phone:'021-12345678', address:'测试路 1 号', company_phone:'13800000000', company_address:'公司地址'}
+  for (const [field, label] of Object.entries({contact:'联系人', phone:'联系电话', address:'联系地址'})) {
+    assert.ok(newCustomerContactError({...valid, [field]:'　 '}).includes(label))
+  }
+  assert.equal(newCustomerContactError(valid), '')
+})

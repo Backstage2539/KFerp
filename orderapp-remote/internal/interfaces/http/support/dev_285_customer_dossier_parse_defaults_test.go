@@ -15,7 +15,7 @@ func TestCustomerDossierParseDefaultsSourceGuards(t *testing.T) {
 		"addressParsing",
 		"粘贴收件信息",
 		"地址解析",
-		"<span>联系电话</span>",
+		`<span>联系电话{{ !editingId ? ' *' : '' }}</span>`,
 		"<span>来源</span>",
 		"<span>订单类型</span>",
 		"defaultSourceID",
@@ -44,7 +44,7 @@ func TestCustomerDossierParseDefaultsSourceGuards(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"<span>联系电话</span>",
+		`<span>联系电话{{ customerDrawerMode === 'create' ? ' *' : '' }}</span>`,
 		"<span>来源</span>",
 		"<span>订单类型</span>",
 		"company_phone: customerForm.phone",

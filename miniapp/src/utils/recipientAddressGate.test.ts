@@ -7,7 +7,7 @@ import { useSessionStore } from '../stores/session'
 import { acceptRecipientConsent, revokeRecipientConsent } from './recipientConsent'
 
 const hooks = vi.hoisted(() => ({ show: () => {} }))
-const api = vi.hoisted(() => ({ fetchEmployeeCustomer: vi.fn(), fetchRecipientAddresses: vi.fn(), parseEmployeeCustomerRecipient: vi.fn() }))
+const api = vi.hoisted(() => ({ createEmployeeCustomer: vi.fn(), fetchEmployeeCustomer: vi.fn(), fetchRecipientAddresses: vi.fn(), parseEmployeeCustomerRecipient: vi.fn() }))
 vi.mock('../api/customerPortal', () => api)
 vi.mock('@dcloudio/uni-app', () => ({
   onShow: (callback: () => void) => { hooks.show = callback },
@@ -106,6 +106,45 @@ it('requires employee recipient consent before fetching customer details or pars
     form.recipientPaste.value = '撤回后的文本'
     await form.parseRecipient()
     expect(api.parseEmployeeCustomerRecipient).toHaveBeenCalledTimes(1)
+  } finally {
+    scope.stop()
+    vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+  }
+})
+
+it('blocks each blank contact field in the new customer editor before sending', async () => {
+  const toast = vi.fn()
+  vi.stubEnv('VITE_KFERP_ENVIRONMENT', 'development')
+  vi.stubEnv('VITE_KFERP_API_BASE', 'https://dev.qacoohee.com/app')
+  vi.stubGlobal('uni', { getStorageSync: vi.fn(), setStorageSync: vi.fn(), removeStorageSync: vi.fn(), showToast: toast })
+  const app = createSSRApp({})
+  const pinia = createPinia()
+  app.use(pinia)
+  app.provide(ssrContextKey, { modules: new Set() })
+  const session = useSessionStore(pinia)
+  session.$patch({ token: 'employee', employeeID: 77, accountType: 'employee' })
+  acceptRecipientConsent(session)
+  const editor = EmployeeCustomerEditor as unknown as {
+    setup(props: object, context: object): { form: Record<string, unknown>; save(): Promise<void> }
+  }
+  const scope = effectScope()
+  try {
+    const page = app.runWithContext(() => scope.run(() => editor.setup(
+      { visible: true, customerId: 0, token: 'employee' }, { expose: vi.fn(), emit: vi.fn() },
+    )))!
+    const valid = { name: '测试客户', contact: '张三', phone: '021-12345678', address: '测试路 1 号',
+      customer_type: 'retail', default_source_id: 1, default_order_type_id: 2 }
+    for (const [field, label] of Object.entries({ contact: '联系人', phone: '联系电话', address: '联系地址' })) {
+      Object.assign(page.form, valid, { [field]: '　 ' })
+      await page.save()
+      expect(toast).toHaveBeenLastCalledWith({ title: '请填写' + label, icon: 'none' })
+      expect(api.createEmployeeCustomer).not.toHaveBeenCalled()
+    }
+    Object.assign(page.form, valid)
+    api.createEmployeeCustomer.mockResolvedValue({ customer: { id: 17 } })
+    await page.save()
+    expect(api.createEmployeeCustomer).toHaveBeenCalledWith('employee', expect.objectContaining(valid))
   } finally {
     scope.stop()
     vi.unstubAllGlobals()

@@ -29,3 +29,17 @@ test('real Vue editor loads recipient snapshot and does not leak previous order 
  assert.equal(payload.receiver_phone,'')
  await nextTick()
 })
+
+test('new-customer drawer catches incomplete parsed details before saving', async () => {
+  let editor
+  await renderToString(createSSRApp({ setup() {
+    editor = View.setup({embedded:true, editId:0, copyId:0, customerPortal:false, fulfillmentMode:false, viewParams:{}}, {expose(){}, emit(){}})
+    return () => h('div')
+  } }))
+  const valid = { name:'新客户', contact:'测试联系人', phone:'021-12345678', address:'测试路 1 号', company_phone:'13800000000' }
+  for (const [field, label] of Object.entries({contact:'联系人', phone:'联系电话', address:'联系地址'})) {
+    Object.assign(editor.customerForm, valid, {[field]:'　 '})
+    await editor.saveCustomerFromDrawer()
+    assert.equal(editor.customerError.value, '请填写' + label)
+  }
+})

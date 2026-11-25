@@ -627,12 +627,12 @@
             <input v-model.trim="customerForm.company_phone" />
           </label>
           <label>
-            <span>联系人</span>
-            <input v-model.trim="customerForm.contact" />
+            <span>联系人{{ customerDrawerMode === 'create' ? ' *' : '' }}</span>
+            <input v-model.trim="customerForm.contact" :required="customerDrawerMode === 'create'" />
           </label>
           <label>
-            <span>联系电话</span>
-            <input v-model.trim="customerForm.phone" />
+            <span>联系电话{{ customerDrawerMode === 'create' ? ' *' : '' }}</span>
+            <input v-model.trim="customerForm.phone" :required="customerDrawerMode === 'create'" />
           </label>
           <label>
             <span>客户类型</span>
@@ -660,8 +660,8 @@
             </select>
           </label>
           <label class="wide-field">
-            <span>地址</span>
-            <textarea v-model.trim="customerForm.address" rows="3"></textarea>
+            <span>联系地址{{ customerDrawerMode === 'create' ? ' *' : '' }}</span>
+            <textarea v-model.trim="customerForm.address" :required="customerDrawerMode === 'create'" rows="3"></textarea>
           </label>
           <label class="wide-field">
             <span>公司地址</span>
@@ -806,6 +806,7 @@ import {
   wholesaleSpecOptions,
   stockBatchQuantity,
 } from '../lib/order-entry'
+import { newCustomerContactError } from '../lib/customer-recipient-merge'
 import { parseRecipientText } from '../lib/customer-recipient'
 import { initialReceiptDateRequired, initialReceiptPrepayment, validateInitialReceiptBreakdown, receiptActorIdentity, orderCreatePendingKey, readPendingOrderCreate, savePendingOrderCreate, receiptKeepPending } from '../lib/order-receipt.js'
 import OrderFreightEstimate from '../components/OrderFreightEstimate.vue'
@@ -1929,6 +1930,10 @@ async function saveCustomerFromDrawer() {
   try {
     if (!customerForm.name && customerForm.contact) customerForm.name = customerForm.contact
     if (!customerForm.name) throw new Error('请填写客户名')
+    if (customerDrawerMode.value === 'create') {
+      const message = newCustomerContactError(customerForm)
+      if (message) throw new Error(message)
+    }
     if (!customerTypeLabel(customerForm.customer_type)) throw new Error('请选择客户类型')
     if (!Number(customerForm.default_source_id || 0)) throw new Error('请选择客户来源')
     if (!Number(customerForm.default_order_type_id || 0)) throw new Error('请选择客户订单类型')

@@ -13,6 +13,13 @@ export type EmployeeCustomerRecipientTargetFields = {
   address: string
 }
 
+export function newCustomerContactError({ contact, phone, address }: EmployeeCustomerRecipientFields): string {
+  if (!contact?.trim()) return '请填写联系人'
+  if (!phone?.trim()) return '请填写联系电话'
+  if (!address?.trim()) return '请填写联系地址'
+  return ''
+}
+
 function cleanParsedField(value: unknown): string {
   return String(value ?? '').trim()
 }

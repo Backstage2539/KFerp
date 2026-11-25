@@ -97,7 +97,7 @@ func TestCustomerAPIStoresCompanyContactFields(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Customer: customerapp.NewService(repo)})
 
-	body := strings.NewReader(`{"name":"张三","customer_type":"wholesale","company_name":"张三咖啡公司","company_address":"上海市徐汇区","company_phone":"021-12345678","default_source_id":1,"default_order_type_id":2,"active":true}`)
+	body := strings.NewReader(`{"name":"张三","contact":"测试联系人","phone":"13800000000","address":"测试路 1 号","customer_type":"wholesale","company_name":"张三咖啡公司","company_address":"上海市徐汇区","company_phone":"021-12345678","default_source_id":1,"default_order_type_id":2,"active":true}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/customers", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -126,7 +126,7 @@ func TestCustomerAPIRoundTripsCustomerType(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Customer: customerapp.NewService(repo)})
 
-	body := strings.NewReader(`{"name":"岩师傅","customer_type":"wholesale","default_source_id":1,"default_order_type_id":2,"active":true}`)
+	body := strings.NewReader(`{"name":"岩师傅","contact":"测试联系人","phone":"13800000000","address":"测试路 1 号","customer_type":"wholesale","default_source_id":1,"default_order_type_id":2,"active":true}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/customers", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -157,7 +157,7 @@ func TestCustomerAPISupportsCustomCustomerTypeAndOptionCreation(t *testing.T) {
 		t.Fatalf("create customer type status=%d body=%s cmd=%+v", createTypeRec.Code, createTypeRec.Body.String(), repo.customerTypeCreate)
 	}
 
-	body := strings.NewReader(`{"name":"联名门店A","customer_type":"partner_store","default_source_id":1,"default_order_type_id":2,"active":true}`)
+	body := strings.NewReader(`{"name":"联名门店A","contact":"测试联系人","phone":"13800000000","address":"测试路 1 号","customer_type":"partner_store","default_source_id":1,"default_order_type_id":2,"active":true}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/customers", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -193,7 +193,7 @@ func TestCustomerAPISupportsChannelPortalSwitchWithoutTemplateBinding(t *testing
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Customer: customerapp.NewService(repo)})
 
-	body := strings.NewReader(`{"name":"渠道伙伴","customer_type":"channel","default_source_id":1,"default_order_type_id":2,"portal_enabled":true,"capability_template_key":"channel_direct_ship","active":true}`)
+	body := strings.NewReader(`{"name":"渠道伙伴","contact":"测试联系人","phone":"13800000000","address":"测试路 1 号","customer_type":"channel","default_source_id":1,"default_order_type_id":2,"portal_enabled":true,"capability_template_key":"channel_direct_ship","active":true}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/customers", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()

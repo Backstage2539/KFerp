@@ -66,12 +66,12 @@
           <input v-model.trim="form.company_name" placeholder="不填则销售单默认使用客户名" />
         </label>
         <label>
-          <span>联系电话</span>
-          <input v-model.trim="form.company_phone" />
+          <span>联系电话{{ !editingId ? ' *' : '' }}</span>
+          <input v-model.trim="form.company_phone" :required="!editingId" />
         </label>
         <label>
-          <span>联系人</span>
-          <input v-model.trim="form.contact" />
+          <span>联系人{{ !editingId ? ' *' : '' }}</span>
+          <input v-model.trim="form.contact" :required="!editingId" />
         </label>
         <label>
           <span>来源</span>
@@ -96,8 +96,8 @@
           </select>
         </label>
         <label class="wide">
-          <span>地址</span>
-          <textarea v-model.trim="form.address" rows="3"></textarea>
+          <span>联系地址{{ !editingId ? ' *' : '' }}</span>
+          <textarea v-model.trim="form.address" :required="!editingId" rows="3"></textarea>
         </label>
         <label class="check">
           <input v-model="form.active" type="checkbox" />
@@ -257,7 +257,7 @@ import CustomerShippingPolicies from '../components/CustomerShippingPolicies.vue
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
-import { customerPhoneForERPForm, customerRecipientFieldSnapshot, mergeCustomerRecipientFields } from '../lib/customer-recipient-merge'
+import { newCustomerContactError, customerPhoneForERPForm, customerRecipientFieldSnapshot, mergeCustomerRecipientFields } from '../lib/customer-recipient-merge'
 import { customerTypeLabel, customerTypeOptions, mergeCustomerTypeOptions, normalizeCustomerType, validCustomerType } from '../lib/customer-types'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 import { replaceHistoryURL } from '../lib/url-state'
@@ -685,6 +685,10 @@ async function saveCustomer() {
   ok.value = ''
   try {
     if (!String(form.name || '').trim()) throw new Error('请填写客户名称')
+    if (!editingId.value) {
+      const message = newCustomerContactError({ contact: form.contact, phone: form.company_phone, address: form.address })
+      if (message) throw new Error(message)
+    }
     if (!validCustomerType(form.customer_type, customerTypeOptionsForSelect.value)) throw new Error('请选择客户类型')
     if (!Number(form.default_source_id || 0)) throw new Error('请选择客户来源')
     if (!Number(form.default_order_type_id || 0)) throw new Error('请选择客户订单类型')
