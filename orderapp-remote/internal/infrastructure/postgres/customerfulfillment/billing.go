@@ -8,6 +8,7 @@ import (
 	"fmt"
 	resolutionpg "orderapp/internal/infrastructure/postgres/orderresolution"
 	"sort"
+	"strings"
 
 	app "orderapp/internal/application/customerfulfillment"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
@@ -72,7 +73,7 @@ func (r *Repository) loadUnbilledCharges(ctx context.Context, q billingReader, q
 	if relationExists(ctx, q, r.schema+".freight_actual_entries") && relationExists(ctx, q, r.schema+".freight_actual_shipments") {
 		freightJoin = fmt.Sprintf(`LEFT JOIN %[1]s.freight_actual_entries fe ON f.source_type='freight_actual' AND fe.id=f.source_id
 		LEFT JOIN %[1]s.freight_actual_shipments fs ON fs.id=fe.shipment_id AND fs.customer_id=f.customer_id`, r.schema)
-		sourceNo = "CASE WHEN f.fee_type='shipping' AND f.source_type='freight_actual' THEN COALESCE(fs.tracking_no,'') ELSE COALESCE(o.order_no,'') END"
+		sourceNo = "CASE WHEN f.fee_type='shipping' AND f.source_type='freight_actual' THEN " + freightSourceTrackingSQL(r.schema) + " ELSE COALESCE(o.order_no,'') END"
 	}
 	fees, err := q.Query(ctx, fmt.Sprintf(`
 		SELECT f.id,coalesce(f.source_type,''),coalesce(f.source_id,0),f.fee_type,coalesce(f.note,''),
@@ -281,12 +282,20 @@ func (r *Repository) getIssuedBill(ctx context.Context, query billingReader, cus
 			continue
 		}
 		line.Description = "运费"
-		// A freight charge refers to one shipment; use its original snapshot.
-		if line.Detail != nil && len(line.Detail.Shipments) == 1 && line.Detail.Shipments[0].TrackingNo != "" {
-			line.SourceNo = line.Detail.Shipments[0].TrackingNo
+		// Keep the issued snapshot as the source for every parcel of this charge.
+		var trackingNos []string
+		if line.Detail != nil {
+			for _, parcel := range line.Detail.Shipments {
+				if parcel.TrackingNo != "" {
+					trackingNos = append(trackingNos, parcel.TrackingNo)
+				}
+			}
+		}
+		if len(trackingNos) > 0 {
+			line.SourceNo = strings.Join(trackingNos, "\n")
 		} else if line.SourceType == "customer_fee_item" && relationExists(ctx, query, r.schema+".freight_actual_entries") && relationExists(ctx, query, r.schema+".freight_actual_shipments") {
 			var tracking string
-			err := query.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(s.tracking_no,'') FROM %[1]s.customer_fee_items f JOIN %[1]s.freight_actual_entries e ON f.source_type='freight_actual' AND e.id=f.source_id JOIN %[1]s.freight_actual_shipments s ON s.id=e.shipment_id AND s.customer_id=f.customer_id WHERE f.id=$1 AND f.customer_id=$2`, r.schema), line.SourceID, customerID).Scan(&tracking)
+			err := query.QueryRow(ctx, fmt.Sprintf(`SELECT %[2]s FROM %[1]s.customer_fee_items f JOIN %[1]s.freight_actual_entries fe ON f.source_type='freight_actual' AND fe.id=f.source_id JOIN %[1]s.freight_actual_shipments fs ON fs.id=fe.shipment_id AND fs.customer_id=f.customer_id WHERE f.id=$1 AND f.customer_id=$2`, r.schema, freightSourceTrackingSQL(r.schema)), line.SourceID, customerID).Scan(&tracking)
 			if err != nil && err != pgx.ErrNoRows {
 				return out, err
 			}

@@ -2,6 +2,7 @@ package customerfulfillment
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -54,11 +55,12 @@ func BuildBillingLineDetail(line SettlementLineSummary, order AccountOrder, fee 
 	if line.ChargeType != "shipping" && line.ChargeType != "direct_ship_service" {
 		return detail
 	}
+	feeTrackings := strings.Split(fee.TrackingNo, "\n")
 	for _, shipment := range shipments {
 		if shipment.OrderID != order.ID || order.ID == 0 {
 			continue
 		}
-		if line.ChargeType == "shipping" && (fee.TrackingNo == "" || fee.TrackingNo != shipment.TrackingNo) {
+		if line.ChargeType == "shipping" && (shipment.TrackingNo == "" || !slices.Contains(feeTrackings, shipment.TrackingNo)) {
 			continue
 		}
 		// Amounts belong to the bill line, not the possibly changed source.

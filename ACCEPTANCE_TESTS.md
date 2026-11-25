@@ -1,3 +1,9 @@
+## PR-771 顺丰回传批次与一单多票验收
+
+- 验证回传行内候选、阻断原因、已回填关联订单、空运费列提示及跨页去重筛选。
+- 验证同批多票、单票兼容、实际成本与整单应收、扣库和通知、重试与冲突回滚。
+- 自动化与开发验收记录见 `orderapp-remote/docs/acceptance/2026-11-25-shipping-return-batch.md`。Van 业务验收待完成。
+
 ## PR-770 验收
 
 - 登录、分享登记及客户收件授权的自动化测试见 `orderapp-remote/docs/acceptance/2026-11-24-miniapp-privacy.md`。

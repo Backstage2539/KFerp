@@ -16,8 +16,9 @@ import (
 
 type returnAPIRepo struct {
 	app.Repository
-	imported int
-	selected int
+	imported  int
+	selected  int
+	selection []int64
 }
 
 func (r *returnAPIRepo) RematchShippingReturn(context.Context, string, int64, []int64) (d.Batch, error) {
@@ -40,6 +41,11 @@ func (r *returnAPIRepo) ShippingReturnCandidates(context.Context, int64) ([]d.Ro
 }
 func (r *returnAPIRepo) SelectShippingReturn(context.Context, string, int64, int64, string) (app.FillShipmentTrackingResult, error) {
 	r.selected++
+	return app.FillShipmentTrackingResult{Updated: 1}, nil
+}
+func (r *returnAPIRepo) SelectShippingReturns(_ context.Context, _ string, _ int64, ids []int64, _ string) (app.FillShipmentTrackingResult, error) {
+	r.selected++
+	r.selection = ids
 	return app.FillShipmentTrackingResult{Updated: 1}, nil
 }
 func TestShippingReturnAPI(t *testing.T) {
@@ -80,6 +86,20 @@ func TestShippingReturnAPI(t *testing.T) {
 			t.Fatalf("rematch %d %s", res.Code, res.Body)
 		}
 	}
+	for _, tc := range []struct {
+		path     string
+		employee bool
+		status   int
+	}{
+		{"/api/orders/shipping-return-batches/6", true, 200},
+		{"/api/orders/shipping-return-batches/6", false, 403},
+		{"/api/orders/shipping-return-batches/0", true, 400},
+	} {
+		res := call(http.MethodGet, tc.path, "", bytes.NewBuffer(nil), tc.employee)
+		if res.Code != tc.status || r.imported != 0 || r.selected != 0 {
+			t.Fatalf("read-only batch %s returned %d %s", tc.path, res.Code, res.Body)
+		}
+	}
 	f := excelize.NewFile()
 	f.SetSheetName("Sheet1", "寄件列表")
 	cfg := d.DefaultTemplate()
@@ -114,4 +134,24 @@ func TestShippingReturnAPI(t *testing.T) {
 	if res.Code != 400 || r.selected != 1 {
 		t.Fatal(res.Code, res.Body)
 	}
+	for _, tc := range []struct {
+		body string
+		code int
+	}{
+		{`{"candidate_ids":[8,9],"version":"v1"}`, 200},
+		{`{"candidate_ids":[8,8],"version":"v1"}`, 400},
+		{`{"candidate_ids":[8,-9],"version":"v1"}`, 400},
+		{`{"candidate_ids":[],"version":"v1"}`, 400},
+		{`{"candidate_ids":[8,9],"candidate_id":8,"version":"v1"}`, 400},
+	} {
+		res = call(http.MethodPost, "/api/orders/3/shipping-return-selection", "application/json", bytes.NewBufferString(tc.body), true)
+		if res.Code != tc.code || r.selected != 2 || len(r.selection) != 2 || r.selection[0] != 8 || r.selection[1] != 9 {
+			t.Fatalf("selection %s: %d %s", tc.body, res.Code, res.Body)
+		}
+	}
+
+}
+
+func (r *returnAPIRepo) ShippingReturnBatch(_ context.Context, id int64) (d.Batch, error) {
+	return d.Batch{ID: id}, nil
 }

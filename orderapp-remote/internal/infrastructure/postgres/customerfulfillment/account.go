@@ -144,7 +144,7 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 	if relationExists(ctx, tx, r.schema+".freight_actual_entries") {
 		freightJoin = fmt.Sprintf(" LEFT JOIN %s.freight_actual_entries fe ON f.source_type='freight_actual' AND fe.id=f.source_id LEFT JOIN %s.freight_actual_shipments fs ON fs.id=fe.shipment_id AND fs.customer_id=f.customer_id ", r.schema, r.schema)
 		orderJoin = "((f.source_type='order' AND o.id=f.source_id) OR (f.source_type='freight_actual' AND o.id=fs.order_id))"
-		shipmentFields = "coalesce(fs.id,0),coalesce(fs.tracking_no,'')"
+		shipmentFields = "coalesce(fs.id,0)," + freightSourceTrackingSQL(r.schema)
 	}
 	// An order link is only valid when its source explicitly identifies an order of this customer.
 	fees, err := tx.Query(ctx, fmt.Sprintf(`SELECT f.id,coalesce(f.source_type,''),coalesce(f.source_id,0),coalesce(o.id,0),coalesce(o.order_no,''),f.fee_type,coalesce(to_jsonb(f)->>'note',''),(round(f.amount*100)::bigint-COALESCE((to_jsonb(f)->>'resolution_credit_cents')::bigint,0)),coalesce(nullif(f.currency,''),'CNY'),to_char(f.occurred_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI'),coalesce(s.id,0),coalesce(s.settlement_no,''),coalesce(s.status,''),coalesce(to_char(s.paid_at,'YYYY-MM-DD HH24:MI'),''),%[4]s,round(f.amount*100)::bigint,COALESCE((to_jsonb(f)->>'resolution_credit_cents')::bigint,0),%[5]s,COALESCE((to_jsonb(f)->>'resolution_settled_out_cents')::bigint,0) FROM %[1]s.customer_fee_items f %[2]s LEFT JOIN %[1]s.orders o ON %[3]s AND o.customer_id=f.customer_id LEFT JOIN %[1]s.customer_settlement_batches s ON s.id=f.settlement_batch_id AND s.customer_id=f.customer_id WHERE f.customer_id=$1 ORDER BY f.occurred_at DESC,f.id DESC`, r.schema, freightJoin, orderJoin, shipmentFields, resolutionpg.FeeCashCentsSQL("f", "s.status")), q.CustomerID)
@@ -295,10 +295,10 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 			payloadJoin := ""
 			payloadFields := "''::text,''::text"
 			if relationExists(ctx, tx, r.schema+".shipping_return_rows") {
-				payloadJoin = fmt.Sprintf(` LEFT JOIN LATERAL (SELECT payload FROM %s.shipping_return_rows sr WHERE sr.status='applied' AND sr.selected_order_id=so.order_id AND sr.payload->>'tracking_no'=so.tracking_no ORDER BY sr.id DESC LIMIT 1) sr ON true `, r.schema)
+				payloadJoin = fmt.Sprintf(` LEFT JOIN LATERAL (SELECT payload FROM %s.shipping_return_rows sr WHERE sr.status='applied' AND sr.selected_order_id=so.order_id AND sr.payload->>'tracking_no'=parcel.no ORDER BY sr.id DESC LIMIT 1) sr ON true `, r.schema)
 				payloadFields = `coalesce(sr.payload->>'pickup_time',''),coalesce(sr.payload->>'settlement_weight_kg','')`
 			}
-			shipments, queryErr := tx.Query(ctx, fmt.Sprintf(`SELECT so.order_id,coalesce(so.tracking_no,''),coalesce(to_char(so.shipped_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI:SS'),''),%[3]s FROM %[1]s.order_shipment_orders so %[2]s WHERE so.order_id=ANY($1) ORDER BY so.order_id,so.id`, r.schema, payloadJoin, payloadFields), orderIDs)
+			shipments, queryErr := tx.Query(ctx, fmt.Sprintf(`SELECT so.order_id,coalesce(parcel.no,''),coalesce(to_char(so.shipped_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI:SS'),''),%[3]s FROM %[1]s.order_shipment_orders so %[4]s %[2]s WHERE so.order_id=ANY($1) ORDER BY so.order_id,so.id,parcel.position`, r.schema, payloadJoin, payloadFields, splitShipmentTrackingSQL), orderIDs)
 			if queryErr != nil {
 				return d, queryErr
 			}
@@ -436,7 +436,8 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 			}
 		}
 		for _, fee := range d.Fees {
-			if fee.OrderID == 0 || fee.TrackingNo == "" {
+			// The order-level adjustment remains on the fee line for a multi-parcel shipment.
+			if fee.OrderID == 0 || fee.TrackingNo == "" || strings.Contains(fee.TrackingNo, "\n") {
 				continue
 			}
 			for i := range groups {

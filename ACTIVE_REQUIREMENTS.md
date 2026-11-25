@@ -1,3 +1,7 @@
+### PR-771-SHIPPING-RETURN-BATCH-SELECTION
+- 分支 `codex/sf-return-batch-selection`，负责人 Codex，已通过隔离数据库、HTTP 及前端交互验证，待开发发布、Van 验收。批次候选、跨页筛选及同批一单多票；开发环境验收。
+- DEV-PR771-READ、DEV-PR771-CONFIRM、DEV-PR771-UI。
+
 ### PR-770-MINIAPP-PRIVACY
 - 分支 `codex/miniapp-privacy-review`，负责人 Codex。小程序 576 项测试、类型检查与开发构建通过。待开发部署、手机验收及微信复审。
 - DEV-PR770-LOGIN 统一登录前主动同意并验证旧会话。DEV-PR770-ADDRESS 收件授权、撤回、真机验证及微信复审。

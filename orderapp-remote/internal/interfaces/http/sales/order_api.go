@@ -255,7 +255,27 @@ func (h orderAPIHandler) list(c echo.Context) error {
 	if !ok {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid scope"})
 	}
+	var matchedIDs []int64
+	if raw := c.QueryParam("shipping_return_batch_id"); raw != "" {
+		if err := shippingReturnStaff(c); err != nil || c.Response().Committed {
+			return err
+		}
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "请选择有效导入批次"})
+		}
+		repo, err := h.sales.ShippingReturns()
+		if err != nil {
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
+		}
+		b, err := repo.ShippingReturnBatch(c.Request().Context(), id)
+		if err != nil {
+			return shippingReturnReadError(c, err)
+		}
+		matchedIDs = b.MatchedOrderIDs()
+	}
 	result, err := h.sales.ListOrders(c.Request().Context(), salesapp.OrderListQuery{
+		MatchedOrderIDs:       matchedIDs,
 		Q:                     query.Q,
 		From:                  query.From,
 		To:                    query.To,

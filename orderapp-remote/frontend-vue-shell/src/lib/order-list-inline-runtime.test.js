@@ -33,3 +33,113 @@ test('real OrdersView rematches only the persisted batch and keeps shipment conf
  globalThis.fetch=async()=>({ok:false,status:400,json:async()=>({error:'重新匹配失败'})});await view.rematchShippingReturn();assert.equal(view.returnReport.value.length,2);assert.equal(view.shippingError.value,'重新匹配失败')
  }finally{globalThis.fetch=original}
 })
+
+test('current return filter reads all matches from the server and reloads the batch after selection', async () => {
+  let view
+  await renderToString(createSSRApp({setup() {
+    view = View.setup({viewParams:{}, customerContextId:0}, {expose(){}})
+    return () => h('div')
+  }}))
+  const previousWindow = globalThis.window, previousFetch = globalThis.fetch
+  const url = new URL('http://localhost/vue-shell/?view=orders&shipping_return_batch_id=8')
+  globalThis.window = {location:url, history:{replaceState() {}}}
+  const paths = []
+  let applied = false
+  globalThis.fetch = async (u, opts) => {
+    assert.notEqual(opts.method, 'POST')
+    const requested = new URL(u, url)
+    paths.push(requested.pathname)
+    let result = {}
+    if (requested.pathname === '/api/orders') {
+      assert.equal(requested.searchParams.get('shipping_return_batch_id'), '8')
+      result = {rows:[{id:135,order_no:'SO-TEST'}],summary:{orders:1},total:1}
+    }
+    if (requested.pathname === '/api/orders/shipping-return-batches/8') {
+      const candidates = applied ? [] : [{order_id:135, order_no:'SO-TEST', version:'v1'}]
+      result = {batch_id:8, rows:[6,7].map(id => ({id,status:applied?'applied':'pending',order_id:applied?135:0,candidates}))}
+    }
+    return {ok:true,json:async()=>result}
+  }
+  try {
+    view.applyUrlFilters()
+    await view.load()
+    assert.equal(view.error.value, '')
+    assert.equal(view.rows.value.length, 1)
+    assert.equal(view.batchMatches.value.orderCount, 1)
+    assert.equal(view.batchMatches.value.pendingCount, 2)
+    assert.deepEqual(view.selectedOrderIDs.value, [])
+    const candidate = view.returnReport.value[0].candidates[0]
+    view.openReturnPicker(candidate, true)
+    assert.deepEqual(view.pickerRows.value.map(r=>r.id), [6,7])
+    applied = true
+    await view.returnSelectionSaved()
+    assert.equal(view.returnPicker.value, null)
+    assert.equal(view.batchMatches.value.pendingCount, 0)
+    assert.equal(view.batchMatches.value.orderCount, 1)
+    assert.deepEqual(view.returnReport.value.map(r=>r.status), ['applied','applied'])
+    assert.equal(paths.includes('/api/orders/shipping-return-candidates'), false)
+    assert.equal(paths.filter(path=>path==='/api/orders/shipping-return-batches/8').length, 2)
+  } finally { globalThis.window = previousWindow; globalThis.fetch = previousFetch }
+})
+
+test('role administrators can confirm shipping returns without an explicit orders.write grant', async () => {
+  for (const [actor, expected] of [
+    [{ account_type: 'employee', roles: [{code: 'admin'}] }, true],
+    [{ account_type: 'employee', permissions: ['orders.read'] }, false],
+    [{ account_type: 'channel_customer', roles: [{code:'admin'}], permissions: ['orders.write'] }, false],
+  ]) {
+    let view
+    await renderToString(createSSRApp({setup() {
+      view = View.setup({viewParams:{}, actor}, {expose(){}})
+      return () => h('div')
+    }}))
+    assert.equal(view.canManageShippingReturns.value, expected)
+  }
+})
+
+test('a missing return batch clears stale context and reloads normal orders with the other filters', async () => {
+  const oldWindow = globalThis.window, oldFetch = globalThis.fetch
+  try {
+    for (const cancelFilter of [false, true]) {
+      let view
+      await renderToString(createSSRApp({setup() {
+        view = View.setup({viewParams:{}, customerContextId:0}, {expose(){}})
+        return () => h('div')
+      }}))
+      const location = new URL('http://localhost/vue-shell/?view=orders&shipping_return_batch_id=19&q=demo&page=4')
+      let historyURL = ''
+      globalThis.window = {location, history:{replaceState(_, __, url) {historyURL = url}}}
+      const requests = []
+      globalThis.fetch = async url => {
+        const u = new URL(url, location)
+        requests.push(u)
+        if (u.pathname.endsWith('/shipping-return-batches/19')) {
+          return {ok:false, status:404, json:async()=>({error:'导入批次不存在'})}
+        }
+        if (u.pathname === '/api/orders' && u.searchParams.has('shipping_return_batch_id')) {
+          return {ok:false, status:400, json:async()=>({error:'无效筛选'})}
+        }
+        return {ok:true,json:async()=>u.pathname === '/api/orders'
+          ? {rows:[{id:91,order_no:'SO-恢复'}],summary:{orders:1},total:1}
+          : {}}
+      }
+      view.applyUrlFilters()
+      view.returnReport.value = [{id:5}]
+      if (cancelFilter) view.onlyReturnMatches.value = false
+      await view.load()
+      assert.equal(view.error.value, '')
+      assert.equal(view.onlyReturnMatches.value, false)
+      assert.equal(view.returnBatchID.value, 0)
+      assert.deepEqual(view.returnReport.value, [])
+      assert.equal(view.rows.value[0].id,91)
+      assert.match(view.shippingError.value,/批次.*不存在/)
+      const last = requests.filter(u=>u.pathname==='/api/orders').at(-1)
+      assert.equal(last.searchParams.get('q'), 'demo')
+      assert.equal(last.searchParams.get('page'), '1')
+      assert.equal(last.searchParams.has('shipping_return_batch_id'), false)
+      assert.doesNotMatch(historyURL,/shipping_return_batch_id/)
+      await view.load()
+      assert.equal(requests.filter(u=>u.pathname.endsWith('/shipping-return-batches/19')).length,1)
+    }
+  } finally { globalThis.window = oldWindow; globalThis.fetch = oldFetch }
+})

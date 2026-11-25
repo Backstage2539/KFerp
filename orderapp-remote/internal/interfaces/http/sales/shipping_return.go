@@ -3,6 +3,7 @@ package sales
 import (
 	"bytes"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"github.com/labstack/echo/v4"
 	"net/http"
@@ -58,6 +59,24 @@ func registerShippingReturnRoutes(e *echo.Echo, s *app.Service, m MessagePublish
 		}
 		return c.JSON(200, result)
 	})
+	e.GET("/api/orders/shipping-return-batches/:id", func(c echo.Context) error {
+		if err := shippingReturnStaff(c); err != nil || c.Response().Committed {
+			return err
+		}
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "请选择有效导入批次"})
+		}
+		repo, err := s.ShippingReturns()
+		if err != nil {
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
+		}
+		batch, err := repo.ShippingReturnBatch(c.Request().Context(), id)
+		if err != nil {
+			return shippingReturnReadError(c, err)
+		}
+		return c.JSON(http.StatusOK, batch)
+	})
 	e.GET("/api/orders/shipping-return-templates", list)
 	e.GET("/api/settings/logistics/shipping-return-templates", list)
 	e.PUT("/api/settings/logistics/shipping-return-templates", func(c echo.Context) error {
@@ -99,17 +118,24 @@ func registerShippingReturnRoutes(e *echo.Echo, s *app.Service, m MessagePublish
 		}
 		oid, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		var body struct {
-			CandidateID int64  `json:"candidate_id"`
-			Version     string `json:"version"`
+			CandidateID  *int64  `json:"candidate_id"`
+			CandidateIDs []int64 `json:"candidate_ids"`
+			Version      string  `json:"version"`
 		}
-		if err != nil || oid <= 0 || c.Bind(&body) != nil || body.CandidateID <= 0 || body.Version == "" {
+		if err != nil || oid <= 0 || c.Bind(&body) != nil || body.Version == "" || (body.CandidateID != nil && body.CandidateIDs != nil) {
 			return c.JSON(400, map[string]string{"error": "请选择有效快递单"})
+		}
+		if body.CandidateID != nil {
+			body.CandidateIDs = []int64{*body.CandidateID}
+		}
+		if !d.ValidSelectionIDs(body.CandidateIDs) {
+			return c.JSON(400, map[string]string{"error": "请选择有效且不重复的快递单"})
 		}
 		r, err := s.ShippingReturns()
 		if err != nil {
 			return c.JSON(503, map[string]string{"error": err.Error()})
 		}
-		v, err := r.SelectShippingReturn(c.Request().Context(), support.ActorOf(c), oid, body.CandidateID, body.Version)
+		v, err := r.SelectShippingReturns(c.Request().Context(), support.ActorOf(c), oid, body.CandidateIDs, body.Version)
 		if err != nil {
 			return c.JSON(409, map[string]string{"error": err.Error()})
 		}
@@ -155,4 +181,12 @@ func importShippingReturn(c echo.Context, s *app.Service, m MessagePublisher, da
 	}
 	publishOrdersShipped(c, m, app.FillShipmentTrackingResult{Updated: len(v.OrderIDs), OrderIDs: v.OrderIDs})
 	return c.JSON(200, v)
+}
+
+func shippingReturnReadError(c echo.Context, err error) error {
+	code := http.StatusInternalServerError
+	if errors.Is(err, d.ErrBatchNotFound) {
+		code = http.StatusNotFound
+	}
+	return c.JSON(code, map[string]string{"error": err.Error()})
 }

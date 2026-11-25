@@ -2,6 +2,7 @@
 package shippingreturn
 
 import (
+	"errors"
 	"fmt"
 	"github.com/xuri/excelize/v2"
 	"io"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"time"
 )
+
+var ErrBatchNotFound = errors.New("导入批次不存在")
 
 type Column struct {
 	Column string `json:"column"`
@@ -28,6 +31,9 @@ type Template struct {
 	Columns    map[string]Column `json:"columns"`
 }
 type Row struct {
+	BatchID            int64  `json:"batch_id,omitempty"`
+	CustomerName       string `json:"customer_name,omitempty"`
+	Candidates         []Row  `json:"candidates,omitempty"`
 	ID                 int64  `json:"id"`
 	RowNo              int    `json:"row_no"`
 	TrackingNo         string `json:"tracking_no"`
@@ -61,9 +67,49 @@ type Batch struct {
 	OrderIDs         []int64 `json:"order_ids"`
 }
 
+func ValidSelectionIDs(ids []int64) bool {
+	if len(ids) == 0 || len(ids) > 10000 {
+		return false
+	}
+	seen := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		if id <= 0 || seen[id] {
+			return false
+		}
+		seen[id] = true
+	}
+	return true
+}
+
+// MatchedOrderIDs includes applied orders and current candidates, once per order.
+func (b Batch) MatchedOrderIDs() []int64 {
+	ids := []int64{}
+	seen := map[int64]bool{}
+	add := func(id int64) {
+		if id > 0 && !seen[id] {
+			ids = append(ids, id)
+			seen[id] = true
+		}
+	}
+	for _, r := range b.Rows {
+		if r.Status == "applied" {
+			add(r.OrderID)
+		}
+		for _, c := range r.Candidates {
+			add(c.OrderID)
+		}
+	}
+	return ids
+}
+
 func DefaultTemplate() Template {
 	return Template{ID: "sf-recipient", Name: "顺丰寄件列表", Sheet: "寄件列表", HeaderRow: 1, Active: true, Revision: 1, WeightUnit: "kg", Columns: map[string]Column{"tracking": {"C", "运单号"}, "amount": {"S", "应收金额"}, "receiver": {"J", "收件人"}, "phone": {"K", "收件人手机"}, "sender": {"F", "寄付人"}, "sender_phone": {"G", "寄件人手机"}, "time": {"AF", "下单时间"}, "settlement_weight": {"P", "结算重量（kg）"}, "pickup_time": {"AG", "揽件时间"}}}
 }
+func (t Template) MissingColumn(key string) string {
+	col := t.Columns[key]
+	return fmt.Sprintf("%s 列%s为空", col.Column, col.Header)
+}
+
 func (t Template) Validate() error {
 	if t.ID == "" || strings.TrimSpace(t.Name) == "" || t.Sheet == "" || t.HeaderRow < 1 || t.HeaderRow > 100 || t.CarrierID < 0 {
 		return fmt.Errorf("请完整配置模板名称、工作表和标题行")
@@ -209,8 +255,10 @@ func Parse(reader io.Reader, t Template) ([]Row, error) {
 		if strings.Join(values, "") == "" {
 			continue
 		}
-		if r.TrackingNo == "" || get("amount") == "" {
-			r.Error = "单号或运费为空"
+		if r.TrackingNo == "" {
+			r.Error = t.MissingColumn("tracking")
+		} else if get("amount") == "" {
+			r.Error = t.MissingColumn("amount")
 		} else {
 			r.ActualCents, e = money(get("amount"))
 			if e != nil {
@@ -238,7 +286,7 @@ func Parse(reader io.Reader, t Template) ([]Row, error) {
 		if err != nil {
 			return nil, err
 		}
-		if len(r.TrackingNo) > 100 || !regexp.MustCompile(`^[A-Za-z0-9-]+$`).MatchString(r.TrackingNo) || regexp.MustCompile(`(?i)^[0-9.]+e[+-]?[0-9]+$`).MatchString(r.TrackingNo) {
+		if r.TrackingNo != "" && (len(r.TrackingNo) > 100 || !regexp.MustCompile(`^[A-Za-z0-9-]+$`).MatchString(r.TrackingNo) || regexp.MustCompile(`(?i)^[0-9.]+e[+-]?[0-9]+$`).MatchString(r.TrackingNo)) {
 			r.Error = "运单号必须为单个完整单号，不支持分隔符或科学计数法"
 		} else if trackingType != excelize.CellTypeSharedString && trackingType != excelize.CellTypeInlineString && len(r.TrackingNo) > 15 {
 			r.Error = "长运单号必须使用文本，避免 Excel 数值精度丢失"

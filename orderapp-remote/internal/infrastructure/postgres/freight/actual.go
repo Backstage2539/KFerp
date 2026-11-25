@@ -188,11 +188,16 @@ func (r *Repository) resolveRow(ctx context.Context, tx pgx.Tx, carrier int64, v
 		return v, nil
 	}
 	var trackingCount int
-	e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT count(DISTINCT no) FROM (SELECT tracking_no AS no FROM %[1]s.order_shipping_trackings WHERE order_id=$1 UNION SELECT ship_tracking_no FROM %[1]s.orders WHERE id=$1) x WHERE trim(no)<>''`, r.schema), v.OrderID).Scan(&trackingCount)
+	var grouped bool
+	e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT count(DISTINCT no),EXISTS(
+		SELECT 1 FROM %[1]s.freight_actual_entries e JOIN %[1]s.freight_actual_shipments s ON s.id=e.shipment_id
+		WHERE s.order_id=$1 AND e.shipping_return_group_id IS NOT NULL)
+		FROM (SELECT tracking_no AS no FROM %[1]s.order_shipping_trackings WHERE order_id=$1
+		UNION SELECT ship_tracking_no FROM %[1]s.orders WHERE id=$1) x WHERE trim(no)<>''`, r.schema), v.OrderID).Scan(&trackingCount, &grouped)
 	if e != nil {
 		return v, e
 	}
-	if trackingCount != 1 {
+	if trackingCount != 1 || grouped {
 		v.Error = "订单包含多票运单，整单一票规则无法自动分摊"
 		return v, nil
 	}
@@ -322,7 +327,7 @@ func (r *Repository) ReverseEntry(ctx context.Context, id int64, key, reason, ac
 	if _, e = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('freight-actual-posting'))`); e != nil {
 		return e
 	}
-	var sid, cid, previousActual, previousBilled, actual, billed, latest int64
+	var sid, cid, previousActual, previousBilled, actual, billed, latest, returnGroup int64
 	var oldKey string
 	e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT request_key FROM %s.freight_actual_entries WHERE request_key=$1`, r.schema), "reverse:"+key).Scan(&oldKey)
 	if e == nil {
@@ -331,9 +336,12 @@ func (r *Repository) ReverseEntry(ctx context.Context, id int64, key, reason, ac
 	if !errors.Is(e, pgx.ErrNoRows) {
 		return e
 	}
-	e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT e.shipment_id,s.customer_id,e.previous_actual_cents,e.previous_billed_cents,s.actual_cents,s.billed_cents,(SELECT max(id) FROM %[1]s.freight_actual_entries WHERE shipment_id=s.id) FROM %[1]s.freight_actual_entries e JOIN %[1]s.freight_actual_shipments s ON s.id=e.shipment_id WHERE e.id=$1 FOR UPDATE OF s`, r.schema), id).Scan(&sid, &cid, &previousActual, &previousBilled, &actual, &billed, &latest)
+	e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT e.shipment_id,s.customer_id,e.previous_actual_cents,e.previous_billed_cents,s.actual_cents,s.billed_cents,(SELECT max(id) FROM %[1]s.freight_actual_entries WHERE shipment_id=s.id),coalesce(e.shipping_return_group_id,0) FROM %[1]s.freight_actual_entries e JOIN %[1]s.freight_actual_shipments s ON s.id=e.shipment_id WHERE e.id=$1 FOR UPDATE OF s`, r.schema), id).Scan(&sid, &cid, &previousActual, &previousBilled, &actual, &billed, &latest, &returnGroup)
 	if e != nil {
 		return e
+	}
+	if returnGroup > 0 {
+		return fmt.Errorf("多票寄件的应收按整单核算，不能按单票撤销，请财务核对整组费用")
 	}
 	if latest != id {
 		return fmt.Errorf("只能撤销该运单的最新记录，请先撤销后续修订")
