@@ -29,6 +29,7 @@ import (
 )
 
 type miniEmployeeOrderDetailResponse struct {
+	CanCancel                   bool                           `json:"can_cancel"`
 	CanUpdateStatus             bool                           `json:"can_update_status"`
 	StatusUpdateBlockReason     string                         `json:"status_update_block_reason"`
 	CanUpdateShipStatus         bool                           `json:"can_update_ship_status"`
@@ -335,7 +336,8 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 		deps = services[0]
 	}
 	customers := deps.CustomerMaintenance
-	orders := miniEmployeeOrderHandler{portal: portal, sales: sales}
+	orders := miniEmployeeOrderHandler{portal: portal, sales: sales, cancellation: deps.EmployeeOrderCancellation}
+	e.POST("/api/mini/employee/orders/:id/cancel", orders.cancel)
 	e.GET("/api/mini/employee/orders/:id/copy-details", orders.copyDetails)
 	e.GET("/api/mini/employee/order-form", func(c echo.Context) error {
 		c.Response().Header().Set("Cache-Control", "no-store")
@@ -678,8 +680,9 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 }
 
 type miniEmployeeOrderHandler struct {
-	portal Service
-	sales  EmployeeSales
+	cancellation EmployeeOrderCancellation
+	portal       Service
+	sales        EmployeeSales
 }
 
 type miniEmployeeOrderAccess struct {
@@ -1420,6 +1423,7 @@ func (h miniEmployeeOrderHandler) detail(c echo.Context) error {
 		shipReason = "发货状态由实际履约进度更新，请通过发货操作处理"
 	}
 	return c.JSON(http.StatusOK, miniEmployeeOrderDetailResponse{
+		CanCancel:       h.cancellation != nil && !access.row.IsVoid && !form.EditData.IsVoid && containsMiniRole(access.employee.Permissions, "orders.resolve"),
 		CanUpdateStatus: statusReason == "", StatusUpdateBlockReason: statusReason,
 		CanUpdateShipStatus: shipReason == "", ShipStatusUpdateBlockReason: shipReason,
 		StatusOptions: miniEmployeeStatusOptions(form, access.row),

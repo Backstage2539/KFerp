@@ -1725,6 +1725,7 @@ export type EmployeeOrderDocuments = {
 }
 
 export type EmployeeOrderDetailResponse = {
+  can_cancel?: boolean
   order: EmployeeOrderDetail
   documents?: EmployeeOrderDocuments
   can_edit?: boolean
@@ -1855,6 +1856,18 @@ export function updateEmployeeOrder(
   data: Record<string, unknown>,
 ): Promise<{ order_id: number; order_no: string }> {
   return miniRequest(buildEmployeeOrderUpdatePath(orderID), { method: 'PUT', token, data })
+}
+
+export const employeeCancelReasons = [
+  { value: 'customer_cancel', label: '客户取消' },
+  { value: 'entry_error', label: '录单错误' },
+  { value: 'duplicate', label: '重复订单' },
+] as const
+
+export type EmployeeCancelReason = typeof employeeCancelReasons[number]['value']
+
+export function cancelEmployeeOrder(token: string, orderID: number, reason: EmployeeCancelReason): Promise<{ order_id: number }> {
+  return miniRequest(`${buildEmployeeOrderDetailPath(orderID)}/cancel`, { method: 'POST', token, data: { reason } })
 }
 
 export function updateEmployeeOrderStatus(

@@ -2,6 +2,12 @@
 - 分支 `codex/sf-return-batch-selection`，负责人 Codex，已通过隔离数据库、HTTP 及前端交互验证，待开发发布、Van 验收。批次候选、跨页筛选及同批一单多票；开发环境验收。
 - DEV-PR771-READ、DEV-PR771-CONFIRM、DEV-PR771-UI。
 
+### PR-773-MINI-ORDER-CANCEL
+
+- 分支 `codex/mini-order-cancel-20261125`。负责人 Codex，业务验收人 Van。
+- DEV-PR773-CANCEL 完成快速取消事务、权限和审计。DEV-PR773-MINI 完成员工详情原因选择、刷新和手册。
+- 已合入 develop 并部署开发环境，运行提交 `22ea1e18498bd2e65d92b260d74cfada86b65810`。员工取消接口、手册和需求表已核对，开发包 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev` 已验证。待员工真机验收。证据见 `orderapp-remote/docs/acceptance/2026-11-25-mini-order-cancel.md`。
+
 ### PR-770-MINIAPP-PRIVACY
 - 分支 `codex/miniapp-privacy-review`，负责人 Codex。小程序 576 项测试、类型检查与开发构建通过。待开发部署、手机验收及微信复审。
 - DEV-PR770-LOGIN 统一登录前主动同意并验证旧会话。DEV-PR770-ADDRESS 收件授权、撤回、真机验证及微信复审。

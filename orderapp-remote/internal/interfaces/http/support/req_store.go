@@ -203,7 +203,7 @@ func seedReqRow(ctx context.Context, pool *pgxpool.Pool, schema string, row reqS
 	}
 	// Delivery and Van's review happen after startup. Preserve their actual
 	// progress when subsequent restarts re-run the built-in requirement seeds.
-	if row.code == "PR-771-SHIPPING-RETURN-BATCH-SELECTION" || strings.HasPrefix(row.code, "DEV-PR771-") || row.code == "PR-768-ORDER-OTHER-FEE" || strings.HasPrefix(row.code, "DEV-PR768-") || row.code == "PR-WECHAT-AUTOBIND-20261122" || strings.HasPrefix(row.code, "DEV-WECHAT-AUTOBIND-") {
+	if row.code == "PR-771-SHIPPING-RETURN-BATCH-SELECTION" || strings.HasPrefix(row.code, "DEV-PR771-") || row.code == "PR-773-MINI-ORDER-CANCEL" || strings.HasPrefix(row.code, "DEV-PR773-") || row.code == "PR-768-ORDER-OTHER-FEE" || strings.HasPrefix(row.code, "DEV-PR768-") || row.code == "PR-WECHAT-AUTOBIND-20261122" || strings.HasPrefix(row.code, "DEV-WECHAT-AUTOBIND-") {
 		_, err := pool.Exec(ctx, fmt.Sprintf("INSERT INTO %s.%s(code,title,status,assignee,evidence) VALUES($1,$2,$3,$4,$5) ON CONFLICT(code) DO NOTHING", schema, row.table), row.code, row.title, row.status, row.assignee, row.evidence)
 		return err
 	}
@@ -308,6 +308,9 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-PR771-READ", title: "只读批次候选、关联订单及分页筛选", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-11-25-shipping-return-batch.md"},
 		{table: "req_dev", code: "DEV-PR771-CONFIRM", title: "同批多票原子发货、费用保护及幂等", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-11-25-shipping-return-batch.md"},
 		{table: "req_dev", code: "DEV-PR771-UI", title: "回传明细、订单筛选和选票确认交互", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-11-25-shipping-return-batch.md"},
+		{table: "req_product", code: "PR-773-MINI-ORDER-CANCEL", title: "员工小程序选择原因取消订单", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-11-25-mini-order-cancel.md"},
+		{table: "req_dev", code: "DEV-PR773-CANCEL", title: "按权限和履约状态执行整单取消并记录日志", status: "done", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-PR773-MINI", title: "员工订单详情取消原因选择及结果反馈", status: "done", assignee: "Codex"},
 		{table: "req_product", code: "PR-770-MINIAPP-PRIVACY", title: "小程序登录协议与收件隐私整改", status: "review", assignee: "Van"},
 		{table: "req_dev", code: "DEV-PR770-LOGIN", title: "全角色登录协议与会话确认", status: "review", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-PR770-ADDRESS", title: "首次收件授权、撤回及微信复审", status: "doing", assignee: "Codex"},
