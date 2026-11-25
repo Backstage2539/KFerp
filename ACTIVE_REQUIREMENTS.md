@@ -1,10 +1,10 @@
 ### PR-774-EMPLOYEE-CUSTOMER-CONTACT
 
 - 员工新增客户三项联系方式必填。负责人 Codex，验收人 Van；与 PR-771 共用分支 `codex/sf-return-batch-selection` 并发布开发环境。
-- DEV-PR774-VALIDATE、DEV-PR774-UI。验证覆盖小程序、后台录单和客户档案表单、两条 HTTP 接口及历史客户编辑。
+- DEV-PR774-VALIDATE、DEV-PR774-UI。已与 PR-771 合入 develop 并部署开发环境，运行版本 `0c70d178839b43b679064ea5c155defb601c438e`，待 Van 业务验收。开发接口逐项拦截空白，导出小程序包校验通过。见 `orderapp-remote/docs/acceptance/2026-11-25-employee-customer-contact.md`。
 
 ### PR-771-SHIPPING-RETURN-BATCH-SELECTION
-- 分支 `codex/sf-return-batch-selection`，负责人 Codex，已通过隔离数据库、HTTP 及前端交互验证，待开发发布、Van 验收。批次候选、跨页筛选及同批一单多票；开发环境验收。
+- 分支 `codex/sf-return-batch-selection`，负责人 Codex。已与 PR-774 合入 develop 并部署开发环境，运行版本 `0c70d178839b43b679064ea5c155defb601c438e`，待 Van 业务验收。开发库当前无历史回传批次。同批两票、发货与扣库、跨页筛选已在隔离数据库与 Chrome 验证。发布与回滚记录见 `orderapp-remote/docs/acceptance/2026-11-25-shipping-return-batch.md`。
 - DEV-PR771-READ、DEV-PR771-CONFIRM、DEV-PR771-UI。
 
 ### PR-770-MINIAPP-PRIVACY
