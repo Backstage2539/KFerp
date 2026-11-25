@@ -1,3 +1,8 @@
+### PR-774-EMPLOYEE-CUSTOMER-CONTACT
+
+- 员工新增客户三项联系方式必填。负责人 Codex，验收人 Van；与 PR-771 共用分支 `codex/sf-return-batch-selection` 并发布开发环境。
+- DEV-PR774-VALIDATE、DEV-PR774-UI。验证覆盖小程序、后台录单和客户档案表单、两条 HTTP 接口及历史客户编辑。
+
 ### PR-771-SHIPPING-RETURN-BATCH-SELECTION
 - 分支 `codex/sf-return-batch-selection`，负责人 Codex，已通过隔离数据库、HTTP 及前端交互验证，待开发发布、Van 验收。批次候选、跨页筛选及同批一单多票；开发环境验收。
 - DEV-PR771-READ、DEV-PR771-CONFIRM、DEV-PR771-UI。

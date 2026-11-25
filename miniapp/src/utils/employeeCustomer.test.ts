@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  newCustomerContactError,
   mergeEmployeeCustomerRecipientFields,
   snapshotEmployeeCustomerRecipientFields,
 } from './employeeCustomer'
@@ -67,4 +68,12 @@ describe('employee customer recipient fields', () => {
       address: '手工地址',
     })
   })
+})
+
+it('identifies each missing new-customer contact field and accepts a landline', () => {
+  const valid = {contact: '测试联系人', phone: '021-12345678', address: '测试路 1 号'}
+  for (const [field, label] of Object.entries({contact: '联系人', phone: '联系电话', address: '联系地址'})) {
+    expect(newCustomerContactError({...valid, [field]: '　 '})).toContain(label)
+  }
+  expect(newCustomerContactError(valid)).toBe('')
 })

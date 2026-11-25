@@ -12,6 +12,7 @@ import {
   type EmployeeCustomersResponse,
 } from '../api/customerPortal'
 import {
+  newCustomerContactError,
   mergeEmployeeCustomerRecipientFields,
   snapshotEmployeeCustomerRecipientFields,
 } from '../utils/employeeCustomer'
@@ -189,6 +190,13 @@ async function save() {
     uni.showToast({ title: '请填写客户名称', icon: 'none' })
     return
   }
+  if (!props.customerId) {
+    const message = newCustomerContactError(form)
+    if (message) {
+      uni.showToast({ title: message, icon: 'none' })
+      return
+    }
+  }
   if (!form.customer_type || !form.default_source_id || !form.default_order_type_id) {
     uni.showToast({ title: '请选择客户类型、来源和订单类型', icon: 'none' })
     return
@@ -285,11 +293,11 @@ watch(
           </button>
         </view>
 
-        <text class="label">联系人</text>
+        <text class="label">联系人{{ !customerId ? ' *' : '' }}</text>
         <input v-model="form.contact" class="field" placeholder="联系人" />
-        <text class="label">联系电话</text>
+        <text class="label">联系电话{{ !customerId ? ' *' : '' }}</text>
         <input v-model="form.phone" class="field" placeholder="联系电话（可含区号或分机）" />
-        <text class="label">联系地址</text>
+        <text class="label">联系地址{{ !customerId ? ' *' : '' }}</text>
         <textarea v-model="form.address" class="field area" placeholder="联系地址" />
 
         <text class="label">公司名称</text>

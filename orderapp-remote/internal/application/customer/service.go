@@ -256,7 +256,7 @@ func NewService(repo Repository) *Service {
 }
 
 func (s *Service) Upsert(ctx context.Context, actor string, id *int64, cmd UpsertCommand) (int64, error) {
-	if err := validateRequiredCustomerProfileDefaults(cmd.CustomerType, cmd.DefaultSourceID, cmd.DefaultOrderTypeID); err != nil {
+	if err := cmd.validateForSave(id); err != nil {
 		return 0, err
 	}
 	cmd.CustomerType = NormalizeCustomerType(cmd.CustomerType)
@@ -335,7 +335,7 @@ func (s *Service) UpsertManaged(ctx context.Context, actor MaintenancePrincipal,
 	if err != nil {
 		return 0, err
 	}
-	if err := validateRequiredCustomerProfileDefaults(cmd.CustomerType, cmd.DefaultSourceID, cmd.DefaultOrderTypeID); err != nil {
+	if err := cmd.validateForSave(id); err != nil {
 		return 0, err
 	}
 	cmd.CustomerType = NormalizeCustomerType(cmd.CustomerType)
@@ -431,6 +431,24 @@ func validRequiredCustomerType(value string) bool {
 func positiveIDString(value string) bool {
 	n, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
 	return err == nil && n > 0
+}
+
+func (cmd UpsertCommand) validateForSave(id *int64) error {
+	if err := validateRequiredCustomerProfileDefaults(cmd.CustomerType, cmd.DefaultSourceID, cmd.DefaultOrderTypeID); err != nil {
+		return err
+	}
+	if id != nil {
+		return nil
+	}
+	switch {
+	case strings.TrimSpace(cmd.Contact) == "":
+		return NewMaintenanceValidationError("请填写联系人")
+	case strings.TrimSpace(cmd.Phone) == "":
+		return NewMaintenanceValidationError("请填写联系电话")
+	case strings.TrimSpace(cmd.Address) == "":
+		return NewMaintenanceValidationError("请填写联系地址")
+	}
+	return nil
 }
 
 func validateRequiredCustomerProfileDefaults(customerType, sourceID, orderTypeID string) error {

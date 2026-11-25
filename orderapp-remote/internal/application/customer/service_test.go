@@ -100,6 +100,7 @@ func TestServiceDelegatesCustomerUpsert(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
 	id, err := svc.Upsert(context.Background(), "actor", nil, UpsertCommand{
+		Contact: "测试联系人", Phone: "021-12345678", Address: "测试路 1 号",
 		Name:               "Ada",
 		CustomerType:       "wholesale",
 		DefaultSourceID:    "1",
@@ -183,6 +184,7 @@ func TestServiceSupportsCustomCustomerTypeOptions(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
 	_, err := svc.Upsert(context.Background(), "actor", nil, UpsertCommand{
+		Contact: "测试联系人", Phone: "021-12345678", Address: "测试路 1 号",
 		Name:               "联名门店A",
 		CustomerType:       "partner_store",
 		DefaultSourceID:    "1",
@@ -223,6 +225,7 @@ func TestServiceAllowsPortalSwitchWithoutCapabilityTemplate(t *testing.T) {
 	svc := NewService(repo)
 	enabled := true
 	_, err := svc.Upsert(context.Background(), "actor", nil, UpsertCommand{
+		Contact: "测试联系人", Phone: "021-12345678", Address: "测试路 1 号",
 		Name:                  "渠道客户",
 		CustomerType:          "channel",
 		DefaultSourceID:       "1",
@@ -270,6 +273,7 @@ func TestServiceManagedCustomerForcesSalesOwnershipAndProtectedFields(t *testing
 	actor := MaintenancePrincipal{EmployeeID: 7, EmployeeName: "销售甲"}
 
 	_, err := svc.UpsertManaged(context.Background(), actor, nil, UpsertCommand{
+		Contact: "测试联系人", Phone: "021-12345678", Address: "测试路 1 号",
 		Name:                  "客户甲",
 		CustomerType:          CustomerTypeWholesale,
 		DefaultSourceID:       "1",
@@ -318,6 +322,7 @@ func TestServiceManagedCustomerKeepsAdministratorFields(t *testing.T) {
 	actor := MaintenancePrincipal{EmployeeID: 1, EmployeeName: "管理员", IsAdmin: true}
 
 	_, err := svc.UpsertManaged(context.Background(), actor, nil, UpsertCommand{
+		Contact: "测试联系人", Phone: "021-12345678", Address: "测试路 1 号",
 		Name:                  "管理员客户",
 		CustomerType:          CustomerTypeChannel,
 		DefaultSourceID:       "1",

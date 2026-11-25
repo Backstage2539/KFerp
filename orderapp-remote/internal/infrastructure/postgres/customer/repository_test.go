@@ -124,6 +124,9 @@ func TestCustomerUpsertRequiresActiveInternalResponsibleEmployeeAndAuditsChanges
 	if err := postgrescore.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("core.EnsureSchema: %v", err)
 	}
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("customer.EnsureSchema: %v", err)
+	}
 	if err := postgrescompany.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("company.EnsureSchema: %v", err)
 	}
@@ -177,8 +180,8 @@ func TestCustomerUpsertRequiresActiveInternalResponsibleEmployeeAndAuditsChanges
 		CustomerType: customerapp.CustomerTypeWholesale,
 		Active:       "on",
 	})
-	if err == nil || !strings.Contains(err.Error(), "responsible_employee_id required") {
-		t.Fatalf("upsert without responsible error=%v, want responsible_employee_id required", err)
+	if msg, ok := customerapp.MaintenanceValidationMessage(err); !ok || msg != "请选择负责人" {
+		t.Fatalf("upsert without responsible employee: %v", err)
 	}
 
 	_, err = repo.Upsert(ctx, "tester", nil, customerapp.UpsertCommand{
@@ -187,8 +190,8 @@ func TestCustomerUpsertRequiresActiveInternalResponsibleEmployeeAndAuditsChanges
 		ResponsibleEmployeeID: fmt.Sprintf("%d", channelAccount),
 		Active:                "on",
 	})
-	if err == nil || !strings.Contains(err.Error(), "responsible employee not found") {
-		t.Fatalf("upsert with channel account error=%v, want responsible employee not found", err)
+	if msg, ok := customerapp.MaintenanceValidationMessage(err); !ok || msg != "负责人不存在或已停用，请重新选择" {
+		t.Fatalf("upsert with channel account: %v", err)
 	}
 
 	customerID, err := repo.Upsert(ctx, "tester", nil, customerapp.UpsertCommand{
