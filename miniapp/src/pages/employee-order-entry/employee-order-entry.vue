@@ -75,7 +75,7 @@ import {
 } from '../../utils/employeeOrder'
 import { useSessionStore } from '../../stores/session'
 
-import { fetchEntryBase, fetchEntryCatalog, fetchEntryWarehouses } from '../../api/employeeEntry'
+import { fetchEntryBase, fetchEntryCatalog, fetchEntryWarehouses, peekEntryCatalog } from '../../api/employeeEntry'
 import { takeOrderForEditor } from '../../utils/employeeOrderHandoff'
 
 const session = useSessionStore()
@@ -122,6 +122,7 @@ let customerContextLoadPromise: Promise<boolean> | undefined
 let catalogRevision = ''
 let pickerRevision = ''
 let pickerCheck: Promise<boolean> | undefined
+let selectingCustomerCatalog: Promise<boolean> | undefined
 let pickerIntent = 0
 let productCatalogLoadSequence = 0
 let recipientRevision = 0
@@ -466,7 +467,10 @@ async function chooseCustomer(customer: EmployeeOrderCustomer) {
   if (Number(customer.default_source_id || 0) > 0) form.value.source_id = Number(customer.default_source_id)
   if (Number(customer.default_order_type_id || 0) > 0) form.value.order_type_id = Number(customer.default_order_type_id)
   closeCustomerSelector()
-  const catalogLoaded = await loadCustomerProductCatalog(Number(customer.id))
+  const customerCatalog = loadCustomerProductCatalog(Number(customer.id))
+  selectingCustomerCatalog = customerCatalog
+  const catalogLoaded = await customerCatalog
+  if (selectingCustomerCatalog === customerCatalog) selectingCustomerCatalog = undefined
   if (Number(form.value.customer_id) !== Number(customer.id)) return
   form.value.items = revalidateEmployeeOrderItems(
     form.value.items,
@@ -611,18 +615,25 @@ async function openProductSelector(itemKey: string) {
   }
   if (loading.value || !formData.value) return
   const intent = ++pickerIntent
-  if (!catalogRevision && !await refreshCurrentProductCatalog(false)) return
+  const cached = !catalogRevision
+    ? peekEntryCatalog(session.token, Number(form.value.customer_id), form.value.selected_price_table_ids || [])
+    : undefined
+  if (cached) {
+    formData.value.product_families = cached.product_families || []
+  } else if (!catalogRevision && !await (selectingCustomerCatalog ?? refreshCurrentProductCatalog(false))) {
+    return
+  }
   if (intent !== pickerIntent) return
   if (!form.value.items.some((item) => item.key === itemKey)) return
   editingItemKey.value = itemKey
-  pickerRevision = catalogRevision
+  pickerRevision = cached?.selected_revision || cached?.revision || catalogRevision
   productSelectorOpen.value = true
   void checkPickerCatalog()
 }
 
 function checkPickerCatalog(): Promise<boolean> {
   if (pickerCheck) return pickerCheck
-  const task = refreshCurrentProductCatalog(false).finally(() => {
+  const task = (selectingCustomerCatalog ?? refreshCurrentProductCatalog(false)).finally(() => {
     if (pickerCheck === task) pickerCheck = undefined
   })
   pickerCheck = task
@@ -1150,6 +1161,7 @@ async function submit() {
 watch(() => recipientAllowed.value ? consentScope(session) + session.token : '', (allowed) => {
   recipientRevision++
   productCatalogLoadSequence++
+  selectingCustomerCatalog = undefined
   catalogRevision = ''
   closeProductSelector()
   customerEditorIntentSequence++

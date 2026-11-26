@@ -98,6 +98,10 @@ func registerEmployeeEntry(e *echo.Echo, portal Service, sales EmployeeSales, wa
 			return echo.ErrNotFound
 		}
 		key := q.key(part, employee)
+		if part == "base" {
+			// Recipient details belong to the employee's current login.
+			key += "/" + entryRevision("session", c.Request().Header.Get(echo.HeaderAuthorization))
+		}
 		for attempt := 0; attempt < 3; attempt++ {
 			version, err := reader.EmployeeEntryRevision(ctx, part, q.customer)
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -143,7 +147,9 @@ func registerEmployeeEntry(e *echo.Echo, portal Service, sales EmployeeSales, wa
 						cache.put(canonical, alias)
 					}
 				}
-				cache.put(rev, payload)
+				if part != "base" {
+					cache.put(rev, payload)
+				}
 				return payload, nil
 			})
 			if err != nil {
