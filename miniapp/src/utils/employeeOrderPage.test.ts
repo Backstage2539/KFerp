@@ -263,3 +263,11 @@ describe('employee mini order entry page contract', () => {
     expect(createSubmitSource).not.toContain('edit_revision')
   })
 })
+
+it('lets employees start searching customers while the new order is loading', () => {
+  expect(pageSource).toContain('canSearchCustomer')
+  expect(pageSource).toContain('正在读取可选客户')
+  expect(pageSource).toContain('!retainedOrder && form.customer_id')
+  expect(pageSource).toContain(':keep-mounted="true"')
+  expect(productPickerSource).toContain('overlay-hidden')
+})

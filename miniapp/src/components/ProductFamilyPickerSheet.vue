@@ -16,8 +16,11 @@ const props = withDefaults(defineProps<{
   families: EmployeeOrderProductFamily[]
   customerId: number
   loading?: boolean
+  keepMounted?: boolean
   customerFacingNames?: boolean
 }>(), { loading: false, customerFacingNames: false })
+
+const openedOnce = ref(props.visible)
 
 const emit = defineEmits<{
   close: []
@@ -35,7 +38,7 @@ const filteredFamilies = computed(() => filterEmployeeOrderProductFamilies(
 ))
 
 watch(() => props.visible, (visible) => {
-  if (!visible) return
+  if (visible) openedOnce.value = true
   query.value = ''
   category.value = 'all'
 })
@@ -57,13 +60,14 @@ function displayName(family: EmployeeOrderProductFamily): string {
 </script>
 
 <template>
-  <view v-if="visible" class="overlay" @tap.self="emit('close')">
+  <view v-if="visible || (keepMounted && openedOnce)" :class="{ 'overlay-hidden': !visible }" class="overlay" @tap.self="emit('close')">
     <view class="select-sheet product-sheet" @tap.stop>
       <view class="sheet-head">
         <text class="sheet-title">选择商品</text>
         <text class="sheet-close" @tap="emit('close')">关闭</text>
       </view>
       <input
+        v-if="visible"
         v-model="query"
         class="search-input"
         focus
@@ -104,6 +108,7 @@ function displayName(family: EmployeeOrderProductFamily): string {
 
 <style scoped>
 .overlay{position:fixed;inset:0;z-index:1100;display:flex;align-items:flex-end;background:rgba(16,28,22,.48)}
+.overlay-hidden{display:none}
 .select-sheet{width:100%;max-height:86vh;padding:28rpx 28rpx calc(24rpx + env(safe-area-inset-bottom));border-radius:24rpx 24rpx 0 0;box-sizing:border-box;background:#fff}
 .sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:20rpx}
 .sheet-title{color:#1e362a;font-size:32rpx;font-weight:800}

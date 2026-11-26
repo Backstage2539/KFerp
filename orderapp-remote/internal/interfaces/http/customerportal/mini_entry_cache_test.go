@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	salesapp "orderapp/internal/application/sales"
+	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -97,5 +99,48 @@ func TestEmployeeEntryRecipientRevisionIsScopedToLogin(t *testing.T) {
 	next := read("second-login", original)
 	if next["customers"] == nil || next["revision"] == original || reader.reads != 2 {
 		t.Fatal("a new login reused the prior session's recipient data")
+	}
+}
+
+type concurrentEntryFixture struct {
+	entryCacheFixture
+	count atomic.Int32
+	gate  chan struct{}
+	first chan struct{}
+}
+
+func (f *concurrentEntryFixture) EmployeeEntryData(_ context.Context, _ string, _ int64) (salesapp.OrderFormData, error) {
+	if f.count.Add(1) == 1 {
+		close(f.first)
+	}
+	<-f.gate
+	return f.formFixture(0)
+}
+func TestEquivalentEmployeeCatalogRequestsShareOneBuild(t *testing.T) {
+	e := echo.New()
+	data := &concurrentEntryFixture{entryCacheFixture: entryCacheFixture{revision: "one"}, gate: make(chan struct{}), first: make(chan struct{})}
+	registerMiniEmployeeAPI(e, employeePortalService(), data)
+	var wg sync.WaitGroup
+	get := func(selection string) {
+		defer wg.Done()
+		req := httptest.NewRequest("GET", "/api/mini/employee/order-entry/catalog?customer_id=8"+selection, nil)
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != 200 {
+			t.Errorf("status %d", rec.Code)
+		}
+	}
+	wg.Add(1)
+	go get("&selected_price_table_ids=901")
+	<-data.first
+	wg.Add(1)
+	go get("")
+	close(data.gate)
+	wg.Wait()
+	wg.Add(1)
+	get("&preferred_price_table_ids=901")
+	if got := data.count.Load(); got != 1 {
+		t.Fatalf("read full catalog %d times for one effective selection", got)
 	}
 }

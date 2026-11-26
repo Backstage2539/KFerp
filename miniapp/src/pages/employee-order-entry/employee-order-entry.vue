@@ -372,8 +372,10 @@ function upsertOrderCustomer(customer: EmployeeCustomer) {
   }
 }
 
+const canSearchCustomer = computed(() => recipientAllowed.value && !isEditMode.value && !loadError.value
+  && (loading.value ? !isCopyMode.value : !!formData.value))
 function openCustomerSelector() {
-  if (isEditMode.value || loading.value || !formData.value) return
+  if (!canSearchCustomer.value) return
   customerEditorIntentSequence += 1
   customerQuery.value = ''
   customerSelectorOpen.value = true
@@ -395,7 +397,12 @@ async function loadCustomerProductCatalog(targetCustomerID: number, loadWarehous
     ])
     if (sequence !== productCatalogLoadSequence || Number(form.value.customer_id) !== targetCustomerID) return false
     if (!formData.value) return false
-    catalogRevision = data.selected_revision || data.revision
+    const verifiedRevision = data.selected_revision || data.revision
+    if (verifiedRevision === catalogRevision) {
+      if (warehouses) formData.value.delivery_warehouses = warehouses.delivery_warehouses || []
+      return true
+    }
+    catalogRevision = verifiedRevision
     form.value.selected_price_table_ids = data.selected_price_table_ids || []
     if (data.catalog_updated) uni.showToast({ title: '价格表已更新，请核对商品和价格', icon: 'none' })
     formData.value = {
@@ -446,7 +453,7 @@ async function changeNamedPriceTable(group: PriceTableGroup, event: { detail: { 
 }
 
 async function chooseCustomer(customer: EmployeeOrderCustomer) {
-  if (isEditMode.value) return
+  if (isEditMode.value || loading.value || !formData.value) return
   const selectedBefore = form.value.items.filter((item) => item.product_id > 0).length
   const customerChanged = Number(form.value.customer_id || 0) !== Number(customer.id)
   form.value.customer_id = Number(customer.id)
@@ -929,6 +936,7 @@ async function loadForm() {
     if (revision !== recipientRevision) return
     authExpired.value = !session.token || isAuthenticationExpiredRequestError(cause)
     if (authExpired.value) session.clearSession()
+    closeCustomerSelector()
     formData.value = undefined
     loadError.value = authExpired.value
       ? '登录已失效，请重新登录'
@@ -1168,6 +1176,8 @@ watch(() => recipientAllowed.value ? consentScope(session) + session.token : '',
   customerContextLoadPromise = undefined
   formData.value = undefined
   form.value = createOrderForm()
+  customerSelectorOpen.value = false
+  customerQuery.value = ''
   customerEditorOpen.value = false
   customerContext.value = undefined
   draftRecord.value = null
@@ -1216,7 +1226,14 @@ onShow(() => { void refreshMiniappShareMenu() })
         <text v-if="!isEditMode && !isCopyMode && draftRecord" class="draft-meta">草稿 {{ draftRecord.updated_at }}</text>
       </view>
 
-      <view v-if="loading" class="status-card">
+      <view v-if="loading && canSearchCustomer">
+        <text class="label">客户</text>
+        <view class="field selector-field customer-field" @tap="openCustomerSelector">
+          <text>搜索并选择客户 *</text><text class="chevron">›</text>
+        </view>
+        <text class="hint">正在加载客户和草稿…</text>
+      </view>
+      <view v-else-if="loading" class="status-card">
         <text>{{ isEditMode ? '正在加载原订单…' : isCopyMode ? '正在加载订单和当前可售商品…' : '正在加载客户和草稿…' }}</text>
       </view>
       <view v-else-if="loadError" class="status-card error-card">
@@ -1346,7 +1363,7 @@ onShow(() => { void refreshMiniappShareMenu() })
         <text class="order-total-value">¥{{ orderItemsTotal.toFixed(2) }}</text>
       </view>
 
-      <EmployeeFreightEstimate v-if="!retainedOrder" v-model="form.freight_state" ref="freightEstimator" :token="session.token" :customer-id="form.customer_id" :items="freightItems" :address="form.receiver_address" :order-id="isEditMode?editOrderID:0" :expected-token="orderFreight?.edit_token??orderFreight?.token??''" :locked="!!orderFreight?.edit_locked" :stored-quote="orderFreight" @amount-change="form.shipping_amount=$event" />
+      <EmployeeFreightEstimate v-if="!retainedOrder && form.customer_id" v-model="form.freight_state" ref="freightEstimator" :token="session.token" :customer-id="form.customer_id" :items="freightItems" :address="form.receiver_address" :order-id="isEditMode?editOrderID:0" :expected-token="orderFreight?.edit_token??orderFreight?.token??''" :locked="!!orderFreight?.edit_locked" :stored-quote="orderFreight" @amount-change="form.shipping_amount=$event" />
       <view class="fee-editor-grid">
         <view>
           <text class="label">优惠（元）</text>
@@ -1459,7 +1476,7 @@ onShow(() => { void refreshMiniappShareMenu() })
         <view class="sheet-head">
           <text class="sheet-title">选择客户</text>
           <view class="sheet-actions">
-            <text v-if="canCreateCustomer" class="sheet-create" @tap="openCustomerCreate">新增客户</text>
+            <text v-if="canCreateCustomer && !loading" class="sheet-create" @tap="openCustomerCreate">新增客户</text>
             <text class="sheet-close" @tap="closeCustomerSelector">关闭</text>
           </view>
         </view>
@@ -1471,16 +1488,19 @@ onShow(() => { void refreshMiniappShareMenu() })
           placeholder="搜索客户名称 / 拼音 / 首字母"
         />
         <scroll-view scroll-y class="option-list">
-          <view v-for="customer in filteredCustomers" :key="customer.id" class="option-row" @tap="chooseCustomer(customer)">
+          <text v-if="loading" class="empty-state">正在读取可选客户…</text>
+          <view v-for="customer in (loading ? [] : filteredCustomers)" :key="customer.id" class="option-row" @tap="chooseCustomer(customer)">
             <text class="option-name">{{ customer.name }}</text>
           </view>
-          <text v-if="!filteredCustomers.length" class="empty-state">没有找到客户</text>
+          <text v-if="!loading && !filteredCustomers.length" class="empty-state">没有找到客户</text>
         </scroll-view>
         <text class="result-hint">最多显示 20 条，请输入更多关键词缩小范围</text>
       </view>
     </view>
 
     <ProductFamilyPickerSheet
+      :key="form.customer_id"
+      :keep-mounted="true"
       :visible="productSelectorOpen"
       :families="formData?.product_families || []"
       :customer-id="form.customer_id"
