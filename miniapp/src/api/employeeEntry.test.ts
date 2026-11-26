@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import { miniRequest, MiniRequestError } from './client'
-import { fetchEntryCatalog, fetchEntryBase } from './employeeEntry'
+import { fetchEntryCatalog, fetchEntryBase, peekEntryCatalog } from './employeeEntry'
 import { employeeEntryCache } from '../utils/employeeEntryCache'
 
 vi.mock('./client', async (original) => ({ ...await original<typeof import('./client')>(), miniRequest: vi.fn() }))
@@ -24,4 +24,20 @@ it('drops cached contacts when the authorized session expires', async () => {
   request.mockResolvedValueOnce({revision:'new',customers:[]})
   await fetchEntryBase('other')
   expect(request.mock.calls[2][0]).not.toContain('known_revision')
+})
+
+it('shows the same session and customer catalog while its network verification is pending', async () => {
+  request.mockResolvedValueOnce({ revision: 'A', product_families: [{ name: '旧目录' }] })
+  await fetchEntryCatalog('employee', 7)
+  let finish!: (r: unknown) => void
+  request.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  const verifying = fetchEntryCatalog('employee', 7)
+  expect(peekEntryCatalog('employee', 7)?.product_families).toEqual([{ name: '旧目录' }])
+  expect(peekEntryCatalog('employee', 8)).toBeUndefined()
+  expect(peekEntryCatalog('other-login', 7)).toBeUndefined()
+  finish({ revision: 'B', product_families: [{ name: '新目录' }] })
+  await verifying
+  expect(peekEntryCatalog('employee', 7)?.revision).toBe('B')
+  employeeEntryCache.clear()
+  expect(peekEntryCatalog('employee', 7)).toBeUndefined()
 })
