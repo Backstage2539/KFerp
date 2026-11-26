@@ -1,3 +1,4 @@
+import { employeeEntryCache } from '../utils/employeeEntryCache'
 import { currentLoginConsent, loginAccount, loginPolicyVersion, type LoginConsent } from '../utils/loginConsent'
 import type { RegistrationProfile } from '../api/registration'
 import { markPreviewToken, unmarkPreviewToken } from '../api/client'
@@ -62,6 +63,7 @@ export const useSessionStore = defineStore('session', {
       this.applyContext(response)
     },
     setToken(token: string, accepted?: LoginConsent) {
+      if (token !== this.token) employeeEntryCache.clear()
       const consent = accepted ?? this.consent
       uni.setStorageSync(miniappTokenStorageKey(), { token, consent })
       this.consent = consent
@@ -75,6 +77,7 @@ export const useSessionStore = defineStore('session', {
       if (this.accountType !== 'employee' || !this.roles.includes('admin') || !this.token || !token || context.account_type !== 'preview' || !context.current_customer_id) {
         throw new Error('无法进入客户只读预览')
       }
+      employeeEntryCache.clear()
       this.previewEmployeeToken = this.token
       this.token = token
       markPreviewToken(token)
@@ -97,6 +100,7 @@ export const useSessionStore = defineStore('session', {
       this.clearSession(true)
     },
     clearSession(preserveRegistrationHint = false) {
+      employeeEntryCache.clear()
       if (this.previewEmployeeToken) {
         this.endCustomerPreview()
         return

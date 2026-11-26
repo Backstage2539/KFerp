@@ -26,21 +26,8 @@ import (
 const orderProductCatalogPublicationTypeIDBase int64 = 8_000_000_000_000_000
 
 func (r Repository) OrderForm(ctx context.Context, editID int64) (salesapp.OrderFormData, error) {
-	data := salesapp.OrderFormData{Today: time.Now().Format("2006-01-02")}
-	var err error
-	if data.Customers, err = r.fetchOrderCustomers(ctx); err != nil {
-		return salesapp.OrderFormData{}, err
-	}
-	if data.Sources, err = fetchOrderOptions(ctx, r.pool, fmt.Sprintf("SELECT id, name FROM %s.sources ORDER BY id", r.schema)); err != nil {
-		return salesapp.OrderFormData{}, err
-	}
-	if data.ShipStatuses, err = fetchOrderOptions(ctx, r.pool, fmt.Sprintf("SELECT id, name FROM %s.ship_statuses ORDER BY id", r.schema)); err != nil {
-		return salesapp.OrderFormData{}, err
-	}
-	if data.PayStatuses, err = fetchOrderOptions(ctx, r.pool, fmt.Sprintf("SELECT id, name FROM %s.pay_statuses ORDER BY id", r.schema)); err != nil {
-		return salesapp.OrderFormData{}, err
-	}
-	if data.OrderTypes, err = fetchOrderOptions(ctx, r.pool, fmt.Sprintf("SELECT id, name FROM %s.order_types ORDER BY id", r.schema)); err != nil {
+	data, err := r.employeeEntryBase(ctx)
+	if err != nil {
 		return salesapp.OrderFormData{}, err
 	}
 	if data.Products, err = r.fetchOrderProducts(ctx); err != nil {
@@ -70,6 +57,27 @@ func (r Repository) OrderForm(ctx context.Context, editID int64) (salesapp.Order
 			return salesapp.OrderFormData{}, err
 		}
 		data.EditData = editData
+	}
+	return data, nil
+}
+
+func (r Repository) employeeEntryBase(ctx context.Context) (salesapp.OrderFormData, error) {
+	data := salesapp.OrderFormData{Today: time.Now().Format("2006-01-02")}
+	var err error
+	if data.Customers, err = r.fetchOrderCustomers(ctx); err != nil {
+		return salesapp.OrderFormData{}, err
+	}
+	if data.Sources, err = fetchOrderOptions(ctx, r.pool, fmt.Sprintf("SELECT id, name FROM %s.sources ORDER BY id", r.schema)); err != nil {
+		return salesapp.OrderFormData{}, err
+	}
+	if data.ShipStatuses, err = fetchOrderOptions(ctx, r.pool, fmt.Sprintf("SELECT id, name FROM %s.ship_statuses ORDER BY id", r.schema)); err != nil {
+		return salesapp.OrderFormData{}, err
+	}
+	if data.PayStatuses, err = fetchOrderOptions(ctx, r.pool, fmt.Sprintf("SELECT id, name FROM %s.pay_statuses ORDER BY id", r.schema)); err != nil {
+		return salesapp.OrderFormData{}, err
+	}
+	if data.OrderTypes, err = fetchOrderOptions(ctx, r.pool, fmt.Sprintf("SELECT id, name FROM %s.order_types ORDER BY id", r.schema)); err != nil {
+		return salesapp.OrderFormData{}, err
 	}
 	return data, nil
 }
@@ -302,7 +310,7 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 	}
 	q := fmt.Sprintf(`
 		WITH active_customers AS (
-			SELECT id FROM %[1]s.customers WHERE active=true
+			SELECT id FROM %[1]s.customers WHERE active=true AND ($1::bigint=0 OR id=$1)
 		),
 		customer_publications AS (
 			SELECT c.id AS customer_id,
@@ -445,7 +453,7 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 		FROM public_fallback
 		ORDER BY customer_id, list_type, classification_template_id, is_customer_owned DESC, is_default DESC, published_at DESC, id DESC
 	`, r.schema)
-	rows, err := r.pool.Query(ctx, q)
+	rows, err := r.pool.Query(ctx, q, r.entryCustomerID)
 	if err != nil {
 		return nil, err
 	}
@@ -543,9 +551,9 @@ func (r Repository) fetchOrderCustomerPublicUsages(ctx context.Context) ([]sales
 	q := fmt.Sprintf(`
 		SELECT customer_id, use_public_sku
 		FROM %s.customer_sku_public_usage
-		ORDER BY customer_id
+		WHERE ($1::bigint=0 OR customer_id=$1) ORDER BY customer_id
 	`, r.schema)
-	rows, err := r.pool.Query(ctx, q)
+	rows, err := r.pool.Query(ctx, q, r.entryCustomerID)
 	if err != nil {
 		return nil, err
 	}
@@ -937,11 +945,11 @@ func (r Repository) fetchOrderCustomerAliasProducts(ctx context.Context) ([]sale
 			         ELSE 1::float8
 			       END AS derived_sku_unit_factor
 		) derived_sku_units ON true
-		WHERE a.active=true
+		WHERE a.active=true AND ($1::bigint=0 OR a.customer_id=$1)
 		  AND (COALESCE(p.parent_product_id,0)=0 OR parent_product.id IS NOT NULL)
 		  AND (NOT COALESCE(p.auto_derived_sku,false) OR COALESCE(NULLIF(p.derived_spec_status,''),'active')<>'template_removed')
 		ORDER BY a.customer_id, a.sort_order, a.id`, r.schema)
-	rows, err := r.pool.Query(ctx, sqlstr)
+	rows, err := r.pool.Query(ctx, sqlstr, r.entryCustomerID)
 	if err != nil {
 		return nil, err
 	}
@@ -1011,9 +1019,9 @@ func (r Repository) fetchOrderCustomerReferenceProducts(ctx context.Context, can
 		       COALESCE(customer_item_code,''),
 		       COALESCE(customer_display_name,'')
 		FROM %s.product_customer_references
-		WHERE active=true
+		WHERE active=true AND ($1::bigint=0 OR customer_id=$1)
 		ORDER BY customer_id,id
-	`, r.schema))
+	`, r.schema), r.entryCustomerID)
 	if err != nil {
 		return nil, err
 	}
@@ -1123,6 +1131,9 @@ func (r Repository) fetchStandardOrderPublicationTiers(ctx context.Context, prod
 	ownerKeys := make([]string, 0, len(customerOwners))
 	for key := range customerOwners {
 		ownerKeys = append(ownerKeys, key)
+	}
+	if r.entryCustomerID > 0 {
+		ownerKeys = []string{strconv.FormatInt(r.entryCustomerID, 10)}
 	}
 	q := fmt.Sprintf(`
 		WITH customer_publications AS (
@@ -1292,6 +1303,9 @@ func (r Repository) fetchGreenBeanOrderPublicationTiers(ctx context.Context, pro
 	ownerKeys := make([]string, 0, len(customerOwners))
 	for key := range customerOwners {
 		ownerKeys = append(ownerKeys, key)
+	}
+	if r.entryCustomerID > 0 {
+		ownerKeys = []string{strconv.FormatInt(r.entryCustomerID, 10)}
 	}
 	q := fmt.Sprintf(`
 		WITH customer_publications AS (

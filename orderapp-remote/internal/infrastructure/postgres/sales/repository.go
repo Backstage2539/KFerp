@@ -30,6 +30,8 @@ import (
 )
 
 type Repository struct {
+	// Set only on the request-local copy used to read an employee catalog.
+	entryCustomerID          int64
 	orderTx                  pgx.Tx
 	allowZeroSamplePrice     bool
 	pool                     *pgxpool.Pool
