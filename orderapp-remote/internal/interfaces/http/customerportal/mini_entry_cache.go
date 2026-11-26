@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
 	"golang.org/x/sync/singleflight"
+	"maps"
 	"net/http"
 	portalapp "orderapp/internal/application/customerportal"
 	salesapp "orderapp/internal/application/sales"
@@ -44,6 +45,27 @@ func (c *employeeEntryCache) put(key string, payload entryResponse) {
 		delete(c.data, c.order[0])
 		c.order = c.order[1:]
 	}
+}
+
+// Internal keys have a distinct prefix from client-facing revision digests.
+func (c *employeeEntryCache) load(key string, build func() (entryResponse, error)) (entryResponse, error) {
+	if value := c.get(key); value != nil {
+		return value, nil
+	}
+	result, err, _ := c.builds.Do(key, func() (any, error) {
+		if value := c.get(key); value != nil {
+			return value, nil
+		}
+		value, err := build()
+		if err == nil {
+			c.put(key, value)
+		}
+		return value, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(entryResponse), nil
 }
 func entryRevision(key, version string) string {
 	sum := sha256.Sum256([]byte("employee-entry-v1/" + key + "/" + version))
@@ -121,7 +143,7 @@ func registerEmployeeEntry(e *echo.Echo, portal Service, sales EmployeeSales, wa
 				if hit := cache.get(rev); hit != nil {
 					return hit, nil
 				}
-				payload, err := buildEmployeeEntry(ctx, reader, warehouses, part, q, employee)
+				payload, err := cache.buildEmployeeEntry(ctx, reader, warehouses, part, q, employee, version)
 				if err != nil {
 					return nil, err
 				}
@@ -166,25 +188,45 @@ func registerEmployeeEntry(e *echo.Echo, portal Service, sales EmployeeSales, wa
 		return c.JSON(http.StatusConflict, map[string]string{"error": "配置正在更新，请重试"})
 	})
 }
-func buildEmployeeEntry(ctx context.Context, reader salesapp.EmployeeEntryReader, warehouses EmployeeWarehouseReader, part string, q entrySelection, employee portalapp.CurrentContext) (entryResponse, error) {
+func (cache *employeeEntryCache) buildEmployeeEntry(ctx context.Context, reader salesapp.EmployeeEntryReader, warehouses EmployeeWarehouseReader, part string, q entrySelection, employee portalapp.CurrentContext, version string) (entryResponse, error) {
 	if part == "warehouses" {
 		rows, err := employeeEntryWarehouses(ctx, warehouses, q.customer)
 		return entryResponse{"delivery_warehouses": rows}, err
 	}
-	form, err := reader.EmployeeEntryData(ctx, part, q.customer)
+	if part == "base" {
+		form, err := reader.EmployeeEntryData(ctx, part, q.customer)
+		if err != nil {
+			return nil, err
+		}
+		return entryResponse{"customers": employeeEntryCustomers(employee, form), "sources": form.Sources, "pay_statuses": form.PayStatuses, "ship_statuses": form.ShipStatuses, "order_types": form.OrderTypes}, nil
+	}
+	scope := fmt.Sprintf("catalog-source/%d/%s", q.customer, version)
+	source, err := cache.load(scope, func() (entryResponse, error) {
+		form, err := reader.EmployeeEntryData(ctx, part, q.customer)
+		return entryResponse{"form": form}, err
+	})
 	if err != nil {
 		return nil, err
 	}
-	if part == "base" {
-		return entryResponse{"customers": employeeEntryCustomers(employee, form), "sources": form.Sources, "pay_statuses": form.PayStatuses, "ship_statuses": form.ShipStatuses, "order_types": form.OrderTypes}, nil
-	}
+	form := source["form"].(salesapp.OrderFormData)
 	ids := q.selected
 	if len(ids) == 0 && len(q.preferred) > 0 {
 		ids = preferredCurrentOrderTables(salesapp.CurrentOrderPriceTableOptions(form.BeanListVersionOptions, q.customer), q.preferred)
 	}
-	resolved, err := salesapp.ResolveOrderCatalog(form, q.customer, ids, true)
+	resolved, err := salesapp.ResolveOrderCatalogTables(form.BeanListVersionOptions, q.customer, ids, true)
 	if err != nil {
 		return nil, echo.NewHTTPError(400, err.Error())
 	}
-	return entryResponse{"product_families": resolved.Catalog.Families, "product_bom_spec_options": resolved.Catalog.BOMSpecOptions, "selected_price_table_ids": resolved.SelectedPriceTableIDs, "price_table_options": resolved.PriceTableOptions, "catalog_updated": resolved.Updated}, nil
+	selection := entrySelection{customer: q.customer, selected: resolved.SelectedPriceTableIDs}
+	key := "catalog-rows/" + entryRevision(selection.key(part, employee), version)
+	rows, err := cache.load(key, func() (entryResponse, error) {
+		catalog := salesapp.BuildSelectedOrderCatalog(form, q.customer, resolved.SelectedTables)
+		return entryResponse{"product_families": catalog.Families, "product_bom_spec_options": catalog.BOMSpecOptions, "selected_price_table_ids": resolved.SelectedPriceTableIDs, "price_table_options": resolved.PriceTableOptions}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	payload := maps.Clone(rows)
+	payload["catalog_updated"] = resolved.Updated
+	return payload, nil
 }

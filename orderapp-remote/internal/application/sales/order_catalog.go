@@ -346,14 +346,27 @@ type ResolvedOrderCatalog struct {
 }
 
 func ResolveOrderCatalog(form OrderFormData, customerID int64, ids []int64, currentOnly bool) (ResolvedOrderCatalog, error) {
-	selected, err := ResolveOrderPriceTableSelection(form.BeanListVersionOptions, customerID, ids, currentOnly)
+	resolved, err := ResolveOrderCatalogTables(form.BeanListVersionOptions, customerID, ids, currentOnly)
+	if err == nil {
+		resolved.Catalog = BuildSelectedOrderCatalog(form, customerID, resolved.SelectedTables)
+	}
+	return resolved, err
+}
+
+func BuildSelectedOrderCatalog(form OrderFormData, customerID int64, tables []BeanListVersionOption) OrderCatalog {
+	form.BeanListVersionOptions = tables
+	return BuildOrderCatalog(OrderFormWithSelectedPublicPrices(form, customerID), customerID)
+}
+
+func ResolveOrderCatalogTables(available []BeanListVersionOption, customerID int64, ids []int64, currentOnly bool) (ResolvedOrderCatalog, error) {
+	selected, err := ResolveOrderPriceTableSelection(available, customerID, ids, currentOnly)
 	updated := false
 	if currentOnly && errors.Is(err, ErrOrderPriceTableUpdated) {
 		// Read refreshes may follow the same named table into its new release.
 		// Writes still use the strict resolver and must reject stale prices.
-		choices := CurrentOrderPriceTableOptions(form.BeanListVersionOptions, customerID)
+		choices := CurrentOrderPriceTableOptions(available, customerID)
 		byID := map[int64]BeanListVersionOption{}
-		for _, row := range orderCustomerAndPublicTables(form.BeanListVersionOptions, customerID) {
+		for _, row := range orderCustomerAndPublicTables(available, customerID) {
 			byID[row.ID] = row
 		}
 		rebased := []int64{}
@@ -381,18 +394,16 @@ func ResolveOrderCatalog(form OrderFormData, customerID int64, ids []int64, curr
 			}
 			rebased = append(rebased, match.ID)
 		}
-		selected, err = ResolveOrderPriceTableSelection(form.BeanListVersionOptions, customerID, rebased, true)
+		selected, err = ResolveOrderPriceTableSelection(available, customerID, rebased, true)
 		updated = err == nil
 	}
 	if err != nil {
 		return ResolvedOrderCatalog{}, err
 	}
-	options := CurrentOrderPriceTableOptions(form.BeanListVersionOptions, customerID)
-	form.BeanListVersionOptions = selected
-	form = OrderFormWithSelectedPublicPrices(form, customerID)
+	options := CurrentOrderPriceTableOptions(available, customerID)
 	selectedIDs := []int64{}
 	for _, table := range selected {
 		selectedIDs = append(selectedIDs, table.ID)
 	}
-	return ResolvedOrderCatalog{Catalog: BuildOrderCatalog(form, customerID), PriceTableOptions: options, SelectedTables: selected, SelectedPriceTableIDs: selectedIDs, Updated: updated}, nil
+	return ResolvedOrderCatalog{PriceTableOptions: options, SelectedTables: selected, SelectedPriceTableIDs: selectedIDs, Updated: updated}, nil
 }
