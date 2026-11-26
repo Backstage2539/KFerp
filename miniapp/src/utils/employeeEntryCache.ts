@@ -36,6 +36,10 @@ export function createEntrySessionCache() {
     pending.set(key, task)
     return task
   }
-  return { read, clear, remember }
+  function peek<T extends Versioned>(session: string, key: string): T | undefined {
+    if (!session || session !== owner) return undefined
+    return records.get(key) as T | undefined
+  }
+  return { read, clear, remember, peek }
 }
 export const employeeEntryCache = createEntrySessionCache()
