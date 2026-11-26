@@ -1,9 +1,13 @@
 ### PR-774-EMPLOYEE-CUSTOMER-CONTACT
 
+- 2026-11-26 已合入 main 并部署生产，运行提交 `1f5ada4cf65cd7d382efee3496eed41953de1331`。 生产后台创建接口逐项拒绝空白联系人、联系电话和联系地址。
+
 - 员工新增客户三项联系方式必填。负责人 Codex，验收人 Van；与 PR-771 共用分支 `codex/sf-return-batch-selection` 并发布开发环境。
 - DEV-PR774-VALIDATE、DEV-PR774-UI。已与 PR-771 合入 develop 并部署开发环境，运行版本 `0c70d178839b43b679064ea5c155defb601c438e`，待 Van 业务验收。开发接口逐项拦截空白，导出小程序包校验通过。见 `orderapp-remote/docs/acceptance/2026-11-25-employee-customer-contact.md`。
 
 ### PR-771-SHIPPING-RETURN-BATCH-SELECTION
+
+- 2026-11-26 已合入 main 并部署生产，运行提交 `1f5ada4cf65cd7d382efee3496eed41953de1331`。 生产批次 6 有 11 行，其中 8 行未匹配、2 行待选择、1 行跳过。
 - 分支 `codex/sf-return-batch-selection`，负责人 Codex。已与 PR-774 合入 develop 并部署开发环境，运行版本 `0c70d178839b43b679064ea5c155defb601c438e`，待 Van 业务验收。开发库当前无历史回传批次。同批两票、发货与扣库、跨页筛选已在隔离数据库与 Chrome 验证。发布与回滚记录见 `orderapp-remote/docs/acceptance/2026-11-25-shipping-return-batch.md`。
 - DEV-PR771-READ、DEV-PR771-CONFIRM、DEV-PR771-UI。
 

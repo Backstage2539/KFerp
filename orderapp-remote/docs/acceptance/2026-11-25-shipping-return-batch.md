@@ -28,3 +28,7 @@
 - 开发应用运行且重启数为 0，数据库健康。公网登录页 200，匿名订单接口 401。两个批次入口对无效 ID 返回 400，对不存在的批次返回 404。部署后读取开发库，未发现已上传批次。多票确认与扣库验证使用隔离数据。
 - 开发环境订单页资源、手册及 PR/DEV 表已核对。旧源码位于 `/opt/stacks/erp/orderapp.backup.deploy-20261125110222-0c70d178839b`，回滚镜像为 `kferp-orderapp-rollback:development-20261125110222-0c70d178839b`。
 - 业务验收人 Van。在「订单列表 → 顺丰发货」选择「顺丰寄件列表」并上传，展开「本次回传明细」后即可核对并按本批匹配订单筛选。
+
+## 生产验证
+
+2026-11-26 已合入 main 并部署生产，运行提交 `1f5ada4cf65cd7d382efee3496eed41953de1331`。生产批次 6 有 11 行，其中 8 行未匹配、2 行待选择、1 行跳过。第 6、7 行指向同一张候选订单，批次筛选返回 1 张订单。核查使用只读查询。数据库备份 `/opt/stacks/erp-production/backups/pre-sf774-20261126210049.dump` 已校验。源码回滚点为 `/opt/stacks/erp-production/orderapp.backup.deploy-20261126210347-1f5ada4cf65c`，回滚镜像为 `kferp-orderapp-rollback:production-20261126210347-1f5ada4cf65c`。
