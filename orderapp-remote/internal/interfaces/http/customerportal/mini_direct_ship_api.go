@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	salesapp "orderapp/internal/application/sales"
 	freightdomain "orderapp/internal/domain/freight"
 	"strconv"
 	"strings"
@@ -51,6 +52,17 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 		if _, err := requireMiniEmployee(c.Request().Context(), c.Request().Header.Get(echo.HeaderAuthorization), portal, "orders.write"); err != nil {
 			return miniEmployeeAuthError(c, err)
 		}
+		version := ""
+		if reader, ok := sales.(salesapp.EmployeeEntryReader); ok {
+			current, err := reader.EmployeeEntryRevision(c.Request().Context(), "freight-templates", 0)
+			if err != nil {
+				return miniInternalError(c)
+			}
+			version = entryRevision("freight-templates", current)
+			if c.QueryParam("known_revision") == version {
+				return c.JSON(200, entryResponse{"revision": version, "unchanged": true})
+			}
+		}
 		lister, ok := fulfillment.(interface {
 			ListShippingFeeTemplates(context.Context) ([]customerfulfillmentapp.ShippingFeeTemplate, error)
 		})
@@ -67,7 +79,7 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 				active = append(active, row)
 			}
 		}
-		return c.JSON(http.StatusOK, map[string]any{"templates": active})
+		return c.JSON(http.StatusOK, map[string]any{"templates": active, "revision": version})
 	})
 	e.POST("/api/mini/employee/shipping-destination/resolve", func(c echo.Context) error {
 		if _, err := requireMiniEmployee(c.Request().Context(), c.Request().Header.Get(echo.HeaderAuthorization), portal, "orders.write"); err != nil {
@@ -86,7 +98,10 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 		if err != nil {
 			return miniSessionError(c, err)
 		}
-		return c.JSON(200, map[string]any{"version": freightdomain.RegionVersion, "regions": freightdomain.Regions()})
+		if c.QueryParam("known_revision") == freightdomain.RegionVersion {
+			return c.JSON(200, entryResponse{"revision": freightdomain.RegionVersion, "unchanged": true})
+		}
+		return c.JSON(200, map[string]any{"revision": freightdomain.RegionVersion, "version": freightdomain.RegionVersion, "regions": freightdomain.Regions()})
 	})
 	e.POST("/api/mini/employee/freight-preview", func(c echo.Context) error {
 		_, err := requireMiniEmployee(c.Request().Context(), c.Request().Header.Get(echo.HeaderAuthorization), portal, "orders.write")

@@ -334,6 +334,7 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 	if len(services) > 0 {
 		deps = services[0]
 	}
+	registerEmployeeEntry(e, portal, sales, deps.EmployeeWarehouses)
 	customers := deps.CustomerMaintenance
 	orders := miniEmployeeOrderHandler{portal: portal, sales: sales}
 	e.GET("/api/mini/employee/orders/:id/copy-details", orders.copyDetails)
@@ -361,24 +362,7 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 				return c.JSON(http.StatusNotFound, map[string]string{"error": "客户不存在"})
 			}
 		}
-		customers := make([]map[string]any, 0, len(form.Customers))
-		for _, customer := range form.Customers {
-			canMaintain := containsMiniRole(employee.Permissions, "customers.read") &&
-				containsMiniRole(employee.Permissions, "customers.write") &&
-				(containsMiniRole(employee.Roles, "admin") || customer.ResponsibleEmployeeID == employee.EmployeeID)
-			customers = append(customers, map[string]any{
-				"id": customer.ID, "name": customer.Name, "customer_type": customer.CustomerType,
-				"py": catalogdomain.SearchPinyin(customer.Name), "pyi": catalogdomain.SearchInitials(customer.Name),
-				"default_source_id": customer.DefaultSourceID, "default_order_type_id": customer.DefaultOrderTypeID,
-				"receiver_name":             firstMiniOrderValue(customer.Contact, customer.Name),
-				"receiver_phone":            firstMiniOrderValue(customer.Phone, customer.CompanyPhone),
-				"receiver_address":          firstMiniOrderValue(customer.Address, customer.CompanyAddress),
-				"receiver_company":          firstMiniOrderValue(customer.CompanyName, customer.Name),
-				"responsible_employee_id":   customer.ResponsibleEmployeeID,
-				"responsible_employee_name": customer.ResponsibleEmployeeName,
-				"can_maintain":              canMaintain,
-			})
-		}
+		customers := employeeEntryCustomers(employee, form)
 		catalogUpdated := false
 		priceTableOptions := salesapp.CurrentOrderPriceTableOptions(form.BeanListVersionOptions, customerID)
 		selectedIDs, parseErr := miniSelectedPriceTableIDs(c.QueryParam("selected_price_table_ids"))
@@ -403,21 +387,9 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 			selectedIDs = resolved.SelectedPriceTableIDs
 			priceTableOptions = resolved.PriceTableOptions
 		}
-		warehouses := make([]map[string]string, 0)
-		if customerID > 0 && deps.EmployeeWarehouses != nil {
-			rows, err := deps.EmployeeWarehouses.ListWarehouses(c.Request().Context(), stockapp.WarehouseListQuery{CustomerID: customerID})
-			if err != nil {
-				return miniInternalError(c)
-			}
-			for _, row := range rows {
-				if !row.Active || row.CustomerID != customerID {
-					continue
-				}
-				switch row.Kind {
-				case "finished", "customer_finished", "customer_processing", "customer":
-					warehouses = append(warehouses, map[string]string{"code": row.Code, "name": row.Name})
-				}
-			}
+		warehouses, err := employeeEntryWarehouses(c.Request().Context(), deps.EmployeeWarehouses, customerID)
+		if err != nil {
+			return miniInternalError(c)
 		}
 		return c.JSON(http.StatusOK, map[string]any{
 			"delivery_warehouses": warehouses,
@@ -2356,4 +2328,46 @@ func miniSelectedPriceTableIDs(raw string) ([]int64, error) {
 		ids = append(ids, id)
 	}
 	return ids, nil
+}
+
+func employeeEntryCustomers(employee customerportalapp.CurrentContext, form salesapp.OrderFormData) []map[string]any {
+	customers := make([]map[string]any, 0, len(form.Customers))
+	for _, customer := range form.Customers {
+		canMaintain := containsMiniRole(employee.Permissions, "customers.read") &&
+			containsMiniRole(employee.Permissions, "customers.write") &&
+			(containsMiniRole(employee.Roles, "admin") || customer.ResponsibleEmployeeID == employee.EmployeeID)
+		customers = append(customers, map[string]any{
+			"id": customer.ID, "name": customer.Name, "customer_type": customer.CustomerType,
+			"py": catalogdomain.SearchPinyin(customer.Name), "pyi": catalogdomain.SearchInitials(customer.Name),
+			"default_source_id": customer.DefaultSourceID, "default_order_type_id": customer.DefaultOrderTypeID,
+			"receiver_name":             firstMiniOrderValue(customer.Contact, customer.Name),
+			"receiver_phone":            firstMiniOrderValue(customer.Phone, customer.CompanyPhone),
+			"receiver_address":          firstMiniOrderValue(customer.Address, customer.CompanyAddress),
+			"receiver_company":          firstMiniOrderValue(customer.CompanyName, customer.Name),
+			"responsible_employee_id":   customer.ResponsibleEmployeeID,
+			"responsible_employee_name": customer.ResponsibleEmployeeName,
+			"can_maintain":              canMaintain,
+		})
+	}
+	return customers
+}
+
+func employeeEntryWarehouses(ctx context.Context, reader EmployeeWarehouseReader, customerID int64) ([]map[string]string, error) {
+	warehouses := make([]map[string]string, 0)
+	if customerID > 0 && reader != nil {
+		rows, err := reader.ListWarehouses(ctx, stockapp.WarehouseListQuery{CustomerID: customerID})
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			if !row.Active || row.CustomerID != customerID {
+				continue
+			}
+			switch row.Kind {
+			case "finished", "customer_finished", "customer_processing", "customer":
+				warehouses = append(warehouses, map[string]string{"code": row.Code, "name": row.Name})
+			}
+		}
+	}
+	return warehouses, nil
 }

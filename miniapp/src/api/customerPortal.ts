@@ -1,3 +1,4 @@
+import { readEntryPart } from './employeeEntry'
 import type {FulfillmentProgress} from "../utils/orderProgress"
 import type { OrderWeightSnapshot } from '../utils/orderWeights'
 import type { RegistrationProfile } from './registration'
@@ -2467,8 +2468,8 @@ export function quoteEmployeeSpecConversion(token:string,data:SpecConversionQuot
 export function previewEmployeeFreight(token:string,payload:Record<string,unknown>):Promise<FreightSnapshot>{return miniRequest<FreightSnapshot>('/api/mini/employee/freight-preview',{token,method:'POST',data:payload})}
 
 export function resolveEmployeeShippingDestination(token:string,address:string){return miniRequest<{status:string;destination:import('../utils/orderFreight').FreightDestination;candidates:import('../utils/orderFreight').FreightDestination[]}>('/api/mini/employee/shipping-destination/resolve',{token,method:'POST',data:{address}})}
-export function fetchEmployeeFreightRegions(token:string){return miniRequest<{regions:import('../utils/orderFreight').FreightRegion[]}>('/api/mini/shipping-regions',{token})}
-export function fetchEmployeeFreightTemplates(token:string){return miniRequest<{templates:{id:number;name:string;active:boolean;revision:number;packaging_weight_g:number}[]}>('/api/mini/employee/freight-templates',{token})}
+export function fetchEmployeeFreightRegions(token:string){return readEntryPart<{revision:string;regions:import('../utils/orderFreight').FreightRegion[]}>(token,'/api/mini/shipping-regions')}
+export function fetchEmployeeFreightTemplates(token:string){return readEntryPart<{revision:string;templates:{id:number;name:string;active:boolean;revision:number;packaging_weight_g:number}[]}>(token,'/api/mini/employee/freight-templates')}
 
 export type IssuedBillLine = {
   id: number; description: string; charge_type: string; source_no?: string; amount_cents: number

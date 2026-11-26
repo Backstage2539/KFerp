@@ -74,6 +74,7 @@ func ensureAppSchema(ctx context.Context, pool *pgxpool.Pool, schema string) err
 			return postgresstock.EnsureVirtualWarehouseReferenceGuards(ctx, pool, schema)
 		}},
 		{Name: "order-external-notifications", Run: func(ctx context.Context) error { return postgresmessagecenter.EnsureExternalSchema(ctx, pool, schema) }},
+		{Name: "employee-entry-revisions", Run: func(ctx context.Context) error { return postgressales.EnsureEntryRevisions(ctx, pool, schema) }},
 		{Name: "serial-id-sequences", Run: func(ctx context.Context) error { return postgresinfra.SyncSerialIDSequences(ctx, pool, schema) }},
 	})
 }
