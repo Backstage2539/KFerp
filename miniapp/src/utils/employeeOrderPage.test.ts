@@ -141,15 +141,15 @@ describe('employee mini order entry page contract', () => {
     expect(pageSource).toContain('item?.qty == null ? 1 : Number(item.qty)')
     expect(pageSource).toContain('preserveEmployeeOrderDraftItemsForMissingCustomer(form.value.items)')
     const loadDraftSource = pageSource.slice(
-      pageSource.indexOf('async function loadDraft()'),
-      pageSource.indexOf('function applyDefaultOptions()'),
+      pageSource.indexOf('const [initial, draftResponse]'),
+      pageSource.indexOf('const data: EmployeeOrderForm = edit'),
     )
-    expect(loadDraftSource).toContain('await fetchEmployeeOrderDraft(session.token)')
+    expect(loadDraftSource).toContain('!isCopyMode.value ? fetchEmployeeOrderDraft(session.token)')
     expect(loadDraftSource).not.toContain('catch')
   })
 
   it('reloads the customer-scoped published catalog and disables product selection while it is loading', () => {
-    expect(pageSource).toContain('fetchEmployeeOrderForm(session.token, targetCustomerID, form.value.selected_price_table_ids || [])')
+    expect(pageSource).toContain('fetchEntryCatalog(session.token, targetCustomerID, form.value.selected_price_table_ids || [])')
     expect(pageSource).toContain('productCatalogLoading')
     expect(pageSource).toContain('async function chooseCustomer')
     expect(pageSource).toContain('await loadCustomerProductCatalog')
@@ -159,7 +159,7 @@ describe('employee mini order entry page contract', () => {
     expect(pageSource).toContain('saving || savingDraft || clearingDraft || loading || productCatalogLoading')
     const restoreDraftSource = pageSource.slice(
       pageSource.indexOf('async function restoreDraft'),
-      pageSource.indexOf('async function loadDraft'),
+      pageSource.indexOf('function applyDefaultOptions'),
     )
     expect(restoreDraftSource).toContain('await loadCustomerProductCatalog')
     expect(restoreDraftSource).toContain('preserveManualPrice: true')
@@ -171,7 +171,7 @@ describe('employee mini order entry page contract', () => {
       pageSource.indexOf('async function openProductSelector'),
       pageSource.indexOf('function closeProductSelector'),
     )
-    expect(openProductSource).toContain('await refreshCurrentProductCatalog()')
+    expect(openProductSource.indexOf('productSelectorOpen.value = true')).toBeLessThan(openProductSource.indexOf('void checkPickerCatalog()'))
   })
 
   it('reuses the entry page for pre-production editing without touching the create-order draft', () => {
@@ -183,7 +183,7 @@ describe('employee mini order entry page contract', () => {
     expect(pageSource).toContain('updateEmployeeOrder(session.token, editOrderID.value')
     expect(pageSource).toContain('v-if="!isEditMode"')
     expect(pageSource).toContain('{{ isEditMode ? \'保存修改\' : \'提交订单\' }}')
-    expect(pageSource).toContain('if (!isEditMode.value && !isCopyMode.value) await loadDraft()')
+    expect(pageSource).toContain('if (draftResponse?.draft) await restoreDraft(draftResponse.draft)')
     expect(pageSource).toContain('if (isEditMode.value) return')
     expect(pageSource).toContain('v-model="form.freight_state"')
     expect(pageSource).toContain('<EmployeeFreightEstimate')
@@ -236,7 +236,7 @@ describe('employee mini order entry page contract', () => {
     expect(pageSource).toContain('copyEmployeeOrderItems')
     expect(pageSource).toContain('employeeOrderCopyPayload')
     expect(pageSource).toContain('复制录单成功')
-    expect(pageSource).toContain('if (!isEditMode.value && !isCopyMode.value) await loadDraft()')
+    expect(pageSource).toContain('if (draftResponse?.draft) await restoreDraft(draftResponse.draft)')
   })
 
   it('keeps the server edit revision in edit state and sends it only with PUT updates', () => {

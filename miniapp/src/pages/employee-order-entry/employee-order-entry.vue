@@ -23,7 +23,7 @@ import {
   fetchEmployeeCustomers,
   fetchEmployeeOrderDraft,
   fetchEmployeeOrderDetail,
-  fetchEmployeeOrderForm,
+
   saveEmployeeOrderDraft,
   updateEmployeeOrder,
   type EmployeeCustomer,
@@ -75,6 +75,7 @@ import {
 } from '../../utils/employeeOrder'
 import { useSessionStore } from '../../stores/session'
 
+import { fetchEntryBase, fetchEntryCatalog, fetchEntryWarehouses } from '../../api/employeeEntry'
 import { takeOrderForEditor } from '../../utils/employeeOrderHandoff'
 
 const session = useSessionStore()
@@ -118,6 +119,10 @@ const canCreateCustomer = computed(() => session.permissions.includes('customers
   && session.permissions.includes('customers.write'))
 let customerEditorIntentSequence = 0
 let customerContextLoadPromise: Promise<boolean> | undefined
+let catalogRevision = ''
+let pickerRevision = ''
+let pickerCheck: Promise<boolean> | undefined
+let pickerIntent = 0
 let productCatalogLoadSequence = 0
 let recipientRevision = 0
 let employeeOrderPageHasShown = false
@@ -378,19 +383,24 @@ function closeCustomerSelector() {
   customerSelectorOpen.value = false
 }
 
-async function loadCustomerProductCatalog(targetCustomerID: number): Promise<boolean> {
+async function loadCustomerProductCatalog(targetCustomerID: number, loadWarehouses = true): Promise<boolean> {
   if (!recipientAllowed.value) return false
   const sequence = ++productCatalogLoadSequence
   productCatalogLoading.value = true
   try {
-    const data = await fetchEmployeeOrderForm(session.token, targetCustomerID, form.value.selected_price_table_ids || [])
+    const [data, warehouses] = await Promise.all([
+      fetchEntryCatalog(session.token, targetCustomerID, form.value.selected_price_table_ids || []),
+      loadWarehouses ? fetchEntryWarehouses(session.token, targetCustomerID) : undefined,
+    ])
     if (sequence !== productCatalogLoadSequence || Number(form.value.customer_id) !== targetCustomerID) return false
     if (!formData.value) return false
+    catalogRevision = data.selected_revision || data.revision
     form.value.selected_price_table_ids = data.selected_price_table_ids || []
     if (data.catalog_updated) uni.showToast({ title: '价格表已更新，请核对商品和价格', icon: 'none' })
     formData.value = {
       ...formData.value,
       ...data,
+      delivery_warehouses: warehouses?.delivery_warehouses || formData.value.delivery_warehouses,
       customers: data.customers || formData.value.customers || [],
       sources: data.sources || formData.value.sources || [],
       order_types: data.order_types || formData.value.order_types || [],
@@ -401,7 +411,16 @@ async function loadCustomerProductCatalog(targetCustomerID: number): Promise<boo
     return true
   } catch (cause) {
     if (sequence !== productCatalogLoadSequence || Number(form.value.customer_id) !== targetCustomerID) return false
-    if (formData.value) formData.value.product_families = []
+    if (cause instanceof MiniRequestError && cause.statusCode === 400 && form.value.selected_price_table_ids?.length && /价格表/.test(cause.message)) {
+      form.value.selected_price_table_ids = []
+      return await loadCustomerProductCatalog(targetCustomerID, loadWarehouses)
+    }
+    if (cause instanceof MiniRequestError && [401,403,404].includes(cause.statusCode)) {
+      catalogRevision = ''
+      if (formData.value) formData.value.product_families = []
+      closeProductSelector()
+      if (cause.statusCode === 401) session.clearSession()
+    }
     uni.showToast({ title: cause instanceof Error ? cause.message : '客户可售商品加载失败', icon: 'none' })
     return false
   } finally {
@@ -416,6 +435,8 @@ function selectedNamedPriceTable(group: PriceTableGroup) {
 async function changeNamedPriceTable(group: PriceTableGroup, event: { detail: { value: string | number } }) {
   const table = group.options[Number(event.detail.value)]
   if (!table || productCatalogLoading.value) return
+  catalogRevision = ''
+  if (formData.value) formData.value.product_families = []
   form.value.selected_price_table_ids = replaceSelectedPriceTable(form.value.selected_price_table_ids || [], group, table.id)
   const loaded = await loadCustomerProductCatalog(Number(form.value.customer_id))
   if (!loaded) return
@@ -429,6 +450,9 @@ async function chooseCustomer(customer: EmployeeOrderCustomer) {
   const customerChanged = Number(form.value.customer_id || 0) !== Number(customer.id)
   form.value.customer_id = Number(customer.id)
   if (customerChanged) {
+    catalogRevision = ''
+    closeProductSelector()
+    if (formData.value) formData.value.product_families = []
     form.value.payment_voucher_asset_id = undefined
     form.value.payment_goods_amount = undefined
     form.value.payment_shipping_amount = undefined
@@ -456,14 +480,16 @@ async function chooseCustomer(customer: EmployeeOrderCustomer) {
   }
 }
 
-async function refreshCurrentProductCatalog(): Promise<boolean> {
+async function refreshCurrentProductCatalog(loadWarehouses = true): Promise<boolean> {
   if (pendingEditCatalog.value) {
     await openEditCatalog()
     return !pendingEditCatalog.value
   }
   const customerID = Number(form.value.customer_id || 0)
   if (customerID <= 0) return false
-  const loaded = await loadCustomerProductCatalog(customerID)
+  const previous = catalogRevision
+  const loaded = await loadCustomerProductCatalog(customerID, loadWarehouses)
+  if (!loaded || previous === catalogRevision) return loaded
   if (Number(form.value.customer_id || 0) !== customerID) return false
   form.value.items = revalidateEmployeeOrderItems(
     form.value.items,
@@ -583,14 +609,29 @@ async function openProductSelector(itemKey: string) {
     uni.showToast({ title: '请先选择客户', icon: 'none' })
     return
   }
-  if (productCatalogLoading.value || loading.value || !formData.value) return
-  if (!await refreshCurrentProductCatalog()) return
+  if (loading.value || !formData.value) return
+  const intent = ++pickerIntent
+  if (!catalogRevision && !await refreshCurrentProductCatalog(false)) return
+  if (intent !== pickerIntent) return
   if (!form.value.items.some((item) => item.key === itemKey)) return
   editingItemKey.value = itemKey
+  pickerRevision = catalogRevision
   productSelectorOpen.value = true
+  void checkPickerCatalog()
+}
+
+function checkPickerCatalog(): Promise<boolean> {
+  if (pickerCheck) return pickerCheck
+  const task = refreshCurrentProductCatalog(false).finally(() => {
+    if (pickerCheck === task) pickerCheck = undefined
+  })
+  pickerCheck = task
+  return task
 }
 
 function closeProductSelector() {
+  ++pickerIntent
+  pickerCheck = undefined
   productSelectorOpen.value = false
   editingItemKey.value = ''
 }
@@ -633,20 +674,38 @@ function quantityBlurred(item: EmployeeOrderDraftItem) {
   Object.assign(item, result.item)
 }
 
-function chooseProduct(family: EmployeeOrderProductFamily) {
-  const spec = defaultProductSpec(family)
+async function chooseProduct(family: EmployeeOrderProductFamily) {
+  const observed = pickerRevision
+  const intent = pickerIntent
+  const verified = await checkPickerCatalog()
+  if (intent !== pickerIntent || !productSelectorOpen.value || !recipientAllowed.value) return
+  if (!verified) return
+  const current = formData.value?.product_families.find(row => employeeOrderProductFamilyKey(row) === employeeOrderProductFamilyKey(family))
+  if (observed !== catalogRevision || !current) {
+    pickerRevision = catalogRevision
+    uni.showToast({title: '商品配置已更新，请核对后重新选择', icon: 'none'})
+    return
+  }
+  const spec = defaultProductSpec(current)
   if (!spec) {
     uni.showToast({ title: '该商品暂无可选规格', icon: 'none' })
     return
   }
-  applySpec(family, spec)
+  applySpec(current, spec)
   closeProductSelector()
 }
 
-function chooseSpec(item: EmployeeOrderDraftItem, event: { detail?: { value?: number | string } }) {
+async function chooseSpec(item: EmployeeOrderDraftItem, event: { detail?: { value?: number | string } }) {
   const family = familyForItem(item)
   const spec = family?.specs[Number(event.detail?.value || 0)]
-  if (family && spec) applySpec(family, spec, item)
+  if (!family || !spec) return
+  const revision = catalogRevision
+  if (!await refreshCurrentProductCatalog(false)) return
+  if (revision !== catalogRevision) {
+    uni.showToast({title: '规格已更新，请核对后重新选择', icon: 'none'})
+    return
+  }
+  if (form.value.items.includes(item)) applySpec(family, spec, item)
 }
 
 function goToLogin() {
@@ -666,6 +725,7 @@ function normalizeDraftItems(items: EmployeeOrderDraftItem[] | undefined): Emplo
 }
 
 async function restoreDraft(draft: EmployeeOrderDraft) {
+  const revision = recipientRevision
   const payload = draft.payload || ({} as EmployeeOrderDraftPayload)
   const customer = formData.value?.customers.find((row) => Number(row.id) === Number(payload.customer_id || 0))
   form.value = {
@@ -674,9 +734,14 @@ async function restoreDraft(draft: EmployeeOrderDraft) {
     customer_id: customer ? Number(payload.customer_id) : 0,
     items: normalizeDraftItems(payload.items),
   }
+  draftRecord.value = draft
   if (customer) {
     shippingBaseline.value = customerShippingDefaults(customer)
-    await loadCustomerProductCatalog(Number(customer.id))
+    // The draft snapshot can be edited while its catalog is being verified.
+    loading.value = false
+    const loaded = await loadCustomerProductCatalog(Number(customer.id))
+    if (revision !== recipientRevision || Number(form.value.customer_id) !== Number(customer.id)) return
+    if (!loaded) return
     form.value.items = revalidateEmployeeOrderItems(
       form.value.items,
       formData.value?.product_families || [],
@@ -687,16 +752,20 @@ async function restoreDraft(draft: EmployeeOrderDraft) {
     shippingBaseline.value = emptyShippingSnapshot()
     form.value.items = preserveEmployeeOrderDraftItemsForMissingCustomer(form.value.items)
   }
-  draftRecord.value = draft
 }
 
-async function loadDraft() {
-  if (!recipientAllowed.value) return
-  if (isEditMode.value) return
+async function loadEntryForCustomer(customerID: number, preferred: number[]) {
   const revision = recipientRevision
-  const response = await fetchEmployeeOrderDraft(session.token)
-  if (revision !== recipientRevision) return
-  if (response.draft) await restoreDraft(response.draft)
+  const [base, catalog, warehouses] = await Promise.all([
+    fetchEntryBase(session.token),
+    customerID ? fetchEntryCatalog(session.token, customerID, [], preferred) : undefined,
+    customerID ? fetchEntryWarehouses(session.token, customerID) : undefined,
+  ])
+  if (revision !== recipientRevision) throw new Error('录单授权已变化')
+  catalogRevision = catalog?.selected_revision || catalog?.revision || ''
+  return { ...base, ...catalog, ...warehouses, customers:[...(base.customers || [])],
+    sources:base.sources || [], order_types:base.order_types || [], pay_statuses:base.pay_statuses || [],
+    ship_statuses:base.ship_statuses || [], today:shanghaiToday(), product_families:catalog?.product_families || [] }
 }
 
 function applyDefaultOptions() {
@@ -714,10 +783,12 @@ function storedPriceTables(detail?: EmployeeOrderDetail): number[] {
 async function openEditCatalog() {
   const detail = pendingEditCatalog.value
   if (!detail || productCatalogLoading.value || saving.value) return
+  const revision = recipientRevision
   productCatalogLoading.value = true
   try {
     const customerID = Number(detail.customer_id)
-    const catalog = await fetchEmployeeOrderForm(session.token, customerID, [], storedPriceTables(detail))
+    const catalog = await loadEntryForCustomer(customerID, storedPriceTables(detail))
+    if (revision !== recipientRevision) return
     const families = catalog.product_families || []
     const retail = /零售|retail/i.test(detail.order_type || '')
     form.value.items = hydrateEmployeeOrderEditItems(detail.items, families, customerID, retail, editingSampleOrder.value)
@@ -727,7 +798,7 @@ async function openEditCatalog() {
   } catch (cause) {
     uni.showToast({ title: cause instanceof Error ? cause.message : '商品目录加载失败，请重试', icon: 'none' })
   } finally {
-    productCatalogLoading.value = false
+    if (revision === recipientRevision) productCatalogLoading.value = false
   }
 }
 
@@ -757,6 +828,10 @@ async function loadForm() {
     const targetCustomerID = Number(detailResponse?.order.customer_id || 0)
     const edit = isEditMode.value ? detailResponse?.order : undefined
     pendingEditCatalog.value = edit
+    const [initial, draftResponse] = edit ? [undefined, undefined] : await Promise.all([
+      loadEntryForCustomer(targetCustomerID, storedPriceTables(detailResponse?.order)),
+      !isCopyMode.value ? fetchEmployeeOrderDraft(session.token) : undefined,
+    ])
     const data: EmployeeOrderForm = edit ? {
       today: shanghaiToday(),
       customers: [{ id: targetCustomerID, name: edit.customer || '', receiver_name: edit.receiver_name, receiver_phone: edit.receiver_phone, receiver_company: edit.receiver_company, receiver_address: edit.receiver_address }],
@@ -765,7 +840,7 @@ async function loadForm() {
       pay_statuses: detailResponse?.status_options?.pay_statuses || [],
       ship_statuses: detailResponse?.status_options?.ship_statuses || [],
       product_families: [],
-    } : await fetchEmployeeOrderForm(session.token, targetCustomerID, [], storedPriceTables(detailResponse?.order))
+    } : initial!
     if (revision !== recipientRevision) return
     formData.value = {
       ...data,
@@ -838,7 +913,7 @@ async function loadForm() {
       applyDefaultOptions()
     }
     form.value.selected_price_table_ids = data.selected_price_table_ids || []
-    if (!isEditMode.value && !isCopyMode.value) await loadDraft()
+    if (draftResponse?.draft) await restoreDraft(draftResponse.draft)
   } catch (cause) {
     if (revision !== recipientRevision) return
     authExpired.value = !session.token || isAuthenticationExpiredRequestError(cause)
@@ -1072,9 +1147,11 @@ async function submit() {
   }
 }
 
-watch(() => recipientAllowed.value ? consentScope(session) : '', (allowed) => {
+watch(() => recipientAllowed.value ? consentScope(session) + session.token : '', (allowed) => {
   recipientRevision++
   productCatalogLoadSequence++
+  catalogRevision = ''
+  closeProductSelector()
   customerEditorIntentSequence++
   customerContextLoadPromise = undefined
   formData.value = undefined
@@ -1128,7 +1205,7 @@ onShow(() => { void refreshMiniappShareMenu() })
       </view>
 
       <view v-if="loading" class="status-card">
-        <text>{{ isEditMode ? '正在加载原订单…' : isCopyMode ? '正在加载订单和当前可售商品…' : '正在加载客户和商品…' }}</text>
+        <text>{{ isEditMode ? '正在加载原订单…' : isCopyMode ? '正在加载订单和当前可售商品…' : '正在加载客户和草稿…' }}</text>
       </view>
       <view v-else-if="loadError" class="status-card error-card">
         <text>{{ loadError }}</text>

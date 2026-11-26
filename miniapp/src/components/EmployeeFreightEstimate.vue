@@ -25,7 +25,28 @@ watch([()=>props.customerId,()=>JSON.stringify(props.items),()=>props.orderId,()
 watch(()=>JSON.stringify(props.items),next=>{if(next!==lastItems){lastItems=next;if(state.value.parcelWeightG)update({parcelWeightG:''})}})
 watch(()=>props.customerId,(next,previous)=>{if(previous>0&&next!==previous){addressSequence++;update(emptyFreightState());addressTask=resolveAddress()}})
 watch(()=>props.address,()=>addressTask=resolveAddress(),{immediate:true})
-onMounted(async()=>{try{const r=await fetchEmployeeFreightRegions(props.token);if(alive)regions.value=r.regions||[]}catch(e){if(alive)error.value=e instanceof Error?e.message:'地区加载失败'}try{const r=await fetchEmployeeFreightTemplates(props.token);if(alive)templates.value=(r.templates||[]).filter(t=>t.active)}catch(e){if(alive)error.value=e instanceof Error?e.message:'运费模板读取失败'}if(props.customerId&&props.items.length)invalidate()})
+async function loadRegions() {
+  try {
+    const data = await fetchEmployeeFreightRegions(props.token)
+    if (alive) regions.value = data.regions || []
+  } catch (cause) {
+    if (alive) error.value = cause instanceof Error ? cause.message : '地区加载失败'
+  }
+}
+async function toggleRegionSearch() {
+  searchOpen.value = !searchOpen.value
+  if (searchOpen.value) await loadRegions()
+}
+onMounted(async () => {
+  if (props.locked) return
+  try {
+    const data = await fetchEmployeeFreightTemplates(props.token)
+    if (alive) templates.value = (data.templates || []).filter(template => template.active)
+  } catch (cause) {
+    if (alive) error.value = cause instanceof Error ? cause.message : '运费模板读取失败'
+  }
+  if (alive && props.customerId && props.items.length) invalidate()
+})
 onBeforeUnmount(()=>{alive=false;sequence++;addressSequence++;if(timer)clearTimeout(timer)})
 defineExpose({preview,payload})
 </script>
@@ -33,7 +54,7 @@ defineExpose({preview,payload})
  <view class="estimate-card"><text class="title">运费</text>
  <text v-if="locked" class="hint">运费已出账或已确认实际费用，收费规则已锁定。</text>
  <template v-else>
-  <view class="field" @tap="searchOpen=!searchOpen">{{regionLabel||'选择收件省市区'}} ›</view>
+  <view class="field" @tap="toggleRegionSearch">{{regionLabel||'选择收件省市区'}} ›</view>
   <view v-if="searchOpen"><input v-model="query" class="field" placeholder="搜索省市区，如孟连县" /><scroll-view scroll-y class="region-options"><view v-for="r in matches" :key="r.code" class="region-row" @tap="selectRegion(r.code)">{{r.path||r.name}}</view><text v-if="!matches.length" class="hint">没有符合条件的地区</text></scroll-view></view>
   <text class="label">本单运费模板</text><picker mode="selector" :range="templateNames" :value="templateIndex" @change="selectTemplate"><view class="field">{{templateNames[templateIndex]||'读取运费模板中'}} ›</view></picker>
   <text class="label">本单运费（元，留空自动）</text><input :value="state.manual" :disabled="!!state.free" type="digit" class="field" placeholder="留空自动" @input="inputAmount" />

@@ -6802,3 +6802,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier: 单元、API、分页数据库、小程序构建与真机性能
 - Manual: orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md
 - Deployment: 待验证
+
+### PR-775-MINI-ENTRY-CACHE
+- Branch: codex/mini-entry-cache
+- DEV-PR775-READ / DEV-PR775-MINI：录单基础资料与客户目录按配置版本复用，开发者工具验收。
