@@ -73,3 +73,29 @@ func TestEmployeeEntryConditionalReads(t *testing.T) {
 		t.Fatal("changed revision did not refresh")
 	}
 }
+
+func TestEmployeeEntryRecipientRevisionIsScopedToLogin(t *testing.T) {
+	e := echo.New()
+	reader := &entryCacheFixture{revision: "one"}
+	registerMiniEmployeeAPI(e, employeePortalService(), reader)
+	read := func(session, revision string) map[string]any {
+		t.Helper()
+		req := httptest.NewRequest("GET", "/api/mini/employee/order-entry/base?known_revision="+url.QueryEscape(revision), nil)
+		req.Header.Set("Authorization", "Bearer "+session)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		var result map[string]any
+		if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &result) != nil {
+			t.Fatalf("base response status %d", rec.Code)
+		}
+		return result
+	}
+	original := read("first-login", "")["revision"].(string)
+	if read("first-login", original)["unchanged"] != true || reader.reads != 1 {
+		t.Fatal("current session did not reuse its recipient data")
+	}
+	next := read("second-login", original)
+	if next["customers"] == nil || next["revision"] == original || reader.reads != 2 {
+		t.Fatal("a new login reused the prior session's recipient data")
+	}
+}

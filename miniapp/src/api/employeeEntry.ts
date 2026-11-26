@@ -26,6 +26,9 @@ function catalogPath(customer: number, selected: number[], preferred: number[]) 
   const key = selected.length ? 'selected_price_table_ids' : 'preferred_price_table_ids'
   return root + 'catalog?customer_id=' + customer + (ids.length ? '&' + key + '=' + ids.join(',') : '')
 }
+export function peekEntryCatalog(token: string, customer: number, selected: number[] = []) {
+  return employeeEntryCache.peek<EntryFields>(token, catalogPath(customer, selected, []))
+}
 export async function fetchEntryCatalog(token: string, customer: number, selected: number[] = [], preferred: number[] = []) {
   const path = catalogPath(customer, selected, preferred)
   const result = await readEntryPart<EntryFields>(token, path)
