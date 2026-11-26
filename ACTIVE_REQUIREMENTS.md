@@ -6804,5 +6804,5 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: 待验证
 
 ### PR-775-MINI-ENTRY-CACHE
-- Branch: codex/mini-entry-cache
-- DEV-PR775-READ / DEV-PR775-MINI：录单基础资料与客户目录按配置版本复用，开发者工具验收。
+- 开发 PR #341、#343、#345。生产 PR #342、#344、#346。开发已部署 `ed65d4a6`。
+- DEV-PR775-READ / DEV-PR775-MINI：录单基础资料与客户目录按配置版本复用。开发者工具每场景 20 次，选品 P95 达标，首屏 P95 超标。详见 [PR-775 验收记录](orderapp-remote/docs/acceptance/2026-11-26-mini-entry-cache.md)。
