@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
 import EmployeeFreightEstimate from '../../components/EmployeeFreightEstimate.vue'
 import {emptyFreightState,freightStateFromOrder} from '../../utils/orderFreight'
 import type {FreightSnapshot} from '../../api/customerPortal'
@@ -77,6 +77,9 @@ import { useSessionStore } from '../../stores/session'
 
 import { fetchEntryBase, fetchEntryCatalog, fetchEntryWarehouses, peekEntryCatalog } from '../../api/employeeEntry'
 import { takeOrderForEditor } from '../../utils/employeeOrderHandoff'
+import { takeHomeOrderEntry, type HomeOrderBase } from '../../utils/homeOrderHandoff'
+
+type HomeSelection = NonNullable<ReturnType<typeof takeHomeOrderEntry>>['selection']
 
 const session = useSessionStore()
 const recipientAllowed = computed(() => hasRecipientConsent(session))
@@ -126,6 +129,9 @@ let selectingCustomerCatalog: Promise<boolean> | undefined
 let pickerIntent = 0
 let productCatalogLoadSequence = 0
 let recipientRevision = 0
+let routeLoaded = false
+let homeEntryID = ''
+let formLoadingRevision: number | undefined
 let employeeOrderPageHasShown = false
 
 function emptyShippingSnapshot(): EmployeeOrderShippingSnapshot {
@@ -386,14 +392,16 @@ function closeCustomerSelector() {
   customerSelectorOpen.value = false
 }
 
-async function loadCustomerProductCatalog(targetCustomerID: number, loadWarehouses = true): Promise<boolean> {
+async function loadCustomerProductCatalog(
+  targetCustomerID: number, loadWarehouses = true, selection?: HomeSelection,
+): Promise<boolean> {
   if (!recipientAllowed.value) return false
   const sequence = ++productCatalogLoadSequence
   productCatalogLoading.value = true
   try {
     const [data, warehouses] = await Promise.all([
-      fetchEntryCatalog(session.token, targetCustomerID, form.value.selected_price_table_ids || []),
-      loadWarehouses ? fetchEntryWarehouses(session.token, targetCustomerID) : undefined,
+      selection?.catalog ?? fetchEntryCatalog(session.token, targetCustomerID, form.value.selected_price_table_ids || []),
+      selection?.warehouses ?? (loadWarehouses ? fetchEntryWarehouses(session.token, targetCustomerID) : undefined),
     ])
     if (sequence !== productCatalogLoadSequence || Number(form.value.customer_id) !== targetCustomerID) return false
     if (!formData.value) return false
@@ -452,8 +460,9 @@ async function changeNamedPriceTable(group: PriceTableGroup, event: { detail: { 
   quantityInputs.value = {}
 }
 
-async function chooseCustomer(customer: EmployeeOrderCustomer) {
+async function chooseCustomer(customer: EmployeeOrderCustomer, selection?: HomeSelection) {
   if (isEditMode.value || loading.value || !formData.value) return
+  const revision = recipientRevision
   const selectedBefore = form.value.items.filter((item) => item.product_id > 0).length
   const customerChanged = Number(form.value.customer_id || 0) !== Number(customer.id)
   form.value.customer_id = Number(customer.id)
@@ -474,11 +483,12 @@ async function chooseCustomer(customer: EmployeeOrderCustomer) {
   if (Number(customer.default_source_id || 0) > 0) form.value.source_id = Number(customer.default_source_id)
   if (Number(customer.default_order_type_id || 0) > 0) form.value.order_type_id = Number(customer.default_order_type_id)
   closeCustomerSelector()
-  const customerCatalog = loadCustomerProductCatalog(Number(customer.id))
+  const customerCatalog = loadCustomerProductCatalog(Number(customer.id), true, selection)
   selectingCustomerCatalog = customerCatalog
   const catalogLoaded = await customerCatalog
-  if (selectingCustomerCatalog === customerCatalog) selectingCustomerCatalog = undefined
-  if (Number(form.value.customer_id) !== Number(customer.id)) return
+  if (selectingCustomerCatalog !== customerCatalog) return
+  selectingCustomerCatalog = undefined
+  if (revision !== recipientRevision || Number(form.value.customer_id) !== Number(customer.id)) return
   form.value.items = revalidateEmployeeOrderItems(
     form.value.items,
     formData.value?.product_families || [],
@@ -516,13 +526,14 @@ async function ensureCustomerContext(): Promise<boolean> {
   if (customerContext.value) return true
   if (!customerContextLoadPromise) {
     customerContextLoadPromise = (async () => {
+      const revision = recipientRevision
       try {
-        const revision = recipientRevision
         const data = await fetchEmployeeCustomers(session.token)
         if (revision !== recipientRevision) return false
         customerContext.value = data
         return true
       } catch (cause) {
+        if (revision !== recipientRevision) return false
         uni.showToast({ title: cause instanceof Error ? cause.message : '客户维护数据加载失败', icon: 'none' })
         return false
       }
@@ -537,9 +548,10 @@ async function ensureCustomerContext(): Promise<boolean> {
 }
 
 async function openCustomerCreate() {
+  if (!canCreateCustomer.value) return
   const intentSequence = ++customerEditorIntentSequence
   if (!await ensureCustomerContext()) return
-  if (intentSequence !== customerEditorIntentSequence) return
+  if (intentSequence !== customerEditorIntentSequence || !canCreateCustomer.value) return
   editingCustomerMode.value = 'create'
   editingCustomerID.value = 0
   customerSelectorOpen.value = false
@@ -742,7 +754,7 @@ function normalizeDraftItems(items: EmployeeOrderDraftItem[] | undefined): Emplo
   }))
 }
 
-async function restoreDraft(draft: EmployeeOrderDraft) {
+async function restoreDraft(draft: EmployeeOrderDraft, selection?: HomeSelection) {
   const revision = recipientRevision
   const payload = draft.payload || ({} as EmployeeOrderDraftPayload)
   const customer = formData.value?.customers.find((row) => Number(row.id) === Number(payload.customer_id || 0))
@@ -757,7 +769,7 @@ async function restoreDraft(draft: EmployeeOrderDraft) {
     shippingBaseline.value = customerShippingDefaults(customer)
     // The draft snapshot can be edited while its catalog is being verified.
     loading.value = false
-    const loaded = await loadCustomerProductCatalog(Number(customer.id))
+    const loaded = await loadCustomerProductCatalog(Number(customer.id), true, selection)
     if (revision !== recipientRevision || Number(form.value.customer_id) !== Number(customer.id)) return
     if (!loaded) return
     form.value.items = revalidateEmployeeOrderItems(
@@ -772,10 +784,10 @@ async function restoreDraft(draft: EmployeeOrderDraft) {
   }
 }
 
-async function loadEntryForCustomer(customerID: number, preferred: number[]) {
+async function loadEntryForCustomer(customerID: number, preferred: number[], homeBase?: HomeOrderBase) {
   const revision = recipientRevision
   const [base, catalog, warehouses] = await Promise.all([
-    fetchEntryBase(session.token),
+    homeBase ?? fetchEntryBase(session.token),
     customerID ? fetchEntryCatalog(session.token, customerID, [], preferred) : undefined,
     customerID ? fetchEntryWarehouses(session.token, customerID) : undefined,
   ])
@@ -821,8 +833,9 @@ async function openEditCatalog() {
 }
 
 async function loadForm() {
-  if (!recipientAllowed.value) return
+  if (!recipientAllowed.value || formLoadingRevision === recipientRevision) return
   const revision = recipientRevision
+  formLoadingRevision = revision
   editingSampleOrder.value = false
   prepaymentRate.value = 0
   loading.value = true
@@ -832,6 +845,12 @@ async function loadForm() {
   preservedRoundToInt.value = false
   try {
     if (!session.token) throw new Error('登录已失效')
+    const candidate = homeEntryID ? takeHomeOrderEntry(homeEntryID, session.token, consentScope(session)) : undefined
+    homeEntryID = ''
+    const homeIntent = candidate?.intent
+    const homeCustomer = homeIntent?.kind === 'customer'
+      ? candidate?.base.customers?.find(row => Number(row.id) === homeIntent.customerId) : undefined
+    const home = homeIntent?.kind === 'customer' && !homeCustomer ? undefined : candidate
     const handoff = isEditMode.value ? takeOrderForEditor(session.token, editOrderID.value) : undefined
     const detailResponse = handoff ?? (isEditMode.value || isCopyMode.value
       ? await fetchEmployeeOrderDetail(session.token, isEditMode.value ? editOrderID.value : copyOrderID.value)
@@ -847,8 +866,8 @@ async function loadForm() {
     const edit = isEditMode.value ? detailResponse?.order : undefined
     pendingEditCatalog.value = edit
     const [initial, draftResponse] = edit ? [undefined, undefined] : await Promise.all([
-      loadEntryForCustomer(targetCustomerID, storedPriceTables(detailResponse?.order)),
-      !isCopyMode.value ? fetchEmployeeOrderDraft(session.token) : undefined,
+      loadEntryForCustomer(targetCustomerID, storedPriceTables(detailResponse?.order), home?.base),
+      !home && !isCopyMode.value ? fetchEmployeeOrderDraft(session.token) : undefined,
     ])
     const data: EmployeeOrderForm = edit ? {
       today: shanghaiToday(),
@@ -932,6 +951,15 @@ async function loadForm() {
     }
     form.value.selected_price_table_ids = data.selected_price_table_ids || []
     if (draftResponse?.draft) await restoreDraft(draftResponse.draft)
+    if (home?.intent.kind === 'draft') await restoreDraft(home.intent.draft, home.selection)
+    if (homeCustomer) {
+      loading.value = false
+      await chooseCustomer(homeCustomer, home?.selection)
+    }
+    if (home?.intent.kind === 'create') {
+      loading.value = false
+      await openCustomerCreate()
+    }
   } catch (cause) {
     if (revision !== recipientRevision) return
     authExpired.value = !session.token || isAuthenticationExpiredRequestError(cause)
@@ -942,7 +970,10 @@ async function loadForm() {
       ? '登录已失效，请重新登录'
       : (cause instanceof Error ? cause.message : '录单数据加载失败')
   } finally {
-    if (revision === recipientRevision) loading.value = false
+    if (revision === recipientRevision) {
+      loading.value = false
+      formLoadingRevision = undefined
+    }
   }
 }
 
@@ -1168,6 +1199,7 @@ async function submit() {
 
 watch(() => recipientAllowed.value ? consentScope(session) + session.token : '', (allowed) => {
   recipientRevision++
+  homeEntryID = ''
   productCatalogLoadSequence++
   selectingCustomerCatalog = undefined
   catalogRevision = ''
@@ -1183,14 +1215,29 @@ watch(() => recipientAllowed.value ? consentScope(session) + session.token : '',
   draftRecord.value = null
   productCatalogLoading.value = false
   pendingEditCatalog.value = undefined
-  if (allowed) void loadForm()
+  orderFreight.value = undefined
+  shippingBaseline.value = emptyShippingSnapshot()
+  quantityInputs.value = {}
+  loading.value = false
+  if (allowed && routeLoaded) void loadForm()
 }, { flush: 'sync' })
 
+onScopeDispose(() => {
+  recipientRevision++
+  productCatalogLoadSequence++
+  customerEditorIntentSequence++
+})
+
 onLoad((options) => {
+  if (routeLoaded) return
+  routeLoaded = true
   editOrderID.value = Number(options?.edit_id || 0)
   copyOrderID.value = Number(options?.copy_id || 0)
   if (isEditMode.value) uni.setNavigationBarTitle({ title: '编辑销售订单' })
   else if (isCopyMode.value) uni.setNavigationBarTitle({ title: '复制销售订单' })
+  else if (recipientAllowed.value && session.accountType === 'employee' && !session.isCustomerPreview) {
+    homeEntryID = String(options?.home_entry || '')
+  }
   void loadForm()
 })
 
@@ -1499,6 +1546,7 @@ onShow(() => { void refreshMiniappShareMenu() })
     </view>
 
     <ProductFamilyPickerSheet
+      v-if="form.customer_id"
       :key="form.customer_id"
       :keep-mounted="true"
       :visible="productSelectorOpen"
@@ -1510,6 +1558,7 @@ onShow(() => { void refreshMiniappShareMenu() })
     />
 
     <EmployeeCustomerEditor
+      v-if="customerContext"
       :visible="customerEditorOpen"
       :token="session.token"
       :customer-id="editingCustomerID"
