@@ -1664,3 +1664,7 @@
 
 ### PR-775-MINI-ENTRY-CACHE
 - [ ] 首屏不加载全商品，同版本重复选品不下载完整目录，变价后重新确认；开发者工具记录冷、热各 20 次。
+
+### PR-776-MINI-HOME-ORDER-SEARCH
+
+核对首页真实键入、匹配项可选、选客到可选商品、重复选品及完整目录请求数，同时验证草稿、授权、重试与一次性交接。逐项证据见 [开发及真机验收记录](orderapp-remote/docs/acceptance/2026-11-28-mini-home-order-search.md)。

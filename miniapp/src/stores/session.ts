@@ -1,3 +1,4 @@
+import { clearHomeOrderEntry } from '../utils/homeOrderHandoff'
 import { employeeEntryCache } from '../utils/employeeEntryCache'
 import { currentLoginConsent, loginAccount, loginPolicyVersion, type LoginConsent } from '../utils/loginConsent'
 import type { RegistrationProfile } from '../api/registration'
@@ -63,7 +64,10 @@ export const useSessionStore = defineStore('session', {
       this.applyContext(response)
     },
     setToken(token: string, accepted?: LoginConsent) {
-      if (token !== this.token) employeeEntryCache.clear()
+      if (token !== this.token) {
+        employeeEntryCache.clear()
+        clearHomeOrderEntry()
+      }
       const consent = accepted ?? this.consent
       uni.setStorageSync(miniappTokenStorageKey(), { token, consent })
       this.consent = consent
@@ -78,6 +82,7 @@ export const useSessionStore = defineStore('session', {
         throw new Error('无法进入客户只读预览')
       }
       employeeEntryCache.clear()
+      clearHomeOrderEntry()
       this.previewEmployeeToken = this.token
       this.token = token
       markPreviewToken(token)
@@ -101,6 +106,7 @@ export const useSessionStore = defineStore('session', {
     },
     clearSession(preserveRegistrationHint = false) {
       employeeEntryCache.clear()
+      clearHomeOrderEntry()
       if (this.previewEmployeeToken) {
         this.endCustomerPreview()
         return
