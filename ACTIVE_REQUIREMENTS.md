@@ -6806,3 +6806,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-775-MINI-ENTRY-CACHE
 - 开发 PR #341、#343、#345。生产 PR #342、#344、#346。开发已部署 `ed65d4a6`。
 - DEV-PR775-READ / DEV-PR775-MINI：录单基础资料与客户目录按配置版本复用。开发者工具每场景 20 次，选品 P95 达标，首屏 P95 超标。详见 [PR-775 验收记录](orderapp-remote/docs/acceptance/2026-11-26-mini-entry-cache.md)。
+
+### PR-776-MINI-HOME-ORDER-SEARCH
+- Branch: codex/mini-home-order-search
+- DEV-PR776-HOME / DEV-PR776-HANDOFF：员工首页搜索客户、续填草稿及一次性交接。
+- 验证：小程序单测、接口、类型、微信构建、开发环境及前台真机新旧包计时。
+- 状态：开发实现通过小程序 603 项测试、类型检查、微信构建及 Go/API 回归。真机通过后安排正式发布。验收人 Van。

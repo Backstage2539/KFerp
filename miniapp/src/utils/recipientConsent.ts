@@ -1,3 +1,4 @@
+import { clearHomeOrderEntry } from './homeOrderHandoff'
 import { employeeEntryCache } from './employeeEntryCache'
 import { reactive } from 'vue'
 import { miniappStorageKey } from '../config/environment'
@@ -48,6 +49,7 @@ export function revokeRecipientConsent(session: ConsentSession): void {
   const key = consentScope(session)
   if (!key) return
   employeeEntryCache.clear()
+  clearHomeOrderEntry()
   uni.removeStorageSync(key)
   permissions.set(key, false)
 }
