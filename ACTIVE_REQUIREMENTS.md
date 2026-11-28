@@ -6811,4 +6811,4 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Branch: codex/mini-home-order-search
 - DEV-PR776-HOME / DEV-PR776-HANDOFF：员工首页搜索客户、续填草稿及一次性交接。
 - 验证：小程序单测、接口、类型、微信构建、开发环境及前台真机新旧包计时。
-- 状态：开发实现通过小程序 603 项测试、类型检查、微信构建及 Go/API 回归。真机通过后安排正式发布。验收人 Van。
+- 状态：PR #347 已合并并部署 development，提交 e43e1c099。小程序 603 项测试、类型检查、微信构建及 Go/API 回归通过，开发环境已核对需求记录和包清单。2026-11-28 Van 确认改在正式环境完成业务及真机验收。验收人 Van。
