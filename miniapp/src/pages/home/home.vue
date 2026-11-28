@@ -16,7 +16,9 @@ import {
 } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
+import RecipientConsent from '../../components/RecipientConsent.vue'
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
+import { employeeOrderEntryPath, useHomeOrderEntry } from '../../composables/useHomeOrderEntry'
 import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import { useSessionStore } from '../../stores/session'
 import { visibleHomeEntries } from '../../utils/capabilities'
@@ -24,6 +26,10 @@ import { previewSafeEntries } from '../../utils/customerPreview'
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 
 const session = useSessionStore()
+const {
+  stage: orderStage, customers: orderCustomers, canCreate: canCreateOrderCustomer, query: orderQuery,
+  error: orderError, open: openOrder, dismiss: closeOrder, load: loadOrder, navigate: continueOrder,
+} = useHomeOrderEntry()
 const {
   pullUpBrandRevealed,
   handlePullUpBrandTouchStart,
@@ -48,7 +54,7 @@ const employeeEntries = [
   { key: 'priceCenter', label: '价格表中心', url: '/pages/bean-list-center/bean-list-center' },
   { key: 'sampleRequests', label: '样品工单', url: '/pages/sample-requests/sample-requests' },
   { key: 'staffNotifications', label: '员工通知', url: '/pages/employee-notifications/employee-notifications' },
-  { key: 'employeeOrderEntry', label: '录单', url: '/pages/employee-order-entry/employee-order-entry' },
+  { key: 'employeeOrderEntry', label: '录单', url: employeeOrderEntryPath },
   { key: 'employeeOrders', label: '查看订单', url: '/pages/employee-orders/employee-orders' },
   { key: 'employeeCustomers', label: '客户维护', url: '/pages/employee-customers/employee-customers' },
   { key: 'customerPreview', label: '客户只读预览', url: '/pages/admin-customer-preview/admin-customer-preview' },
@@ -65,7 +71,8 @@ const themeClass = computed(() => miniappThemeClass(session.themeKey))
 const themeMeta = computed(() => miniappThemeMeta(session.themeKey))
 
 function openEntry(url: string) {
-  uni.navigateTo({ url })
+  if (url === employeeOrderEntryPath && session.accountType === 'employee') openOrder()
+  else uni.navigateTo({ url })
 }
 
 async function loadContext() {
@@ -179,10 +186,52 @@ onShow(() => { void refreshMiniappShareMenu() })
       />
     </view>
     <MainTabBar v-if="session.accountType !== 'employee'" current="home" />
+    <view v-if="orderStage !== 'closed'" class="order-overlay" @tap.self="closeOrder">
+      <view class="order-sheet" @tap.stop>
+        <RecipientConsent v-if="orderStage === 'consent'" employee-entry @accepted="loadOrder" @declined="closeOrder" />
+        <template v-else>
+          <view class="sheet-head">
+            <text class="sheet-title">选择客户</text>
+            <view class="sheet-actions">
+              <text v-if="orderStage === 'ready' && canCreateOrderCustomer" class="sheet-action" @tap="continueOrder({kind:'create'})">新增客户</text>
+              <text v-if="orderStage !== 'opening'" class="sheet-action" @tap="closeOrder">关闭</text>
+            </view>
+          </view>
+          <input v-model="orderQuery" class="search-input" focus confirm-type="search"
+            placeholder="搜索客户名称 / 拼音 / 首字母" />
+          <scroll-view scroll-y class="option-list">
+            <text v-if="orderStage === 'loading'" class="order-state">正在读取可选客户和草稿…</text>
+            <text v-else-if="orderStage === 'opening'" class="order-state">正在打开录单…</text>
+            <view v-else-if="orderStage === 'error'" class="order-state">
+              <text>{{ orderError }}</text><button class="retry-action" @tap="loadOrder">重试</button>
+            </view>
+            <template v-else>
+              <view v-for="customer in orderCustomers" :key="customer.id" class="option-row"
+                @tap="continueOrder({kind:'customer', customerId:customer.id})">{{ customer.name }}</view>
+              <text v-if="!orderCustomers.length" class="order-state">没有找到客户</text>
+            </template>
+          </scroll-view>
+          <text v-if="orderStage === 'ready'" class="result-hint">最多显示 20 条，请输入更多关键词缩小范围</text>
+        </template>
+      </view>
+    </view>
   </view>
 </template>
 
 <style scoped>
+.order-overlay { position: fixed; inset: 0; z-index: 100; display: flex; align-items: flex-end; background: rgba(16, 28, 22, .48); }
+.order-sheet { width: 100%; max-height: 78vh; overflow-y: auto; padding: 28rpx 28rpx calc(24rpx + env(safe-area-inset-bottom)); box-sizing: border-box; border-radius: 24rpx 24rpx 0 0; background: #fff; }
+.sheet-head, .sheet-actions { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; }
+.sheet-head { margin-bottom: 20rpx; }
+.sheet-title { color: #1e362a; font-size: 32rpx; font-weight: 800; }
+.sheet-action { padding: 12rpx; color: #28624a; font-size: 26rpx; }
+.search-input { width: 100%; min-height: 78rpx; padding: 0 22rpx; box-sizing: border-box; border: 2rpx solid #b8ccc0; border-radius: 12rpx; background: #f9fbfa; }
+.option-list { height: 42vh; margin-top: 14rpx; }
+.option-row { padding: 18rpx 8rpx; border-bottom: 1rpx solid #e3eae6; color: #172c22; font-size: 29rpx; font-weight: 700; }
+.order-state, .result-hint { display: block; color: #67756d; text-align: center; }
+.order-state { padding: 50rpx 16rpx; }
+.result-hint { padding-top: 14rpx; font-size: 22rpx; }
+.retry-action { margin-top: 16rpx; }
 .overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16rpx; margin-bottom: 24rpx; }
 .overview-card { display: flex; flex-direction: column; gap: 8rpx; padding: 24rpx; border: 1rpx solid #e7e2d9; border-radius: 16rpx; background: #fff; color: #333; font-size: 25rpx; }
 .overview-card strong { font-size: 38rpx; }

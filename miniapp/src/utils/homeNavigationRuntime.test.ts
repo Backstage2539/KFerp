@@ -13,16 +13,19 @@ import MainTabBar from '../components/MainTabBar.vue'
 import EnvironmentBadge from '../components/EnvironmentBadge.vue'
 import PullUpBrandFooter from '../components/PullUpBrandFooter.vue'
 import RegistrationProfile from '../components/RegistrationProfile.vue'
+import RecipientConsent from '../components/RecipientConsent.vue'
+import { acceptRecipientConsent, revokeRecipientConsent } from './recipientConsent'
 import { useSessionStore } from '../stores/session'
 
-const lifecycle = vi.hoisted(() => ({ show: [] as Array<() => unknown> }))
+const lifecycle = vi.hoisted(() => ({ show: [] as Array<() => unknown>, hide: [] as Array<() => unknown> }))
 const api = vi.hoisted(() => ({
   me: vi.fn(), account: vi.fn(), assets: vi.fn(), service: vi.fn(), processing: vi.fn(),
   staff: vi.fn(), switchCustomer: vi.fn(), employeeShare: vi.fn(), bills: vi.fn(), previewExit: vi.fn(), employeeLogout: vi.fn(),
+  base: vi.fn(), draft: vi.fn(), pass: vi.fn(), cancel: vi.fn(),
 }))
 vi.mock('@dcloudio/uni-app', () => ({
   onShow: (callback: () => unknown) => { lifecycle.show.push(callback) },
-  onHide: vi.fn(), onShareAppMessage: vi.fn(), onShareTimeline: vi.fn(),
+  onHide: (callback: () => unknown) => { lifecycle.hide.push(callback) }, onShareAppMessage: vi.fn(), onShareTimeline: vi.fn(),
 }))
 vi.mock('../api/customerPortal', () => ({
   fetchMe: api.me, fetchCustomerAccount: api.account, fetchCustomerAssetInventory: api.assets,
@@ -30,9 +33,12 @@ vi.mock('../api/customerPortal', () => ({
   fetchCustomerIssuedBills: api.bills,
   switchCurrentCustomer: api.switchCustomer, fetchEmployeeShareSettings: api.employeeShare,
   logoutEmployee: api.employeeLogout,
+  fetchEmployeeOrderDraft: api.draft,
   saveEmployeeShareSettings: vi.fn(), saveEmployeeShareScope: vi.fn(),
 }))
 vi.mock('../api/samples', () => ({ fetchStaffNotifications: api.staff }))
+vi.mock('../api/employeeEntry', () => ({ fetchEntryBase: api.base }))
+vi.mock('./homeOrderHandoff', () => ({ passHomeOrderEntry: api.pass, cancelHomeOrderEntry: api.cancel, clearHomeOrderEntry: vi.fn() }))
 vi.mock('../api/customerPreview', () => ({ exitPreview: api.previewExit }))
 vi.mock('../utils/registrationSession', () => ({ restoreRegistrationSession: vi.fn(async () => {}) }))
 vi.mock('../utils/miniappShare', () => ({
@@ -76,6 +82,7 @@ for (const [component, path] of [
   [GuestHome, '../components/GuestHome.vue'], [MainTabBar, '../components/MainTabBar.vue'],
   [EnvironmentBadge, '../components/EnvironmentBadge.vue'], [PullUpBrandFooter, '../components/PullUpBrandFooter.vue'],
   [RegistrationProfile, '../components/RegistrationProfile.vue'],
+  [RecipientConsent, '../components/RecipientConsent.vue'],
 ] as Array<[any, string]>) clientRender(component, path)
 
 function text(node: Node): string { return (node.type === '#comment' ? '' : node.text || '') + node.children.map(text).join('') }
@@ -101,6 +108,7 @@ function mount(component: any, value = context(), signedIn = true) {
 beforeEach(() => {
   vi.resetAllMocks()
   lifecycle.show = []
+  lifecycle.hide = []
   vi.stubEnv('VITE_KFERP_ENVIRONMENT', 'production')
   vi.stubEnv('VITE_KFERP_API_BASE', 'https://erp.qacoohee.com/app')
   vi.stubGlobal('Document', class Document {})
@@ -187,6 +195,121 @@ it('composed guest startup has one price-table tab and retains service guides, c
     const login = find(view.root, node => node.type === 'button' && text(node) === '登录，查看我的业务')[0]
     await login.props.onTap()
     expect(uni.navigateTo).toHaveBeenCalledWith({ url: '/pages/login/login' })
+  } finally { view.app.unmount() }
+})
+
+let employeeID = 91000
+const customerBase = { revision: 'r1', customers: [
+  { id: 41, name: '上海咖啡', py: 'shanghai', pyi: 'sh' }, { id: 42, name: '昆明咖啡', py: 'kunming', pyi: 'km' },
+] }
+function pending<T>() {
+  let resolve!: (value: T) => void
+  const result = new Promise<T>(done => { resolve = done })
+  return { result, resolve }
+}
+async function staffOrderHome(granted = true, permissions = ['customers.read', 'customers.write']) {
+  const view = mount(Home, context({ mini_user_id: ++employeeID, account_type: 'employee', current_customer_id: 0, employee_id: employeeID, roles: [], permissions }))
+  await view.show()
+  if (granted) acceptRecipientConsent(view.session)
+  const elements = (cls: string) => find(view.root, n => hasClass(n, cls))
+  const click = async (label: string) => {
+    const target = find(view.root, n => ['text', 'view', 'button'].includes(n.type) && n.props.onTap && text(n) === label)[0]
+    expect(target, label).toBeTruthy()
+    target.props.onTap()
+    await settle()
+  }
+  api.pass.mockReturnValue('handoff-1')
+  return { ...view, elements, click }
+}
+
+it('opens an editable customer search on the first employee tap, gates selection on the fresh draft and navigates once', async () => {
+  const view = await staffOrderHome()
+  const base = pending<typeof customerBase>(), draft = pending<{ draft: null }>()
+  api.base.mockReturnValue(base.result); api.draft.mockReturnValue(draft.result)
+  try {
+    await view.click('录单')
+    const input = view.elements('search-input')[0]
+    expect(input).toBeTruthy()
+    input.props['onUpdate:modelValue']('km')
+    expect(api.base).toHaveBeenCalledWith('isolated-session')
+    expect(api.draft).toHaveBeenCalledWith('isolated-session')
+    expect(uni.navigateTo).not.toHaveBeenCalled()
+    base.resolve(customerBase); await settle()
+    expect(view.elements('option-row')).toHaveLength(0)
+    draft.resolve({ draft: null }); await settle()
+    expect(labels(view.root, 'option-row')).toEqual(['昆明咖啡'])
+    const row = view.elements('option-row')[0]
+    row.props.onTap(); row.props.onTap(); await settle()
+    expect(api.pass).toHaveBeenCalledWith('isolated-session', expect.any(String), customerBase, { kind: 'customer', customerId: 42 })
+    expect(uni.navigateTo).toHaveBeenCalledTimes(1)
+    const backdrop = view.elements('order-overlay')[0]
+    backdrop.props.onTap({ target: backdrop, currentTarget: backdrop })
+    for (const hide of lifecycle.hide) hide()
+    await settle(); expect(api.cancel).not.toHaveBeenCalled()
+    const navigation = vi.mocked(uni.navigateTo).mock.calls[0][0]!
+    expect(navigation.url).toBe('/pages/employee-order-entry/employee-order-entry?home_entry=handoff-1')
+    navigation.success!({ errMsg: 'navigateTo:ok' } as never); await settle()
+    expect(view.elements('search-input')).toHaveLength(0)
+    expect(api.cancel).not.toHaveBeenCalled()
+  } finally { view.app.unmount() }
+})
+
+it('gives an existing server draft priority and discards cancelled or revoked responses', async () => {
+  const view = await staffOrderHome()
+  const old = pending<{draft: unknown}>(), current = pending<{draft: unknown}>()
+  const draft = { id: 7, payload: { customer_id: 41 } }
+  api.base.mockResolvedValue(customerBase)
+  api.draft.mockReturnValueOnce(old.result).mockReturnValueOnce(current.result).mockResolvedValue({ draft })
+  try {
+    await view.click('录单'); await view.click('关闭'); await view.click('录单')
+    old.resolve({draft}); await settle()
+    expect(uni.navigateTo).not.toHaveBeenCalled()
+    revokeRecipientConsent(view.session)
+    current.resolve({ draft }); await settle()
+    expect(view.elements('search-input')).toHaveLength(0)
+    expect(uni.navigateTo).not.toHaveBeenCalled()
+    acceptRecipientConsent(view.session); await view.click('录单')
+    expect(api.pass).toHaveBeenCalledTimes(1)
+    expect(api.pass).toHaveBeenCalledWith('isolated-session', expect.any(String), customerBase, { kind: 'draft', draft })
+  } finally { view.app.unmount() }
+})
+
+it('asks for recipient consent in place, fetches only after acceptance and retries a failed navigation', async () => {
+  const view = await staffOrderHome(false)
+  api.base.mockResolvedValue(customerBase); api.draft.mockResolvedValue({draft:null})
+  try {
+    await view.click('录单')
+    expect(text(view.root)).toContain('代客户维护档案或录单前')
+    expect(api.base).not.toHaveBeenCalled(); expect(api.draft).not.toHaveBeenCalled()
+    await view.click('暂不同意')
+    expect(uni.navigateTo).not.toHaveBeenCalled()
+    expect(view.elements('search-input')).toHaveLength(0)
+    await view.click('录单'); await view.click('同意并继续')
+    await view.click('新增客户')
+    expect(api.pass).toHaveBeenCalledWith('isolated-session', expect.any(String), customerBase, { kind: 'create' })
+    vi.mocked(uni.navigateTo).mock.calls[0][0]!.fail!({ errMsg:'navigateTo:fail' } as never); await settle()
+    expect(api.cancel).toHaveBeenCalledWith('handoff-1')
+    expect(view.elements('search-input')).toHaveLength(1)
+    api.pass.mockReturnValue('handoff-2')
+    await view.click('重试')
+    expect(vi.mocked(uni.navigateTo).mock.calls[1][0]!.url).toContain('home_entry=handoff-2')
+  } finally { view.app.unmount() }
+})
+
+it('invalidates pending reads on an employee change, and restricts customer creation to authorized staff', async () => {
+  const view = await staffOrderHome(true, [])
+  const old = pending<{draft:unknown}>()
+  api.base.mockResolvedValue(customerBase); api.draft.mockReturnValueOnce(old.result).mockResolvedValue({draft:null})
+  try {
+    await view.click('录单'); view.session.setToken('new-login')
+    old.resolve({draft:{id:1}}); await settle()
+    expect(api.pass).not.toHaveBeenCalled()
+    expect(view.elements('search-input')).toHaveLength(0)
+    await view.click('录单')
+    expect(labels(view.root, 'option-row')).toHaveLength(2)
+    expect(text(view.root)).not.toContain('新增客户')
+    for (const hide of lifecycle.hide) hide()
+    await settle(); expect(view.elements('search-input')).toHaveLength(0)
   } finally { view.app.unmount() }
 })
 
